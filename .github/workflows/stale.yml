@@ -15,7 +15,7 @@ jobs:
 
     steps:
       - name: Mark and close stale issues
-        uses: actions/stale@v9
+        uses: actions/stale@v10
         with:
           # Issues
           stale-issue-message: |
