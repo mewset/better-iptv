@@ -38,5 +38,5 @@ lazy_static = "1.4"
 backoff = { version = "0.4", features = ["tokio"] }
 wait-timeout = "0.2"
 argon2 = "0.5"  # PIN hashing for parental controls
-rand = "0.8"    # Salt generation for PIN hashing
+rand = "0.9"    # Salt generation for PIN hashing
 
