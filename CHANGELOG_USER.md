@@ -4,6 +4,16 @@ A simple overview of new features and improvements.
 
 ---
 
+## Unreleased
+
+### Improvements
+
+**Smoother Scrolling on Slower Hardware**
+- Scrolling through large channel lists (50,000+ channels) should feel significantly smoother, especially on older computers with integrated graphics
+- Reduced unnecessary work when scrolling - the app now skips re-drawing cards that haven't changed
+
+---
+
 ## Version 2.6.1 (March 10, 2026)
 
 ### Improvements

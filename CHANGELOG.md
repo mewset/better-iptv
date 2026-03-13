@@ -3,6 +3,19 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## [Unreleased]
+
+### Performance
+
+- **Scroll Performance** - Eliminate GPU paint thrashing and reduce unnecessary re-renders
+  - Remove `transition-shadow` from ChannelCard: stops GPU from rasterizing shadow blur every frame during scroll (biggest single improvement for weak hardware like Intel HD 620)
+  - Increase virtualizer overscan from 3 to 5: pre-renders more rows to reduce DOM churn at scroll boundaries
+  - Stabilize `handlePlayChannel` callback: read parental control state via `getState()` at call time instead of reactive dependencies, reducing dependency array from 6 to 1 so `ChannelCard` `memo()` properly skips re-renders during scroll
+
+### Tests
+
+- Add `ChannelCard.memo.test.ts` documenting Zustand store action reference stability
+
 ## [2.6.1] - 2026-03-10
 
 ### Fixed

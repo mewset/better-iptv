@@ -156,21 +156,29 @@ export default function MainScreen() {
     count: rowCount,
     getScrollElement: () => parentRef.current,
     estimateSize: () => estimatedRowHeight,
-    overscan: 3, // Render 3 extra rows above/below viewport
+    overscan: 5, // Pre-render 5 rows above/below for smoother scroll on large lists
   });
 
   const handlePlayChannel = useCallback(
     async (channel: Channel) => {
-      // Check parental controls
+      // Read parental state at call time (not render time) for callback stability
+      const {
+        parentalEnabled: enabled,
+        parentalAutoDetect: autoDetect,
+        blockedChannelIds: blockedIds,
+        blockedCategories: blockedCats,
+        parentalUnlocked: unlocked,
+      } = usePlayerStore.getState();
+
       const isBlocked = shouldBlockChannel(channel, {
-        enabled: parentalEnabled,
-        autoDetect: parentalAutoDetect,
-        blockedIds: blockedChannelIds,
-        blockedCategories: blockedCategories,
-        unlocked: parentalUnlocked,
+        enabled,
+        autoDetect,
+        blockedIds,
+        blockedCategories: blockedCats,
+        unlocked,
       });
 
-      if (isBlocked && parentalEnabled && !parentalUnlocked) {
+      if (isBlocked) {
         setPendingChannel(channel);
         setShowPinModal(true);
         return;
@@ -181,14 +189,7 @@ export default function MainScreen() {
         setSelectedSeries(result.channel);
       }
     },
-    [
-      parentalEnabled,
-      parentalAutoDetect,
-      blockedChannelIds,
-      blockedCategories,
-      parentalUnlocked,
-      playChannelAction,
-    ]
+    [playChannelAction]
   );
 
   const handlePlayEpisode = useCallback(

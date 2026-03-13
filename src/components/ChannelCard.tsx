@@ -49,7 +49,7 @@ export const ChannelCard = memo(function ChannelCard({
 
   return (
     <div
-      className="relative flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
+      className="relative flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
       style={{ height: `${cardHeight}px` }}
     >
       {/* Logo/Image section */}
