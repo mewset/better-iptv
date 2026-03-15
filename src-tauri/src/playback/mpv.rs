@@ -84,10 +84,16 @@ pub struct MpvPlayer {
 }
 
 /// MPV playback options
-struct MpvPlaybackOptions<'a> {
-    title: Option<&'a str>,
-    audio_lang: Option<&'a str>,
-    subtitle_lang: Option<&'a str>,
+pub struct MpvPlaybackOptions<'a> {
+    pub title: Option<&'a str>,
+    pub audio_lang: Option<&'a str>,
+    pub subtitle_lang: Option<&'a str>,
+    pub hwdec: bool,
+    pub video_output: Option<&'a str>,
+    pub deinterlace: Option<&'a str>,
+    pub start_fullscreen: bool,
+    pub cache_secs: Option<u32>,
+    pub start_volume: Option<u32>,
 }
 
 impl MpvPlayer {
@@ -104,32 +110,65 @@ impl MpvPlayer {
             .is_ok()
     }
 
-    /// Apply default MPV arguments for high-quality playback
-    fn apply_default_args(cmd: &mut Command) {
-        cmd.arg("--hwdec=auto")
-            .arg("--vo=gpu-next")
-            .arg("--profile=high-quality")
-            .arg("--msg-level=all=error")
-            .arg("--cache=yes")
-            .arg("--cache-secs=30")
-            .arg("--demuxer-max-bytes=100M");
-    }
+    /// Apply MPV arguments from playback options
+    fn apply_args(cmd: &mut Command, options: &MpvPlaybackOptions) {
+        // Hardware acceleration
+        if options.hwdec {
+            cmd.arg("--hwdec=auto");
+        } else {
+            cmd.arg("--hwdec=no");
+        }
 
-    /// Apply playback options (title, audio/subtitle language)
-    fn apply_playback_options(cmd: &mut Command, options: &MpvPlaybackOptions) {
-        // Add title if provided
+        // Video output
+        let vo = options.video_output.unwrap_or("gpu-next");
+        cmd.arg(format!("--vo={}", vo));
+
+        // Only use high-quality profile with GPU renderers
+        if vo == "gpu-next" || vo == "gpu" {
+            cmd.arg("--profile=high-quality");
+        }
+
+        // Deinterlacing
+        if let Some(deinterlace) = options.deinterlace {
+            match deinterlace {
+                "yes" => { cmd.arg("--deinterlace=yes"); }
+                "no" => { cmd.arg("--deinterlace=no"); }
+                _ => { cmd.arg("--deinterlace=auto"); }
+            }
+        }
+
+        // Fullscreen
+        if options.start_fullscreen {
+            cmd.arg("--fullscreen");
+        }
+
+        // Volume
+        if let Some(vol) = options.start_volume {
+            cmd.arg(format!("--volume={}", vol.min(100)));
+        }
+
+        // Cache
+        let cache_secs = options.cache_secs.unwrap_or(30);
+        cmd.arg("--cache=yes")
+            .arg(format!("--cache-secs={}", cache_secs))
+            .arg("--demuxer-max-bytes=100M");
+
+        // Logging
+        cmd.arg("--msg-level=all=error");
+
+        // Title
         if let Some(title_str) = options.title {
             cmd.arg(format!("--title={}", title_str));
         }
 
-        // Add audio language preference if provided
+        // Audio language preference
         if let Some(lang) = options.audio_lang {
             if !lang.is_empty() {
                 cmd.arg(format!("--alang={}", lang));
             }
         }
 
-        // Add subtitle language preference if provided
+        // Subtitle language preference
         if let Some(lang) = options.subtitle_lang {
             if !lang.is_empty() {
                 cmd.arg(format!("--slang={}", lang));
@@ -158,20 +197,8 @@ impl MpvPlayer {
         Ok(())
     }
 
-    /// Play a stream URL with optional title
-    #[allow(dead_code)] // Convenience method for future use
-    pub fn play(&mut self, url: &str) -> Result<()> {
-        self.play_with_title(url, None, None, None)
-    }
-
-    /// Play a stream URL with a specific title and language preferences
-    pub fn play_with_title(
-        &mut self,
-        url: &str,
-        title: Option<&str>,
-        audio_lang: Option<&str>,
-        subtitle_lang: Option<&str>,
-    ) -> Result<()> {
+    /// Play a stream URL with playback options
+    pub fn play_stream(&mut self, url: &str, options: &MpvPlaybackOptions) -> Result<()> {
         // Validate URL before passing to MPV
         validate_stream_url(url).context("Stream URL validation failed")?;
 
@@ -180,14 +207,7 @@ impl MpvPlayer {
 
         // Build MPV command
         let mut cmd = Command::new(get_mpv_path());
-        Self::apply_default_args(&mut cmd);
-        Self::apply_playback_options(&mut cmd, &MpvPlaybackOptions {
-            title,
-            audio_lang,
-            subtitle_lang,
-        });
-
-        // Add URL
+        Self::apply_args(&mut cmd, options);
         cmd.arg(url);
 
         // Log and spawn
@@ -196,13 +216,7 @@ impl MpvPlayer {
     }
 
     /// Play a playlist of URLs (for series episodes)
-    pub fn play_with_playlist(
-        &mut self,
-        urls: &[String],
-        title: Option<&str>,
-        audio_lang: Option<&str>,
-        subtitle_lang: Option<&str>,
-    ) -> Result<()> {
+    pub fn play_playlist(&mut self, urls: &[String], options: &MpvPlaybackOptions) -> Result<()> {
         if urls.is_empty() {
             return Err(anyhow::anyhow!("Cannot play empty playlist"));
         }
@@ -218,12 +232,7 @@ impl MpvPlayer {
 
         // Build MPV command
         let mut cmd = Command::new(get_mpv_path());
-        Self::apply_default_args(&mut cmd);
-        Self::apply_playback_options(&mut cmd, &MpvPlaybackOptions {
-            title,
-            audio_lang,
-            subtitle_lang,
-        });
+        Self::apply_args(&mut cmd, options);
 
         // Add all URLs as arguments (MPV will play them in sequence)
         for url in urls {

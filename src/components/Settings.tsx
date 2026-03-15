@@ -22,6 +22,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
 import {
   GeneralTab,
   PlaybackTab,
+  EpgTab,
   ParentalTab,
   AboutTab,
   LANGUAGE_OPTIONS,
@@ -29,6 +30,8 @@ import {
   type Theme,
   type LanguageCode,
   type UserAgentMode,
+  type VideoOutput,
+  type DeinterlaceMode,
   type ParentalVisibility,
 } from './settings/index';
 
@@ -46,18 +49,25 @@ export default function Settings({ onClose }: SettingsProps) {
   const [isSaving, setIsSaving] = useState(false);
 
   // General tab state
+  const [theme, setTheme] = useState<Theme>('system');
+  const [playlistUserAgentMode, setPlaylistUserAgentMode] = useState<UserAgentMode>('default');
+  const [playlistUserAgentCustom, setPlaylistUserAgentCustom] = useState('');
+
+  // EPG tab state
   const [epgUrl, setEpgUrl] = useState('');
   const [originalEpgUrl, setOriginalEpgUrl] = useState('');
   const [epgStatus, setEpgStatus] = useState<EpgStatus | null>(null);
   const [isUpdatingEpg, setIsUpdatingEpg] = useState(false);
-  const [theme, setTheme] = useState<Theme>('system');
-  const [audioLang, setAudioLang] = useState<LanguageCode>('none');
-  const [subtitleLang, setSubtitleLang] = useState<LanguageCode>('none');
-  const [playlistUserAgentMode, setPlaylistUserAgentMode] = useState<UserAgentMode>('default');
-  const [playlistUserAgentCustom, setPlaylistUserAgentCustom] = useState('');
 
   // Playback tab state
   const [hardwareAcceleration, setHardwareAcceleration] = useState(true);
+  const [videoOutput, setVideoOutput] = useState<VideoOutput>('gpu-next');
+  const [deinterlace, setDeinterlace] = useState<DeinterlaceMode>('auto');
+  const [startFullscreen, setStartFullscreen] = useState(false);
+  const [cacheSecs, setCacheSecs] = useState(30);
+  const [startVolume, setStartVolume] = useState(100);
+  const [audioLang, setAudioLang] = useState<LanguageCode>('none');
+  const [subtitleLang, setSubtitleLang] = useState<LanguageCode>('none');
 
   // Parental tab state
   const [parentalEnabled, setParentalEnabled] = useState(false);
@@ -88,6 +98,12 @@ export default function Settings({ onClose }: SettingsProps) {
         const savedSubtitleIso = await getSetting('subtitle_language');
         const savedPlaylistUserAgentMode = await getSetting('playlist_user_agent_mode');
         const savedPlaylistUserAgentCustom = await getSetting('playlist_user_agent_custom');
+        const savedVideoOutput = await getSetting('mpv_video_output');
+        const savedDeinterlace = await getSetting('mpv_deinterlace');
+        const savedStartFullscreen = await getSetting('mpv_start_fullscreen');
+        const savedCacheSecs = await getSetting('mpv_cache_secs');
+        const savedStartVolume = await getSetting('mpv_start_volume');
+        const savedHwAccel = await getSetting('mpv_hardware_acceleration');
 
         if (savedEpgUrl) {
           setEpgUrl(savedEpgUrl);
@@ -115,6 +131,16 @@ export default function Settings({ onClose }: SettingsProps) {
           if (subtitleLang) setSubtitleLang(subtitleLang.code);
         }
 
+        // MPV settings
+        if (savedVideoOutput) setVideoOutput(savedVideoOutput as VideoOutput);
+        if (savedDeinterlace) setDeinterlace(savedDeinterlace as DeinterlaceMode);
+        if (savedStartFullscreen) setStartFullscreen(savedStartFullscreen === 'true');
+        if (savedCacheSecs) setCacheSecs(Number(savedCacheSecs) || 30);
+        if (savedStartVolume) setStartVolume(Number(savedStartVolume));
+        if (savedHwAccel !== null && savedHwAccel !== undefined) {
+          setHardwareAcceleration(savedHwAccel !== 'false');
+        }
+
         // Load EPG status
         const status = await getEpgStatus();
         setEpgStatus(status);
@@ -140,16 +166,17 @@ export default function Settings({ onClose }: SettingsProps) {
     loadSettings();
   }, []);
 
-  // Keyboard navigation (Ctrl+1-5 for tab switching)
+  // Keyboard navigation (Ctrl+1-6 for tab switching)
   useEffect(() => {
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey) {
         const tabMap: Record<string, string> = {
           '1': 'general',
           '2': 'playback',
-          '3': 'parental',
-          '4': 'profiles',
-          '5': 'about',
+          '3': 'epg',
+          '4': 'parental',
+          '5': 'profiles',
+          '6': 'about',
         };
         if (tabMap[e.key]) {
           e.preventDefault();
@@ -258,6 +285,14 @@ export default function Settings({ onClose }: SettingsProps) {
       await setSetting('playlist_user_agent_mode', playlistUserAgentMode);
       await setSetting('playlist_user_agent_custom', sanitizedCustomUserAgent);
 
+      // Save MPV playback settings
+      await setSetting('mpv_hardware_acceleration', hardwareAcceleration.toString());
+      await setSetting('mpv_video_output', videoOutput);
+      await setSetting('mpv_deinterlace', deinterlace);
+      await setSetting('mpv_start_fullscreen', startFullscreen.toString());
+      await setSetting('mpv_cache_secs', cacheSecs.toString());
+      await setSetting('mpv_start_volume', startVolume.toString());
+
       // Save parental controls settings
       await setSetting('parental_enabled', parentalEnabled.toString());
       await setSetting('parental_auto_detect', parentalAutoDetect.toString());
@@ -333,6 +368,7 @@ export default function Settings({ onClose }: SettingsProps) {
             <TabsList>
               <TabsTrigger value="general">General</TabsTrigger>
               <TabsTrigger value="playback">Playback</TabsTrigger>
+              <TabsTrigger value="epg">EPG</TabsTrigger>
               <TabsTrigger value="parental">Parental</TabsTrigger>
               <TabsTrigger value="profiles">Profiles</TabsTrigger>
               <TabsTrigger value="about">About</TabsTrigger>
@@ -340,17 +376,8 @@ export default function Settings({ onClose }: SettingsProps) {
 
             <TabsContent value="general">
               <GeneralTab
-                epgUrl={epgUrl}
-                onEpgUrlChange={setEpgUrl}
-                epgStatus={epgStatus}
-                isUpdatingEpg={isUpdatingEpg}
-                onForceEpgUpdate={handleForceEpgUpdate}
                 theme={theme}
                 onThemeChange={setTheme}
-                audioLang={audioLang}
-                onAudioLangChange={setAudioLang}
-                subtitleLang={subtitleLang}
-                onSubtitleLangChange={setSubtitleLang}
                 playlistUserAgentMode={playlistUserAgentMode}
                 onPlaylistUserAgentModeChange={setPlaylistUserAgentMode}
                 playlistUserAgentCustom={playlistUserAgentCustom}
@@ -366,6 +393,30 @@ export default function Settings({ onClose }: SettingsProps) {
               <PlaybackTab
                 hardwareAcceleration={hardwareAcceleration}
                 onHardwareAccelerationChange={setHardwareAcceleration}
+                videoOutput={videoOutput}
+                onVideoOutputChange={setVideoOutput}
+                deinterlace={deinterlace}
+                onDeinterlaceChange={setDeinterlace}
+                startFullscreen={startFullscreen}
+                onStartFullscreenChange={setStartFullscreen}
+                cacheSecs={cacheSecs}
+                onCacheSecsChange={setCacheSecs}
+                startVolume={startVolume}
+                onStartVolumeChange={setStartVolume}
+                audioLang={audioLang}
+                onAudioLangChange={setAudioLang}
+                subtitleLang={subtitleLang}
+                onSubtitleLangChange={setSubtitleLang}
+              />
+            </TabsContent>
+
+            <TabsContent value="epg">
+              <EpgTab
+                epgUrl={epgUrl}
+                onEpgUrlChange={setEpgUrl}
+                epgStatus={epgStatus}
+                isUpdatingEpg={isUpdatingEpg}
+                onForceEpgUpdate={handleForceEpgUpdate}
               />
             </TabsContent>
 

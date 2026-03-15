@@ -5,22 +5,15 @@ use crate::state::CurrentChannel;
 use crate::error::AppError;
 use tokio::sync::RwLock;
 
-/// Play a channel with language preferences
+/// Play a channel with playback options
 pub async fn play_channel(
     mpv: &mut mpv::MpvPlayer,
     current: &RwLock<Option<CurrentChannel>>,
     channel: &Channel,
-    audio_lang: Option<&str>,
-    subtitle_lang: Option<&str>,
+    options: &mpv::MpvPlaybackOptions<'_>,
 ) -> Result<(), AppError> {
-    // Play the stream with title and language preferences
-    mpv.play_with_title(
-        &channel.url,
-        Some(&channel.name),
-        audio_lang,
-        subtitle_lang,
-    )
-    .map_err(|e| AppError::Mpv(e.to_string()))?;
+    mpv.play_stream(&channel.url, options)
+        .map_err(|e| AppError::Mpv(e.to_string()))?;
 
     // Update current channel
     let mut curr = current.write().await;

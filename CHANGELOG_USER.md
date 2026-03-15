@@ -8,6 +8,21 @@ A simple overview of new features and improvements.
 
 ### New Features
 
+**Video Playback Settings**
+- New settings in the Playback tab to customize how video plays:
+  - **Video Output** - switch renderer if you get a black screen or visual glitches
+  - **Deinterlacing** - fixes jagged lines on live TV channels (especially 1080i broadcasts like SVT)
+  - **Start in Fullscreen** - open the player in fullscreen automatically
+  - **Start Volume** - choose the volume level when playback starts
+  - **Cache Duration** - increase buffering if your connection is unstable
+- Audio and subtitle language settings moved here from General for easier access
+- Hardware acceleration toggle now actually takes effect
+
+**Reorganized Settings**
+- Settings are now split into 6 tabs for easier navigation
+- EPG settings have their own tab
+- Playback tab contains all video and audio settings in one place
+
 **Channel Logo Fallback**
 - Channel logos that fail to load now show the channel's initial letter on a colored background instead of a broken image
 

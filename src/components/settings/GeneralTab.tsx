@@ -1,10 +1,7 @@
 import { RefreshCw } from 'lucide-react';
-import type { EpgStatus } from '../../lib/tauri';
 import {
-  LANGUAGE_OPTIONS,
   USER_AGENT_OPTIONS,
   type Theme,
-  type LanguageCode,
   type UserAgentMode,
 } from './constants';
 
@@ -38,22 +35,9 @@ function getUserAgentPreview(
 }
 
 interface GeneralTabProps {
-  // EPG state
-  epgUrl: string;
-  onEpgUrlChange: (url: string) => void;
-  epgStatus: EpgStatus | null;
-  isUpdatingEpg: boolean;
-  onForceEpgUpdate: () => void;
-
   // Theme state
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
-
-  // Language state
-  audioLang: LanguageCode;
-  onAudioLangChange: (lang: LanguageCode) => void;
-  subtitleLang: LanguageCode;
-  onSubtitleLangChange: (lang: LanguageCode) => void;
 
   // Playlist user-agent state
   playlistUserAgentMode: UserAgentMode;
@@ -67,17 +51,8 @@ interface GeneralTabProps {
 }
 
 export default function GeneralTab({
-  epgUrl,
-  onEpgUrlChange,
-  epgStatus,
-  isUpdatingEpg,
-  onForceEpgUpdate,
   theme,
   onThemeChange,
-  audioLang,
-  onAudioLangChange,
-  subtitleLang,
-  onSubtitleLangChange,
   playlistUserAgentMode,
   onPlaylistUserAgentModeChange,
   playlistUserAgentCustom,
@@ -164,75 +139,6 @@ export default function GeneralTab({
         </div>
       </section>
 
-      {/* EPG Settings */}
-      <section>
-        <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
-          Electronic Program Guide (EPG)
-        </h3>
-        <div className="space-y-4">
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              EPG URL (XMLTV format)
-            </label>
-            <input
-              type="url"
-              value={epgUrl}
-              onChange={(e) => onEpgUrlChange(e.target.value)}
-              placeholder="http://example.com/epg.xml"
-              className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              If EPG data is not provided with Xtream, we recommend using:{' '}
-              <a
-                href="https://iptv-epg.org/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:underline dark:text-blue-400"
-              >
-                https://iptv-epg.org/
-              </a>
-            </p>
-          </div>
-
-          {/* EPG Status Card */}
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-600 dark:bg-gray-700/50">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Status</span>
-              {epgStatus?.has_url && (
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {epgStatus.program_count.toLocaleString()} programs
-                </span>
-              )}
-            </div>
-
-            {epgStatus ? (
-              <div className="space-y-2">
-                {epgStatus.last_fetched ? (
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Last updated: {new Date(epgStatus.last_fetched).toLocaleString()}
-                  </p>
-                ) : (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {epgStatus.has_url ? 'Never updated' : 'No EPG URL configured'}
-                  </p>
-                )}
-
-                <button
-                  onClick={onForceEpgUpdate}
-                  disabled={!epgStatus.has_url || isUpdatingEpg}
-                  className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <RefreshCw className={`h-4 w-4 ${isUpdatingEpg ? 'animate-spin' : ''}`} />
-                  {isUpdatingEpg ? 'Updating...' : 'Update Now'}
-                </button>
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400">Loading status...</p>
-            )}
-          </div>
-        </div>
-      </section>
-
       {/* Appearance Settings */}
       <section>
         <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">Appearance</h3>
@@ -256,54 +162,6 @@ export default function GeneralTab({
                 </button>
               ))}
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Language Settings */}
-      <section>
-        <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
-          Language Settings
-        </h3>
-        <div className="space-y-4">
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Default Audio Language
-            </label>
-            <select
-              value={audioLang}
-              onChange={(e) => onAudioLangChange(e.target.value as LanguageCode)}
-              className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:[color-scheme:dark]"
-            >
-              {LANGUAGE_OPTIONS.map((lang) => (
-                <option key={lang.code} value={lang.code}>
-                  {lang.name}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Preferred audio track language (if available in stream)
-            </p>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Default Subtitles Language
-            </label>
-            <select
-              value={subtitleLang}
-              onChange={(e) => onSubtitleLangChange(e.target.value as LanguageCode)}
-              className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:[color-scheme:dark]"
-            >
-              {LANGUAGE_OPTIONS.map((lang) => (
-                <option key={lang.code} value={lang.code}>
-                  {lang.name}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Preferred subtitle language (if available in stream)
-            </p>
           </div>
         </div>
       </section>

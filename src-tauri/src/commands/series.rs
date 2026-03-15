@@ -1,27 +1,10 @@
+use crate::commands::playback::build_playback_options;
 use crate::error::AppError;
 use crate::playlist::{fetch_series_info, SeriesInfo, XtreamCredentials};
 use crate::series_domain::{self, PlaylistEpisode};
 use crate::state::AppState;
 use log::info;
 use tauri::State;
-
-fn get_language_settings(
-    db: &rusqlite::Connection,
-) -> Result<(Option<String>, Option<String>), AppError> {
-    let settings =
-        crate::db::queries::get_multiple_settings(db, &["audio_language", "subtitle_language"])?;
-
-    let audio = settings
-        .get("audio_language")
-        .filter(|s| !s.is_empty())
-        .cloned();
-    let subtitle = settings
-        .get("subtitle_language")
-        .filter(|s| !s.is_empty())
-        .cloned();
-
-    Ok((audio, subtitle))
-}
 
 #[tauri::command]
 pub async fn get_series_info(
@@ -70,19 +53,14 @@ pub async fn play_episode_with_season(
         });
     }
 
-    let (audio_lang, subtitle_lang) = {
+    let settings = {
         let conn = state.pool.get()?;
-        get_language_settings(&conn)?
+        build_playback_options(&conn, Some(first_title))?
     };
 
     let mut player = state.mpv_player.lock().await;
     player
-        .play_with_playlist(
-            &urls,
-            Some(first_title),
-            audio_lang.as_deref(),
-            subtitle_lang.as_deref(),
-        )
+        .play_playlist(&urls, &settings.as_options())
         .map_err(|e| AppError::Mpv(e.to_string()))?;
 
     info!("Playing series episode: {}", first_title);

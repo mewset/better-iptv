@@ -7,6 +7,23 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Added
 
+- **MPV Playback Settings** - Full control over video playback from the Playback tab
+  - Video Output: `gpu-next` (default), `gpu`, or `x11` software fallback (`--vo`)
+  - Deinterlacing: auto (default), always on, or off (`--deinterlace`)
+  - Start in Fullscreen: launch MPV fullscreen (`--fullscreen`)
+  - Start Volume: 0-100% slider (`--volume`)
+  - Cache Duration: 10s to 5min for stream buffering (`--cache-secs`)
+  - Hardware Acceleration toggle now actually works (was UI-only before)
+  - All settings persisted in SQLite and read via single `get_multiple_settings` call
+  - Backend refactored: `MpvPlaybackOptions` struct replaces scattered args, shared by channel and series playback
+
+- **Reorganized Settings Tabs** - Cleaner settings layout with 6 tabs (was 5)
+  - General: theme, playlist refresh, user-agent (slimmed down)
+  - Playback: all MPV settings + audio/subtitle language (moved from General)
+  - EPG: dedicated tab for EPG URL, status, and force refresh (extracted from General)
+  - Parental, Profiles, About: unchanged
+  - Keyboard shortcuts updated to Ctrl+1-6
+
 - **Channel Logo Fallback** - Graceful fallback when channel logos fail to load
   - Added `onError` handler on logo `<img>` to detect broken/unreachable logo URLs
   - Falls back to gradient + initial letter instead of showing a broken image
