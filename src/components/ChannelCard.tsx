@@ -10,6 +10,8 @@ interface ChannelCardProps {
   onPlay: (channel: Channel) => void;
   /** Current EPG program title */
   currentProgram?: string;
+  /** Next EPG program title */
+  nextProgram?: string;
   /** Height of the card in pixels */
   cardHeight: number;
   /** Whether this channel is blocked by parental controls */
@@ -35,6 +37,7 @@ export const ChannelCard = memo(function ChannelCard({
   isPlaying,
   onPlay,
   currentProgram,
+  nextProgram,
   cardHeight,
   isBlocked = false,
   parentalVisibility = 'hide',
@@ -119,6 +122,14 @@ export const ChannelCard = memo(function ChannelCard({
             title={currentProgram}
           >
             📺 {currentProgram}
+          </p>
+        )}
+        {nextProgram && channel.content_type === 'live' && (
+          <p
+            className={`mt-0.5 truncate text-gray-500 dark:text-gray-400 ${isSmall ? 'text-[10px]' : 'text-xs'}`}
+            title={nextProgram}
+          >
+            ⏭ {nextProgram}
           </p>
         )}
         <div className="flex-1" />

@@ -146,10 +146,10 @@ describe('usePlayerStore', () => {
 
   describe('EPG data', () => {
     it('should store and retrieve channel EPG data', () => {
-      usePlayerStore.getState().setChannelEpg(123, 'News at 6');
+      usePlayerStore.getState().setChannelEpg(123, 'News at 6', 'Weather');
 
       const { channelEpgData } = usePlayerStore.getState();
-      expect(channelEpgData.get(123)).toBe('News at 6');
+      expect(channelEpgData.get(123)).toEqual({ current: 'News at 6', next: 'Weather' });
     });
 
     it('should trigger EPG refresh', () => {

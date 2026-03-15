@@ -49,9 +49,9 @@ interface PlayerState {
   setCurrentProgram: (program: string | null) => void;
   setNextProgram: (program: string | null) => void;
 
-  // EPG data for all channels (channelId -> current program)
-  channelEpgData: Map<number, string>;
-  setChannelEpg: (channelId: number, program: string | null) => void;
+  // EPG data for all channels (channelId -> { current, next })
+  channelEpgData: Map<number, { current: string; next?: string }>;
+  setChannelEpg: (channelId: number, current: string | null, next?: string | null) => void;
   clearAllEpg: () => void;
   epgRefreshTrigger: number;
   triggerEpgRefresh: () => void;
@@ -182,11 +182,11 @@ export const usePlayerStore = create<PlayerState>((set) => ({
 
   // EPG data for all channels
   channelEpgData: new Map(),
-  setChannelEpg: (channelId, program) =>
+  setChannelEpg: (channelId, current, next) =>
     set((state) => {
       const newMap = new Map(state.channelEpgData);
-      if (program) {
-        newMap.set(channelId, program);
+      if (current) {
+        newMap.set(channelId, { current, next: next ?? undefined });
       } else {
         newMap.delete(channelId);
       }

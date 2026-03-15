@@ -83,9 +83,9 @@ export function useEpgData(channels: Channel[]): UseEpgDataResult {
           await Promise.all(
             batch.map(async (channel) => {
               try {
-                const [current] = await getChannelEpg(channel.epg_id!);
+                const [current, next] = await getChannelEpg(channel.epg_id!);
                 if (current && channel.id) {
-                  setChannelEpg(channel.id, current);
+                  setChannelEpg(channel.id, current, next);
                 }
               } catch (err) {
                 // Silently fail for individual channels
@@ -166,7 +166,7 @@ export function useEpgData(channels: Channel[]): UseEpgDataResult {
  * Hook for EPG data for a specific channel
  * Useful when you only need EPG for the current channel
  */
-export function useChannelEpg(channelId: number | undefined): string | undefined {
+export function useChannelEpg(channelId: number | undefined): { current: string; next?: string } | undefined {
   const channelEpgData = usePlayerStore((s) => s.channelEpgData);
 
   if (!channelId) return undefined;

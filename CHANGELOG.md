@@ -5,6 +5,14 @@ This file is a developer-changelog, aimed towards development changes.
 
 ## [Unreleased]
 
+### Added
+
+- **Next Program in Channel Cards** - Show upcoming EPG program on channel cards
+  - Channel cards now display both current (📺) and next (⏭) program titles
+  - Backend already returned next program data; frontend now captures and displays it
+  - `channelEpgData` store changed from `Map<number, string>` to `Map<number, { current, next? }>`
+  - Next program shown in muted gray below the current program in blue
+
 ### Performance
 
 - **Scroll Performance** - Eliminate GPU paint thrashing and reduce unnecessary re-renders

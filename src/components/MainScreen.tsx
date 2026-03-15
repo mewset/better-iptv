@@ -349,7 +349,8 @@ export default function MainScreen() {
                             isPlaying={currentChannel?.id === channel.id && isPlaying}
                             onPlay={handlePlayChannel}
                             onToggleFavorite={toggleChannelFavorite}
-                            currentProgram={channelEpgData.get(channel.id)}
+                            currentProgram={channelEpgData.get(channel.id)?.current}
+                            nextProgram={channelEpgData.get(channel.id)?.next}
                             cardHeight={cardHeight}
                             isBlocked={isChannelBlocked}
                             parentalVisibility={parentalVisibility}

@@ -6,6 +6,11 @@ A simple overview of new features and improvements.
 
 ## Unreleased
 
+### New Features
+
+**Next Program on Channel Cards**
+- Channel cards now show what's coming up next, so you can see both the current and the next program at a glance
+
 ### Improvements
 
 **Smoother Scrolling on Slower Hardware**
