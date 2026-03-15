@@ -5,6 +5,8 @@ interface ParentalTabProps {
   // Enable state
   enabled: boolean;
   onEnabledChange: (enabled: boolean) => void;
+  /** Called when user tries to disable while a PIN is set — should trigger PIN verification */
+  onDisableRequest: () => void;
 
   // PIN state
   hasPin: boolean;
@@ -28,6 +30,7 @@ interface ParentalTabProps {
 export default function ParentalTab({
   enabled,
   onEnabledChange,
+  onDisableRequest,
   hasPin,
   onSetPin,
   onChangePin,
@@ -59,7 +62,14 @@ export default function ParentalTab({
             <input
               type="checkbox"
               checked={enabled}
-              onChange={(e) => onEnabledChange(e.target.checked)}
+              onChange={(e) => {
+                if (!e.target.checked && hasPin) {
+                  // Require PIN to disable parental controls
+                  onDisableRequest();
+                } else {
+                  onEnabledChange(e.target.checked);
+                }
+              }}
               className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500"
             />
           </div>

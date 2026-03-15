@@ -35,6 +35,13 @@ This file is a developer-changelog, aimed towards development changes.
   - `channelEpgData` store changed from `Map<number, string>` to `Map<number, { current, next? }>`
   - Next program shown in muted gray below the current program in blue
 
+### Fixed
+
+- **Parental Controls Bypass** - Require PIN to disable parental controls
+  - Previously, unchecking "Enable Parental Controls" bypassed PIN protection entirely
+  - Now triggers PIN verification modal when a PIN is set and user tries to disable
+  - Enabling parental controls still works without PIN (nothing to protect yet)
+
 ### Performance
 
 - **Scroll Performance** - Eliminate GPU paint thrashing and reduce unnecessary re-renders

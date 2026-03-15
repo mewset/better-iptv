@@ -81,6 +81,7 @@ export default function Settings({ onClose }: SettingsProps) {
   const [showSetPinModal, setShowSetPinModal] = useState(false);
   const [showChangePinModal, setShowChangePinModal] = useState(false);
   const [showResetPinModal, setShowResetPinModal] = useState(false);
+  const [showDisablePinModal, setShowDisablePinModal] = useState(false);
   const [showResetPinConfirmation, setShowResetPinConfirmation] = useState(false);
   const [showChannelBlockingModal, setShowChannelBlockingModal] = useState(false);
   const [showErrorModal, setShowErrorModal] = useState(false);
@@ -424,6 +425,7 @@ export default function Settings({ onClose }: SettingsProps) {
               <ParentalTab
                 enabled={parentalEnabled}
                 onEnabledChange={setParentalEnabled}
+                onDisableRequest={() => setShowDisablePinModal(true)}
                 hasPin={hasPin}
                 onSetPin={() => setShowSetPinModal(true)}
                 onChangePin={() => setShowChangePinModal(true)}
@@ -486,6 +488,18 @@ export default function Settings({ onClose }: SettingsProps) {
         onSuccess={handleResetPinSuccess}
         mode="verify"
         title="Enter PIN to reset parental controls"
+      />
+
+      <PinEntryModal
+        isOpen={showDisablePinModal}
+        onClose={() => setShowDisablePinModal(false)}
+        onSuccess={() => {
+          setShowDisablePinModal(false);
+          setParentalEnabled(false);
+          logger.info('Parental controls disabled after PIN verification');
+        }}
+        mode="verify"
+        title="Enter PIN to disable parental controls"
       />
 
       <ConfirmationModal
