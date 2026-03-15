@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Play, Square, Star, Clapperboard, Lock } from 'lucide-react';
 import type { Channel } from '../types';
 
@@ -43,8 +43,11 @@ export const ChannelCard = memo(function ChannelCard({
   parentalVisibility = 'hide',
   onToggleFavorite,
 }: ChannelCardProps) {
+  const [logoFailed, setLogoFailed] = useState(false);
+
   // Calculate dynamic image height (approximately 45% of card height)
   const imageHeight = Math.max(80, Math.round(cardHeight * 0.45));
+  const showLogo = channel.logo && !logoFailed;
 
   // Scale text and padding based on card height
   const isLarge = cardHeight > 280;
@@ -57,15 +60,16 @@ export const ChannelCard = memo(function ChannelCard({
     >
       {/* Logo/Image section */}
       <div className="group relative flex-shrink-0 bg-gray-900">
-        {channel.logo ? (
+        {showLogo ? (
           <div
             className="flex w-full items-center justify-center bg-gray-900 p-2"
             style={{ height: `${imageHeight}px` }}
           >
             <img
-              src={channel.logo}
+              src={channel.logo!}
               alt={channel.name}
               loading="lazy"
+              onError={() => setLogoFailed(true)}
               className="max-h-full max-w-full object-contain"
             />
           </div>

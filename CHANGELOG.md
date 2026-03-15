@@ -7,6 +7,11 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Added
 
+- **Channel Logo Fallback** - Graceful fallback when channel logos fail to load
+  - Added `onError` handler on logo `<img>` to detect broken/unreachable logo URLs
+  - Falls back to gradient + initial letter instead of showing a broken image
+  - State resets on remount so logos get a fresh attempt when scrolled back into view
+
 - **Next Program in Channel Cards** - Show upcoming EPG program on channel cards
   - Channel cards now display both current (📺) and next (⏭) program titles
   - Backend already returned next program data; frontend now captures and displays it

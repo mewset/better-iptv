@@ -8,6 +8,9 @@ A simple overview of new features and improvements.
 
 ### New Features
 
+**Channel Logo Fallback**
+- Channel logos that fail to load now show the channel's initial letter on a colored background instead of a broken image
+
 **Next Program on Channel Cards**
 - Channel cards now show what's coming up next, so you can see both the current and the next program at a glance
 
