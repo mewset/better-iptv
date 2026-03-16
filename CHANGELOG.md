@@ -37,6 +37,13 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Fixed
 
+- **Theme Switcher** - Light/dark/system theme now actually works
+  - Previously, `index.html` had `class="dark"` hardcoded and no code toggled it
+  - New `src/lib/theme.ts` module: `applyTheme()` sets/removes `dark` class on `<html>`, listens to `prefers-color-scheme` for "system" mode
+  - Theme applied instantly on click (no need to save first)
+  - `localStorage` cache prevents flash of wrong theme on startup; SQLite remains authoritative
+  - `<body>` background now uses `bg-gray-100 dark:bg-gray-900` instead of hardcoded `bg-gray-900`
+
 - **Parental Controls Bypass** - Require PIN to disable parental controls
   - Previously, unchecking "Enable Parental Controls" bypassed PIN protection entirely
   - Now triggers PIN verification modal when a PIN is set and user tries to disable

@@ -12,6 +12,7 @@ import {
 import type { EpgStatus } from '../lib/tauri';
 import { usePlayerStore } from '../stores/player-store';
 import { logger } from '../lib/logger';
+import { applyTheme } from '../lib/theme';
 import ProfileManager from './ProfileManager';
 import PinEntryModal from './modals/PinEntryModal';
 import ChannelBlockingModal from './modals/ChannelBlockingModal';
@@ -378,7 +379,7 @@ export default function Settings({ onClose }: SettingsProps) {
             <TabsContent value="general">
               <GeneralTab
                 theme={theme}
-                onThemeChange={setTheme}
+                onThemeChange={(t) => { setTheme(t); applyTheme(t); }}
                 playlistUserAgentMode={playlistUserAgentMode}
                 onPlaylistUserAgentModeChange={setPlaylistUserAgentMode}
                 playlistUserAgentCustom={playlistUserAgentCustom}

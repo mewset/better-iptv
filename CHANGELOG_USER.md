@@ -29,6 +29,13 @@ A simple overview of new features and improvements.
 **Next Program on Channel Cards**
 - Channel cards now show what's coming up next, so you can see both the current and the next program at a glance
 
+### Bug Fixes
+
+**Theme Switcher Now Works**
+- Switching between Light, Dark, and System theme in Settings now actually changes the app's appearance
+- "System" follows your OS preference and updates automatically if you change it
+- Your theme choice is applied instantly when you click it
+
 ### Improvements
 
 **Smoother Scrolling on Slower Hardware**
