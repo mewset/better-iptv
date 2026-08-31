@@ -36,11 +36,35 @@ A simple overview of new features and improvements.
 - "System" follows your OS preference and updates automatically if you change it
 - Your theme choice is applied instantly when you click it
 
+**Series and Movies Get Their Artwork Back**
+- Series covers were missing entirely for many providers - the artwork was being discarded silently, with nothing shown as an error
+- Movie and series artwork now fills the card properly, while live TV logos stay fully visible instead of being cropped
+
+**Series and Episodes Load from More Providers**
+- Some providers send episode and season numbers in a slightly different format, which previously caused the whole series list to fail to load
+- Better IPTV now accepts both formats, so series should appear for providers where they used to be missing
+
+**Large Playlists Refresh Correctly**
+- Refreshing a very large playlist (roughly 33,000 channels or more) failed with a database error and left the playlist un-updated
+- Playlist refresh now works regardless of how many channels you have
+
+**Channel Logos on Older Providers**
+- Logos served over an insecure (plain HTTP) connection were blocked and never appeared
+- These now load normally
+
+**Renaming a Profile Updates Everywhere**
+- Renaming the profile you are currently using left the old name showing in Settings and in the refresh dialogs until you switched profiles or restarted
+- The new name now appears immediately everywhere
+
 ### Improvements
 
 **Smoother Scrolling on Slower Hardware**
 - Scrolling through large channel lists (50,000+ channels) should feel significantly smoother, especially on older computers with integrated graphics
 - Reduced unnecessary work when scrolling - the app now skips re-drawing cards that haven't changed
+
+### Thanks
+
+- **@andrezinhovg** for reporting the series artwork, series loading, large-playlist refresh, channel logo and profile rename issues
 
 ---
 

@@ -49,6 +49,50 @@ This file is a developer-changelog, aimed towards development changes.
   - Now triggers PIN verification modal when a PIN is set and user tries to disable
   - Enabling parental controls still works without PIN (nothing to protect yet)
 
+- **Xtream Series Parsing** - Tolerate mixed string/number types from provider panels
+  - Xtream panels are inconsistent about JSON scalar types: the same field arrives as `3` from one provider and `"3"` from another, IDs flip between quoted and bare, and optional numbers arrive as `""` instead of `null`
+  - serde is strict by default, so a single mistyped field rejected the *entire* response — one odd `episode_num` lost the whole series listing
+  - New `LooseScalar` untagged enum plus `de_lenient_*` helpers widen what is accepted for `Season`, `Episode`, `EpisodeInfo`, `SeriesMetadata` and `XtreamStream`; anything that parsed before parses identically
+  - Out-of-range integers now error instead of silently truncating through `as i32`
+  - Also covers two fields beyond the reported ones: `SeriesMetadata.rating` (declared `String`, sent as a number) and `XtreamStream.stream_id`/`num` (declared `i64`, sent quoted)
+  - Found via PR #56 by @andrezinhovg
+
+- **Missing Series Artwork** - Add `cover` alias to `XtreamStream.stream_icon`
+  - `get_series` returns artwork as `cover` while `get_live_streams`/`get_vod_streams` use `stream_icon`
+  - Without the alias, series responses parsed cleanly but silently yielded `stream_icon: None`, so every series lost its artwork with no error anywhere
+  - Found via PR #56 by @andrezinhovg
+
+- **Playlist Refresh on Large Playlists** - Avoid SQLite's bound-parameter limit when pruning stale channels
+  - The prune step built `id NOT IN (?, ?, ...)` with one bound parameter per kept channel
+  - Once the keep-set reached `SQLITE_MAX_VARIABLE_NUMBER` (32766) the refresh failed with `variable number must be between ?1 and ?32766` — reachable on real playlists, which routinely exceed that once VOD is included
+  - Now passes the ids as a single JSON array and prunes via `json_each()`, binding exactly 2 parameters regardless of playlist size
+  - Measured against a temp-table approach at 49k kept ids: `json_each` 183ms vs temp table 337ms, and it leaves no per-connection state behind on pooled connections
+  - Found via PR #56 by @andrezinhovg
+
+- **Provider Logos over Plain HTTP** - Allow `http:` in the CSP `img-src` directive
+  - Logos render as raw `<img src={channel.logo}>`; many providers still serve them over plain HTTP, so they were blocked outright
+  - Trade-off accepted knowingly: `img-src http:` permits mixed-content images, so a network attacker could substitute logo imagery. `connect-src`/`media-src` already allowed `http:` for the streams themselves
+  - Found via PR #56 by @andrezinhovg
+
+- **Stale Profile Name After Rename** - Keep `currentPlaylist` in sync
+  - `currentPlaylist` is its own copy in the store rather than a lookup into `playlists`, so renaming the active profile updated only the list
+  - Three consumers kept showing the old name until the next profile switch or restart: Settings > General, the refresh modal, and the stale-playlist prompt
+  - Found via PR #56 by @andrezinhovg
+
+- **Broken Production Build** - `useEpgData` return type no longer contradicts the store
+  - `UseEpgDataResult.channelEpgData` was still `Map<number, string>` after the next-program work widened the store to `Map<number, { current, next? }>`
+  - `npm run build` runs `tsc && vite build`, so this failed the build outright; caught while verifying the fixes above
+
+- **ESLint Browser Globals** - Add `localStorage`, `MediaQueryList`, `MediaQueryListEvent`
+  - The globals list is maintained by hand; the theme switcher work introduced uses that were not declared, so `npm run lint` reported 4 `no-undef` errors
+
+### Changed
+
+- **Channel Artwork Fit** - Fit artwork to the card based on content type
+  - Movie and series artwork is poster-shaped and designed to fill its frame, so it is now cropped to the card with `object-cover`
+  - Live channel logos are wide, transparent marks with their own margins; cropping those cuts the logo, so they stay letterboxed with `object-contain`
+  - Adds `decoding="async"` on the artwork so image decode does not block the main thread during scroll
+
 ### Performance
 
 - **Scroll Performance** - Eliminate GPU paint thrashing and reduce unnecessary re-renders
@@ -59,6 +103,15 @@ This file is a developer-changelog, aimed towards development changes.
 ### Tests
 
 - Add `ChannelCard.memo.test.ts` documenting Zustand store action reference stability
+- Add `lenient_scalar_tests` covering every Xtream JSON shape that previously failed to parse, including the silent `cover` artwork loss and out-of-range integer rejection
+- Add `test_merge_channels_prunes_playlist_larger_than_sqlite_variable_limit`, exercising 33 000 kept channels. The count must stay above 32766 for the test to mean anything — verified to fail against the old implementation and pass against the new one
+
+### Credits
+
+Thanks to @andrezinhovg for reporting the Xtream parsing, SQLite prune, CSP and
+profile-rename issues in PR #56. The fixes shipped here were written
+independently, but the underlying bugs — including the silent loss of series
+artwork, which produced no error of any kind — were found through that report.
 
 ## [2.6.1] - 2026-03-10
 
