@@ -46,6 +46,22 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Fixed
 
+- **Channel Cards Now Play on Click** - The whole card is a click target, not just the Play button
+  - Reported twice on Windows as "clicking a channel does nothing" (#55). Nothing was swallowing the click: the card body simply had no `onClick`, so only the Play button, the favorite star and the parental overlay were live pixels
+  - The reporter noting that "keyboard navigation works" is the same finding from the other side - there is no arrow-key navigation in the app, so what worked was Tab landing on the Play button and Enter firing the very same handler
+  - Card root gets `onClick` + `cursor-pointer`; the Play button now calls `stopPropagation()` so a click on it fires `onPlay` once instead of twice (the second call would have toggled playback straight back off)
+  - Card stays a plain `div` - no `role`/`tabIndex`. It is a mouse shortcut, not a second control: a `role="button"` card would nest buttons inside a button and add a third tab stop to every card in a 10,000-channel list. The Play button remains the keyboard and screen-reader path
+  - Logo `<img>` set to `draggable={false}`: images are draggable by default, and a click that starts with a few pixels of drag becomes a drag gesture that never fires a click - on the biggest target on the card
+  - Covered by `src/test/components/ChannelCard.click.test.tsx`
+
+- **Log File Paths Were Wrong on Every Platform** - Documentation pointed users at directories that do not exist
+  - Verified against `tauri-2.10.3/src/path/desktop.rs:278-290`: `app_log_dir()` resolves to `dirs::data_local_dir()/<identifier>/logs`, and on macOS to `~/Library/Logs/<identifier>`
+  - Windows said `%APPDATA%` (Roaming) - logs are written to `%LOCALAPPDATA%`
+  - Linux omitted the identifier: `~/.local/share/better-ip-tv/logs` should be `~/.local/share/com.m0s.better-ip-tv/logs`
+  - macOS said `~/Library/Application Support/...` - logs are in `~/Library/Logs/com.m0s.better-ip-tv/`
+  - This is why bug reports arrive without logs: the reporter on #55 answered the log request with "I don't have such a file"
+  - Corrected in `README.md`, `.github/ISSUE_TEMPLATE/bug_report.yml` and `CLAUDE.md`
+
 - **Theme Switcher** - Light/dark/system theme now actually works
   - Previously, `index.html` had `class="dark"` hardcoded and no code toggled it
   - New `src/lib/theme.ts` module: `applyTheme()` sets/removes `dark` class on `<html>`, listens to `prefers-color-scheme` for "system" mode
