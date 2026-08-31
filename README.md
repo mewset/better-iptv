@@ -254,9 +254,9 @@ No, Better IPTV is designed for IPTV streams. Use MPV directly for local media.
 
 ### Logs
 
-**Linux**: `~/.local/share/better-ip-tv/logs/better-ip-tv.log`
-**Windows**: `%APPDATA%\com.m0s.better-ip-tv\logs\better-ip-tv.log`
-**macOS**: `~/Library/Application Support/com.m0s.better-ip-tv/logs/better-ip-tv.log`
+**Linux**: `~/.local/share/com.m0s.better-ip-tv/logs/better-ip-tv.log`
+**Windows**: `%LOCALAPPDATA%\com.m0s.better-ip-tv\logs\better-ip-tv.log`
+**macOS**: `~/Library/Logs/com.m0s.better-ip-tv/better-ip-tv.log`
 
 Credentials are automatically masked in logs.
 
