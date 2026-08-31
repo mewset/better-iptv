@@ -278,25 +278,26 @@ pub fn merge_channels(
                 params![playlist_id],
             )?;
         } else {
-            let ids_to_keep: Vec<i64> = matched_ids.into_iter().collect();
-            let placeholders: String = (0..ids_to_keep.len())
-                .map(|i| format!("?{}", i + 2))
-                .collect::<Vec<_>>()
-                .join(",");
-            let sql = format!(
-                "DELETE FROM channels WHERE playlist_id = ?1 AND id NOT IN ({})",
-                placeholders
+            // Pass the ids to keep as one JSON array instead of one bound
+            // parameter each. A `NOT IN (?, ?, ...)` list trips SQLite's
+            // SQLITE_MAX_VARIABLE_NUMBER (32766) once a playlist keeps that
+            // many channels, failing the whole refresh with a raw SQL error.
+            // These ids come straight from the `channels.id` column, so
+            // formatting the array by hand always yields valid JSON.
+            let ids_json = format!(
+                "[{}]",
+                matched_ids
+                    .iter()
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
             );
 
-            let mut delete_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-            delete_params.push(Box::new(playlist_id));
-            for id in &ids_to_keep {
-                delete_params.push(Box::new(*id));
-            }
-            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-                delete_params.iter().map(|p| p.as_ref()).collect();
-
-            tx.execute(&sql, param_refs.as_slice())?;
+            tx.execute(
+                "DELETE FROM channels WHERE playlist_id = ?1
+                 AND id NOT IN (SELECT value FROM json_each(?2))",
+                params![playlist_id, ids_json],
+            )?;
         }
     }
 
@@ -457,6 +458,54 @@ mod tests {
 
         let stored = get_channels(&conn, Some(playlist_id)).unwrap();
         assert_eq!(stored.len(), 100);
+    }
+
+    /// Regression test for the channel-prune step of a playlist refresh.
+    ///
+    /// The prune used to build `id NOT IN (?, ?, ...)` with one bound parameter
+    /// per kept channel. That works until the keep-set reaches SQLite's
+    /// SQLITE_MAX_VARIABLE_NUMBER (32766), at which point a refresh fails with
+    /// "variable number must be between ?1 and ?32766" — reachable on real IPTV
+    /// playlists, which routinely carry tens of thousands of entries once VOD is
+    /// included. The count here must stay above that limit for this test to mean
+    /// anything: at 1500 it passes against the buggy implementation too.
+    #[test]
+    fn test_merge_channels_prunes_playlist_larger_than_sqlite_variable_limit() {
+        let conn = setup_test_db();
+        let playlist_id = create_test_playlist(&conn, "Huge Playlist");
+
+        // Above SQLITE_MAX_VARIABLE_NUMBER (32766).
+        const KEEP_COUNT: i32 = 33_000;
+        let existing: Vec<Channel> = (0..KEEP_COUNT + 1)
+            .map(|i| Channel {
+                id: None,
+                playlist_id,
+                name: format!("Channel {}", i),
+                url: format!("http://example.com/stream{}.m3u8", i),
+                logo: None,
+                group_name: Some("Huge Group".to_string()),
+                epg_id: None,
+                tvg_name: None,
+                content_type: "live".to_string(),
+                is_favorite: false,
+                sort_order: i,
+                category_order: 0,
+                created_at: None,
+            })
+            .collect();
+        create_channels_batch(&conn, &existing).unwrap();
+
+        // The refresh matches every channel but the last, so the prune has to
+        // delete exactly one stale row while keeping 33 000.
+        let refreshed: Vec<Channel> = existing[..KEEP_COUNT as usize].to_vec();
+        let result = merge_channels(&conn, playlist_id, &refreshed, false).unwrap();
+
+        assert_eq!(result.removed, 1);
+        assert_eq!(result.updated, KEEP_COUNT as usize);
+        assert_eq!(
+            get_channels(&conn, Some(playlist_id)).unwrap().len(),
+            KEEP_COUNT as usize
+        );
     }
 
     // ========== Settings Tests ==========
