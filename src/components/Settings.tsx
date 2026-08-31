@@ -379,7 +379,10 @@ export default function Settings({ onClose }: SettingsProps) {
             <TabsContent value="general">
               <GeneralTab
                 theme={theme}
-                onThemeChange={(t) => { setTheme(t); applyTheme(t); }}
+                onThemeChange={(t) => {
+                  setTheme(t);
+                  applyTheme(t);
+                }}
                 playlistUserAgentMode={playlistUserAgentMode}
                 onPlaylistUserAgentModeChange={setPlaylistUserAgentMode}
                 playlistUserAgentCustom={playlistUserAgentCustom}

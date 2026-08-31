@@ -38,13 +38,29 @@ export type VideoOutput = 'gpu-next' | 'gpu' | 'x11';
 export type DeinterlaceMode = 'no' | 'yes' | 'auto';
 
 export const VIDEO_OUTPUT_OPTIONS = [
-  { value: 'gpu-next' as const, label: 'GPU Next (Recommended)', description: 'Modern GPU rendering, best quality' },
-  { value: 'gpu' as const, label: 'GPU', description: 'Standard GPU rendering, wider compatibility' },
-  { value: 'x11' as const, label: 'X11 (Software)', description: 'Software fallback if GPU causes issues' },
+  {
+    value: 'gpu-next' as const,
+    label: 'GPU Next (Recommended)',
+    description: 'Modern GPU rendering, best quality',
+  },
+  {
+    value: 'gpu' as const,
+    label: 'GPU',
+    description: 'Standard GPU rendering, wider compatibility',
+  },
+  {
+    value: 'x11' as const,
+    label: 'X11 (Software)',
+    description: 'Software fallback if GPU causes issues',
+  },
 ];
 
 export const DEINTERLACE_OPTIONS = [
-  { value: 'auto' as const, label: 'Auto', description: 'Deinterlace only when interlaced content is detected' },
+  {
+    value: 'auto' as const,
+    label: 'Auto',
+    description: 'Deinterlace only when interlaced content is detected',
+  },
   { value: 'yes' as const, label: 'Always', description: 'Force deinterlacing on all content' },
   { value: 'no' as const, label: 'Off', description: 'Never deinterlace' },
 ];

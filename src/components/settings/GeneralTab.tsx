@@ -1,9 +1,5 @@
 import { RefreshCw } from 'lucide-react';
-import {
-  USER_AGENT_OPTIONS,
-  type Theme,
-  type UserAgentMode,
-} from './constants';
+import { USER_AGENT_OPTIONS, type Theme, type UserAgentMode } from './constants';
 
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Better-IPTV/2.1.1';
 const MAX_CUSTOM_USER_AGENT_LENGTH = 512;

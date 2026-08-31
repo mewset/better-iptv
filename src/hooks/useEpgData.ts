@@ -166,7 +166,9 @@ export function useEpgData(channels: Channel[]): UseEpgDataResult {
  * Hook for EPG data for a specific channel
  * Useful when you only need EPG for the current channel
  */
-export function useChannelEpg(channelId: number | undefined): { current: string; next?: string } | undefined {
+export function useChannelEpg(
+  channelId: number | undefined
+): { current: string; next?: string } | undefined {
   const channelEpgData = usePlayerStore((s) => s.channelEpgData);
 
   if (!channelId) return undefined;

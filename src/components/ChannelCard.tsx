@@ -79,9 +79,7 @@ export const ChannelCard = memo(function ChannelCard({
               decoding="async"
               onError={() => setLogoFailed(true)}
               className={
-                fillsFrame
-                  ? 'h-full w-full object-cover'
-                  : 'max-h-full max-w-full object-contain'
+                fillsFrame ? 'h-full w-full object-cover' : 'max-h-full max-w-full object-contain'
               }
             />
           </div>
