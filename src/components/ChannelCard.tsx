@@ -47,6 +47,11 @@ export const ChannelCard = memo(function ChannelCard({
 
   // Calculate dynamic image height (approximately 45% of card height)
   const imageHeight = Math.max(80, Math.round(cardHeight * 0.45));
+
+  // Movie and series artwork is a poster designed to fill its frame, so crop it
+  // to the card. Live channel logos are wide, transparent marks with their own
+  // margins — cropping those cuts the logo, so they stay letterboxed instead.
+  const fillsFrame = channel.content_type === 'vod' || channel.content_type === 'series';
   const showLogo = channel.logo && !logoFailed;
 
   // Scale text and padding based on card height
@@ -62,15 +67,22 @@ export const ChannelCard = memo(function ChannelCard({
       <div className="group relative flex-shrink-0 bg-gray-900">
         {showLogo ? (
           <div
-            className="flex w-full items-center justify-center bg-gray-900 p-2"
+            className={`flex w-full items-center justify-center bg-gray-900 ${
+              fillsFrame ? '' : 'p-2'
+            }`}
             style={{ height: `${imageHeight}px` }}
           >
             <img
               src={channel.logo!}
               alt={channel.name}
               loading="lazy"
+              decoding="async"
               onError={() => setLogoFailed(true)}
-              className="max-h-full max-w-full object-contain"
+              className={
+                fillsFrame
+                  ? 'h-full w-full object-cover'
+                  : 'max-h-full max-w-full object-contain'
+              }
             />
           </div>
         ) : (
