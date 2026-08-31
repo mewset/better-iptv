@@ -1,6 +1,6 @@
 [package]
 name = "better-ip-tv"
-version = "2.6.1"
+version = "2.7.0"
 description = "Cross-platform IPTV player with MPV backend"
 authors = ["Better-IP-TV Team"]
 edition = "2021"
