@@ -1,6 +1,5 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
 import { logger } from '../lib/logger';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 interface Props {
   children: ReactNode;
@@ -10,16 +9,6 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
-}
-
-interface SectionErrorBoundaryProps {
-  children: ReactNode;
-  /** Name of the section for logging */
-  section: string;
-  /** Custom fallback component */
-  fallback?: ReactNode;
-  /** Whether to show a compact error message */
-  compact?: boolean;
 }
 
 /**
@@ -113,106 +102,6 @@ export class ErrorBoundary extends Component<Props, State> {
 
     return this.props.children;
   }
-}
-
-/**
- * Section-specific error boundary for granular error handling.
- * Shows a compact error UI that doesn't crash the entire app.
- */
-export class SectionErrorBoundary extends Component<SectionErrorBoundaryProps, State> {
-  constructor(props: SectionErrorBoundaryProps) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
-  static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    logger.error(`Error in ${this.props.section}:`, error);
-    logger.error('Component stack:', errorInfo.componentStack);
-  }
-
-  handleRetry = () => {
-    this.setState({ hasError: false, error: null });
-  };
-
-  render() {
-    if (this.state.hasError) {
-      if (this.props.fallback) {
-        return this.props.fallback;
-      }
-
-      // Compact error UI for sections
-      if (this.props.compact) {
-        return (
-          <div className="flex items-center justify-center gap-2 rounded-lg bg-red-500/10 p-4 text-red-400">
-            <AlertTriangle className="h-5 w-5" />
-            <span className="text-sm">Fel i {this.props.section}</span>
-            <button
-              onClick={this.handleRetry}
-              className="ml-2 rounded bg-red-500/20 p-1 hover:bg-red-500/30"
-              title="Försök igen"
-            >
-              <RefreshCw className="h-4 w-4" />
-            </button>
-          </div>
-        );
-      }
-
-      // Standard section error UI
-      return (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-red-500/20 bg-red-500/5 p-8">
-          <AlertTriangle className="mb-4 h-12 w-12 text-red-400" />
-          <h3 className="mb-2 text-lg font-medium text-white">
-            Något gick fel i {this.props.section}
-          </h3>
-          <p className="mb-4 text-sm text-gray-400">
-            Ett fel uppstod. Du kan försöka igen eller ladda om sidan.
-          </p>
-          {this.state.error && (
-            <details className="mb-4 w-full max-w-md text-left">
-              <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-400">
-                Tekniska detaljer
-              </summary>
-              <pre className="mt-2 max-h-32 overflow-auto rounded bg-gray-900 p-2 text-xs text-red-400">
-                {this.state.error.message}
-              </pre>
-            </details>
-          )}
-          <div className="flex gap-2">
-            <button
-              onClick={this.handleRetry}
-              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Försök igen
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    return this.props.children;
-  }
-}
-
-/**
- * Higher-order component to wrap a component with a section error boundary
- */
-export function withSectionErrorBoundary<P extends object>(
-  WrappedComponent: React.ComponentType<P>,
-  section: string,
-  compact = false
-) {
-  return function WithSectionErrorBoundary(props: P) {
-    return (
-      <SectionErrorBoundary section={section} compact={compact}>
-        <WrappedComponent {...props} />
-      </SectionErrorBoundary>
-    );
-  };
 }
 
 export default ErrorBoundary;
