@@ -123,6 +123,17 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Changed
 
+- **README Brought Back in Sync With the App** - Rewrote the parts that no longer described what ships
+  - Quick Start described buttons that do not exist: the setup screen has **M3U URL** / **Xtream Codes** tabs and an **Add Playlist** button, not "Import M3U Playlist" and a Local File / URL chooser
+  - EPG setup moved to Settings → **EPG**, and the settings shortcut is `Ctrl+1-6`, matching the six-tab reorganization in this release
+  - Download table now lists the real release asset names (`Better.IPTV_<version>_...`, dots not hyphens). The Windows `.exe` is an NSIS setup installer, not a portable build, and the `.dmg` is Apple Silicon only - both were described wrong
+  - `-arch.AppImage` guidance widened past Arch: it is the right build on any distro with a current `webkit2gtk`, Fedora included (Issue: #54). Names the `EGL_BAD_PARAMETER` symptom so the error text is searchable
+  - MPV section leads with Windows needing nothing, and drops the "New in v2.3.0" marker three releases later. Same for the FAQ entry
+  - Parental troubleshooting no longer tells people to upgrade to v2.3.0; replaced with the PIN reset that actually helps
+  - New "Where your files live" table for the database and the log, because `app_data_dir()` and `app_log_dir()` resolve to different roots on Windows (Roaming vs Local) and macOS (Application Support vs Logs)
+  - Playback Settings added to the feature list; language count corrected from 19 to 18 (the 19th entry is "None (Original)"); channel-count claims unified on the 150,000 figure the FAQ already used
+  - Playing a channel now documented as clicking anywhere on the card
+
 - **Channel Artwork Fit** - Fit artwork to the card based on content type
   - Movie and series artwork is poster-shaped and designed to fill its frame, so it is now cropped to the card with `object-cover`
   - Live channel logos are wide, transparent marks with their own margins; cropping those cuts the logo, so they stay letterboxed with `object-contain`

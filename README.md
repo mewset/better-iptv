@@ -23,7 +23,7 @@
 Better IPTV is a desktop IPTV player that combines the performance of Rust with a modern web UI. Built on MPV for video playback, it handles live TV, movies, and series across Linux, Windows, and macOS.
 
 **Why Better IPTV?**
-- **Fast & Efficient** - Rust backend handles 100,000+ channels smoothly
+- **Fast & Efficient** - Rust backend stays smooth on playlists of 150,000+ channels
 - **Smart Features** - EPG, parental controls, multi-profile support, and more
 - **Modern UI** - Clean, responsive interface with dark/light themes
 - **Privacy First** - All data stored locally, credentials never leave your device
@@ -38,7 +38,7 @@ Better IPTV is a desktop IPTV player that combines the performance of Rust with 
 - **Movies (VOD)** - Browse and watch on-demand movies
 - **TV Series** - Season/episode organization with automatic episode queuing
 - **Smart Search** - Instant filtering across all content types
-- **Virtual Scrolling** - Smooth performance even with 100K+ channels
+- **Virtual Scrolling** - Smooth performance even on 150,000-channel playlists
 
 ### 🔒 Parental Controls
 - PIN protection (4-6 digits) with manual or automatic channel blocking
@@ -48,15 +48,20 @@ Better IPTV is a desktop IPTV player that combines the performance of Rust with 
 - Session-based unlock that re-locks on restart
 
 ### 📋 Playlist Management
-- **M3U/M3U8** import from local files or URLs
+- **M3U/M3U8** import from a URL or a path to a local file
 - **Xtream Codes** integration with your IPTV provider
 - **Multi-Profile System** - Switch between multiple providers/playlists
 - **Favorites** - Star any channel and find them in a dedicated tab
 - **Custom User-Agent** - Presets for TiviMate, VLC, or enter your own
 - **Category Quick-Access** - Horizontal bar for instant category filtering
 
+### 🎚️ Playback Settings
+- Video output renderer, deinterlacing and hardware acceleration
+- Start volume, start-in-fullscreen and stream cache duration
+- All handed to MPV, all saved per install
+
 ### 🌐 Language Support
-19 languages for audio and subtitle preferences (Scandinavian, European, and International), configurable per profile.
+18 languages for audio and subtitle preferences (Scandinavian, European, and International), configurable per profile.
 
 ---
 
@@ -64,60 +69,47 @@ Better IPTV is a desktop IPTV player that combines the performance of Rust with 
 
 ### MPV Media Player
 
-Better IPTV uses MPV for video playback. Installation varies by platform:
+Better IPTV plays video through MPV.
 
-**Linux:**
+**Windows:** nothing to do — MPV ships inside the installer.
+
+**Linux and macOS:** install MPV first.
+
 ```bash
-# Ubuntu/Debian
-sudo apt install mpv
-
-# Arch Linux
-sudo pacman -S mpv
-
-# Fedora
-sudo dnf install mpv
+sudo apt install mpv      # Ubuntu/Debian
+sudo pacman -S mpv        # Arch Linux
+sudo dnf install mpv      # Fedora
+brew install mpv          # macOS
 ```
-
-**macOS:**
-```bash
-brew install mpv
-```
-
-**Windows:**
-> **New in v2.3.0:** MPV is bundled with the installer. No separate installation needed.
-
-If you prefer a manual installation: download from [mpv.io](https://mpv.io/installation/) or use `choco install mpv`.
 
 ### Download Better IPTV
 
-1. Visit [Releases](https://github.com/mewset/better-iptv/releases/latest)
-2. Download for your platform:
-   - **Linux (Ubuntu/Debian)**: `.AppImage`, `.deb`
-   - **Linux (Arch/Manjaro)**: `-arch.AppImage` or install via AUR (see below)
-   - **Linux (Fedora/RHEL)**: `.rpm`
-   - **Windows**: `.msi` installer or `.exe` portable
-   - **macOS**: `.dmg` disk image
+Grab your file from [Releases](https://github.com/mewset/better-iptv/releases/latest):
 
-**Linux AppImage (Ubuntu/Debian):**
+| Platform | File |
+|----------|------|
+| Windows | `Better.IPTV_<version>_x64_en-US.msi`, or `Better.IPTV_<version>_x64-setup.exe` |
+| Ubuntu/Debian | `Better.IPTV_<version>_amd64.deb` or `Better.IPTV_<version>_amd64.AppImage` |
+| Fedora/RHEL | `Better.IPTV-<version>-1.x86_64.rpm` |
+| Arch/Manjaro | AUR, or `Better.IPTV_<version>_amd64-arch.AppImage` |
+| macOS (Apple Silicon) | `Better.IPTV_<version>_aarch64.dmg` |
+
+**Two AppImages — pick the right one.** The standard AppImage carries WebKit
+libraries built against Ubuntu. On a distro shipping a current `webkit2gtk`
+those clash and the app opens a white window or dies at startup with
+`Could not create default EGL display`. The `-arch` build uses your system's
+`webkit2gtk` instead, so despite the name it is the right file on **any**
+distro with recent libraries — Arch and Manjaro, but Fedora too.
+
 ```bash
-chmod +x Better-IPTV_*_amd64.AppImage
-./Better-IPTV_*_amd64.AppImage
+chmod +x Better.IPTV_*_amd64-arch.AppImage
+./Better.IPTV_*_amd64-arch.AppImage
 ```
 
-**Linux AppImage (Arch/Manjaro):**
-
-> **Important:** Use the `-arch.AppImage` variant on Arch-based distros. The standard AppImage bundles WebKit libraries from Ubuntu that conflict with newer system libraries on rolling-release distros and will cause a crash on startup.
-
+**Arch/Manjaro via the AUR:**
 ```bash
-chmod +x Better-IPTV_*_amd64-arch.AppImage
-./Better-IPTV_*_amd64-arch.AppImage
-```
-
-Alternatively, install via the AUR:
-```bash
-yay -S better-iptv
-# or
-paru -S better-iptv
+yay -S better-iptv-bin   # prebuilt, the quick one
+yay -S better-iptv       # builds from source
 ```
 
 ---
@@ -126,37 +118,35 @@ paru -S better-iptv
 
 ### 1. Import Playlist
 
-On first launch, choose your import method:
+On first launch you get two tabs, **M3U URL** and **Xtream Codes**.
 
-**Option A: M3U/M3U8 File**
-1. Click **"Import M3U Playlist"**
-2. Enter a profile name (e.g., "My IPTV")
-3. Choose source: **Local File** or **URL**
-4. Click **"Import"** and wait for channels to load
+**M3U URL**
+1. Enter a playlist name (e.g. "My IPTV")
+2. Paste your M3U/M3U8 URL — or the path to a local `.m3u` file
+3. Click **"Add Playlist"** and wait for the channels to load
 
-**Option B: Xtream Codes**
-1. Click **"Import Xtream Playlist"**
-2. Enter a profile name
-3. Fill in your server URL, username, and password
-4. Click **"Import"** (loads Live TV, Movies, and Series)
+**Xtream Codes**
+1. Enter a playlist name
+2. Fill in your server URL, username and password
+3. Click **"Add Playlist"** — Live TV, Movies and Series all import together
 
 ### 2. Configure EPG (Optional)
 
-1. Open **Settings** (gear icon) → **General** → **EPG Settings**
+1. Open **Settings** (gear icon) → **EPG**
 2. Enter your XMLTV EPG URL (Xtream users get this automatically)
-3. Click **"Update Now"** — EPG updates automatically going forward
+3. Click **"Update Now"** — EPG refreshes on its own from then on
 
 ### 3. Start Watching
 
 - Use tabs (All / Live TV / Movies / Series / Favorites) and the category bar to browse
 - Type in the search box for instant filtering
-- Click play on any channel — MPV opens in a separate window
+- Click a channel — anywhere on the card — and MPV opens in a separate window
 
 **Series:** Select a series → choose season → click Play on any episode. Remaining episodes auto-queue.
 
 **Favorites:** Hover over any channel card and click the star to add or remove.
 
-**Multiple Profiles:** Import additional playlists as separate profiles and switch between them from the setup screen.
+**Multiple Profiles:** Add more playlists in **Settings → Profiles**, and switch between them from the same place.
 
 ---
 
@@ -167,7 +157,7 @@ On first launch, choose your import method:
 | `Space` | Play/Stop current channel |
 | `/` | Focus search bar |
 | `Escape` | Stop playback |
-| `Ctrl+1-4` | Switch settings tabs |
+| `Ctrl+1-6` | Switch settings tabs |
 
 For MPV player controls (fullscreen, volume, seek, etc.), see the [MPV keyboard documentation](https://mpv.io/manual/stable/#keyboard-control).
 
@@ -178,7 +168,7 @@ For MPV player controls (fullscreen, volume, seek, etc.), see the [MPV keyboard 
 <details>
 <summary><strong>Why won't MPV open?</strong></summary>
 
-MPV must be installed on your system (except Windows v2.3.0+ which includes it bundled).
+On Linux and macOS, MPV has to be installed on your system. On Windows it comes bundled, so this should not happen.
 
 Verify installation:
 ```bash
@@ -199,8 +189,8 @@ No, Better IPTV uses MPV as an external player. This provides broad codec suppor
 
 Check:
 1. Playlist contains EPG identifiers (`tvg-id` or `tvg-name`)
-2. EPG URL configured in Settings → EPG Settings
-3. EPG data fetched (click "Fetch EPG" button)
+2. EPG URL configured in Settings → EPG
+3. EPG data fetched (Settings → EPG → **"Update Now"**)
 4. Wait a minute for EPG refresh cycle
 </details>
 
@@ -233,9 +223,9 @@ No, Better IPTV is designed for IPTV streams. Use MPV directly for local media.
 ## 🛠️ Troubleshooting
 
 ### Channels Buffering
-- **Check internet connection** - Run speed test
-- **Try another channel** - May be provider/server issue
-- **Adjust MPV cache** - Advanced users: edit MPV config
+- **Check your connection** - Run a speed test
+- **Try another channel** - It is often the provider's server, not you
+- **Raise the cache** - Settings → Playback → Cache Duration
 
 ### Series Not Importing (Xtream)
 - **Verify credentials** - Double-check username/password
@@ -243,22 +233,27 @@ No, Better IPTV is designed for IPTV streams. Use MPV directly for local media.
 - **Retry import** - Network issues may cause partial imports
 
 ### App Won't Start
-- **Linux**: Ensure `.AppImage` has execute permissions (`chmod +x`)
+- **Linux**: Ensure the `.AppImage` has execute permissions (`chmod +x`). White window or an `EGL_BAD_PARAMETER` crash means you want the `-arch` AppImage — see [Installation](#-installation)
 - **Windows**: Run as administrator or check Windows Defender
 - **macOS**: Allow app in **System Preferences → Security & Privacy**
 
 ### Parental Controls Issues
-- **Auto-detect not working?** - Re-save settings to trigger channel scan
-- **Lock mode not showing channels?** - Update to v2.3.0+ (bug fixed)
-- **PIN modal stuck?** - Restart app, issue resolved in v2.3.0
+- **Auto-detect not working?** - Re-save settings to trigger a channel scan
+- **Forgot your PIN?** - Delete `better-ip-tv.db` from the data folder below and re-import your playlist
 
-### Logs
+### Where your files live
 
-**Linux**: `~/.local/share/com.m0s.better-ip-tv/logs/better-ip-tv.log`
-**Windows**: `%LOCALAPPDATA%\com.m0s.better-ip-tv\logs\better-ip-tv.log`
-**macOS**: `~/Library/Logs/com.m0s.better-ip-tv/better-ip-tv.log`
+Playlists, channels, settings and EPG cache all sit in one SQLite database,
+`better-ip-tv.db`. Logs are written somewhere else — on Windows and macOS the
+two are not in the same place, which trips people up.
 
-Credentials are automatically masked in logs.
+| | Data (`better-ip-tv.db`) | Log (`better-ip-tv.log`) |
+|---|---|---|
+| Linux | `~/.local/share/com.m0s.better-ip-tv/` | `~/.local/share/com.m0s.better-ip-tv/logs/` |
+| Windows | `%APPDATA%\com.m0s.better-ip-tv\` | `%LOCALAPPDATA%\com.m0s.better-ip-tv\logs\` |
+| macOS | `~/Library/Application Support/com.m0s.better-ip-tv/` | `~/Library/Logs/com.m0s.better-ip-tv/` |
+
+Credentials are masked in logs, so a log file is safe to attach to a bug report.
 
 ---
 

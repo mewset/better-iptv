@@ -76,6 +76,11 @@ A simple overview of new features and improvements.
 - Scrolling through large channel lists (50,000+ channels) should feel significantly smoother, especially on older computers with integrated graphics
 - Reduced unnecessary work when scrolling - the app now skips re-drawing cards that haven't changed
 
+**Clearer Install and Setup Instructions**
+- The README had drifted out of date: setup steps named buttons that no longer exist, download filenames were wrong, and EPG setup pointed at the wrong settings tab
+- The `-arch` AppImage is now explained properly - despite the name it is the right download for any Linux distro with up-to-date system libraries, Fedora included (Issue: #54)
+- Added a table showing where your database and log file live on each platform
+
 ### Thanks
 
 - **@andrezinhovg** for reporting the series artwork, series loading, large-playlist refresh, channel logo and profile rename issues, and for the groundwork on making the interface readable on a big TV
