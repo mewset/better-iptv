@@ -15,7 +15,7 @@ export const CategoryBar = memo(function CategoryBar() {
 
   return (
     <div
-      className="scrollbar-hide flex gap-2 overflow-x-auto bg-gray-800/50 px-4 py-3 pb-6"
+      className="scrollbar-hide flex gap-2 overflow-x-auto bg-bg px-4 py-3 pb-6"
       role="tablist"
       aria-label="Channel categories"
     >
@@ -24,10 +24,10 @@ export const CategoryBar = memo(function CategoryBar() {
         onClick={() => setCategoryFilter(null)}
         role="tab"
         aria-selected={categoryFilter === null}
-        className={`shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900 ${
+        className={`shrink-0 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-bg ${
           categoryFilter === null
-            ? 'bg-blue-600 text-white'
-            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            ? 'border-accent bg-accent text-white'
+            : 'border-border bg-surface text-text hover:bg-surface-hover'
         } `}
       >
         All
@@ -40,10 +40,10 @@ export const CategoryBar = memo(function CategoryBar() {
           onClick={() => setCategoryFilter(category)}
           role="tab"
           aria-selected={categoryFilter === category}
-          className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900 ${
+          className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-bg ${
             categoryFilter === category
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              ? 'border-accent bg-accent text-white'
+              : 'border-border bg-surface text-text hover:bg-surface-hover'
           } `}
         >
           {category}
