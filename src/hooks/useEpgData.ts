@@ -22,8 +22,8 @@ const EPG_CONFIG = {
  * Hook result for EPG data
  */
 interface UseEpgDataResult {
-  /** EPG data map (channel ID -> current program title) */
-  channelEpgData: Map<number, string>;
+  /** EPG data map (channel ID -> current and next program titles) */
+  channelEpgData: Map<number, { current: string; next?: string }>;
   /** Trigger a manual refresh of EPG data */
   refreshEpg: () => void;
 }
