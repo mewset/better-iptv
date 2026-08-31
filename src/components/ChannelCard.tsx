@@ -59,8 +59,15 @@ export const ChannelCard = memo(function ChannelCard({
   const isSmall = cardHeight < 220;
 
   return (
+    // The whole card plays the channel, because that is what every other IPTV
+    // player does and what users reach for (issue #55). The card is a mouse
+    // shortcut rather than a control of its own: no role or tabIndex, so it
+    // neither nests a button inside a button nor adds a third tab stop to every
+    // card in a 10,000-channel list. The Play button below stays the keyboard
+    // and screen-reader path, and the controls layered on top stop propagation.
     <div
-      className="relative flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
+      onClick={() => onPlay(channel)}
+      className="relative flex cursor-pointer flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
       style={{ height: `${cardHeight}px` }}
     >
       {/* Logo/Image section */}
@@ -77,6 +84,10 @@ export const ChannelCard = memo(function ChannelCard({
               alt={channel.name}
               loading="lazy"
               decoding="async"
+              // Images are draggable by default, and a click that starts with a
+              // few pixels of drag becomes a drag gesture that never fires a
+              // click - on the logo, the largest target on the card.
+              draggable={false}
               onError={() => setLogoFailed(true)}
               className={
                 fillsFrame ? 'h-full w-full object-cover' : 'max-h-full max-w-full object-contain'
@@ -150,7 +161,10 @@ export const ChannelCard = memo(function ChannelCard({
 
         {/* Action button */}
         <button
-          onClick={() => onPlay(channel)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onPlay(channel);
+          }}
           className={`flex w-full items-center justify-center gap-2 rounded-md font-medium transition-colors ${
             isLarge ? 'mt-3 px-4 py-2.5' : isSmall ? 'mt-2 px-3 py-1.5 text-sm' : 'mt-2 px-4 py-2'
           } ${
