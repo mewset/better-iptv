@@ -14,6 +14,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
   const {
     playlists,
     activeProfileId,
+    currentPlaylist,
     setActiveProfileId: setStoreActiveId,
     setCurrentPlaylist,
     setChannels,
@@ -78,6 +79,14 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
         p.id === id ? { ...p, name: editName.trim() } : p
       );
       usePlayerStore.setState({ playlists: updatedPlaylists });
+
+      // `currentPlaylist` is its own copy in the store rather than a lookup
+      // into `playlists`, so renaming the active profile leaves every consumer
+      // of it showing the old name until the next profile switch or restart —
+      // Settings > General, the refresh modal, and the stale-playlist prompt.
+      if (currentPlaylist?.id === id) {
+        setCurrentPlaylist({ ...currentPlaylist, name: editName.trim() });
+      }
 
       setEditingId(null);
       logger.info(`Profile ID ${id} renamed to: ${editName.trim()}`);
