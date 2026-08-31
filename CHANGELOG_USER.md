@@ -56,6 +56,11 @@ A simple overview of new features and improvements.
 - Renaming the profile you are currently using left the old name showing in Settings and in the refresh dialogs until you switched profiles or restarted
 - The new name now appears immediately everywhere
 
+**Category Bar Follows the Light Theme**
+- The row of category buttons stayed dark even in Light mode, showing up as a dark stripe across an otherwise light window
+- It now matches whichever theme you have chosen
+- The category names are also easier to read from a distance, and the buttons have a clearer edge so they stand out from the bar
+
 ### Improvements
 
 **Smoother Scrolling on Slower Hardware**
@@ -64,7 +69,7 @@ A simple overview of new features and improvements.
 
 ### Thanks
 
-- **@andrezinhovg** for reporting the series artwork, series loading, large-playlist refresh, channel logo and profile rename issues
+- **@andrezinhovg** for reporting the series artwork, series loading, large-playlist refresh, channel logo and profile rename issues, and for the groundwork on making the interface readable on a big TV
 
 ---
 

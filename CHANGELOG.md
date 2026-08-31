@@ -35,6 +35,15 @@ This file is a developer-changelog, aimed towards development changes.
   - `channelEpgData` store changed from `Map<number, string>` to `Map<number, { current, next? }>`
   - Next program shown in muted gray below the current program in blue
 
+- **Design Token Layer** - Semantic colors and a fluid type scale
+  - CSS variables in `src/index.css` for the roles the UI has: `bg`, `surface`, `surface-hover`, `text`, `text-muted`, `border`, `accent`, `accent-hover`
+  - Exposed as Tailwind colors via `rgb(var(--color-x) / <alpha-value>)`, so `bg-surface` replaces `bg-white dark:bg-gray-800` and opacity modifiers like `bg-surface/50` still work
+  - Values are this app's existing palette, counted off the codebase rather than chosen fresh — `bg-white`/`dark:bg-gray-800` appears 17 times, plus `border-gray-200`/`dark:border-gray-700`, `bg-gray-50`/`dark:bg-gray-900`, `hover:bg-gray-100`/`dark:hover:bg-gray-700`
+  - Accent stays `blue-600` in both themes: accent surfaces always carry white text, and white on `blue-500` measures 3.68:1, under the 4.5:1 AA threshold. `blue-600` gives 5.17:1
+  - `fontSize` scale `fluid-xs` … `fluid-3xl` using `clamp()`, for use on a TV as well as a desktop monitor. Added but not yet applied to components
+  - Purely additive — the default palette is untouched, so existing `gray-*` classes still resolve and components migrate one at a time
+  - Idea adapted from PR #57 by @andrezinhovg; palette values, accent choice and contrast work are ours
+
 ### Fixed
 
 - **Theme Switcher** - Light/dark/system theme now actually works
@@ -86,12 +95,28 @@ This file is a developer-changelog, aimed towards development changes.
 - **ESLint Browser Globals** - Add `localStorage`, `MediaQueryList`, `MediaQueryListEvent`
   - The globals list is maintained by hand; the theme switcher work introduced uses that were not declared, so `npm run lint` reported 4 `no-undef` errors
 
+- **Category Bar Ignored the Light Theme** - The one component sitting inline in the main UI with no light-mode variant
+  - `bg-gray-800/50` band, `bg-gray-700` chips and `focus:ring-offset-gray-900` rendered as a dark band across an otherwise light app once the theme switcher started working
+  - Migrated to design tokens; the band, chips, focus ring and accent now all follow the theme
+  - Inactive chip text moved from `text-gray-300` to `text-text`: 14.7:1 against the chip surface instead of 7.0:1, which matters at TV viewing distance. The active chip is still distinguished by its accent fill
+  - Chips gained a border matching the channel cards — chip against band is only 1.2:1 on its own, so without an edge they dissolve into the bar. Border sits on the shared base class so active and inactive chips stay the same size and nothing shifts when the selection moves
+
+- **CI Would Have Failed on the Next Push** - Two blockers in `test.yml`, both found while verifying the above
+  - `npm run format:check` failed on 5 files, all touched by recent work: `ChannelCard.tsx`, `Settings.tsx`, `settings/constants.ts`, `settings/GeneralTab.tsx`, `hooks/useEpgData.ts`. Formatting only — the sole non-whitespace changes were trailing commas
+  - `cargo clippy --all-targets -- -D warnings` failed on `channel_domain::sort_by_name` (`unnecessary_sort_by`). That line dates from the December refactor and is present on `origin/main`; it only started failing because CI pins `stable` and the lint tightened in clippy 1.98. Replaced with `sort_by_key`, matching the sibling sort functions. It was the crate's only clippy warning
+
 ### Changed
 
 - **Channel Artwork Fit** - Fit artwork to the card based on content type
   - Movie and series artwork is poster-shaped and designed to fill its frame, so it is now cropped to the card with `object-cover`
   - Live channel logos are wide, transparent marks with their own margins; cropping those cuts the logo, so they stay letterboxed with `object-contain`
   - Adds `decoding="async"` on the artwork so image decode does not block the main thread during scroll
+
+### Removed
+
+- **Unreachable Components** - `ChannelHeader`, `SectionErrorBoundary` and `withSectionErrorBoundary`
+  - All three had zero references anywhere in `src`; `App.tsx` uses `ErrorBoundary` and nothing else
+  - `SectionErrorBoundary` also carried a bug no one could hit: `text-white` over a translucent `bg-red-500/5` panel, i.e. invisible text in light mode. Deleting it removes the bug with the code
 
 ### Performance
 
@@ -112,6 +137,12 @@ Thanks to @andrezinhovg for reporting the Xtream parsing, SQLite prune, CSP and
 profile-rename issues in PR #56. The fixes shipped here were written
 independently, but the underlying bugs — including the silent loss of series
 artwork, which produced no error of any kind — were found through that report.
+
+The design token layer and fluid type scale come from the same contributor's
+TV-readability work in PR #57 and #58. Those branches predate several commits on
+main and could not be merged, but the idea is a good one and is adopted here on
+current code — with this project's own palette values, a blue accent to match
+the logo, and contrast measured rather than assumed.
 
 ## [2.6.1] - 2026-03-10
 
