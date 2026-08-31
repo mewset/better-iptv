@@ -46,7 +46,7 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Fixed
 
-- **Channel Cards Now Play on Click** - The whole card is a click target, not just the Play button
+- **Channel Cards Now Play on Click** - The whole card is a click target, not just the Play button (Issue: #55)
   - Reported twice on Windows as "clicking a channel does nothing" (#55). Nothing was swallowing the click: the card body simply had no `onClick`, so only the Play button, the favorite star and the parental overlay were live pixels
   - The reporter noting that "keyboard navigation works" is the same finding from the other side - there is no arrow-key navigation in the app, so what worked was Tab landing on the Play button and Enter firing the very same handler
   - Card root gets `onClick` + `cursor-pointer`; the Play button now calls `stopPropagation()` so a click on it fires `onPlay` once instead of twice (the second call would have toggled playback straight back off)
@@ -54,7 +54,7 @@ This file is a developer-changelog, aimed towards development changes.
   - Logo `<img>` set to `draggable={false}`: images are draggable by default, and a click that starts with a few pixels of drag becomes a drag gesture that never fires a click - on the biggest target on the card
   - Covered by `src/test/components/ChannelCard.click.test.tsx`
 
-- **Log File Paths Were Wrong on Every Platform** - Documentation pointed users at directories that do not exist
+- **Log File Paths Were Wrong on Every Platform** - Documentation pointed users at directories that do not exist (Issue: #55)
   - Verified against `tauri-2.10.3/src/path/desktop.rs:278-290`: `app_log_dir()` resolves to `dirs::data_local_dir()/<identifier>/logs`, and on macOS to `~/Library/Logs/<identifier>`
   - Windows said `%APPDATA%` (Roaming) - logs are written to `%LOCALAPPDATA%`
   - Linux omitted the identifier: `~/.local/share/better-ip-tv/logs` should be `~/.local/share/com.m0s.better-ip-tv/logs`

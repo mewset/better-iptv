@@ -34,10 +34,11 @@ A simple overview of new features and improvements.
 **Clicking a Channel Now Plays It**
 - Previously only the blue Play button at the bottom of a card started playback - clicking the channel logo or name did nothing, which made the app look frozen
 - Now you can click anywhere on a channel card to start it, the way you'd expect
+- Thanks to everyone who reported this (Issue: #55)
 
 **Log Files Are Where We Say They Are**
 - The log file location in the README and the bug report form was wrong on Windows, macOS and Linux, so anyone who went looking for their log found an empty folder
-- The correct paths are now listed - handy if you ever need to report a problem
+- The correct paths are now listed - handy if you ever need to report a problem (Issue: #55)
 
 **Theme Switcher Now Works**
 - Switching between Light, Dark, and System theme in Settings now actually changes the app's appearance
