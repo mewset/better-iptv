@@ -211,7 +211,7 @@ pub fn filter_by_playlist(channels: Vec<Channel>, playlist_id: i64) -> Vec<Chann
 /// * `channels` - Vector of channels to sort (consumed and returned sorted)
 #[allow(dead_code)]
 pub fn sort_by_name(mut channels: Vec<Channel>) -> Vec<Channel> {
-    channels.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    channels.sort_by_key(|c| c.name.to_lowercase());
     channels
 }
 
