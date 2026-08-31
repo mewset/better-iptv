@@ -1,3 +1,46 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * Design tokens.
+ *
+ * Every value below is the colour this app already uses for that role, so
+ * switching a component over to a token is a no-op visually. The pairs were
+ * read off the codebase, not invented: bg-white/dark:bg-gray-800 for surfaces,
+ * border-gray-200/dark:border-gray-700 for borders, and so on.
+ *
+ * Channels are space-separated RGB rather than hex so Tailwind can inject an
+ * alpha through <alpha-value> - that is what makes bg-surface/50 work.
+ *
+ * The `dark` class is owned by src/lib/theme.ts, which sets it from the saved
+ * theme setting and from prefers-color-scheme when the theme is "system".
+ */
+:root {
+  --color-bg: 249 250 251; /* gray-50 */
+  --color-surface: 255 255 255; /* white */
+  --color-surface-hover: 243 244 246; /* gray-100 */
+  --color-text: 17 24 39; /* gray-900 */
+  --color-text-muted: 107 114 128; /* gray-500 */
+  --color-border: 229 231 235; /* gray-200 */
+
+  /*
+   * The accent deliberately does not change between themes. Accent surfaces
+   * always carry white text, and white on blue-500 measures 3.68:1 - below the
+   * 4.5:1 AA threshold for normal text. blue-600 gives 5.17:1 in both themes,
+   * which is also what the app has always used. Lightening the accent for dark
+   * mode would fail contrast on every accent button at once.
+   */
+  --color-accent: 37 99 235; /* blue-600 */
+  --color-accent-hover: 29 78 216; /* blue-700 */
+}
+
+.dark {
+  --color-bg: 17 24 39; /* gray-900 */
+  --color-surface: 31 41 55; /* gray-800 */
+  --color-surface-hover: 55 65 81; /* gray-700 */
+  --color-text: 255 255 255; /* white */
+  --color-text-muted: 156 163 175; /* gray-400 */
+  --color-border: 55 65 81; /* gray-700 */
+  /* --color-accent and --color-accent-hover intentionally inherit from :root */
+}
