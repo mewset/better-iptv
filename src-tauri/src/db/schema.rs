@@ -60,6 +60,24 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // Migration (2.8.0): older databases inserted a fresh copy of every future
+    // programme on each EPG refresh, because `INSERT OR REPLACE` had no unique
+    // key to conflict on. Collapse those duplicates before adding the key.
+    conn.execute(
+        "DELETE FROM epg_programs
+         WHERE id NOT IN (
+             SELECT MIN(id) FROM epg_programs GROUP BY channel_epg_id, start_time
+         )",
+        [],
+    )?;
+
+    // One row per channel and start time; the EPG upsert conflicts on this.
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_epg_programs_unique
+         ON epg_programs(channel_epg_id, start_time)",
+        [],
+    )?;
+
     // Create index for EPG lookups
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_channel_time
@@ -179,4 +197,66 @@ pub fn ensure_active_profile(conn: &Connection) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::init_schema;
+    use rusqlite::Connection;
+
+    /// Databases created before 2.8.0 have no unique key on epg_programs and
+    /// accumulated one copy of every future programme per EPG refresh.
+    #[test]
+    fn init_schema_collapses_duplicate_epg_rows_from_older_databases() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE epg_programs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_epg_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                start_time TIMESTAMP NOT NULL,
+                end_time TIMESTAMP NOT NULL,
+                category TEXT,
+                icon TEXT
+            );
+            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
+              VALUES ('svt1.se', 'Rapport', '2026-09-02T18:00:00+00:00', '2026-09-02T18:30:00+00:00');
+            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
+              VALUES ('svt1.se', 'Rapport', '2026-09-02T18:00:00+00:00', '2026-09-02T18:30:00+00:00');
+            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
+              VALUES ('svt1.se', 'Aktuellt', '2026-09-02T21:00:00+00:00', '2026-09-02T21:30:00+00:00');",
+        )
+        .unwrap();
+
+        init_schema(&conn).unwrap();
+
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM epg_programs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 2, "one Rapport row and one Aktuellt row survive");
+
+        let index_exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'index' AND name = 'idx_epg_programs_unique'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(index_exists, 1);
+    }
+
+    #[test]
+    fn epg_programs_rejects_duplicate_channel_and_start_time() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+
+        let insert = "INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
+                      VALUES ('svt1.se', 'Rapport', '2026-09-02T18:00:00+00:00', '2026-09-02T18:30:00+00:00')";
+        conn.execute(insert, []).unwrap();
+        let second = conn.execute(insert, []);
+
+        assert!(second.is_err(), "unique index must reject the duplicate");
+    }
 }
