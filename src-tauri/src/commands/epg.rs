@@ -1,11 +1,13 @@
 use crate::commands::with_db;
 use crate::error::AppError;
+use crate::epg::ChannelEpg;
 use crate::epg_domain;
 use crate::playlist::{get_xtream_epg_url, XtreamCredentials};
 use crate::state::AppState;
 use crate::db::queries;
 use log::{debug, info, warn};
 use serde::Serialize;
+use std::collections::HashMap;
 use tauri::State;
 
 fn resolve_xtream_epg_user_agent(
@@ -106,6 +108,37 @@ pub async fn get_channel_epg(
         Ok((current, next))
     })
     .await
+}
+
+/// Upper bound on ids per call; the channel grid asks for at most 100.
+const MAX_EPG_BATCH: usize = 500;
+
+#[tauri::command]
+pub async fn get_channels_epg(
+    state: State<'_, AppState>,
+    epg_ids: Vec<String>,
+) -> Result<HashMap<String, ChannelEpg>, AppError> {
+    if epg_ids.len() > MAX_EPG_BATCH {
+        return Err(AppError::InvalidInput(format!(
+            "At most {} EPG ids per request",
+            MAX_EPG_BATCH
+        )));
+    }
+
+    let ids: Vec<String> = epg_ids
+        .into_iter()
+        .filter(|id| !id.trim().is_empty())
+        .collect();
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let result = with_db(&state.pool, move |conn| {
+        Ok(crate::epg::get_programs_for_channels(conn, &ids)?)
+    })
+    .await?;
+    debug!("get_channels_epg -> {} channels with data", result.len());
+    Ok(result)
 }
 
 #[tauri::command]

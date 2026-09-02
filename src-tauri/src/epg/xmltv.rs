@@ -7,6 +7,7 @@ use quick_xml::events::Event;
 use quick_xml::Reader;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::Read;
 use std::time::Instant;
 
@@ -312,6 +313,57 @@ pub fn get_next_program(conn: &Connection, channel_epg_id: &str) -> Result<Optio
     Ok(program)
 }
 
+/// Current and next programme title for one channel.
+#[derive(Debug, Clone, Serialize)]
+pub struct ChannelEpg {
+    pub current: Option<String>,
+    pub next: Option<String>,
+}
+
+/// Look up current and next programme for many channels in one go.
+///
+/// Both statements are index-backed (`idx_channel_time`), so the cost is one
+/// connection checkout plus two point lookups per id instead of one IPC round
+/// trip per channel. Channels with neither a current nor a next programme are
+/// left out of the map.
+pub fn get_programs_for_channels(
+    conn: &Connection,
+    epg_ids: &[String],
+) -> Result<HashMap<String, ChannelEpg>> {
+    let now = Utc::now().to_rfc3339();
+
+    let mut current_stmt = conn.prepare_cached(
+        "SELECT title FROM epg_programs
+         WHERE channel_epg_id = ?1 AND start_time <= ?2 AND end_time > ?2
+         ORDER BY start_time DESC
+         LIMIT 1",
+    )?;
+    let mut next_stmt = conn.prepare_cached(
+        "SELECT title FROM epg_programs
+         WHERE channel_epg_id = ?1 AND start_time > ?2
+         ORDER BY start_time ASC
+         LIMIT 1",
+    )?;
+
+    let mut result = HashMap::with_capacity(epg_ids.len());
+    for id in epg_ids {
+        if result.contains_key(id) {
+            continue;
+        }
+        let current: Option<String> = current_stmt
+            .query_row(rusqlite::params![id, now], |row| row.get(0))
+            .optional()?;
+        let next: Option<String> = next_stmt
+            .query_row(rusqlite::params![id, now], |row| row.get(0))
+            .optional()?;
+        if current.is_some() || next.is_some() {
+            result.insert(id.clone(), ChannelEpg { current, next });
+        }
+    }
+
+    Ok(result)
+}
+
 // Builder struct for constructing programs
 struct EpgProgramBuilder {
     channel_id: String,
@@ -451,5 +503,36 @@ mod tests {
         assert_eq!(p.category.as_deref(), Some("News"));
         assert_eq!(p.start_time.to_rfc3339(), "2026-09-02T18:00:00+00:00");
         assert_eq!(p.end_time.to_rfc3339(), "2026-09-02T18:30:00+00:00");
+    }
+
+    #[test]
+    fn batch_lookup_returns_one_entry_per_channel_with_data() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+        store_epg_programs(
+            &conn,
+            &[
+                programme("svt1.se", "Rapport", now - Duration::minutes(10), 30),
+                programme("svt1.se", "Aktuellt", now + Duration::minutes(20), 30),
+                programme("tv4.se", "Nyheterna", now + Duration::hours(1), 30),
+            ],
+        )
+        .unwrap();
+
+        let ids = vec![
+            "svt1.se".to_string(),
+            "tv4.se".to_string(),
+            "svt1.se".to_string(), // duplicate ids are fine
+            "unknown".to_string(),
+        ];
+        let result = get_programs_for_channels(&conn, &ids).unwrap();
+
+        assert_eq!(result.len(), 2, "channels without any programme are omitted");
+        let svt1 = &result["svt1.se"];
+        assert_eq!(svt1.current.as_deref(), Some("Rapport"));
+        assert_eq!(svt1.next.as_deref(), Some("Aktuellt"));
+        let tv4 = &result["tv4.se"];
+        assert_eq!(tv4.current, None);
+        assert_eq!(tv4.next.as_deref(), Some("Nyheterna"));
     }
 }
