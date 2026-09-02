@@ -185,6 +185,10 @@ struct XtreamStream {
     #[serde(alias = "cover")]
     stream_icon: Option<String>,
     category_id: Option<String>,
+    // Provider-side EPG channel id, matching the ids in the provider's
+    // xmltv.php feed. Fallback for names the Swedish heuristic does not cover.
+    #[serde(default, deserialize_with = "de_lenient_opt_string")]
+    epg_channel_id: Option<String>,
     #[serde(rename = "type")]
     stream_type: Option<String>,
 }
@@ -430,9 +434,11 @@ fn convert_streams_to_channels(
 
             let url = build_stream_url(creds, stream.stream_id, content_type);
 
-            // Generate EPG ID for live channels
+            // Generate EPG ID for live channels. The Swedish name heuristic
+            // comes first so existing external-XMLTV setups keep matching;
+            // the provider id fills in every channel the heuristic skips.
             let epg_id = if content_type == "live" {
-                generate_epg_id_swedish(&stream.name)
+                generate_epg_id_swedish(&stream.name).or(stream.epg_channel_id)
             } else {
                 None
             };
@@ -632,5 +638,51 @@ mod lenient_scalar_tests {
         let json = r#"{"id":"1","episode_num":3000000000,"title":"t","container_extension":"mp4","season":1,"info":{}}"#;
         let err = serde_json::from_str::<Episode>(json).unwrap_err().to_string();
         assert!(err.contains("i32"), "unexpected error: {err}");
+    }
+}
+
+#[cfg(test)]
+mod epg_id_tests {
+    use super::{convert_streams_to_channels, XtreamCredentials, XtreamStream};
+    use std::collections::HashMap;
+
+    fn creds() -> XtreamCredentials {
+        XtreamCredentials {
+            server_url: "http://provider.test".to_string(),
+            username: "u".to_string(),
+            password: "p".to_string(),
+        }
+    }
+
+    fn convert(json: &str, content_type: &str) -> Option<String> {
+        let stream: XtreamStream = serde_json::from_str(json).unwrap();
+        let channels = convert_streams_to_channels(&creds(), vec![stream], content_type, &HashMap::new());
+        channels.into_iter().next().unwrap().epg_id
+    }
+
+    #[test]
+    fn swedish_name_heuristic_still_wins_over_provider_id() {
+        // Users pointing epg_url at an external Swedish XMLTV feed rely on these ids.
+        let json = r#"{"name":"SVT1 HD SE","stream_id":1,"epg_channel_id":"svt1.provider"}"#;
+        assert_eq!(convert(json, "live").as_deref(), Some("SVT1.se"));
+    }
+
+    #[test]
+    fn provider_id_is_used_when_the_heuristic_has_nothing() {
+        let json = r#"{"name":"BBC One","stream_id":2,"epg_channel_id":"bbc1.uk"}"#;
+        assert_eq!(convert(json, "live").as_deref(), Some("bbc1.uk"));
+    }
+
+    #[test]
+    fn empty_or_missing_provider_id_leaves_epg_id_unset() {
+        assert_eq!(convert(r#"{"name":"BBC One","stream_id":3,"epg_channel_id":""}"#, "live"), None);
+        assert_eq!(convert(r#"{"name":"BBC One","stream_id":4}"#, "live"), None);
+    }
+
+    #[test]
+    fn vod_and_series_never_get_an_epg_id() {
+        let json = r#"{"name":"Some Movie","stream_id":5,"epg_channel_id":"movie.id"}"#;
+        assert_eq!(convert(json, "vod"), None);
+        assert_eq!(convert(json, "series"), None);
     }
 }
