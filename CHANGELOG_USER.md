@@ -13,10 +13,6 @@ A simple overview of new features and improvements.
 - Channel cards update on their own after a refresh; the **Update Now** button in Settings still works
 - If the EPG address is broken, the app retries at most once an hour instead of every quarter hour
 
-**More Channels Get Program Info**
-- Fixed a bug where the EPG ids sent by Xtream providers were not always matched correctly, so some channels showed no current or next program
-- Refresh your playlist once (Settings → Profiles) to pick up the ids on an existing profile
-
 **Series in M3U Playlists**
 - Series from an M3U playlist now show up as one card per show. Browse opens seasons and episodes, and Play queues the rest of the season, just like Xtream
 - Episodes are recognised from names like `S01E02`, `1x02` or `Season 1 Episode 2`
@@ -30,6 +26,7 @@ A simple overview of new features and improvements.
 
 ### Fixes
 
+- EPG ids sent by Xtream providers were not always matched correctly, so some channels showed no current or next program. Refresh your playlist once (Settings → Profiles) to pick up the ids on an existing profile
 - The program guide database no longer grows with every refresh
 - The channel grid no longer keeps re-requesting program info in the background after a refresh
 - Clicking Browse on a series in an M3U playlist no longer does nothing
