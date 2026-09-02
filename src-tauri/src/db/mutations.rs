@@ -1,5 +1,5 @@
 use rusqlite::{Connection, Result, params};
-use log::debug;
+use log::{debug, warn};
 use std::time::Instant;
 use super::models::*;
 use crate::utils::generate_epg_id_swedish;
@@ -183,6 +183,8 @@ fn extract_stream_id_from_url(url: &str) -> Option<i64> {
 ///
 /// - If `match_by_stream_id` is true (Xtream), channels are matched by stream_id extracted from URL.
 /// - Otherwise (M3U), channels are matched by `(name, group_name)` with `name`-only fallback.
+/// - `content_type` is refreshed on matched rows too, so a channel that
+///   changes type between refreshes (e.g. live -> series) picks up the change.
 ///
 /// Returns counts of added, updated, and removed channels.
 pub fn merge_channels(
@@ -256,7 +258,7 @@ pub fn merge_channels(
 
     {
         let mut update_stmt = tx.prepare_cached(
-            "UPDATE channels SET url=?1, logo=?2, group_name=?3, epg_id=?4, tvg_name=?5, sort_order=?6, category_order=?7 WHERE id=?8",
+            "UPDATE channels SET url=?1, logo=?2, group_name=?3, epg_id=?4, tvg_name=?5, sort_order=?6, category_order=?7, content_type=?8 WHERE id=?9",
         )?;
 
         let mut insert_stmt = tx.prepare_cached(
@@ -291,6 +293,7 @@ pub fn merge_channels(
                     ch.tvg_name,
                     ch.sort_order,
                     ch.category_order,
+                    ch.content_type,
                     db_id,
                 ])?;
                 matched_ids.insert(db_id);
@@ -357,6 +360,67 @@ pub fn merge_channels(
         removed,
         total,
     })
+}
+
+/// Replace every M3U series episode of a playlist with the freshly parsed
+/// set. Episodes carry no user state, so a wholesale swap is safer than a
+/// merge. Groups are matched to series rows on `(name, group_name)`, the same
+/// key `merge_channels` uses for M3U rows. Returns the number written.
+pub fn replace_series_episodes(
+    conn: &Connection,
+    playlist_id: i64,
+    groups: &[SeriesGroup],
+) -> Result<usize> {
+    use std::collections::HashMap;
+
+    let tx = conn.unchecked_transaction()?;
+
+    tx.execute(
+        "DELETE FROM series_episodes
+         WHERE series_channel_id IN (SELECT id FROM channels WHERE playlist_id = ?1)",
+        params![playlist_id],
+    )?;
+
+    let mut lookup: HashMap<(String, String), i64> = HashMap::new();
+    {
+        let mut stmt = tx.prepare(
+            "SELECT id, name, group_name FROM channels
+             WHERE playlist_id = ?1 AND content_type = 'series'",
+        )?;
+        let rows = stmt.query_map(params![playlist_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (id, name, group) = row?;
+            lookup.insert((name, group.unwrap_or_default()), id);
+        }
+    }
+
+    let mut written = 0;
+    for group in groups {
+        let key = (
+            group.channel.name.clone(),
+            group.channel.group_name.clone().unwrap_or_default(),
+        );
+        match lookup.get(&key) {
+            Some(&series_id) => {
+                insert_series_episodes(&tx, series_id, &group.episodes)?;
+                written += group.episodes.len();
+            }
+            None => warn!(
+                "replace_series_episodes: no series row for '{}' in group '{}'",
+                key.0, key.1
+            ),
+        }
+    }
+
+    tx.commit()?;
+    debug!("replace_series_episodes: {} episodes for playlist {}", written, playlist_id);
+    Ok(written)
 }
 
 // ========== EPG Mutations ==========
@@ -700,5 +764,74 @@ mod tests {
     fn get_channel_by_id_returns_none_for_unknown() {
         let conn = setup_test_db();
         assert!(get_channel_by_id(&conn, 999).unwrap().is_none());
+    }
+
+    #[test]
+    fn merge_channels_updates_content_type_of_matched_row() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "M3U");
+        let live_id = create_test_channel(&conn, pid, "Dark");
+        conn.execute("UPDATE channels SET group_name = 'Series' WHERE id = ?1", params![live_id]).unwrap();
+
+        let fresh = series_group(pid, "Dark", "Series", &[(1, 1)]).channel;
+        let result = merge_channels(&conn, pid, &[fresh], false).unwrap();
+
+        assert_eq!((result.added, result.updated, result.removed), (0, 1, 0));
+        let row = get_channel_by_id(&conn, live_id).unwrap().unwrap();
+        assert_eq!(row.content_type, "series");
+    }
+
+    #[test]
+    fn replace_series_episodes_swaps_episode_set_and_keeps_favourite() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "M3U");
+        insert_series_groups(&conn, pid, &[series_group(pid, "Dark", "Series", &[(1, 1), (1, 2)])]).unwrap();
+        let series_id = get_channels(&conn, Some(pid)).unwrap()[0].id.unwrap();
+        toggle_favorite(&conn, series_id).unwrap();
+
+        // Provider now lists S01E02 and a new S01E03; S01E01 is gone.
+        let fresh = series_group(pid, "Dark", "Series", &[(1, 2), (1, 3)]);
+        let merged = merge_channels(&conn, pid, &[fresh.channel.clone()], false).unwrap();
+        assert_eq!((merged.added, merged.updated, merged.removed), (0, 1, 0));
+
+        let written = replace_series_episodes(&conn, pid, &[fresh]).unwrap();
+        assert_eq!(written, 2);
+
+        let channels = get_channels(&conn, Some(pid)).unwrap();
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].id, Some(series_id), "series row survives merge");
+        assert!(channels[0].is_favorite);
+
+        let episodes = get_series_episodes(&conn, series_id).unwrap();
+        assert_eq!(
+            episodes.iter().map(|e| e.episode).collect::<Vec<_>>(),
+            vec![2, 3]
+        );
+    }
+
+    #[test]
+    fn replace_series_episodes_skips_group_without_series_row() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "M3U");
+
+        let written = replace_series_episodes(&conn, pid, &[series_group(pid, "Ghost", "Series", &[(1, 1)])]).unwrap();
+
+        assert_eq!(written, 0);
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM series_episodes", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn replace_series_episodes_only_touches_the_given_playlist() {
+        let conn = setup_test_db();
+        let a = create_test_playlist(&conn, "A");
+        let b = create_test_playlist(&conn, "B");
+        insert_series_groups(&conn, a, &[series_group(a, "Dark", "Series", &[(1, 1)])]).unwrap();
+        insert_series_groups(&conn, b, &[series_group(b, "Dark", "Series", &[(1, 1), (1, 2)])]).unwrap();
+        let b_series = get_channels(&conn, Some(b)).unwrap()[0].id.unwrap();
+
+        replace_series_episodes(&conn, a, &[series_group(a, "Dark", "Series", &[(2, 1)])]).unwrap();
+
+        assert_eq!(get_series_episodes(&conn, b_series).unwrap().len(), 2);
     }
 }
