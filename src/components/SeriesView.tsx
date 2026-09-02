@@ -1,16 +1,12 @@
 import { useState, useEffect } from 'react';
 import { usePlayerStore } from '../stores/player-store';
-import { getSeriesInfo } from '../lib/tauri';
 import { ChevronLeft, Play } from 'lucide-react';
-import type { Episode } from '../types';
+import type { Episode, SeriesInfo } from '../types';
 import { logger } from '../lib/logger';
 
 interface SeriesViewProps {
-  seriesId: number;
-  seriesName: string;
-  serverUrl: string;
-  username: string;
-  password: string;
+  /** Fetches the series. Must be memoised by the caller: it is an effect dependency. */
+  loadSeries: () => Promise<SeriesInfo>;
   onBack: () => void;
   onPlayEpisode: (
     episodeId: string,
@@ -20,44 +16,42 @@ interface SeriesViewProps {
   ) => void;
 }
 
-export default function SeriesView({
-  seriesId,
-  seriesName: _seriesName,
-  serverUrl,
-  username,
-  password,
-  onBack,
-  onPlayEpisode,
-}: SeriesViewProps) {
+export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: SeriesViewProps) {
   const { currentSeries, selectedSeason, setCurrentSeries, setSelectedSeason } = usePlayerStore();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    let cancelled = false;
+
     async function loadSeriesInfo() {
       try {
         setIsLoading(true);
-        const info = await getSeriesInfo(serverUrl, username, password, seriesId);
+        setError('');
+        const info = await loadSeries();
+        if (cancelled) return;
         setCurrentSeries(info);
         // Auto-select first season
         if (info.seasons.length > 0) {
           setSelectedSeason(info.seasons[0].season_number);
         }
       } catch (err) {
+        if (cancelled) return;
         logger.error('Failed to load series info:', err);
         setError(err instanceof Error ? err.message : 'Failed to load series');
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     }
 
     loadSeriesInfo();
 
     return () => {
+      cancelled = true;
       setCurrentSeries(null);
       setSelectedSeason(null);
     };
-  }, [seriesId, serverUrl, username, password, setCurrentSeries, setSelectedSeason]);
+  }, [loadSeries, setCurrentSeries, setSelectedSeason]);
 
   if (isLoading) {
     return (

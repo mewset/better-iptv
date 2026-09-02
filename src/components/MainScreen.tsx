@@ -1,7 +1,13 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { usePlayerStore } from '../stores/player-store';
-import { getChannelGroups, getStalePlaylistIds, getChannels } from '../lib/tauri';
+import {
+  getChannelGroups,
+  getStalePlaylistIds,
+  getChannels,
+  getSeriesInfo,
+  getLocalSeriesInfo,
+} from '../lib/tauri';
 import { CategoryBar } from './CategoryBar';
 import { ChannelCard } from './ChannelCard';
 import { SearchBar } from './SearchBar';
@@ -13,7 +19,7 @@ import SettingsModal from './Settings';
 import PinEntryModal from './modals/PinEntryModal';
 import ConfirmationModal from './modals/ConfirmationModal';
 import RefreshModal from './modals/RefreshModal';
-import type { Channel } from '../types';
+import type { Channel, SeriesInfo } from '../types';
 import { logger } from '../lib/logger';
 import { useResponsiveGrid, getGridClasses } from '../hooks/useResponsiveGrid';
 import { useEpgData } from '../hooks/useEpgData';
@@ -22,6 +28,13 @@ import { useChannelPlayback } from '../hooks/useChannelPlayback';
 import { shouldBlockChannel } from '../lib/parentalControls';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useChannelFilter } from '../hooks/useChannelFilter';
+
+/** Xtream series URLs end in `/SERIES_ID.ext`; returns null when that is not the case. */
+function parseXtreamSeriesId(url: string): number | null {
+  const last = url.split('/').pop() ?? '';
+  const id = parseInt(last.replace(/\.\w+$/, ''), 10);
+  return Number.isNaN(id) ? null : id;
+}
 
 export default function MainScreen() {
   // Channel data
@@ -47,6 +60,7 @@ export default function MainScreen() {
     play: playChannelAction,
     stop: stopPlaybackAction,
     playEpisode: playEpisodeAction,
+    playLocalEpisodes: playLocalEpisodesAction,
   } = useChannelPlayback();
   const currentPlaylist = usePlayerStore((s) => s.currentPlaylist);
   const setChannels = usePlayerStore((s) => s.setChannels);
@@ -201,13 +215,39 @@ export default function MainScreen() {
     ) => {
       if (!currentPlaylist) return;
       try {
-        await playEpisodeAction(episodeId, extension, title, currentPlaylist, remainingEpisodes);
+        if (currentPlaylist.url && currentPlaylist.xtream_username && currentPlaylist.xtream_password) {
+          await playEpisodeAction(episodeId, extension, title, currentPlaylist, remainingEpisodes);
+        } else {
+          const ids = (remainingEpisodes && remainingEpisodes.length > 0
+            ? remainingEpisodes.map((ep) => ep.id)
+            : [episodeId]
+          ).map(Number);
+          await playLocalEpisodesAction(ids, title);
+        }
       } catch (err) {
         logger.error('Failed to play episode:', err);
       }
     },
-    [currentPlaylist, playEpisodeAction]
+    [currentPlaylist, playEpisodeAction, playLocalEpisodesAction]
   );
+
+  // Xtream profiles fetch the series from the provider; M3U profiles read
+  // the episodes grouped at import. Memoised: SeriesView re-loads when it changes.
+  const loadSeries = useCallback(async (): Promise<SeriesInfo> => {
+    if (!selectedSeries) throw new Error('No series selected');
+    const url = currentPlaylist?.url;
+    const username = currentPlaylist?.xtream_username;
+    const password = currentPlaylist?.xtream_password;
+    if (url && username && password) {
+      const seriesId = parseXtreamSeriesId(selectedSeries.url);
+      if (seriesId === null) {
+        logger.error('Failed to parse series ID from URL:', selectedSeries.url);
+        throw new Error('Failed to load series: Invalid URL format');
+      }
+      return getSeriesInfo(url, username, password, seriesId);
+    }
+    return getLocalSeriesInfo(selectedSeries.id);
+  }, [selectedSeries, currentPlaylist]);
 
   const handlePinSuccess = useCallback(() => {
     setShowPinModal(false);
@@ -226,43 +266,12 @@ export default function MainScreen() {
     await stopPlaybackAction();
   }, [stopPlaybackAction]);
 
-  // If a series is selected, show the SeriesView
-  if (
-    selectedSeries &&
-    currentPlaylist?.url &&
-    currentPlaylist.xtream_username &&
-    currentPlaylist.xtream_password
-  ) {
-    // Extract series ID from the URL (format: /series/user/pass/SERIES_ID.mp4)
-    const urlParts = selectedSeries.url?.split('/');
-    const seriesIdWithExt = urlParts?.[urlParts.length - 1];
-    const seriesId = seriesIdWithExt ? parseInt(seriesIdWithExt.replace(/\.\w+$/, ''), 10) : NaN;
-
-    // Handle invalid series ID
-    if (isNaN(seriesId)) {
-      logger.error('Failed to parse series ID from URL:', selectedSeries.url);
-      return (
-        <div className="flex h-screen items-center justify-center bg-gray-900">
-          <div className="text-center">
-            <p className="mb-4 text-red-400">Failed to load series: Invalid URL format</p>
-            <button
-              onClick={() => setSelectedSeries(null)}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-            >
-              Go Back
-            </button>
-          </div>
-        </div>
-      );
-    }
-
+  // If a series is selected, show the SeriesView. Its own error screen covers
+  // an unparsable Xtream URL, so the dedicated fallback is gone.
+  if (selectedSeries) {
     return (
       <SeriesView
-        seriesId={seriesId}
-        seriesName={selectedSeries.name}
-        serverUrl={currentPlaylist.url}
-        username={currentPlaylist.xtream_username}
-        password={currentPlaylist.xtream_password}
+        loadSeries={loadSeries}
         onBack={() => setSelectedSeries(null)}
         onPlayEpisode={handlePlayEpisode}
       />

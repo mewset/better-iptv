@@ -6,6 +6,7 @@ import {
   isPlaying as checkIsPlaying,
   getChannelEpg,
   playEpisodeWithSeason,
+  playSeriesEpisodes,
 } from '../lib/tauri';
 import { logger } from '../lib/logger';
 import type { Channel, Playlist } from '../types';
@@ -43,6 +44,8 @@ interface UseChannelPlaybackResult {
     playlist: Playlist,
     remainingEpisodes?: PlaylistEpisode[]
   ) => Promise<void>;
+  /** Play stored M3U episodes by database id, in the order given */
+  playLocalEpisodes: (episodeIds: number[], title: string) => Promise<void>;
 }
 
 /**
@@ -212,6 +215,31 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
     [setCurrentChannel, setIsPlaying]
   );
 
+  // Play stored M3U episodes (grouped at import) by database id
+  const playLocalEpisodes = useCallback(
+    async (episodeIds: number[], title: string) => {
+      try {
+        await playSeriesEpisodes(episodeIds);
+        setCurrentChannel({
+          id: -1, // Virtual channel: the row ids belong to series_episodes, not channels
+          playlist_id: 0,
+          name: title,
+          url: '',
+          content_type: 'series',
+          is_favorite: false,
+          sort_order: 0,
+        });
+        setIsPlaying(true);
+        setCurrentProgram(null);
+        setNextProgram(null);
+      } catch (err) {
+        logger.error('Failed to play local episodes:', err);
+        throw err;
+      }
+    },
+    [setCurrentChannel, setIsPlaying, setCurrentProgram, setNextProgram]
+  );
+
   return {
     currentChannel,
     isPlaying,
@@ -220,5 +248,6 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
     play,
     stop,
     playEpisode,
+    playLocalEpisodes,
   };
 }
