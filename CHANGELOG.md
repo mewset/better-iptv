@@ -21,6 +21,15 @@ This file is a developer-changelog, aimed towards development changes.
   - Used when the Swedish name heuristic (`" SE"` suffix) yields nothing, so existing external-XMLTV setups keep matching
   - Existing profiles pick up the ids on their next playlist refresh via `merge_channels`
 
+- **M3U series browsing** - Series in M3U playlists get the same Browse → seasons → episodes flow as Xtream
+  - `series_domain::parse_episode_name` recognises `S01E02`, `1x02` and `Season 1 Episode 2` markers; `group_series` collapses episode rows into one `channels` row per `(group, series name)`
+  - New `series_episodes` table (cascade on channel delete) holds season, episode, title and URL per row; `SeriesEpisode` model
+  - New commands `get_local_series_info(channel_id)` and `play_series_episodes(episode_ids)`; the latter queues URLs from the database, never from the frontend
+  - `SeriesView` takes a `loadSeries` callback instead of Xtream credentials; `MainScreen` picks the loader by profile type
+  - Rows in a series group with no episode marker (iptv-org's "Series" category, "Game Show Network") are reclassified as `live`
+  - One-time startup migration (`migrate_m3u_series`, settings key `m3u_series_grouped`) converts existing M3U profiles; a favourite on any episode row moves to the series
+  - `merge_channels` now also refreshes `content_type` on matched rows; M3U refresh replaces the episode set via `replace_series_episodes`
+
 ### Changed
 
 - **Database work off the async runtime** - `commands::with_db` runs every rusqlite call on `tokio::task::spawn_blocking`
@@ -42,6 +51,8 @@ This file is a developer-changelog, aimed towards development changes.
 - **Endless forced EPG refetch in the channel grid** - The manual-refresh effect in `useEpgData` re-fired on every completed fetch once the refresh trigger was non-zero; it now acts once per trigger
 
 - **Saving an EPG URL did not record the fetch time** - `fetch_epg_data` now stamps `epg_last_fetched`, so the background task does not re-download right after a manual fetch
+
+- **Series click on M3U profiles was a silent no-op** - `MainScreen` only rendered `SeriesView` for Xtream credentials and logged nothing otherwise
 
 ## [2.7.0] - 2026-08-31
 

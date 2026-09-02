@@ -36,7 +36,7 @@ Better IPTV is a desktop IPTV player that combines the performance of Rust with 
 ### 🎬 Content Library
 - **Live TV** - Stream live channels with real-time Electronic Program Guide (EPG)
 - **Movies (VOD)** - Browse and watch on-demand movies
-- **TV Series** - Season/episode organization with automatic episode queuing
+- **TV Series** - Season/episode organization with automatic episode queuing, for Xtream and M3U playlists
 - **Smart Search** - Instant filtering across all content types
 - **Virtual Scrolling** - Smooth performance even on 150,000-channel playlists
 
@@ -143,6 +143,8 @@ On first launch you get two tabs, **M3U URL** and **Xtream Codes**.
 - Click a channel — anywhere on the card — and MPV opens in a separate window
 
 **Series:** Select a series → choose season → click Play on any episode. Remaining episodes auto-queue.
+
+**M3U series:** Episodes are grouped by name. Rows like `Show S01E02`, `Show 1x02` or `Show Season 1 Episode 2` become one series card; rows without such a marker are treated as live channels.
 
 **Favorites:** Hover over any channel card and click the star to add or remove.
 

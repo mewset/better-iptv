@@ -16,6 +16,11 @@ A simple overview of new features and improvements.
 - Xtream playlists now use the EPG ids your provider sends, so channels outside Sweden show current and next program too
 - Refresh your playlist once (Settings → Profiles) to pick up the ids on an existing profile
 
+**Series in M3U Playlists**
+- Series from an M3U playlist now show up as one card per show. Browse opens seasons and episodes, and Play queues the rest of the season, just like Xtream
+- Episodes are recognised from names like `S01E02`, `1x02` or `Season 1 Episode 2`
+- Existing playlists are converted the first time you start the app; a favourite on an episode moves to the show
+
 ### Improvements
 
 - The app stays responsive while a large playlist imports or refreshes, and while MPV shuts down
@@ -26,6 +31,8 @@ A simple overview of new features and improvements.
 
 - The program guide database no longer grows with every refresh
 - The channel grid no longer keeps re-requesting program info in the background after a refresh
+- Clicking Browse on a series in an M3U playlist no longer does nothing
+- Channels that were only filed under a "Series" category, but are ordinary channels, now show under Live TV with a Play button
 
 ## Version 2.7.0 (August 31, 2026)
 
