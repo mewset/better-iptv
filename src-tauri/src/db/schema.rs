@@ -200,8 +200,10 @@ pub const M3U_SERIES_GROUPED_KEY: &str = "m3u_series_grouped";
 
 /// Before 2.8.0 every M3U series episode was its own `channels` row. Collapse
 /// them into one row per series plus `series_episodes`, and turn rows in a
-/// series group that are not episodes into live channels. Runs once; each
-/// playlist is converted in its own transaction.
+/// series group that are not episodes into live channels. Runs once, as a
+/// single all-or-nothing transaction across every playlist: either every
+/// playlist is migrated and the guard is set, or nothing changes and the
+/// guard stays unset so the next startup retries cleanly.
 pub fn migrate_m3u_series(conn: &Connection) -> Result<()> {
     if crate::db::queries::get_setting(conn, M3U_SERIES_GROUPED_KEY)?.is_some() {
         return Ok(());
@@ -212,8 +214,10 @@ pub fn migrate_m3u_series(conn: &Connection) -> Result<()> {
         .query_map([], |row| row.get(0))?
         .collect::<Result<Vec<_>>>()?;
 
+    let tx = conn.unchecked_transaction()?;
+
     for playlist_id in playlist_ids {
-        let rows: Vec<_> = crate::db::queries::get_channels(conn, Some(playlist_id))?
+        let rows: Vec<_> = crate::db::queries::get_channels(&tx, Some(playlist_id))?
             .into_iter()
             .filter(|c| c.content_type == "series")
             .collect();
@@ -221,7 +225,6 @@ pub fn migrate_m3u_series(conn: &Connection) -> Result<()> {
             continue;
         }
 
-        let tx = conn.unchecked_transaction()?;
         let grouped = crate::series_domain::group_series(rows);
 
         let mut reclassified = 0;
@@ -241,7 +244,6 @@ pub fn migrate_m3u_series(conn: &Connection) -> Result<()> {
             }
         }
         let episodes = crate::db::mutations::insert_series_groups(&tx, playlist_id, &grouped.series)?;
-        tx.commit()?;
 
         log::info!(
             "Migration: playlist {} grouped into {} series ({} episodes), {} rows reclassified as live",
@@ -252,7 +254,8 @@ pub fn migrate_m3u_series(conn: &Connection) -> Result<()> {
         );
     }
 
-    crate::db::mutations::set_setting(conn, M3U_SERIES_GROUPED_KEY, "1")?;
+    crate::db::mutations::set_setting(&tx, M3U_SERIES_GROUPED_KEY, "1")?;
+    tx.commit()?;
     Ok(())
 }
 
