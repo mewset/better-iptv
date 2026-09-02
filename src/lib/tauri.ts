@@ -116,6 +116,16 @@ export async function playEpisodeWithSeason(
   });
 }
 
+/** Seasons and episodes of an M3U series (grouped at import, stored locally). */
+export async function getLocalSeriesInfo(channelId: number): Promise<SeriesInfo> {
+  return await invoke('get_local_series_info', { channelId });
+}
+
+/** Queue stored M3U episodes in MPV, in the order given. */
+export async function playSeriesEpisodes(episodeIds: number[]): Promise<void> {
+  return await invoke('play_series_episodes', { episodeIds });
+}
+
 // ========== Settings Commands ==========
 
 export async function getSetting(key: string): Promise<string | null> {
