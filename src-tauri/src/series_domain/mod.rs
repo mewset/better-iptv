@@ -5,11 +5,12 @@
 //! Database operations remain in the commands layer.
 
 use crate::error::AppError;
-use crate::db::models::Channel;
+use crate::db::models::{Channel, SeriesEpisode};
+use crate::playlist::{Episode, EpisodeInfo, Season, SeriesInfo, SeriesMetadata};
 use serde::{Deserialize, Serialize};
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap};
 
 /// Episode data recovered from an M3U row name such as `Breaking Bad S01 E02 - Pilot`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,6 +199,94 @@ pub fn group_series(channels: Vec<Channel>) -> GroupedChannels {
     }
 
     GroupedChannels { plain, series }
+}
+
+/// File extension of a URL's last path segment, lower-cased, without query
+/// string. Empty when the segment has no dot.
+fn url_extension(url: &str) -> String {
+    let path = url.split(['?', '#']).next().unwrap_or("");
+    let last = path.rsplit('/').next().unwrap_or("");
+    match last.rfind('.') {
+        Some(i) if i + 1 < last.len() => last[i + 1..].to_lowercase(),
+        _ => String::new(),
+    }
+}
+
+/// Shape stored M3U episodes like the Xtream `get_series_info` response so
+/// the same `SeriesView` renders both.
+pub fn build_series_info(channel: &Channel, episodes: &[SeriesEpisode]) -> SeriesInfo {
+    let mut by_season: BTreeMap<i32, Vec<Episode>> = BTreeMap::new();
+    for ep in episodes {
+        by_season.entry(ep.season).or_default().push(Episode {
+            id: ep.id.to_string(),
+            episode_num: ep.episode,
+            title: ep.title.clone(),
+            container_extension: url_extension(&ep.url),
+            season: ep.season,
+            info: EpisodeInfo {
+                plot: None,
+                movie_image: ep.logo.clone(),
+                release_date: None,
+                duration: None,
+                rating: None,
+            },
+        });
+    }
+
+    let seasons = by_season
+        .iter()
+        .map(|(number, eps)| Season {
+            id: number.to_string(),
+            name: format!("Season {}", number),
+            season_number: number.to_string(),
+            episode_count: eps.len() as i32,
+            air_date: None,
+            overview: None,
+            cover: None,
+        })
+        .collect();
+
+    let episodes = by_season
+        .into_iter()
+        .map(|(number, eps)| (number.to_string(), eps))
+        .collect();
+
+    SeriesInfo {
+        seasons,
+        info: SeriesMetadata {
+            name: channel.name.clone(),
+            cover: channel.logo.clone(),
+            plot: None,
+            cast: None,
+            director: None,
+            genre: None,
+            release_date: None,
+            rating: None,
+            backdrop_path: None,
+        },
+        episodes,
+    }
+}
+
+/// Arrange fetched episode rows in the order the caller asked for.
+///
+/// # Errors
+/// `InvalidInput` when `ids` is empty or names an id that is not in `rows`.
+pub fn order_episodes_by_ids(
+    rows: Vec<SeriesEpisode>,
+    ids: &[i64],
+) -> Result<Vec<SeriesEpisode>, AppError> {
+    if ids.is_empty() {
+        return Err(AppError::InvalidInput("No episodes provided".to_string()));
+    }
+    let mut by_id: HashMap<i64, SeriesEpisode> = rows.into_iter().map(|r| (r.id, r)).collect();
+    ids.iter()
+        .map(|id| {
+            by_id
+                .remove(id)
+                .ok_or_else(|| AppError::InvalidInput(format!("Unknown episode id {}", id)))
+        })
+        .collect()
 }
 
 /// Episode data for playlist playback
@@ -709,5 +798,86 @@ mod tests {
     fn plain_rows_keep_their_ids() {
         let g = group_series(vec![row(Some(5), "Comedy Central", "Series", "series", 0)]);
         assert_eq!(g.plain[0].id, Some(5));
+    }
+
+    // ========== build_series_info ==========
+
+    fn stored(id: i64, season: i32, episode: i32, url: &str) -> SeriesEpisode {
+        SeriesEpisode {
+            id,
+            series_channel_id: 1,
+            season,
+            episode,
+            title: format!("Ep {}", id),
+            url: url.to_string(),
+            logo: Some(format!("http://logo/{}.png", id)),
+        }
+    }
+
+    #[test]
+    fn build_series_info_maps_rows_to_seasons_and_episodes() {
+        let mut channel = row(Some(1), "Dark", "Series", "series", 0);
+        channel.logo = Some("http://logo/cover.png".to_string());
+        let rows = vec![
+            stored(10, 1, 1, "http://host/a.mkv"),
+            stored(11, 1, 2, "http://host/b.MP4?token=x"),
+            stored(12, 2, 1, "http://host/c"),
+        ];
+
+        let info = build_series_info(&channel, &rows);
+
+        assert_eq!(info.info.name, "Dark");
+        assert_eq!(info.info.cover.as_deref(), Some("http://logo/cover.png"));
+        assert!(info.info.plot.is_none());
+
+        assert_eq!(info.seasons.len(), 2);
+        assert_eq!(info.seasons[0].season_number, "1");
+        assert_eq!(info.seasons[0].name, "Season 1");
+        assert_eq!(info.seasons[0].episode_count, 2);
+        assert_eq!(info.seasons[1].id, "2");
+
+        let s1 = &info.episodes["1"];
+        assert_eq!(s1.len(), 2);
+        assert_eq!(s1[0].id, "10");
+        assert_eq!(s1[0].episode_num, 1);
+        assert_eq!(s1[0].season, 1);
+        assert_eq!(s1[0].container_extension, "mkv");
+        assert_eq!(s1[0].info.movie_image.as_deref(), Some("http://logo/10.png"));
+        assert_eq!(s1[1].container_extension, "mp4", "lower-cased, query string dropped");
+
+        let s2 = &info.episodes["2"];
+        assert_eq!(s2[0].container_extension, "", "no extension in URL");
+    }
+
+    #[test]
+    fn build_series_info_with_no_episodes_has_no_seasons() {
+        let channel = row(Some(1), "Dark", "Series", "series", 0);
+        let info = build_series_info(&channel, &[]);
+        assert!(info.seasons.is_empty());
+        assert!(info.episodes.is_empty());
+    }
+
+    // ========== order_episodes_by_ids ==========
+
+    #[test]
+    fn order_episodes_by_ids_follows_requested_order() {
+        let rows = vec![stored(1, 1, 1, "a"), stored(2, 1, 2, "b"), stored(3, 1, 3, "c")];
+        let ordered = order_episodes_by_ids(rows, &[3, 1]).unwrap();
+        assert_eq!(ordered.iter().map(|e| e.id).collect::<Vec<_>>(), vec![3, 1]);
+    }
+
+    #[test]
+    fn order_episodes_by_ids_rejects_empty() {
+        assert!(matches!(order_episodes_by_ids(vec![], &[]), Err(AppError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn order_episodes_by_ids_rejects_unknown_id() {
+        let rows = vec![stored(1, 1, 1, "a")];
+        let err = order_episodes_by_ids(rows, &[1, 42]).unwrap_err();
+        match err {
+            AppError::InvalidInput(msg) => assert!(msg.contains("42"), "{}", msg),
+            other => panic!("expected InvalidInput, got {:?}", other),
+        }
     }
 }
