@@ -2,7 +2,10 @@ use crate::commands::with_db;
 use crate::error::AppError;
 use crate::epg::ChannelEpg;
 use crate::epg_domain;
-use crate::epg_domain::{epg_refresh_due, EPG_AUTO_REFRESH_INTERVAL_HOURS};
+use crate::epg_domain::{
+    epg_refresh_due, epg_retry_allowed, EPG_AUTO_REFRESH_INTERVAL_HOURS,
+    EPG_AUTO_REFRESH_RETRY_MINUTES,
+};
 use crate::playlist::{get_xtream_epg_url, XtreamCredentials};
 use crate::state::AppState;
 use crate::db::queries;
@@ -259,7 +262,9 @@ pub const EPG_AUTO_REFRESH_POLL_INTERVAL: Duration = Duration::from_secs(15 * 60
 
 /// Background entry point: refresh EPG when an `epg_url` is set and the last
 /// fetch is older than `EPG_AUTO_REFRESH_INTERVAL_HOURS`. Never fails; every
-/// problem is logged and retried at the next poll.
+/// problem is logged. Attempts are spaced at least
+/// `EPG_AUTO_REFRESH_RETRY_MINUTES` apart via the `epg_last_attempt` setting,
+/// so a broken URL is not re-downloaded at every poll.
 pub async fn maybe_auto_refresh_epg(app: &AppHandle) {
     let state = app.state::<AppState>();
 
@@ -272,7 +277,10 @@ pub async fn maybe_auto_refresh_epg(app: &AppHandle) {
     };
 
     let settings = with_db(&state.pool, |conn| {
-        Ok(queries::get_multiple_settings(conn, &["epg_url", "epg_last_fetched"])?)
+        Ok(queries::get_multiple_settings(
+            conn,
+            &["epg_url", "epg_last_fetched", "epg_last_attempt"],
+        )?)
     })
     .await;
 
@@ -292,8 +300,30 @@ pub async fn maybe_auto_refresh_epg(app: &AppHandle) {
         return;
     }
 
+    let now = chrono::Utc::now();
     let last_fetched = settings.get("epg_last_fetched").map(|s| s.as_str());
-    if !epg_refresh_due(last_fetched, chrono::Utc::now(), EPG_AUTO_REFRESH_INTERVAL_HOURS) {
+    if !epg_refresh_due(last_fetched, now, EPG_AUTO_REFRESH_INTERVAL_HOURS) {
+        return;
+    }
+
+    // A broken URL must not be re-downloaded at every poll: space attempts out
+    // whether or not the previous one succeeded.
+    let last_attempt = settings.get("epg_last_attempt").map(|s| s.as_str());
+    if !epg_retry_allowed(last_attempt, now, EPG_AUTO_REFRESH_RETRY_MINUTES) {
+        debug!(
+            "EPG auto-refresh: last attempt {:?} is too recent, waiting",
+            last_attempt
+        );
+        return;
+    }
+
+    let stamp = now.to_rfc3339();
+    let stamped = with_db(&state.pool, move |conn| {
+        Ok(crate::db::mutations::set_setting(conn, "epg_last_attempt", &stamp)?)
+    })
+    .await;
+    if let Err(e) = stamped {
+        warn!("EPG auto-refresh: could not record attempt time: {}", e);
         return;
     }
 

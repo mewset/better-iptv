@@ -102,6 +102,21 @@ pub fn epg_refresh_due(last_fetched: Option<&str>, now: DateTime<Utc>, interval_
     }
 }
 
+/// Minimum spacing between automatic refresh attempts, so a broken EPG URL is
+/// not re-downloaded at every poll.
+pub const EPG_AUTO_REFRESH_RETRY_MINUTES: i64 = 60;
+
+/// Decide whether the background task may attempt a refresh now, given the
+/// time of its previous attempt (the `epg_last_attempt` setting, stamped
+/// whether or not that attempt succeeded). A missing or unreadable value
+/// counts as "never attempted".
+pub fn epg_retry_allowed(last_attempt: Option<&str>, now: DateTime<Utc>, retry_minutes: i64) -> bool {
+    match last_attempt.and_then(|s| DateTime::parse_from_rfc3339(s).ok()) {
+        Some(last) => now - last.with_timezone(&Utc) >= chrono::Duration::minutes(retry_minutes),
+        None => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,6 +226,40 @@ mod tests {
             let now = Utc::now();
             assert!(!epg_refresh_due(Some("2026-03-15T15:03:20.435045575+00:00"), now, 24 * 365 * 10));
             assert!(epg_refresh_due(Some("2026-03-15T15:03:20.435045575+00:00"), now, 6));
+        }
+    }
+
+    mod retry_allowed {
+        use super::super::{epg_retry_allowed, EPG_AUTO_REFRESH_RETRY_MINUTES};
+        use chrono::{Duration, Utc};
+
+        #[test]
+        fn never_attempted_is_allowed() {
+            assert!(epg_retry_allowed(None, Utc::now(), EPG_AUTO_REFRESH_RETRY_MINUTES));
+        }
+
+        #[test]
+        fn unparsable_timestamp_is_allowed() {
+            assert!(epg_retry_allowed(Some("yesterday"), Utc::now(), EPG_AUTO_REFRESH_RETRY_MINUTES));
+        }
+
+        #[test]
+        fn recent_attempt_blocks_retry() {
+            let now = Utc::now();
+            let last = (now - Duration::minutes(10)).to_rfc3339();
+            assert!(!epg_retry_allowed(Some(&last), now, 60));
+        }
+
+        #[test]
+        fn attempt_older_than_retry_window_is_allowed() {
+            let now = Utc::now();
+            let last = (now - Duration::minutes(61)).to_rfc3339();
+            assert!(epg_retry_allowed(Some(&last), now, 60));
+        }
+
+        #[test]
+        fn retry_window_is_one_hour() {
+            assert_eq!(EPG_AUTO_REFRESH_RETRY_MINUTES, 60);
         }
     }
 }

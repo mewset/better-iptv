@@ -11,6 +11,7 @@ A simple overview of new features and improvements.
 **EPG Updates Itself**
 - The program guide now refreshes automatically every six hours while the app is running
 - Channel cards update on their own after a refresh; the **Update Now** button in Settings still works
+- If the EPG address is broken, the app retries at most once an hour instead of every quarter hour
 
 **More Channels Get Program Info**
 - Xtream playlists now use the EPG ids your provider sends, so channels outside Sweden show current and next program too

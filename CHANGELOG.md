@@ -16,6 +16,7 @@ This file is a developer-changelog, aimed towards development changes.
   - Reuses the force-refresh path and emits `epg-refreshed`; the frontend clears its EPG cache and refetches
   - `epg_domain::epg_refresh_due` is the pure decision function
   - Manual (Update Now, URL save) and automatic refreshes are serialised; the background task skips its check while another refresh is running
+  - Attempts are spaced at least one hour apart via a new `epg_last_attempt` setting (`epg_domain::epg_retry_allowed`), so a broken EPG URL is not re-downloaded at every 15-minute poll
 
 - **Xtream `epg_channel_id`** - Live streams now carry the provider's EPG id
   - Used when the Swedish name heuristic (`" SE"` suffix) yields nothing, so existing external-XMLTV setups keep matching
