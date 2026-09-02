@@ -12,6 +12,7 @@ vi.mock('@tauri-apps/plugin-log', () => ({
   warn: vi.fn(),
   error: vi.fn(),
   trace: vi.fn(),
+  attachConsole: vi.fn().mockResolvedValue(() => {}),
 }));
 
 // Mock window.__TAURI__ for Tauri detection

@@ -150,6 +150,16 @@ export async function getChannelEpg(channelEpgId: string): Promise<[string | nul
   return await invoke('get_channel_epg', { channelEpgId });
 }
 
+export interface ChannelEpg {
+  current: string | null;
+  next: string | null;
+}
+
+/** Current/next programme for many channels in one IPC call (max 500 ids). */
+export async function getChannelsEpg(epgIds: string[]): Promise<Record<string, ChannelEpg>> {
+  return await invoke('get_channels_epg', { epgIds });
+}
+
 export interface EpgStatus {
   has_url: boolean;
   last_fetched: string | null;

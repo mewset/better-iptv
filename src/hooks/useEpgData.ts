@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { usePlayerStore } from '../stores/player-store';
-import { getChannelEpg } from '../lib/tauri';
+import { getChannelsEpg } from '../lib/tauri';
 import { logger } from '../lib/logger';
 import type { Channel } from '../types';
 
@@ -8,13 +8,11 @@ import type { Channel } from '../types';
  * Configuration for EPG fetching
  */
 const EPG_CONFIG = {
-  /** Number of channels to fetch in each batch */
-  BATCH_SIZE: 10,
   /** Interval between full EPG refreshes (ms) */
   REFRESH_INTERVAL: 300000, // 5 minutes
   /** Debounce delay for channel list changes (ms) */
   DEBOUNCE_DELAY: 500,
-  /** Maximum channels to fetch EPG for at once */
+  /** Maximum channels to fetch EPG for at once (backend caps at 500) */
   MAX_CHANNELS: 100,
 };
 
@@ -33,7 +31,7 @@ interface UseEpgDataResult {
  *
  * Consolidates all EPG-related logic:
  * - Fetches EPG for visible live channels with debouncing
- * - Batches requests to avoid overwhelming the backend
+ * - Fetches all visible channels in a single IPC call
  * - Periodic refresh every 5 minutes
  * - Responds to external refresh triggers
  * - Skips channels that already have cached EPG data
@@ -73,27 +71,21 @@ export function useEpgData(channels: Channel[]): UseEpgDataResult {
       abortControllerRef.current = new AbortController();
 
       try {
-        // Fetch EPG in batches
-        for (let i = 0; i < channelsWithEpg.length; i += EPG_CONFIG.BATCH_SIZE) {
-          // Check if aborted
-          if (abortControllerRef.current?.signal.aborted) break;
+        const epgIds = channelsWithEpg.map((c) => c.epg_id!);
+        const epgById = await getChannelsEpg(epgIds);
 
-          const batch = channelsWithEpg.slice(i, i + EPG_CONFIG.BATCH_SIZE);
+        // The channel list changed while the request was in flight; the
+        // effect that aborted us will schedule a fresh fetch.
+        if (abortControllerRef.current?.signal.aborted) return;
 
-          await Promise.all(
-            batch.map(async (channel) => {
-              try {
-                const [current, next] = await getChannelEpg(channel.epg_id!);
-                if (current && channel.id) {
-                  setChannelEpg(channel.id, current, next);
-                }
-              } catch (err) {
-                // Silently fail for individual channels
-                logger.debug(`Failed to fetch EPG for ${channel.name}:`, err);
-              }
-            })
-          );
+        for (const channel of channelsWithEpg) {
+          const entry = epgById[channel.epg_id!];
+          if (entry?.current && channel.id) {
+            setChannelEpg(channel.id, entry.current, entry.next);
+          }
         }
+      } catch (err) {
+        logger.debug('Failed to fetch EPG batch:', err);
       } finally {
         isFetchingRef.current = false;
         abortControllerRef.current = null;
