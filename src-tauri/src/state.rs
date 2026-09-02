@@ -38,6 +38,10 @@ pub struct AppState {
     /// spawn, kill, wait), so a std mutex is used and callers hold it only on
     /// the blocking pool — see `playback::play_stream` and friends.
     pub mpv_player: crate::playback::SharedPlayer,
+
+    /// Serialises manual (Update Now, EPG URL save) and automatic EPG
+    /// refreshes so they never download and store concurrently.
+    pub epg_refresh_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl AppState {
@@ -46,6 +50,7 @@ impl AppState {
             pool,
             current_channel: Arc::new(RwLock::new(None)),
             mpv_player: Arc::new(Mutex::new(crate::playback::mpv::MpvPlayer::new())),
+            epg_refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 }

@@ -74,6 +74,8 @@ pub struct EpgRefreshResult {
 
 #[tauri::command]
 pub async fn fetch_epg_data(state: State<'_, AppState>, epg_url: String) -> Result<usize, AppError> {
+    let _guard = state.epg_refresh_lock.lock().await;
+
     let normalized_url = epg_domain::normalize_epg_url(&epg_url);
     epg_domain::validate_epg_url(&normalized_url)?;
 
@@ -92,7 +94,9 @@ pub async fn fetch_epg_data(state: State<'_, AppState>, epg_url: String) -> Resu
         if updated > 0 {
             debug!("Updated EPG IDs for {} channels", updated);
         }
-        Ok(crate::epg::store_epg_programs(conn, &programs)?)
+        let count = crate::epg::store_epg_programs(conn, &programs)?;
+        crate::db::mutations::set_setting(conn, "epg_last_fetched", &chrono::Utc::now().to_rfc3339())?;
+        Ok(count)
     })
     .await
 }
@@ -244,6 +248,7 @@ pub async fn run_epg_refresh(state: &AppState) -> Result<EpgRefreshResult, AppEr
 
 #[tauri::command]
 pub async fn force_refresh_epg(state: State<'_, AppState>) -> Result<EpgRefreshResult, AppError> {
+    let _guard = state.epg_refresh_lock.lock().await;
     run_epg_refresh(&state).await
 }
 
@@ -257,6 +262,14 @@ pub const EPG_AUTO_REFRESH_POLL_INTERVAL: Duration = Duration::from_secs(15 * 60
 /// problem is logged and retried at the next poll.
 pub async fn maybe_auto_refresh_epg(app: &AppHandle) {
     let state = app.state::<AppState>();
+
+    let _guard = match state.epg_refresh_lock.try_lock() {
+        Ok(g) => g,
+        Err(_) => {
+            debug!("EPG auto-refresh: a refresh is already running, skipping");
+            return;
+        }
+    };
 
     let settings = with_db(&state.pool, |conn| {
         Ok(queries::get_multiple_settings(conn, &["epg_url", "epg_last_fetched"])?)

@@ -15,6 +15,7 @@ This file is a developer-changelog, aimed towards development changes.
   - Checks every 15 minutes (first check 30 s after startup) whether `epg_last_fetched` is older than 6 hours and an `epg_url` is set
   - Reuses the force-refresh path and emits `epg-refreshed`; the frontend clears its EPG cache and refetches
   - `epg_domain::epg_refresh_due` is the pure decision function
+  - Manual (Update Now, URL save) and automatic refreshes are serialised; the background task skips its check while another refresh is running
 
 - **Xtream `epg_channel_id`** - Live streams now carry the provider's EPG id
   - Used when the Swedish name heuristic (`" SE"` suffix) yields nothing, so existing external-XMLTV setups keep matching
@@ -39,6 +40,8 @@ This file is a developer-changelog, aimed towards development changes.
   - `store_programs` now upserts (`ON CONFLICT ... DO UPDATE`) inside one transaction
 
 - **Endless forced EPG refetch in the channel grid** - The manual-refresh effect in `useEpgData` re-fired on every completed fetch once the refresh trigger was non-zero; it now acts once per trigger
+
+- **Saving an EPG URL did not record the fetch time** - `fetch_epg_data` now stamps `epg_last_fetched`, so the background task does not re-download right after a manual fetch
 
 ## [2.7.0] - 2026-08-31
 
