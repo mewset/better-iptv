@@ -3,6 +3,7 @@ use log::debug;
 use std::time::Instant;
 use super::models::*;
 use crate::utils::generate_epg_id_swedish;
+use crate::series_domain::{EpisodeInput, SeriesGroup};
 
 // ========== Playlist Mutations ==========
 
@@ -37,11 +38,10 @@ pub fn rename_playlist(conn: &Connection, playlist_id: i64, new_name: &str) -> R
 
 // ========== Channel Mutations ==========
 
-#[cfg(test)]
 pub fn create_channel(conn: &Connection, channel: &Channel) -> Result<i64> {
     conn.execute(
-        "INSERT INTO channels (playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, sort_order, category_order)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO channels (playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, is_favorite, sort_order, category_order)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             channel.playlist_id,
             channel.name,
@@ -51,6 +51,7 @@ pub fn create_channel(conn: &Connection, channel: &Channel) -> Result<i64> {
             channel.epg_id,
             channel.tvg_name,
             channel.content_type,
+            channel.is_favorite,
             channel.sort_order,
             channel.category_order
         ],
@@ -87,6 +88,51 @@ pub fn create_channels_batch(conn: &Connection, channels: &[Channel]) -> Result<
     tx.commit()?;
     debug!("create_channels_batch: {} channels in {:?}", channels.len(), start.elapsed());
     Ok(())
+}
+
+// ========== Series Episode Mutations ==========
+
+/// Insert the episodes of one series row. Runs in the caller's transaction, if any.
+pub fn insert_series_episodes(
+    conn: &Connection,
+    series_channel_id: i64,
+    episodes: &[EpisodeInput],
+) -> Result<()> {
+    let mut stmt = conn.prepare_cached(
+        "INSERT INTO series_episodes (series_channel_id, season, episode, title, url, logo)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )?;
+    for ep in episodes {
+        stmt.execute(params![
+            series_channel_id,
+            ep.season,
+            ep.episode,
+            ep.title,
+            ep.url,
+            ep.logo
+        ])?;
+    }
+    Ok(())
+}
+
+/// Insert one `channels` row per group plus its episodes. Returns the number
+/// of episodes written. Does not open a transaction so callers can wrap it.
+pub fn insert_series_groups(
+    conn: &Connection,
+    playlist_id: i64,
+    groups: &[SeriesGroup],
+) -> Result<usize> {
+    let mut inserted = 0;
+    for group in groups {
+        let channel = Channel {
+            playlist_id,
+            ..group.channel.clone()
+        };
+        let series_id = create_channel(conn, &channel)?;
+        insert_series_episodes(conn, series_id, &group.episodes)?;
+        inserted += group.episodes.len();
+    }
+    Ok(inserted)
 }
 
 pub fn toggle_favorite(conn: &Connection, channel_id: i64) -> Result<()> {
@@ -554,5 +600,105 @@ mod tests {
         // Verify channels are deleted
         let all_channels = get_channels(&conn, None).unwrap();
         assert!(all_channels.is_empty());
+    }
+
+    // ========== Series episodes ==========
+
+    fn series_group(playlist_id: i64, name: &str, group: &str, episodes: &[(i32, i32)]) -> crate::series_domain::SeriesGroup {
+        use crate::series_domain::{EpisodeInput, SeriesGroup};
+        SeriesGroup {
+            channel: Channel {
+                id: None,
+                playlist_id,
+                name: name.to_string(),
+                url: format!("http://host/{}-s1e1.mkv", name),
+                logo: Some("http://logo/cover.png".to_string()),
+                group_name: Some(group.to_string()),
+                epg_id: None,
+                tvg_name: None,
+                content_type: "series".to_string(),
+                is_favorite: false,
+                sort_order: 0,
+                category_order: 0,
+                created_at: None,
+            },
+            episodes: episodes
+                .iter()
+                .map(|&(s, e)| EpisodeInput {
+                    season: s,
+                    episode: e,
+                    title: format!("{} S{:02}E{:02}", name, s, e),
+                    url: format!("http://host/{}-s{}e{}.mkv", name, s, e),
+                    logo: None,
+                })
+                .collect(),
+            source_ids: vec![],
+        }
+    }
+
+    #[test]
+    fn insert_series_groups_creates_series_row_and_episodes() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "M3U");
+
+        let inserted = insert_series_groups(&conn, pid, &[series_group(pid, "Dark", "Series", &[(1, 1), (1, 2), (2, 1)])]).unwrap();
+        assert_eq!(inserted, 3);
+
+        let channels = get_channels(&conn, Some(pid)).unwrap();
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].content_type, "series");
+        let series_id = channels[0].id.unwrap();
+
+        let episodes = get_series_episodes(&conn, series_id).unwrap();
+        assert_eq!(episodes.len(), 3);
+        assert_eq!((episodes[0].season, episodes[0].episode), (1, 1));
+        assert_eq!((episodes[2].season, episodes[2].episode), (2, 1));
+        assert_eq!(episodes[1].url, "http://host/Dark-s1e2.mkv");
+    }
+
+    #[test]
+    fn create_channel_persists_is_favorite() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "M3U");
+        let mut group = series_group(pid, "Dark", "Series", &[(1, 1)]);
+        group.channel.is_favorite = true;
+
+        insert_series_groups(&conn, pid, &[group]).unwrap();
+
+        let channels = get_channels(&conn, Some(pid)).unwrap();
+        assert!(channels[0].is_favorite);
+    }
+
+    #[test]
+    fn deleting_series_channel_cascades_to_episodes() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "M3U");
+        insert_series_groups(&conn, pid, &[series_group(pid, "Dark", "Series", &[(1, 1)])]).unwrap();
+        let series_id = get_channels(&conn, Some(pid)).unwrap()[0].id.unwrap();
+
+        conn.execute("DELETE FROM channels WHERE id = ?1", params![series_id]).unwrap();
+
+        assert!(get_series_episodes(&conn, series_id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn get_series_episodes_by_ids_returns_only_requested_rows() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "M3U");
+        insert_series_groups(&conn, pid, &[series_group(pid, "Dark", "Series", &[(1, 1), (1, 2), (1, 3)])]).unwrap();
+        let series_id = get_channels(&conn, Some(pid)).unwrap()[0].id.unwrap();
+        let all = get_series_episodes(&conn, series_id).unwrap();
+
+        let some = get_series_episodes_by_ids(&conn, &[all[2].id, all[0].id]).unwrap();
+
+        let mut ids: Vec<i64> = some.iter().map(|e| e.id).collect();
+        ids.sort();
+        assert_eq!(ids, vec![all[0].id, all[2].id]);
+    }
+
+    #[test]
+    fn get_channel_by_id_returns_none_for_unknown() {
+        let conn = setup_test_db();
+        assert!(get_channel_by_id(&conn, 999).unwrap().is_none());
     }
 }

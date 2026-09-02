@@ -8,6 +8,7 @@ use super::mutations;
 /// Create an in-memory test database with schema initialized
 pub fn setup_test_db() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
     init_schema(&conn).unwrap();
     conn
 }

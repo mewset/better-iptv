@@ -38,3 +38,16 @@ pub struct MergeResult {
     pub removed: usize,
     pub total: usize,
 }
+
+/// One episode of an M3U series, stored in `series_episodes`.
+/// Xtream series fetch their episodes from the provider API instead.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeriesEpisode {
+    pub id: i64,
+    pub series_channel_id: i64,
+    pub season: i32,
+    pub episode: i32,
+    pub title: String,
+    pub url: String,
+    pub logo: Option<String>,
+}

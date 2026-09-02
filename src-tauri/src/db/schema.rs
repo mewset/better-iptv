@@ -45,6 +45,26 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         [],
     );
 
+    // Series episodes (M3U series are grouped at import; see series_domain::group_series)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS series_episodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            series_channel_id INTEGER NOT NULL,
+            season INTEGER NOT NULL,
+            episode INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            url TEXT NOT NULL,
+            logo TEXT,
+            FOREIGN KEY (series_channel_id) REFERENCES channels(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_series_episodes_channel
+         ON series_episodes(series_channel_id, season, episode)",
+        [],
+    )?;
+
     // EPG Programs table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS epg_programs (

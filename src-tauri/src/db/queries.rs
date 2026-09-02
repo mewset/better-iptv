@@ -27,6 +27,23 @@ fn map_channel_row(row: &Row) -> rusqlite::Result<Channel> {
     })
 }
 
+// ========== Series Episode Query Helpers ==========
+
+const SERIES_EPISODE_SELECT_COLUMNS: &str =
+    "id, series_channel_id, season, episode, title, url, logo";
+
+fn map_series_episode_row(row: &Row) -> rusqlite::Result<SeriesEpisode> {
+    Ok(SeriesEpisode {
+        id: row.get(0)?,
+        series_channel_id: row.get(1)?,
+        season: row.get(2)?,
+        episode: row.get(3)?,
+        title: row.get(4)?,
+        url: row.get(5)?,
+        logo: row.get(6)?,
+    })
+}
+
 // ========== Playlist Query Helpers ==========
 
 const PLAYLIST_SELECT_COLUMNS: &str =
@@ -119,6 +136,47 @@ pub fn get_favorites(conn: &Connection) -> Result<Vec<Channel>> {
         .collect::<Result<Vec<_>>>()?;
 
     Ok(channels)
+}
+
+pub fn get_channel_by_id(conn: &Connection, id: i64) -> Result<Option<Channel>> {
+    let sql = format!("SELECT {} FROM channels WHERE id = ?1", CHANNEL_SELECT_COLUMNS);
+    let mut stmt = conn.prepare(&sql)?;
+    let mut rows = stmt.query_map(params![id], map_channel_row)?;
+    rows.next().transpose()
+}
+
+// ========== Series Episode Queries ==========
+
+/// Episodes of one series row, ordered by season then episode.
+pub fn get_series_episodes(conn: &Connection, series_channel_id: i64) -> Result<Vec<SeriesEpisode>> {
+    let sql = format!(
+        "SELECT {} FROM series_episodes WHERE series_channel_id = ?1 ORDER BY season, episode",
+        SERIES_EPISODE_SELECT_COLUMNS
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let episodes = stmt.query_map(params![series_channel_id], map_series_episode_row)?
+        .collect::<Result<Vec<_>>>()?;
+    Ok(episodes)
+}
+
+/// Episodes by id, in no particular order. Ids are bound as one JSON array so
+/// long lists do not hit SQLite's bound-parameter limit.
+pub fn get_series_episodes_by_ids(conn: &Connection, ids: &[i64]) -> Result<Vec<SeriesEpisode>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids_json = format!(
+        "[{}]",
+        ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",")
+    );
+    let sql = format!(
+        "SELECT {} FROM series_episodes WHERE id IN (SELECT value FROM json_each(?1))",
+        SERIES_EPISODE_SELECT_COLUMNS
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let episodes = stmt.query_map(params![ids_json], map_series_episode_row)?
+        .collect::<Result<Vec<_>>>()?;
+    Ok(episodes)
 }
 
 // ========== Settings Queries ==========
