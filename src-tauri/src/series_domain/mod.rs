@@ -5,9 +5,11 @@
 //! Database operations remain in the commands layer.
 
 use crate::error::AppError;
+use crate::db::models::Channel;
 use serde::{Deserialize, Serialize};
 use lazy_static::lazy_static;
 use regex::Regex;
+use std::collections::HashMap;
 
 /// Episode data recovered from an M3U row name such as `Breaking Bad S01 E02 - Pilot`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +82,122 @@ pub fn parse_episode_name(name: &str, group_name: Option<&str>) -> Option<Parsed
         episode,
         title,
     })
+}
+
+/// One episode of an M3U series before it has a database id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EpisodeInput {
+    pub season: i32,
+    pub episode: i32,
+    pub title: String,
+    pub url: String,
+    pub logo: Option<String>,
+}
+
+/// A series row plus its episodes, ready for insertion.
+#[derive(Debug, Clone)]
+pub struct SeriesGroup {
+    /// The `channels` row for the series (`id` is `None`, it is not stored yet).
+    pub channel: Channel,
+    /// Sorted by `(season, episode)`.
+    pub episodes: Vec<EpisodeInput>,
+    /// Ids of the rows that formed this group, when they came from the database.
+    pub source_ids: Vec<i64>,
+}
+
+/// Output of [`group_series`].
+#[derive(Debug, Clone, Default)]
+pub struct GroupedChannels {
+    /// Rows that are not series episodes (unparsable series rows are now `live`).
+    pub plain: Vec<Channel>,
+    pub series: Vec<SeriesGroup>,
+}
+
+/// Collapse M3U episode rows into one series per `(group_name, series name)`.
+///
+/// Rows whose `content_type` is not `series` pass through. Series rows whose
+/// name has no episode marker are linear channels and become `live`.
+pub fn group_series(channels: Vec<Channel>) -> GroupedChannels {
+    let mut plain = Vec::new();
+    let mut series: Vec<SeriesGroup> = Vec::new();
+    let mut index: HashMap<(String, String), usize> = HashMap::new();
+
+    for mut ch in channels {
+        if ch.content_type != "series" {
+            plain.push(ch);
+            continue;
+        }
+
+        let parsed = match parse_episode_name(&ch.name, ch.group_name.as_deref()) {
+            Some(p) => p,
+            None => {
+                ch.content_type = "live".to_string();
+                plain.push(ch);
+                continue;
+            }
+        };
+
+        let key = (
+            ch.group_name.clone().unwrap_or_default(),
+            parsed.series_name.to_lowercase(),
+        );
+        let episode = EpisodeInput {
+            season: parsed.season,
+            episode: parsed.episode,
+            title: parsed.title,
+            url: ch.url.clone(),
+            logo: ch.logo.clone(),
+        };
+
+        match index.get(&key) {
+            Some(&i) => {
+                let group = &mut series[i];
+                let duplicate = group
+                    .episodes
+                    .iter()
+                    .any(|e| e.season == episode.season && e.episode == episode.episode);
+                if let Some(id) = ch.id {
+                    group.source_ids.push(id);
+                }
+                group.channel.is_favorite |= ch.is_favorite;
+                if ch.sort_order < group.channel.sort_order {
+                    group.channel.sort_order = ch.sort_order;
+                }
+                if !duplicate {
+                    group.episodes.push(episode);
+                }
+            }
+            None => {
+                index.insert(key, series.len());
+                let source_ids = ch.id.into_iter().collect();
+                let channel = Channel {
+                    id: None,
+                    name: parsed.series_name,
+                    epg_id: None,
+                    tvg_name: None,
+                    ..ch
+                };
+                series.push(SeriesGroup {
+                    channel,
+                    episodes: vec![episode],
+                    source_ids,
+                });
+            }
+        }
+    }
+
+    for group in &mut series {
+        group.episodes.sort_by_key(|e| (e.season, e.episode));
+        if let Some(first) = group.episodes.first() {
+            group.channel.url = first.url.clone();
+            group.channel.logo = first
+                .logo
+                .clone()
+                .or_else(|| group.episodes.iter().find_map(|e| e.logo.clone()));
+        }
+    }
+
+    GroupedChannels { plain, series }
 }
 
 /// Episode data for playlist playback
@@ -473,5 +591,123 @@ mod tests {
         let p = parsed("Show 1x02 S03E04");
         assert_eq!((p.season, p.episode), (3, 4));
         assert_eq!(p.series_name, "Show 1x02");
+    }
+
+    // ========== group_series ==========
+
+    fn row(id: Option<i64>, name: &str, group: &str, content_type: &str, sort: i32) -> Channel {
+        Channel {
+            id,
+            playlist_id: 0,
+            name: name.to_string(),
+            url: format!("http://host/{}.mkv", name.replace(' ', "_")),
+            logo: Some(format!("http://logo/{}.png", sort)),
+            group_name: Some(group.to_string()),
+            epg_id: None,
+            tvg_name: None,
+            content_type: content_type.to_string(),
+            is_favorite: false,
+            sort_order: sort,
+            category_order: 0,
+            created_at: None,
+        }
+    }
+
+    #[test]
+    fn groups_two_series_across_seasons() {
+        let g = group_series(vec![
+            row(None, "Breaking Bad S01E01", "Series", "series", 0),
+            row(None, "Breaking Bad S01E02", "Series", "series", 1),
+            row(None, "Breaking Bad S02E01", "Series", "series", 2),
+            row(None, "Dark S01E01", "Series", "series", 3),
+        ]);
+        assert!(g.plain.is_empty());
+        assert_eq!(g.series.len(), 2);
+        assert_eq!(g.series[0].channel.name, "Breaking Bad");
+        assert_eq!(g.series[0].episodes.len(), 3);
+        assert_eq!(g.series[1].channel.name, "Dark");
+        assert_eq!(g.series[1].episodes.len(), 1);
+    }
+
+    #[test]
+    fn series_row_takes_first_episode_url_logo_and_lowest_sort_order() {
+        // Listed out of order on purpose
+        let g = group_series(vec![
+            row(None, "Dark S02E01", "Series", "series", 7),
+            row(None, "Dark S01E01", "Series", "series", 9),
+        ]);
+        let s = &g.series[0];
+        assert_eq!(s.channel.url, "http://host/Dark_S01E01.mkv");
+        assert_eq!(s.channel.logo.as_deref(), Some("http://logo/9.png"));
+        assert_eq!(s.channel.sort_order, 7);
+        assert_eq!(s.channel.content_type, "series");
+        assert_eq!(s.channel.group_name.as_deref(), Some("Series"));
+        assert!(s.channel.epg_id.is_none());
+        assert_eq!(
+            s.episodes.iter().map(|e| (e.season, e.episode)).collect::<Vec<_>>(),
+            vec![(1, 1), (2, 1)]
+        );
+    }
+
+    #[test]
+    fn unparsable_series_rows_become_live() {
+        let g = group_series(vec![
+            row(None, "Game Show Network", "Series", "series", 0),
+            row(None, "Comedy Central", "Series", "series", 1),
+        ]);
+        assert!(g.series.is_empty());
+        assert_eq!(g.plain.len(), 2);
+        assert!(g.plain.iter().all(|c| c.content_type == "live"));
+    }
+
+    #[test]
+    fn non_series_rows_pass_through_untouched() {
+        let g = group_series(vec![
+            row(None, "SVT1", "News", "live", 0),
+            row(None, "Inception S01E01", "Movies", "vod", 1),
+        ]);
+        assert!(g.series.is_empty());
+        assert_eq!(g.plain.len(), 2);
+        assert_eq!(g.plain[0].content_type, "live");
+        assert_eq!(g.plain[1].content_type, "vod");
+        assert_eq!(g.plain[1].name, "Inception S01E01");
+    }
+
+    #[test]
+    fn duplicate_episode_keeps_first_occurrence() {
+        let g = group_series(vec![
+            row(None, "Dark S01E01 [HD]", "Series", "series", 0),
+            row(None, "Dark S01E01 [SD]", "Series", "series", 1),
+        ]);
+        assert_eq!(g.series[0].episodes.len(), 1);
+        assert_eq!(g.series[0].episodes[0].url, "http://host/Dark_S01E01_[HD].mkv");
+    }
+
+    #[test]
+    fn grouping_key_is_case_insensitive_and_per_group() {
+        let g = group_series(vec![
+            row(None, "dark S01E01", "Series", "series", 0),
+            row(None, "Dark S01E02", "Series", "series", 1),
+            row(None, "Dark S01E01", "Series DE", "series", 2),
+        ]);
+        assert_eq!(g.series.len(), 2, "same group merges, different group splits");
+        assert_eq!(g.series[0].episodes.len(), 2);
+        assert_eq!(g.series[0].channel.name, "dark", "first spelling wins");
+    }
+
+    #[test]
+    fn keeps_source_ids_and_favourite_flag() {
+        let mut fav = row(Some(11), "Dark S01E02", "Series", "series", 1);
+        fav.is_favorite = true;
+        let g = group_series(vec![row(Some(10), "Dark S01E01", "Series", "series", 0), fav]);
+        assert_eq!(g.series[0].source_ids, vec![10, 11]);
+        assert!(g.series[0].channel.is_favorite);
+        assert!(g.series[0].channel.id.is_none(), "the series row is new");
+    }
+
+    #[test]
+    fn plain_rows_keep_their_ids() {
+        let g = group_series(vec![row(Some(5), "Comedy Central", "Series", "series", 0)]);
+        assert_eq!(g.plain[0].id, Some(5));
     }
 }
