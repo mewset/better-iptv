@@ -229,35 +229,47 @@ fn parse_tz_offset(tz_str: &str) -> Result<i32, ()> {
     Ok(sign * (hours * 60 + minutes))
 }
 
-/// Store programs in database
+/// Store programs in database.
+///
+/// Runs in one transaction: prune programmes that ended more than a day ago,
+/// then upsert every programme in the feed on `(channel_epg_id, start_time)`
+/// so a refresh updates titles in place instead of adding a second copy.
 fn store_programs(conn: &Connection, programs: &[EpgProgram]) -> Result<usize> {
-    // Clear old programs (older than 24 hours ago)
+    let tx = conn.unchecked_transaction()?;
+
     let cutoff = Utc::now() - chrono::Duration::hours(24);
-    conn.execute(
+    tx.execute(
         "DELETE FROM epg_programs WHERE end_time < ?1",
         rusqlite::params![cutoff.to_rfc3339()],
     )?;
 
-    // Insert new programs
-    let mut stmt = conn.prepare(
-        "INSERT OR REPLACE INTO epg_programs
-         (channel_epg_id, title, description, start_time, end_time, category)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
-    )?;
-
     let mut count = 0;
-    for program in programs {
-        stmt.execute(rusqlite::params![
-            program.channel_id,
-            program.title,
-            program.description,
-            program.start_time.to_rfc3339(),
-            program.end_time.to_rfc3339(),
-            program.category,
-        ])?;
-        count += 1;
+    {
+        let mut stmt = tx.prepare_cached(
+            "INSERT INTO epg_programs
+             (channel_epg_id, title, description, start_time, end_time, category)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(channel_epg_id, start_time) DO UPDATE SET
+                 title = excluded.title,
+                 description = excluded.description,
+                 end_time = excluded.end_time,
+                 category = excluded.category",
+        )?;
+
+        for program in programs {
+            stmt.execute(rusqlite::params![
+                program.channel_id,
+                program.title,
+                program.description,
+                program.start_time.to_rfc3339(),
+                program.end_time.to_rfc3339(),
+                program.category,
+            ])?;
+            count += 1;
+        }
     }
 
+    tx.commit()?;
     Ok(count)
 }
 
@@ -320,5 +332,124 @@ impl EpgProgramBuilder {
             end_time: self.end_time,
             category: self.category,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::test_helpers::setup_test_db;
+    use chrono::Duration;
+
+    fn programme(channel: &str, title: &str, start: DateTime<Utc>, minutes: i64) -> EpgProgram {
+        EpgProgram {
+            channel_id: channel.to_string(),
+            title: title.to_string(),
+            description: None,
+            start_time: start,
+            end_time: start + Duration::minutes(minutes),
+            category: None,
+        }
+    }
+
+    #[test]
+    fn storing_the_same_feed_twice_keeps_one_row_per_programme() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+        let feed = vec![
+            programme("svt1.se", "Rapport", now - Duration::minutes(10), 30),
+            programme("svt1.se", "Aktuellt", now + Duration::hours(2), 30),
+            programme("tv4.se", "Nyheterna", now - Duration::minutes(5), 30),
+        ];
+
+        store_epg_programs(&conn, &feed).unwrap();
+        store_epg_programs(&conn, &feed).unwrap();
+
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM epg_programs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 3);
+    }
+
+    #[test]
+    fn a_refreshed_feed_updates_the_title_of_an_existing_slot() {
+        let conn = setup_test_db();
+        let start = Utc::now() + Duration::hours(1);
+
+        store_epg_programs(&conn, &[programme("svt1.se", "Placeholder", start, 30)]).unwrap();
+        store_epg_programs(&conn, &[programme("svt1.se", "Rapport", start, 45)]).unwrap();
+
+        let (title, end): (String, String) = conn
+            .query_row(
+                "SELECT title, end_time FROM epg_programs WHERE channel_epg_id = 'svt1.se'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(title, "Rapport");
+        assert_eq!(end, (start + Duration::minutes(45)).to_rfc3339());
+    }
+
+    #[test]
+    fn programmes_that_ended_more_than_a_day_ago_are_pruned() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+
+        store_epg_programs(&conn, &[programme("svt1.se", "Old", now - Duration::days(2), 30)]).unwrap();
+        store_epg_programs(&conn, &[programme("svt1.se", "New", now, 30)]).unwrap();
+
+        let titles: Vec<String> = conn
+            .prepare("SELECT title FROM epg_programs ORDER BY title")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(titles, vec!["New".to_string()]);
+    }
+
+    #[test]
+    fn current_and_next_programme_lookups_use_the_stored_rows() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+        store_epg_programs(
+            &conn,
+            &[
+                programme("svt1.se", "Rapport", now - Duration::minutes(10), 30),
+                programme("svt1.se", "Aktuellt", now + Duration::minutes(20), 30),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(get_current_program(&conn, "svt1.se").unwrap().as_deref(), Some("Rapport"));
+        assert_eq!(get_next_program(&conn, "svt1.se").unwrap().as_deref(), Some("Aktuellt"));
+        assert_eq!(get_current_program(&conn, "unknown").unwrap(), None);
+    }
+
+    #[test]
+    fn parse_xmltv_converts_offset_times_to_utc() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+  <channel id="svt1.se"><display-name>SVT1</display-name></channel>
+  <programme start="20260902200000 +0200" stop="20260902203000 +0200" channel="svt1.se">
+    <title>Rapport</title>
+    <desc>Nyheter</desc>
+    <category>News</category>
+  </programme>
+  <programme start="20260902203000 +0200" stop="20260902210000 +0200" channel="svt1.se">
+    <title></title>
+  </programme>
+</tv>"#;
+
+        let programs = parse_xmltv(xml).unwrap();
+
+        assert_eq!(programs.len(), 1, "programmes without a title are skipped");
+        let p = &programs[0];
+        assert_eq!(p.channel_id, "svt1.se");
+        assert_eq!(p.title, "Rapport");
+        assert_eq!(p.description.as_deref(), Some("Nyheter"));
+        assert_eq!(p.category.as_deref(), Some("News"));
+        assert_eq!(p.start_time.to_rfc3339(), "2026-09-02T18:00:00+00:00");
+        assert_eq!(p.end_time.to_rfc3339(), "2026-09-02T18:30:00+00:00");
     }
 }
