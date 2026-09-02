@@ -287,6 +287,15 @@ fn create_backoff() -> ExponentialBackoff {
     }
 }
 
+/// Only statuses a later attempt could plausibly fix are worth retrying.
+/// Authentication failures, missing endpoints and malformed requests will
+/// fail the same way every time, so they are reported straight away.
+fn is_retryable_status(status: reqwest::StatusCode) -> bool {
+    status.is_server_error()
+        || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        || status == reqwest::StatusCode::REQUEST_TIMEOUT
+}
+
 /// Fetch JSON from URL with retry logic
 async fn fetch_json_with_retry<T: for<'de> Deserialize<'de>>(
     url: &str,
@@ -309,31 +318,36 @@ async fn fetch_json_with_retry<T: for<'de> Deserialize<'de>>(
                 request
             };
 
-            let response = request
-                .send()
-                .await
-                .map_err(|e| {
-                    warn!("Xtream API {} failed, retrying: {}", action, e);
-                    backoff::Error::transient(anyhow::anyhow!("Request failed: {}", e))
-                })?;
+            // Connection failures and timeouts: transient.
+            let response = request.send().await.map_err(|e| {
+                warn!("Xtream API {} failed, retrying: {}", action, e);
+                backoff::Error::transient(anyhow::anyhow!("Request failed: {}", e))
+            })?;
 
-            // Check for HTTP errors
-            if !response.status().is_success() {
-                let status = response.status();
-                warn!("Xtream API {} returned status {}, retrying", action, status);
-                return Err(backoff::Error::transient(anyhow::anyhow!(
-                    "HTTP error: {}",
-                    status
-                )));
+            let status = response.status();
+            if !status.is_success() {
+                let err = anyhow::anyhow!("HTTP error: {}", status);
+                return Err(if is_retryable_status(status) {
+                    warn!("Xtream API {} returned status {}, retrying", action, status);
+                    backoff::Error::transient(err)
+                } else {
+                    warn!("Xtream API {} returned status {}, giving up", action, status);
+                    backoff::Error::permanent(err)
+                });
             }
 
-            response
-                .json::<T>()
-                .await
-                .map_err(|e| {
-                    warn!("Failed to parse {} response, retrying: {}", action, e);
-                    backoff::Error::transient(anyhow::anyhow!("Parse failed: {}", e))
-                })
+            // A body that does not decode as the expected JSON will not decode
+            // next time either; a body read that was cut off might.
+            response.json::<T>().await.map_err(|e| {
+                let err = anyhow::anyhow!("Parse failed: {}", e);
+                if e.is_decode() {
+                    warn!("Failed to parse {} response, giving up: {}", action, e);
+                    backoff::Error::permanent(err)
+                } else {
+                    warn!("Failed to read {} response, retrying: {}", action, e);
+                    backoff::Error::transient(err)
+                }
+            })
         }
     })
     .await
@@ -684,5 +698,30 @@ mod epg_id_tests {
         let json = r#"{"name":"Some Movie","stream_id":5,"epg_channel_id":"movie.id"}"#;
         assert_eq!(convert(json, "vod"), None);
         assert_eq!(convert(json, "series"), None);
+    }
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::is_retryable_status;
+    use reqwest::StatusCode;
+
+    #[test]
+    fn server_errors_and_throttling_are_retried() {
+        assert!(is_retryable_status(StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(is_retryable_status(StatusCode::BAD_GATEWAY));
+        assert!(is_retryable_status(StatusCode::SERVICE_UNAVAILABLE));
+        assert!(is_retryable_status(StatusCode::GATEWAY_TIMEOUT));
+        assert!(is_retryable_status(StatusCode::TOO_MANY_REQUESTS));
+        assert!(is_retryable_status(StatusCode::REQUEST_TIMEOUT));
+    }
+
+    #[test]
+    fn client_errors_fail_immediately() {
+        // A wrong password used to take 60 seconds of retries to surface.
+        assert!(!is_retryable_status(StatusCode::UNAUTHORIZED));
+        assert!(!is_retryable_status(StatusCode::FORBIDDEN));
+        assert!(!is_retryable_status(StatusCode::NOT_FOUND));
+        assert!(!is_retryable_status(StatusCode::BAD_REQUEST));
     }
 }
