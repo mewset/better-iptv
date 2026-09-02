@@ -56,11 +56,10 @@ pub fn parse_episode_name(name: &str, group_name: Option<&str>) -> Option<Parsed
             c[2].parse::<i32>().ok()?,
             c[3].parse::<i32>().ok()?,
         )
-    } else if let Some(c) = SEASON_WORD_RE.captures(name) {
+    } else {
+        let c = SEASON_WORD_RE.captures(name)?;
         let m = c.get(0).unwrap();
         (m.start(), m.end(), c[1].parse::<i32>().ok()?, c[2].parse::<i32>().ok()?)
-    } else {
-        return None;
     };
 
     let before = name[..start].trim_end_matches(NAME_TRAILING).trim();

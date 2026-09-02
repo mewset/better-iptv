@@ -791,7 +791,7 @@ mod tests {
 
         // Provider now lists S01E02 and a new S01E03; S01E01 is gone.
         let fresh = series_group(pid, "Dark", "Series", &[(1, 2), (1, 3)]);
-        let merged = merge_channels(&conn, pid, &[fresh.channel.clone()], false).unwrap();
+        let merged = merge_channels(&conn, pid, std::slice::from_ref(&fresh.channel), false).unwrap();
         assert_eq!((merged.added, merged.updated, merged.removed), (0, 1, 0));
 
         let written = replace_series_episodes(&conn, pid, &[fresh]).unwrap();
