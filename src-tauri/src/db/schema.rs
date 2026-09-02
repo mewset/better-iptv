@@ -1,6 +1,14 @@
 use rusqlite::{Connection, Result};
 
-/// Initialize the database schema
+/// Initialize the database schema.
+///
+/// The one-time M3U series migration (`migrate_m3u_series`) runs at the end
+/// of this function but is not allowed to fail startup: its guard key is
+/// only written inside its own transaction, so a failure here leaves the
+/// database exactly as it was and the migration retries on the next start.
+/// The degraded state in the meantime — M3U series still shown as one card
+/// per episode, the pre-2.8.0 behaviour — is strictly better than the app
+/// refusing to start.
 pub fn init_schema(conn: &Connection) -> Result<()> {
     // Playlists table
     conn.execute(
@@ -190,7 +198,9 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         [],
     )?;
 
-    migrate_m3u_series(conn)?;
+    if let Err(e) = migrate_m3u_series(conn) {
+        log::error!("M3U series migration failed, will retry next start: {}", e);
+    }
 
     Ok(())
 }
