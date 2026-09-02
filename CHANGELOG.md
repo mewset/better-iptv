@@ -3,6 +3,43 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## [2.8.0] - 2026-09-02
+
+### Added
+
+- **Batched EPG lookup** - New `get_channels_epg(epg_ids)` command returns `{ current, next }` per EPG id (max 500 ids)
+  - `useEpgData` now makes one IPC call for the visible grid instead of up to 100 `get_channel_epg` calls
+  - `get_channel_epg` unchanged, still used by the Now Playing bar
+
+- **Automatic EPG refresh** - Background task on the Tauri runtime
+  - Checks every 15 minutes (first check 30 s after startup) whether `epg_last_fetched` is older than 6 hours and an `epg_url` is set
+  - Reuses the force-refresh path and emits `epg-refreshed`; the frontend clears its EPG cache and refetches
+  - `epg_domain::epg_refresh_due` is the pure decision function
+
+- **Xtream `epg_channel_id`** - Live streams now carry the provider's EPG id
+  - Used when the Swedish name heuristic (`" SE"` suffix) yields nothing, so existing external-XMLTV setups keep matching
+  - Existing profiles pick up the ids on their next playlist refresh via `merge_channels`
+
+### Changed
+
+- **Database work off the async runtime** - `commands::with_db` runs every rusqlite call on `tokio::task::spawn_blocking`
+  - Pool checkout happens inside the blocking closure
+  - `parse_m3u` (local file reads) and Argon2 PIN verification also run on the blocking pool
+  - `MpvPlayer` moved from `tokio::sync::Mutex` to `std::sync::Mutex` and is driven from the blocking pool (`playback::play_stream`, `stop`, `is_playing`, `check_mpv_installed`); the up-to-5 s wait in `stop` no longer stalls other commands
+  - `PlaybackSettings` moved from `commands::playback` to `playback`
+  - No IPC command names, arguments or return shapes changed
+
+- **Xtream retry policy** - Only connection errors, 5xx, 408 and 429 are retried
+  - 4xx (wrong credentials, missing endpoint) and undecodable JSON fail immediately instead of after 60 s of backoff
+
+### Fixed
+
+- **EPG rows duplicated on every refresh** - `INSERT OR REPLACE` had no unique key to conflict on
+  - Migration collapses existing duplicates and adds `UNIQUE(channel_epg_id, start_time)`
+  - `store_programs` now upserts (`ON CONFLICT ... DO UPDATE`) inside one transaction
+
+- **Endless forced EPG refetch in the channel grid** - The manual-refresh effect in `useEpgData` re-fired on every completed fetch once the refresh trigger was non-zero; it now acts once per trigger
+
 ## [2.7.0] - 2026-08-31
 
 ### Added

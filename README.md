@@ -134,7 +134,7 @@ On first launch you get two tabs, **M3U URL** and **Xtream Codes**.
 
 1. Open **Settings** (gear icon) → **EPG**
 2. Enter your XMLTV EPG URL (Xtream users get this automatically)
-3. Click **"Update Now"** — EPG refreshes on its own from then on
+3. Click **"Update Now"** — from then on the guide re-downloads itself every 6 hours while the app is running
 
 ### 3. Start Watching
 
@@ -191,7 +191,7 @@ Check:
 1. Playlist contains EPG identifiers (`tvg-id` or `tvg-name`)
 2. EPG URL configured in Settings → EPG
 3. EPG data fetched (Settings → EPG → **"Update Now"**)
-4. Wait a minute for EPG refresh cycle
+4. Wait a minute for the channel cards to pick up the new data (they re-read the guide every 5 minutes, and immediately after a download)
 </details>
 
 <details>

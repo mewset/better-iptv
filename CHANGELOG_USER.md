@@ -4,6 +4,29 @@ A simple overview of new features and improvements.
 
 ---
 
+## Version 2.8.0 (September 2, 2026)
+
+### New Features
+
+**EPG Updates Itself**
+- The program guide now refreshes automatically every six hours while the app is running
+- Channel cards update on their own after a refresh; the Force Refresh button in Settings still works
+
+**More Channels Get Program Info**
+- Xtream playlists now use the EPG ids your provider sends, so channels outside Sweden show current and next program too
+- Refresh your playlist once (Settings → Profiles) to pick up the ids on an existing profile
+
+### Improvements
+
+- The app stays responsive while a large playlist imports or refreshes, and while MPV shuts down
+- Wrong Xtream username or password is reported right away instead of after a minute
+- Program info for the channel grid loads in one request instead of one per channel
+
+### Fixes
+
+- The program guide database no longer grows with every refresh
+- The channel grid no longer keeps re-requesting program info in the background after a refresh
+
 ## Version 2.7.0 (August 31, 2026)
 
 ### New Features
