@@ -1,8 +1,10 @@
 use crate::commands::playback::build_playback_options;
+use crate::commands::with_db;
 use crate::error::AppError;
+use crate::playback;
 use crate::playlist::{fetch_series_info, SeriesInfo, XtreamCredentials};
 use crate::series_domain::{self, PlaylistEpisode};
-use crate::state::AppState;
+use crate::state::{AppState, CurrentChannel};
 use log::info;
 use tauri::State;
 
@@ -40,28 +42,23 @@ pub async fn play_episode_with_season(
     series_domain::validate_credentials(&username, &password)?;
 
     let urls = series_domain::build_episode_urls(&server_url, &username, &password, &episodes);
+    let first_title = episodes[0].title.clone();
+    let first_url = urls[0].clone();
 
-    let first_title = &episodes[0].title;
+    let title_for_settings = first_title.clone();
+    let settings = with_db(&state.pool, move |conn| {
+        build_playback_options(conn, Some(&title_for_settings))
+    })
+    .await?;
 
-    {
-        let mut current = state.current_channel.write().await;
-        *current = Some(crate::state::CurrentChannel {
-            id: None,
-            name: first_title.clone(),
-            url: urls[0].clone(),
-            content_type: "series".to_string(),
-        });
-    }
+    playback::play_playlist(state.mpv_player.clone(), urls, settings).await?;
 
-    let settings = {
-        let conn = state.pool.get()?;
-        build_playback_options(&conn, Some(first_title))?
-    };
-
-    let mut player = state.mpv_player.lock().await;
-    player
-        .play_playlist(&urls, &settings.as_options())
-        .map_err(|e| AppError::Mpv(e.to_string()))?;
+    *state.current_channel.write().await = Some(CurrentChannel {
+        id: None,
+        name: first_title.clone(),
+        url: first_url,
+        content_type: "series".to_string(),
+    });
 
     info!("Playing series episode: {}", first_title);
 

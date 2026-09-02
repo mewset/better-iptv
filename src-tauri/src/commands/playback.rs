@@ -1,8 +1,8 @@
-use crate::db::{queries, models::Channel};
+use crate::commands::with_db;
+use crate::db::{models::Channel, queries};
 use crate::error::AppError;
-use crate::playback;
-use crate::playback::mpv::MpvPlaybackOptions;
-use crate::state::AppState;
+use crate::playback::{self, PlaybackSettings};
+use crate::state::{AppState, CurrentChannel};
 use log::info;
 use tauri::State;
 
@@ -17,7 +17,7 @@ const MPV_SETTING_KEYS: &[&str] = &[
     "mpv_start_volume",
 ];
 
-/// Build MpvPlaybackOptions from database settings
+/// Build playback settings from database settings
 pub fn build_playback_options(
     db: &rusqlite::Connection,
     title: Option<&str>,
@@ -46,55 +46,22 @@ pub fn build_playback_options(
     })
 }
 
-/// Owned settings that can be converted to MpvPlaybackOptions references
-pub struct PlaybackSettings {
-    pub title: Option<String>,
-    pub audio_lang: Option<String>,
-    pub subtitle_lang: Option<String>,
-    pub hwdec: bool,
-    pub video_output: Option<String>,
-    pub deinterlace: Option<String>,
-    pub start_fullscreen: bool,
-    pub cache_secs: Option<u32>,
-    pub start_volume: Option<u32>,
-}
-
-impl PlaybackSettings {
-    pub fn as_options(&self) -> MpvPlaybackOptions<'_> {
-        MpvPlaybackOptions {
-            title: self.title.as_deref(),
-            audio_lang: self.audio_lang.as_deref(),
-            subtitle_lang: self.subtitle_lang.as_deref(),
-            hwdec: self.hwdec,
-            video_output: self.video_output.as_deref(),
-            deinterlace: self.deinterlace.as_deref(),
-            start_fullscreen: self.start_fullscreen,
-            cache_secs: self.cache_secs,
-            start_volume: self.start_volume,
-        }
-    }
-}
-
 #[tauri::command]
 pub async fn check_mpv_installed() -> Result<bool, AppError> {
-    Ok(playback::check_mpv_installed())
+    playback::check_mpv_installed().await
 }
 
 #[tauri::command]
 pub async fn play_channel(state: State<'_, AppState>, channel: Channel) -> Result<(), AppError> {
-    let settings = {
-        let conn = state.pool.get()?;
-        build_playback_options(&conn, Some(&channel.name))?
-    };
-
-    let mut player = state.mpv_player.lock().await;
-    playback::play_channel(
-        &mut player,
-        &state.current_channel,
-        &channel,
-        &settings.as_options(),
-    )
+    let title = channel.name.clone();
+    let settings = with_db(&state.pool, move |conn| {
+        build_playback_options(conn, Some(&title))
+    })
     .await?;
+
+    playback::play_stream(state.mpv_player.clone(), channel.url.clone(), settings).await?;
+
+    *state.current_channel.write().await = Some(CurrentChannel::from_channel(&channel));
 
     info!("Playing channel: {} ({})", channel.name, channel.content_type);
 
@@ -103,8 +70,9 @@ pub async fn play_channel(state: State<'_, AppState>, channel: Channel) -> Resul
 
 #[tauri::command]
 pub async fn stop_playback(state: State<'_, AppState>) -> Result<(), AppError> {
-    let mut player = state.mpv_player.lock().await;
-    playback::stop(&mut player, &state.current_channel).await?;
+    playback::stop(state.mpv_player.clone()).await?;
+
+    *state.current_channel.write().await = None;
 
     info!("Playback stopped");
 
@@ -113,6 +81,5 @@ pub async fn stop_playback(state: State<'_, AppState>) -> Result<(), AppError> {
 
 #[tauri::command]
 pub async fn is_playing(state: State<'_, AppState>) -> Result<bool, AppError> {
-    let mut player = state.mpv_player.lock().await;
-    Ok(playback::is_playing(&mut player))
+    playback::is_playing(state.mpv_player.clone()).await
 }

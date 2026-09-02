@@ -1,8 +1,8 @@
-use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
+use tokio::sync::RwLock;
 
 /// Lightweight struct for tracking current channel (avoids cloning full Channel)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,8 +34,10 @@ pub struct AppState {
     /// Currently playing channel (if any) - uses lightweight struct
     pub current_channel: Arc<RwLock<Option<CurrentChannel>>>,
 
-    /// MPV player instance
-    pub mpv_player: Arc<Mutex<crate::playback::mpv::MpvPlayer>>,
+    /// MPV player instance. Every MpvPlayer operation is synchronous (process
+    /// spawn, kill, wait), so a std mutex is used and callers hold it only on
+    /// the blocking pool — see `playback::play_stream` and friends.
+    pub mpv_player: crate::playback::SharedPlayer,
 }
 
 impl AppState {
