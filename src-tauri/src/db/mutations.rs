@@ -900,4 +900,28 @@ mod tests {
             .unwrap();
         assert_eq!(episode_count, 0, "episodes must not survive an uncommitted transaction");
     }
+
+    /// The refresh seam the `content_type` column in `merge_channels`'s UPDATE
+    /// exists for: a `live` row that only matches a fresh `series` row by
+    /// name (different `group_name`) still gets picked up by the name-only
+    /// fallback, and `replace_series_episodes` finds the same row afterwards.
+    #[test]
+    fn merge_channels_name_only_fallback_then_replace_series_episodes_finds_the_row() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "M3U");
+        let live_id = create_test_channel(&conn, pid, "Dark");
+        conn.execute("UPDATE channels SET group_name = 'News' WHERE id = ?1", params![live_id]).unwrap();
+
+        let fresh = series_group(pid, "Dark", "Series", &[(1, 1)]);
+        let result = merge_channels(&conn, pid, std::slice::from_ref(&fresh.channel), false).unwrap();
+
+        assert_eq!((result.added, result.updated, result.removed), (0, 1, 0));
+        let row = get_channel_by_id(&conn, live_id).unwrap().unwrap();
+        assert_eq!(row.content_type, "series");
+        assert_eq!(row.group_name.as_deref(), Some("Series"));
+
+        let written = replace_series_episodes(&conn, pid, &[fresh]).unwrap();
+        assert_eq!(written, 1);
+        assert_eq!(get_series_episodes(&conn, live_id).unwrap().len(), 1);
+    }
 }
