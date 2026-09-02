@@ -14,7 +14,7 @@ A simple overview of new features and improvements.
 - If the EPG address is broken, the app retries at most once an hour instead of every quarter hour
 
 **More Channels Get Program Info**
-- Fixed a bug where the EPG ids sent by Xtream providers were not always matched correctly, so some channels, mostly outside Sweden, showed no current or next program
+- Fixed a bug where the EPG ids sent by Xtream providers were not always matched correctly, so some channels showed no current or next program
 - Refresh your playlist once (Settings → Profiles) to pick up the ids on an existing profile
 
 **Series in M3U Playlists**
