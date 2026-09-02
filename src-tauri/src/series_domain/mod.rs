@@ -38,39 +38,66 @@ const NAME_TRAILING: &[char] = &[' ', '-', ':', '.', '_', '|', '[', '('];
 /// Opening brackets are not here: `[HD]` after the marker is part of the title.
 const TITLE_LEADING: &[char] = &[' ', '-', ':', '.', '_', '|', ']', ')'];
 
+/// `(season, episode)` pairs the `NxN` marker must not treat as episode
+/// numbers, because they are common channel-name idioms rather than
+/// episode markers: `24x7` / `24x365` (always-on channels), `4x4`
+/// (motoring), `3x3` (basketball), `2x2` (arena/venue names).
+const NXN_REJECTED_PAIRS: &[(i32, i32)] = &[(24, 7), (24, 365), (4, 4), (3, 3), (2, 2)];
+
+/// A file extension on its own is not an episode title (`Show S01E02.mkv`
+/// must not yield the title `mkv`).
+const TITLE_ONLY_EXTENSIONS: &[&str] =
+    &["mkv", "mp4", "avi", "ts", "m3u8", "mov", "webm", "flv", "wmv", "m4v"];
+
+/// Match the `NxN` marker, rejecting pairs that are common channel-name
+/// idioms rather than episode numbers (see [`NXN_REJECTED_PAIRS`]).
+fn nxn_match(name: &str) -> Option<(usize, usize, i32, i32)> {
+    let c = NXN_RE.captures(name)?;
+    let season = c[2].parse::<i32>().ok()?;
+    let episode = c[3].parse::<i32>().ok()?;
+    if NXN_REJECTED_PAIRS.contains(&(season, episode)) {
+        return None;
+    }
+    Some((c.get(2).unwrap().start(), c.get(3).unwrap().end(), season, episode))
+}
+
 /// Parse season and episode out of an M3U row name.
 ///
 /// Markers are tried in order: `S01E02`, `1x02`, `Season 1 Episode 2`. The
-/// text before the marker is the series name; if it is empty the group name
-/// is used instead (some exports put the show in `group-title`). Text after
-/// the marker is the episode title, falling back to the whole name.
+/// text before the marker is the series name; if it is empty, the group name
+/// is used instead (some exports put the show in `group-title`) — but only
+/// for the `S01E02` and `Season 1 Episode 2` markers, which are unambiguous.
+/// An `NxN` marker with nothing before it is too weak a signal to name a
+/// series after the group, so it does not parse at all. Text after the
+/// marker is the episode title, falling back to the whole name; a remainder
+/// that is only a media file extension is treated the same as an empty one.
 pub fn parse_episode_name(name: &str, group_name: Option<&str>) -> Option<ParsedEpisode> {
-    // (start of marker, end of marker, season, episode)
-    let (start, end, season, episode) = if let Some(c) = SEASON_EPISODE_RE.captures(name) {
-        let m = c.get(0).unwrap();
-        (m.start(), m.end(), c[1].parse::<i32>().ok()?, c[2].parse::<i32>().ok()?)
-    } else if let Some(c) = NXN_RE.captures(name) {
-        (
-            c.get(2).unwrap().start(),
-            c.get(3).unwrap().end(),
-            c[2].parse::<i32>().ok()?,
-            c[3].parse::<i32>().ok()?,
-        )
-    } else {
-        let c = SEASON_WORD_RE.captures(name)?;
-        let m = c.get(0).unwrap();
-        (m.start(), m.end(), c[1].parse::<i32>().ok()?, c[2].parse::<i32>().ok()?)
-    };
+    // (start of marker, end of marker, season, episode, may the group name fill in for an empty series name)
+    let (start, end, season, episode, allow_group_fallback) =
+        if let Some(c) = SEASON_EPISODE_RE.captures(name) {
+            let m = c.get(0).unwrap();
+            (m.start(), m.end(), c[1].parse::<i32>().ok()?, c[2].parse::<i32>().ok()?, true)
+        } else if let Some((start, end, season, episode)) = nxn_match(name) {
+            (start, end, season, episode, false)
+        } else {
+            let c = SEASON_WORD_RE.captures(name)?;
+            let m = c.get(0).unwrap();
+            (m.start(), m.end(), c[1].parse::<i32>().ok()?, c[2].parse::<i32>().ok()?, true)
+        };
 
     let before = name[..start].trim_end_matches(NAME_TRAILING).trim();
     let series_name = if before.is_empty() {
+        if !allow_group_fallback {
+            return None;
+        }
         group_name.map(str::trim).filter(|g| !g.is_empty())?.to_string()
     } else {
         before.to_string()
     };
 
     let after = name[end..].trim_start_matches(TITLE_LEADING).trim();
-    let title = if after.is_empty() {
+    let is_extension_only = TITLE_ONLY_EXTENSIONS.iter().any(|ext| after.eq_ignore_ascii_case(ext));
+    let title = if after.is_empty() || is_extension_only {
         name.trim().to_string()
     } else {
         after.to_string()
@@ -642,6 +669,13 @@ mod tests {
         let p = parsed("Show S01E02.mkv");
         assert_eq!(p.series_name, "Show");
         assert_eq!((p.season, p.episode), (1, 2));
+        assert_eq!(p.title, "Show S01E02.mkv", "a bare extension is not a title");
+    }
+
+    #[test]
+    fn marker_followed_by_word_keeps_title() {
+        let p = parsed("Show S01E02 Finale");
+        assert_eq!(p.title, "Finale");
     }
 
     #[test]
@@ -656,6 +690,12 @@ mod tests {
             "Episode",
             "Sky Sports 1",
             "10x Fitness",
+            "Fashion TV 24x7",
+            "NDTV 24x7",
+            "Motor 4x4",
+            "Discovery Turbo 4x4",
+            "3x3 Basketball",
+            "Arena 2x2",
         ] {
             assert!(parse_episode_name(name, None).is_none(), "'{}' must not parse", name);
         }
@@ -672,6 +712,11 @@ mod tests {
     fn empty_series_name_without_group_does_not_parse() {
         assert!(parse_episode_name("S01E02", None).is_none());
         assert!(parse_episode_name("S01E02", Some("  ")).is_none());
+    }
+
+    #[test]
+    fn nxn_marker_without_series_name_does_not_use_group() {
+        assert!(parse_episode_name("1x02", Some("Series")).is_none());
     }
 
     #[test]
