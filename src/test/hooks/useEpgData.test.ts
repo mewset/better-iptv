@@ -70,13 +70,24 @@ describe('useEpgData', () => {
   });
 
   it('clears cached EPG and refetches when the backend emits epg-refreshed', async () => {
-    vi.mocked(getChannelsEpg).mockResolvedValue({
-      'svt1.se': { current: 'Rapport', next: null },
-    });
+    // The second resolution is empty: with forceRefresh=true the hook skips
+    // its cache filter entirely, so the only way the stale 'Rapport' entry
+    // can disappear is via clearAllEpg() (setChannelEpg is never called when
+    // entry?.current is missing). This proves the cache was actually cleared,
+    // not just that a second backend call happened.
+    vi.mocked(getChannelsEpg)
+      .mockResolvedValueOnce({ 'svt1.se': { current: 'Rapport', next: null } })
+      .mockResolvedValue({});
     const channels = [makeChannel({ id: 1, name: 'SVT1', epg_id: 'svt1.se' })];
 
     renderHook(() => useEpgData(channels));
     await waitFor(() => expect(getChannelsEpg).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    await waitFor(() => {
+      expect(usePlayerStore.getState().channelEpgData.get(1)).toEqual({
+        current: 'Rapport',
+        next: undefined,
+      });
+    });
 
     const registration = vi
       .mocked(listen)
@@ -87,5 +98,6 @@ describe('useEpgData', () => {
     handler({ payload: { success: true, programs_loaded: 10, timestamp: 'now', error: null } });
 
     await waitFor(() => expect(getChannelsEpg).toHaveBeenCalledTimes(2), { timeout: 2000 });
+    expect(usePlayerStore.getState().channelEpgData.has(1)).toBe(false);
   });
 });
