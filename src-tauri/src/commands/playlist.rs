@@ -3,6 +3,7 @@ use crate::db::{models::*, queries, mutations};
 use crate::error::AppError;
 use crate::playlist::{fetch_xtream_channels_with_progress, parse_m3u, get_xtream_epg_url, XtreamCredentials};
 use crate::playlist_domain;
+use crate::series_domain::{self, SeriesGroup};
 use crate::state::AppState;
 use log::{debug, error, info};
 use tauri::{AppHandle, Emitter, State};
@@ -35,6 +36,7 @@ pub async fn import_playlist(
     let channels = parse_m3u(&source, Some(&playlist_user_agent))
         .await
         .map_err(|e| AppError::Parse(e.to_string()))?;
+    let grouped = series_domain::group_series(channels);
 
     let playlist = playlist_domain::build_m3u_playlist(name, source)?;
 
@@ -42,13 +44,22 @@ pub async fn import_playlist(
         let playlist_id = mutations::create_playlist(conn, &playlist)?;
 
         let channels_with_playlist =
-            playlist_domain::assign_playlist_id_to_channels(channels, playlist_id);
+            playlist_domain::assign_playlist_id_to_channels(grouped.plain, playlist_id);
 
         for batch in playlist_domain::batch_channels(
             channels_with_playlist,
             playlist_domain::DEFAULT_BATCH_SIZE,
         ) {
             mutations::create_channels_batch(conn, &batch)?;
+        }
+
+        let episodes = mutations::insert_series_groups(conn, playlist_id, &grouped.series)?;
+        if !grouped.series.is_empty() {
+            info!(
+                "M3U import: {} series with {} episodes",
+                grouped.series.len(),
+                episodes
+            );
         }
 
         let mut result = playlist;
@@ -172,7 +183,7 @@ pub async fn refresh_playlist(
     })
     .await?;
 
-    let fresh_channels = if is_xtream {
+    let (fresh_channels, series_groups): (Vec<Channel>, Vec<SeriesGroup>) = if is_xtream {
         let creds = XtreamCredentials {
             server_url: playlist.url.clone().unwrap_or_default(),
             username: playlist.xtream_username.clone().unwrap_or_default(),
@@ -180,14 +191,15 @@ pub async fn refresh_playlist(
         };
 
         info!("Refreshing Xtream playlist '{}' (ID {})", playlist.name, playlist_id);
-        fetch_xtream_channels_with_progress(&creds, Some(&playlist_user_agent), |progress| {
+        let channels = fetch_xtream_channels_with_progress(&creds, Some(&playlist_user_agent), |progress| {
             let _ = app.emit("refresh-progress", progress);
         })
         .await
         .map_err(|e| {
             error!("Failed to fetch Xtream channels for refresh: {}", e);
             AppError::Http(e.to_string())
-        })?
+        })?;
+        (channels, Vec::new())
     } else {
         let source = playlist
             .url
@@ -196,17 +208,25 @@ pub async fn refresh_playlist(
             .ok_or_else(|| AppError::InvalidInput("Playlist has no URL or file path".to_string()))?;
 
         info!("Refreshing M3U playlist '{}' (ID {})", playlist.name, playlist_id);
-        parse_m3u(&source, Some(&playlist_user_agent))
+        let parsed = parse_m3u(&source, Some(&playlist_user_agent))
             .await
             .map_err(|e| {
-            error!("Failed to parse M3U for refresh: {}", e);
-            AppError::Parse(e.to_string())
-        })?
+                error!("Failed to parse M3U for refresh: {}", e);
+                AppError::Parse(e.to_string())
+            })?;
+
+        let grouped = series_domain::group_series(parsed);
+        let mut channels = grouped.plain;
+        channels.extend(grouped.series.iter().map(|g| g.channel.clone()));
+        (channels, grouped.series)
     };
 
     let playlist_name = playlist.name.clone();
     let result = with_db(&state.pool, move |conn| {
         let result = mutations::merge_channels(conn, playlist_id, &fresh_channels, is_xtream)?;
+        if !is_xtream {
+            mutations::replace_series_episodes(conn, playlist_id, &series_groups)?;
+        }
         mutations::update_playlist_last_updated(conn, playlist_id)?;
         Ok(result)
     })
