@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { usePlayerStore } from '../stores/player-store';
 import { getChannelsEpg } from '../lib/tauri';
 import { logger } from '../lib/logger';
@@ -41,11 +42,18 @@ export function useEpgData(channels: Channel[]): UseEpgDataResult {
   const setChannelEpg = usePlayerStore((s) => s.setChannelEpg);
   const epgRefreshTrigger = usePlayerStore((s) => s.epgRefreshTrigger);
   const triggerEpgRefresh = usePlayerStore((s) => s.triggerEpgRefresh);
+  const clearAllEpg = usePlayerStore((s) => s.clearAllEpg);
 
   // Track if we're currently fetching to avoid duplicate requests
   const isFetchingRef = useRef(false);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Last epgRefreshTrigger value already acted on. Without this, the "manual
+  // refresh trigger" effect below would refire every time fetchEpgForChannels
+  // is recreated (which happens on every completed fetch, since it closes
+  // over channelEpgData) as long as epgRefreshTrigger stayed > 0 - an
+  // infinite forced-refetch loop.
+  const lastHandledTriggerRef = useRef(0);
 
   // Fetch EPG for channels with debouncing
   const fetchEpgForChannels = useCallback(
@@ -122,7 +130,8 @@ export function useEpgData(channels: Channel[]): UseEpgDataResult {
 
   // Handle manual refresh trigger (force refresh all)
   useEffect(() => {
-    if (epgRefreshTrigger > 0 && channels.length > 0) {
+    if (epgRefreshTrigger > lastHandledTriggerRef.current && channels.length > 0) {
+      lastHandledTriggerRef.current = epgRefreshTrigger;
       fetchEpgForChannels(channels, true);
     }
   }, [epgRefreshTrigger, channels, fetchEpgForChannels]);
@@ -135,6 +144,19 @@ export function useEpgData(channels: Channel[]): UseEpgDataResult {
 
     return () => clearInterval(interval);
   }, [triggerEpgRefresh]);
+
+  // The backend refreshed EPG on its own schedule: drop the cache so the next
+  // fetch reads fresh titles for every channel, then trigger that fetch.
+  useEffect(() => {
+    const unlisten = listen('epg-refreshed', () => {
+      clearAllEpg();
+      triggerEpgRefresh();
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [clearAllEpg, triggerEpgRefresh]);
 
   // Cleanup on unmount
   useEffect(() => {

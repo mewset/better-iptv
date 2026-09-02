@@ -15,6 +15,7 @@ vi.mock('../../lib/tauri', async (importOriginal) => ({
 }));
 
 import { getChannelsEpg } from '../../lib/tauri';
+import { listen } from '@tauri-apps/api/event';
 import { useEpgData } from '../../hooks/useEpgData';
 
 const makeChannel = (overrides: Partial<Channel>): Channel => ({
@@ -66,5 +67,25 @@ describe('useEpgData', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 700));
     expect(getChannelsEpg).not.toHaveBeenCalled();
+  });
+
+  it('clears cached EPG and refetches when the backend emits epg-refreshed', async () => {
+    vi.mocked(getChannelsEpg).mockResolvedValue({
+      'svt1.se': { current: 'Rapport', next: null },
+    });
+    const channels = [makeChannel({ id: 1, name: 'SVT1', epg_id: 'svt1.se' })];
+
+    renderHook(() => useEpgData(channels));
+    await waitFor(() => expect(getChannelsEpg).toHaveBeenCalledTimes(1), { timeout: 2000 });
+
+    const registration = vi
+      .mocked(listen)
+      .mock.calls.find(([eventName]) => eventName === 'epg-refreshed');
+    expect(registration).toBeDefined();
+
+    const handler = registration![1] as (event: { payload: unknown }) => void;
+    handler({ payload: { success: true, programs_loaded: 10, timestamp: 'now', error: null } });
+
+    await waitFor(() => expect(getChannelsEpg).toHaveBeenCalledTimes(2), { timeout: 2000 });
   });
 });
