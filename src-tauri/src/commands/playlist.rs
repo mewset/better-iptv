@@ -41,7 +41,12 @@ pub async fn import_playlist(
     let playlist = playlist_domain::build_m3u_playlist(name, source)?;
 
     with_db(&state.pool, move |conn| {
-        let playlist_id = mutations::create_playlist(conn, &playlist)?;
+        // All-or-nothing: a playlist row with some series present and some
+        // missing, or channels without their owning playlist, is worse than
+        // no import at all.
+        let tx = conn.unchecked_transaction()?;
+
+        let playlist_id = mutations::create_playlist(&tx, &playlist)?;
 
         let channels_with_playlist =
             playlist_domain::assign_playlist_id_to_channels(grouped.plain, playlist_id);
@@ -50,10 +55,10 @@ pub async fn import_playlist(
             channels_with_playlist,
             playlist_domain::DEFAULT_BATCH_SIZE,
         ) {
-            mutations::create_channels_batch(conn, &batch)?;
+            mutations::create_channels_batch(&tx, &batch)?;
         }
 
-        let episodes = mutations::insert_series_groups(conn, playlist_id, &grouped.series)?;
+        let episodes = mutations::insert_series_groups(&tx, playlist_id, &grouped.series)?;
         if !grouped.series.is_empty() {
             info!(
                 "M3U import: {} series with {} episodes",
@@ -61,6 +66,8 @@ pub async fn import_playlist(
                 episodes
             );
         }
+
+        tx.commit()?;
 
         let mut result = playlist;
         result.id = Some(playlist_id);
@@ -115,7 +122,12 @@ pub async fn import_xtream_playlist(
     let epg_url = get_xtream_epg_url(&creds);
 
     with_db(&state.pool, move |conn| {
-        let playlist_id = mutations::create_playlist(conn, &playlist).map_err(|e| {
+        // `create_channels_batch` no longer opens its own transaction (see
+        // the M3U import above), so this closure owns one for the whole
+        // import to keep every batch's commit atomic with the rest.
+        let tx = conn.unchecked_transaction()?;
+
+        let playlist_id = mutations::create_playlist(&tx, &playlist).map_err(|e| {
             error!("Failed to create playlist: {}", e);
             e
         })?;
@@ -136,7 +148,7 @@ pub async fn import_xtream_playlist(
             playlist_domain::DEFAULT_BATCH_SIZE,
         );
         for (batch_num, batch) in batches.iter().enumerate() {
-            mutations::create_channels_batch(conn, batch).map_err(|e| {
+            mutations::create_channels_batch(&tx, batch).map_err(|e| {
                 error!("Failed to insert channel batch: {}", e);
                 e
             })?;
@@ -145,14 +157,14 @@ pub async fn import_xtream_playlist(
 
         info!("Xtream import completed: {} channels imported", total_channels);
 
-        let existing_epg_url = queries::get_setting(conn, "epg_url")?;
+        let existing_epg_url = queries::get_setting(&tx, "epg_url")?;
         let has_epg_url = existing_epg_url
             .as_ref()
             .map(|u| !u.trim().is_empty())
             .unwrap_or(false);
 
         if !has_epg_url {
-            mutations::set_setting(conn, "epg_url", &epg_url)?;
+            mutations::set_setting(&tx, "epg_url", &epg_url)?;
             info!(
                 "Auto-populated EPG URL from Xtream provider: {}",
                 crate::utils::mask_credentials(&epg_url)
@@ -160,6 +172,8 @@ pub async fn import_xtream_playlist(
         } else {
             debug!("EPG URL already configured, skipping auto-population");
         }
+
+        tx.commit()?;
 
         let mut result = playlist;
         result.id = Some(playlist_id);

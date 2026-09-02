@@ -59,12 +59,16 @@ pub fn create_channel(conn: &Connection, channel: &Channel) -> Result<i64> {
     Ok(conn.last_insert_rowid())
 }
 
+/// Insert many channels with a cached prepared statement. Does not open a
+/// transaction of its own — wrap the call (and any surrounding work that
+/// must commit atomically with it) in the caller's own
+/// `conn.unchecked_transaction()` for atomic, batched commits. Passing a
+/// `Transaction` here works via `Deref<Target = Connection>`.
 pub fn create_channels_batch(conn: &Connection, channels: &[Channel]) -> Result<()> {
     let start = Instant::now();
-    let tx = conn.unchecked_transaction()?;
 
     {
-        let mut stmt = tx.prepare_cached(
+        let mut stmt = conn.prepare_cached(
             "INSERT INTO channels (playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, sort_order, category_order)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
         )?;
@@ -85,7 +89,6 @@ pub fn create_channels_batch(conn: &Connection, channels: &[Channel]) -> Result<
         }
     }
 
-    tx.commit()?;
     debug!("create_channels_batch: {} channels in {:?}", channels.len(), start.elapsed());
     Ok(())
 }
@@ -564,7 +567,9 @@ mod tests {
             })
             .collect();
 
-        create_channels_batch(&conn, &channels).unwrap();
+        let tx = conn.unchecked_transaction().unwrap();
+        create_channels_batch(&tx, &channels).unwrap();
+        tx.commit().unwrap();
 
         let stored = get_channels(&conn, Some(playlist_id)).unwrap();
         assert_eq!(stored.len(), 100);
@@ -603,7 +608,9 @@ mod tests {
                 created_at: None,
             })
             .collect();
-        create_channels_batch(&conn, &existing).unwrap();
+        let tx = conn.unchecked_transaction().unwrap();
+        create_channels_batch(&tx, &existing).unwrap();
+        tx.commit().unwrap();
 
         // The refresh matches every channel but the last, so the prune has to
         // delete exactly one stale row while keeping 33 000.
@@ -833,5 +840,64 @@ mod tests {
         replace_series_episodes(&conn, a, &[series_group(a, "Dark", "Series", &[(2, 1)])]).unwrap();
 
         assert_eq!(get_series_episodes(&conn, b_series).unwrap().len(), 2);
+    }
+
+    /// Proves the shape a playlist import must use to be atomic: run
+    /// `create_playlist`, `create_channels_batch` and `insert_series_groups`
+    /// inside one `unchecked_transaction`, then let the transaction drop
+    /// without a commit. Nothing any of the three calls wrote should survive.
+    #[test]
+    fn dropping_the_import_transaction_without_commit_persists_nothing() {
+        let conn = setup_test_db();
+
+        {
+            let tx = conn.unchecked_transaction().unwrap();
+
+            let playlist = Playlist {
+                id: None,
+                name: "Uncommitted".to_string(),
+                url: Some("http://example.com/playlist.m3u".to_string()),
+                file_path: None,
+                last_updated: None,
+                auto_refresh: false,
+                xtream_username: None,
+                xtream_password: None,
+                created_at: None,
+            };
+            let playlist_id = create_playlist(&tx, &playlist).unwrap();
+
+            let plain_channel = Channel {
+                id: None,
+                playlist_id,
+                name: "Plain Channel".to_string(),
+                url: "http://example.com/stream.m3u8".to_string(),
+                logo: None,
+                group_name: Some("News".to_string()),
+                epg_id: None,
+                tvg_name: None,
+                content_type: "live".to_string(),
+                is_favorite: false,
+                sort_order: 0,
+                category_order: 0,
+                created_at: None,
+            };
+            create_channels_batch(&tx, std::slice::from_ref(&plain_channel)).unwrap();
+
+            insert_series_groups(
+                &tx,
+                playlist_id,
+                &[series_group(playlist_id, "Dark", "Series", &[(1, 1)])],
+            )
+            .unwrap();
+
+            // `tx` drops here without `commit()`, rolling everything back.
+        }
+
+        assert!(get_playlists(&conn).unwrap().is_empty(), "playlist must not survive an uncommitted transaction");
+        assert!(get_channels(&conn, None).unwrap().is_empty(), "channels must not survive an uncommitted transaction");
+        let episode_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM series_episodes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(episode_count, 0, "episodes must not survive an uncommitted transaction");
     }
 }
