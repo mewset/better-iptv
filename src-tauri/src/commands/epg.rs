@@ -2,13 +2,15 @@ use crate::commands::with_db;
 use crate::error::AppError;
 use crate::epg::ChannelEpg;
 use crate::epg_domain;
+use crate::epg_domain::{epg_refresh_due, EPG_AUTO_REFRESH_INTERVAL_HOURS};
 use crate::playlist::{get_xtream_epg_url, XtreamCredentials};
 use crate::state::AppState;
 use crate::db::queries;
 use log::{debug, info, warn};
 use serde::Serialize;
 use std::collections::HashMap;
-use tauri::State;
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 fn resolve_xtream_epg_user_agent(
     db: &rusqlite::Connection,
@@ -62,7 +64,7 @@ pub struct EpgStatus {
     pub program_count: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct EpgRefreshResult {
     pub success: bool,
     pub programs_loaded: usize,
@@ -159,8 +161,12 @@ pub async fn get_epg_status(state: State<'_, AppState>) -> Result<EpgStatus, App
     .await
 }
 
-#[tauri::command]
-pub async fn force_refresh_epg(state: State<'_, AppState>) -> Result<EpgRefreshResult, AppError> {
+/// Fetch, parse and store EPG from the configured `epg_url`.
+///
+/// Returns `Ok(EpgRefreshResult { success: false, .. })` for user-facing
+/// problems (no URL, invalid URL, download failure) and `Err` only for
+/// database failures. Shared by the Settings button and the background task.
+pub async fn run_epg_refresh(state: &AppState) -> Result<EpgRefreshResult, AppError> {
     let epg_url = with_db(&state.pool, |conn| Ok(queries::get_setting(conn, "epg_url")?)).await?;
 
     let epg_url = match epg_url {
@@ -234,4 +240,58 @@ pub async fn force_refresh_epg(state: State<'_, AppState>) -> Result<EpgRefreshR
         timestamp,
         error: None,
     })
+}
+
+#[tauri::command]
+pub async fn force_refresh_epg(state: State<'_, AppState>) -> Result<EpgRefreshResult, AppError> {
+    run_epg_refresh(&state).await
+}
+
+/// First automatic check after startup; leaves the UI's own startup traffic alone.
+pub const EPG_AUTO_REFRESH_INITIAL_DELAY: Duration = Duration::from_secs(30);
+/// How often the background task re-checks whether a refresh is due.
+pub const EPG_AUTO_REFRESH_POLL_INTERVAL: Duration = Duration::from_secs(15 * 60);
+
+/// Background entry point: refresh EPG when an `epg_url` is set and the last
+/// fetch is older than `EPG_AUTO_REFRESH_INTERVAL_HOURS`. Never fails; every
+/// problem is logged and retried at the next poll.
+pub async fn maybe_auto_refresh_epg(app: &AppHandle) {
+    let state = app.state::<AppState>();
+
+    let settings = with_db(&state.pool, |conn| {
+        Ok(queries::get_multiple_settings(conn, &["epg_url", "epg_last_fetched"])?)
+    })
+    .await;
+
+    let settings = match settings {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("EPG auto-refresh: could not read settings: {}", e);
+            return;
+        }
+    };
+
+    let has_url = settings
+        .get("epg_url")
+        .map(|u| !u.trim().is_empty())
+        .unwrap_or(false);
+    if !has_url {
+        return;
+    }
+
+    let last_fetched = settings.get("epg_last_fetched").map(|s| s.as_str());
+    if !epg_refresh_due(last_fetched, chrono::Utc::now(), EPG_AUTO_REFRESH_INTERVAL_HOURS) {
+        return;
+    }
+
+    info!("EPG auto-refresh: last fetch {:?}, refreshing", last_fetched);
+    match run_epg_refresh(&state).await {
+        Ok(result) if result.success => {
+            if let Err(e) = app.emit("epg-refreshed", result) {
+                warn!("EPG auto-refresh: failed to emit event: {}", e);
+            }
+        }
+        Ok(result) => warn!("EPG auto-refresh failed: {:?}", result.error),
+        Err(e) => warn!("EPG auto-refresh failed: {}", e),
+    }
 }

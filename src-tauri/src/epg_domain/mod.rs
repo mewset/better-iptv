@@ -4,6 +4,7 @@
 //! database and command layers for better testability and maintainability.
 
 use crate::error::AppError;
+use chrono::{DateTime, Utc};
 
 /// Validate EPG URL format
 ///
@@ -87,6 +88,20 @@ pub fn validate_channel_epg_id(epg_id: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// How old `epg_last_fetched` may be before the background task refreshes.
+pub const EPG_AUTO_REFRESH_INTERVAL_HOURS: i64 = 6;
+
+/// Decide whether an automatic EPG refresh should run now.
+///
+/// `last_fetched` is the RFC 3339 string stored in the `epg_last_fetched`
+/// setting. A missing or unreadable value counts as "never fetched".
+pub fn epg_refresh_due(last_fetched: Option<&str>, now: DateTime<Utc>, interval_hours: i64) -> bool {
+    match last_fetched.and_then(|s| DateTime::parse_from_rfc3339(s).ok()) {
+        Some(last) => now - last.with_timezone(&Utc) >= chrono::Duration::hours(interval_hours),
+        None => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,5 +175,42 @@ mod tests {
     #[test]
     fn test_validate_channel_epg_id_whitespace() {
         assert!(validate_channel_epg_id("   ").is_err());
+    }
+
+    mod refresh_due {
+        use super::super::{epg_refresh_due, EPG_AUTO_REFRESH_INTERVAL_HOURS};
+        use chrono::{Duration, Utc};
+
+        #[test]
+        fn never_fetched_is_due() {
+            assert!(epg_refresh_due(None, Utc::now(), EPG_AUTO_REFRESH_INTERVAL_HOURS));
+        }
+
+        #[test]
+        fn unparsable_timestamp_is_due() {
+            assert!(epg_refresh_due(Some("yesterday"), Utc::now(), EPG_AUTO_REFRESH_INTERVAL_HOURS));
+        }
+
+        #[test]
+        fn recent_fetch_is_not_due() {
+            let now = Utc::now();
+            let last = (now - Duration::hours(1)).to_rfc3339();
+            assert!(!epg_refresh_due(Some(&last), now, 6));
+        }
+
+        #[test]
+        fn fetch_older_than_interval_is_due() {
+            let now = Utc::now();
+            let last = (now - Duration::hours(6) - Duration::minutes(1)).to_rfc3339();
+            assert!(epg_refresh_due(Some(&last), now, 6));
+        }
+
+        #[test]
+        fn accepts_the_timestamp_format_written_by_force_refresh() {
+            // chrono's to_rfc3339 with nanoseconds, as stored in epg_last_fetched.
+            let now = Utc::now();
+            assert!(!epg_refresh_due(Some("2026-03-15T15:03:20.435045575+00:00"), now, 24 * 365 * 10));
+            assert!(epg_refresh_due(Some("2026-03-15T15:03:20.435045575+00:00"), now, 6));
+        }
     }
 }

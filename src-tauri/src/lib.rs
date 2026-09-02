@@ -125,6 +125,18 @@ pub fn run() {
             let state = AppState::new(pool);
             app.manage(state);
 
+            // Background EPG refresh. Runs on Tauri's tokio runtime; the
+            // heavy parts (download, parse, store) already go through
+            // spawn_blocking / async HTTP inside run_epg_refresh.
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(commands::epg::EPG_AUTO_REFRESH_INITIAL_DELAY).await;
+                loop {
+                    commands::epg::maybe_auto_refresh_epg(&handle).await;
+                    tokio::time::sleep(commands::epg::EPG_AUTO_REFRESH_POLL_INTERVAL).await;
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
