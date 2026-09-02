@@ -1,6 +1,7 @@
 use crate::channel_domain;
+use crate::commands::with_db;
 use crate::db::models::Channel;
-use crate::db::{queries, mutations};
+use crate::db::{mutations, queries};
 use crate::error::AppError;
 use crate::state::AppState;
 use log::debug;
@@ -15,8 +16,10 @@ pub async fn get_channels(
         channel_domain::validate_playlist_id(id)?;
     }
 
-    let conn = state.pool.get()?;
-    let channels = queries::get_channels(&conn, playlist_id)?;
+    let channels = with_db(&state.pool, move |conn| {
+        Ok(queries::get_channels(conn, playlist_id)?)
+    })
+    .await?;
     debug!("get_channels playlist_id={:?} -> {} channels", playlist_id, channels.len());
     Ok(channels)
 }
@@ -33,9 +36,17 @@ pub async fn get_channel_groups(
         channel_domain::validate_content_type(ct)?;
     }
 
-    let conn = state.pool.get()?;
-    let groups = queries::get_channel_groups(&conn, playlist_id, content_type.as_deref())?;
-    debug!("get_channel_groups playlist_id={} type={:?} -> {} groups", playlist_id, content_type, groups.len());
+    let ct_for_log = content_type.clone();
+    let groups = with_db(&state.pool, move |conn| {
+        Ok(queries::get_channel_groups(conn, playlist_id, content_type.as_deref())?)
+    })
+    .await?;
+    debug!(
+        "get_channel_groups playlist_id={} type={:?} -> {} groups",
+        playlist_id,
+        ct_for_log,
+        groups.len()
+    );
     Ok(groups)
 }
 
@@ -46,9 +57,12 @@ pub async fn search_channels(
 ) -> Result<Vec<Channel>, AppError> {
     channel_domain::validate_search_query(&query)?;
 
-    let conn = state.pool.get()?;
-    let channels = queries::search_channels(&conn, &query)?;
-    debug!("search_channels query='{}' -> {} results", query, channels.len());
+    let query_for_log = query.clone();
+    let channels = with_db(&state.pool, move |conn| {
+        Ok(queries::search_channels(conn, &query)?)
+    })
+    .await?;
+    debug!("search_channels query='{}' -> {} results", query_for_log, channels.len());
     Ok(channels)
 }
 
@@ -56,16 +70,17 @@ pub async fn search_channels(
 pub async fn toggle_favorite(state: State<'_, AppState>, channel_id: i64) -> Result<(), AppError> {
     channel_domain::validate_channel_id(channel_id)?;
 
-    let conn = state.pool.get()?;
-    mutations::toggle_favorite(&conn, channel_id)?;
+    with_db(&state.pool, move |conn| {
+        Ok(mutations::toggle_favorite(conn, channel_id)?)
+    })
+    .await?;
     debug!("toggle_favorite channel_id={}", channel_id);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn get_favorites(state: State<'_, AppState>) -> Result<Vec<Channel>, AppError> {
-    let conn = state.pool.get()?;
-    let channels = queries::get_favorites(&conn)?;
+    let channels = with_db(&state.pool, |conn| Ok(queries::get_favorites(conn)?)).await?;
     debug!("get_favorites -> {} channels", channels.len());
     Ok(channels)
 }

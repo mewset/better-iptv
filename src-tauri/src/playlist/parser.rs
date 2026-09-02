@@ -23,12 +23,16 @@ pub async fn parse_m3u(source: &str, user_agent: Option<&str>) -> Result<Vec<Cha
             .await
             .context("Failed to read M3U content")?
     } else {
-        // Read from file
-        std::fs::read_to_string(source)
+        // Read from file without blocking the async worker
+        tokio::fs::read_to_string(source)
+            .await
             .context("Failed to read M3U file")?
     };
 
-    parse_m3u_content(&content)
+    // Parsing a multi-megabyte playlist is CPU work; keep it off the runtime.
+    tokio::task::spawn_blocking(move || parse_m3u_content(&content))
+        .await
+        .context("M3U parse task failed")?
 }
 
 /// Parse M3U content string

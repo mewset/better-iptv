@@ -1,3 +1,4 @@
+use crate::commands::with_db;
 use crate::db::{queries, mutations};
 use crate::error::AppError;
 use crate::http;
@@ -12,9 +13,13 @@ pub async fn get_setting(
     state: State<'_, AppState>,
     key: String,
 ) -> Result<Option<String>, AppError> {
-    let conn = state.pool.get()?;
-    let result = queries::get_setting(&conn, &key)?;
-    debug!("get_setting '{}' -> {}", key, if result.is_some() { "found" } else { "not set" });
+    let key_for_log = key.clone();
+    let result = with_db(&state.pool, move |conn| Ok(queries::get_setting(conn, &key)?)).await?;
+    debug!(
+        "get_setting '{}' -> {}",
+        key_for_log,
+        if result.is_some() { "found" } else { "not set" }
+    );
     Ok(result)
 }
 
@@ -24,22 +29,23 @@ pub async fn set_setting(
     key: String,
     value: String,
 ) -> Result<(), AppError> {
-    let conn = state.pool.get()?;
-
     let normalized_value = match key.as_str() {
         "playlist_user_agent_mode" => validate_playlist_user_agent_mode(&value)?,
         "playlist_user_agent_custom" => validate_playlist_user_agent_custom(&value)?,
         _ => value,
     };
 
-    let final_value = if key == "epg_url" && normalized_value.trim().is_empty() {
-        get_default_xtream_epg_url(&conn).unwrap_or(normalized_value)
-    } else {
-        normalized_value
-    };
-
-    mutations::set_setting(&conn, &key, &final_value)?;
-    debug!("Setting '{}' updated", key);
+    let key_for_log = key.clone();
+    with_db(&state.pool, move |conn| {
+        let final_value = if key == "epg_url" && normalized_value.trim().is_empty() {
+            get_default_xtream_epg_url(conn).unwrap_or(normalized_value)
+        } else {
+            normalized_value
+        };
+        Ok(mutations::set_setting(conn, &key, &final_value)?)
+    })
+    .await?;
+    debug!("Setting '{}' updated", key_for_log);
     Ok(())
 }
 
@@ -106,9 +112,10 @@ fn get_default_xtream_epg_url(db: &rusqlite::Connection) -> Option<String> {
 
 #[tauri::command]
 pub async fn get_active_profile_id(state: State<'_, AppState>) -> Result<Option<i64>, AppError> {
-    let conn = state.pool.get()?;
-
-    let active_id_str = queries::get_setting(&conn, "active_profile_id")?;
+    let active_id_str = with_db(&state.pool, |conn| {
+        Ok(queries::get_setting(conn, "active_profile_id")?)
+    })
+    .await?;
 
     let active_id = active_id_str.and_then(|s| {
         s.parse::<i64>().ok().or_else(|| {
@@ -125,9 +132,10 @@ pub async fn set_active_profile_id(
     state: State<'_, AppState>,
     profile_id: i64,
 ) -> Result<(), AppError> {
-    let conn = state.pool.get()?;
-
-    mutations::set_setting(&conn, "active_profile_id", &profile_id.to_string())?;
+    with_db(&state.pool, move |conn| {
+        Ok(mutations::set_setting(conn, "active_profile_id", &profile_id.to_string())?)
+    })
+    .await?;
 
     info!("Active profile changed to ID: {}", profile_id);
 

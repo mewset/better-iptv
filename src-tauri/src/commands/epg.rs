@@ -1,3 +1,4 @@
+use crate::commands::with_db;
 use crate::error::AppError;
 use crate::epg_domain;
 use crate::playlist::{get_xtream_epg_url, XtreamCredentials};
@@ -72,25 +73,24 @@ pub async fn fetch_epg_data(state: State<'_, AppState>, epg_url: String) -> Resu
     let normalized_url = epg_domain::normalize_epg_url(&epg_url);
     epg_domain::validate_epg_url(&normalized_url)?;
 
-    let playlist_user_agent = {
-        let conn = state.pool.get()?;
-        resolve_xtream_epg_user_agent(&conn, &normalized_url)?
-    };
+    let url_for_ua = normalized_url.clone();
+    let playlist_user_agent = with_db(&state.pool, move |conn| {
+        resolve_xtream_epg_user_agent(conn, &url_for_ua)
+    })
+    .await?;
 
     let programs = crate::epg::fetch_and_parse_epg(&normalized_url, playlist_user_agent.as_deref())
         .await
         .map_err(|e| AppError::Epg(e.to_string()))?;
 
-    let conn = state.pool.get()?;
-
-    let updated = crate::db::mutations::update_channel_epg_ids(&conn)?;
-    if updated > 0 {
-        debug!("Updated EPG IDs for {} channels", updated);
-    }
-
-    let count = crate::epg::store_epg_programs(&conn, &programs)?;
-
-    Ok(count)
+    with_db(&state.pool, move |conn| {
+        let updated = crate::db::mutations::update_channel_epg_ids(conn)?;
+        if updated > 0 {
+            debug!("Updated EPG IDs for {} channels", updated);
+        }
+        Ok(crate::epg::store_epg_programs(conn, &programs)?)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -100,37 +100,35 @@ pub async fn get_channel_epg(
 ) -> Result<(Option<String>, Option<String>), AppError> {
     epg_domain::validate_channel_epg_id(&channel_epg_id)?;
 
-    let conn = state.pool.get()?;
-
-    let current = crate::epg::get_current_program(&conn, &channel_epg_id)?;
-    let next = crate::epg::get_next_program(&conn, &channel_epg_id)?;
-
-    Ok((current, next))
+    with_db(&state.pool, move |conn| {
+        let current = crate::epg::get_current_program(conn, &channel_epg_id)?;
+        let next = crate::epg::get_next_program(conn, &channel_epg_id)?;
+        Ok((current, next))
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn get_epg_status(state: State<'_, AppState>) -> Result<EpgStatus, AppError> {
-    let conn = state.pool.get()?;
+    with_db(&state.pool, |conn| {
+        let epg_url = queries::get_setting(conn, "epg_url")?;
+        let has_url = epg_url.map(|u| !u.trim().is_empty()).unwrap_or(false);
 
-    let epg_url = crate::db::queries::get_setting(&conn, "epg_url")?;
-    let has_url = epg_url.map(|u| !u.trim().is_empty()).unwrap_or(false);
+        let last_fetched = queries::get_setting(conn, "epg_last_fetched")?;
+        let program_count = queries::get_epg_program_count(conn)?;
 
-    let last_fetched = crate::db::queries::get_setting(&conn, "epg_last_fetched")?;
-    let program_count = crate::db::queries::get_epg_program_count(&conn)?;
-
-    Ok(EpgStatus {
-        has_url,
-        last_fetched,
-        program_count,
+        Ok(EpgStatus {
+            has_url,
+            last_fetched,
+            program_count,
+        })
     })
+    .await
 }
 
 #[tauri::command]
 pub async fn force_refresh_epg(state: State<'_, AppState>) -> Result<EpgRefreshResult, AppError> {
-    let epg_url = {
-        let conn = state.pool.get()?;
-        crate::db::queries::get_setting(&conn, "epg_url")?
-    };
+    let epg_url = with_db(&state.pool, |conn| Ok(queries::get_setting(conn, "epg_url")?)).await?;
 
     let epg_url = match epg_url {
         Some(url) if !url.trim().is_empty() => url,
@@ -144,7 +142,7 @@ pub async fn force_refresh_epg(state: State<'_, AppState>) -> Result<EpgRefreshR
         }
     };
 
-    info!("Force refreshing EPG from: {}", epg_url);
+    info!("Force refreshing EPG from: {}", crate::utils::mask_credentials(&epg_url));
 
     let normalized_url = epg_domain::normalize_epg_url(&epg_url);
     if let Err(e) = epg_domain::validate_epg_url(&normalized_url) {
@@ -157,10 +155,11 @@ pub async fn force_refresh_epg(state: State<'_, AppState>) -> Result<EpgRefreshR
         });
     }
 
-    let playlist_user_agent = {
-        let conn = state.pool.get()?;
-        resolve_xtream_epg_user_agent(&conn, &normalized_url)?
-    };
+    let url_for_ua = normalized_url.clone();
+    let playlist_user_agent = with_db(&state.pool, move |conn| {
+        resolve_xtream_epg_user_agent(conn, &url_for_ua)
+    })
+    .await?;
 
     let programs = match crate::epg::fetch_and_parse_epg(
         &normalized_url,
@@ -180,17 +179,19 @@ pub async fn force_refresh_epg(state: State<'_, AppState>) -> Result<EpgRefreshR
         }
     };
 
-    let conn = state.pool.get()?;
+    let (count, timestamp) = with_db(&state.pool, move |conn| {
+        let updated = crate::db::mutations::update_channel_epg_ids(conn)?;
+        if updated > 0 {
+            debug!("Updated EPG IDs for {} channels", updated);
+        }
 
-    let updated = crate::db::mutations::update_channel_epg_ids(&conn)?;
-    if updated > 0 {
-        debug!("Updated EPG IDs for {} channels", updated);
-    }
+        let count = crate::epg::store_epg_programs(conn, &programs)?;
 
-    let count = crate::epg::store_epg_programs(&conn, &programs)?;
-
-    let timestamp = chrono::Utc::now().to_rfc3339();
-    crate::db::mutations::set_setting(&conn, "epg_last_fetched", &timestamp)?;
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        crate::db::mutations::set_setting(conn, "epg_last_fetched", &timestamp)?;
+        Ok((count, timestamp))
+    })
+    .await?;
 
     info!("EPG refresh completed: {} programs loaded", count);
 

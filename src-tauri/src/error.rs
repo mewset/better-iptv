@@ -127,6 +127,12 @@ impl From<r2d2::Error> for AppError {
     }
 }
 
+impl From<tokio::task::JoinError> for AppError {
+    fn from(e: tokio::task::JoinError) -> Self {
+        AppError::Io(format!("Background task failed: {}", e))
+    }
+}
+
 /// Result type alias using AppError
 pub type AppResult<T> = Result<T, AppError>;
 

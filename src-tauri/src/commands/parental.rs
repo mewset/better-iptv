@@ -1,3 +1,5 @@
+use crate::commands::with_db;
+use crate::db::{mutations, queries};
 use crate::error::AppError;
 use crate::parental_domain;
 use crate::state::AppState;
@@ -10,8 +12,10 @@ pub async fn set_parental_pin(state: State<'_, AppState>, pin: String) -> Result
 
     let password_hash = parental_domain::hash_pin(&pin)?;
 
-    let conn = state.pool.get()?;
-    crate::db::mutations::set_setting(&conn, "parental_pin_hash", &password_hash)?;
+    with_db(&state.pool, move |conn| {
+        Ok(mutations::set_setting(conn, "parental_pin_hash", &password_hash)?)
+    })
+    .await?;
 
     info!("Parental control PIN set successfully");
     Ok(())
@@ -19,14 +23,19 @@ pub async fn set_parental_pin(state: State<'_, AppState>, pin: String) -> Result
 
 #[tauri::command]
 pub async fn verify_parental_pin(state: State<'_, AppState>, pin: String) -> Result<bool, AppError> {
-    let conn = state.pool.get()?;
+    let hash = with_db(&state.pool, |conn| {
+        Ok(queries::get_setting(conn, "parental_pin_hash")?)
+    })
+    .await?;
 
-    let hash = match crate::db::queries::get_setting(&conn, "parental_pin_hash")? {
+    let hash = match hash {
         Some(h) => h,
         None => return Ok(false),
     };
 
-    let is_valid = parental_domain::verify_pin_hash(&pin, &hash)?;
+    // Argon2 verification is CPU-bound by design; keep it off the async worker too.
+    let is_valid = tokio::task::spawn_blocking(move || parental_domain::verify_pin_hash(&pin, &hash))
+        .await??;
 
     if is_valid {
         info!("Parental control PIN verified successfully");
@@ -39,10 +48,12 @@ pub async fn verify_parental_pin(state: State<'_, AppState>, pin: String) -> Res
 
 #[tauri::command]
 pub async fn reset_parental_pin(state: State<'_, AppState>) -> Result<(), AppError> {
-    let conn = state.pool.get()?;
-
-    crate::db::mutations::delete_setting(&conn, "parental_pin_hash")?;
-    crate::db::mutations::set_setting(&conn, "parental_enabled", "false")?;
+    with_db(&state.pool, |conn| {
+        mutations::delete_setting(conn, "parental_pin_hash")?;
+        mutations::set_setting(conn, "parental_enabled", "false")?;
+        Ok(())
+    })
+    .await?;
 
     info!("Parental control PIN reset");
     Ok(())
@@ -50,9 +61,12 @@ pub async fn reset_parental_pin(state: State<'_, AppState>) -> Result<(), AppErr
 
 #[tauri::command]
 pub async fn get_blocked_channels(state: State<'_, AppState>) -> Result<Vec<i64>, AppError> {
-    let conn = state.pool.get()?;
+    let json_str = with_db(&state.pool, |conn| {
+        Ok(queries::get_setting(conn, "parental_blocked_channels")?)
+    })
+    .await?;
 
-    let json_str = match crate::db::queries::get_setting(&conn, "parental_blocked_channels")? {
+    let json_str = match json_str {
         Some(s) => s,
         None => return Ok(Vec::new()),
     };
@@ -65,33 +79,36 @@ pub async fn get_blocked_channels(state: State<'_, AppState>) -> Result<Vec<i64>
 
 #[tauri::command]
 pub async fn set_blocked_channels(state: State<'_, AppState>, channel_ids: Vec<i64>) -> Result<(), AppError> {
-    let conn = state.pool.get()?;
-
     let json_str = serde_json::to_string(&channel_ids)
         .map_err(|e| AppError::Parse(format!("Failed to serialize blocked channels: {}", e)))?;
+    let count = channel_ids.len();
 
-    crate::db::mutations::set_setting(&conn, "parental_blocked_channels", &json_str)?;
+    with_db(&state.pool, move |conn| {
+        Ok(mutations::set_setting(conn, "parental_blocked_channels", &json_str)?)
+    })
+    .await?;
 
-    info!("Updated blocked channels list ({} channels)", channel_ids.len());
+    info!("Updated blocked channels list ({} channels)", count);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn get_parental_settings(state: State<'_, AppState>) -> Result<serde_json::Value, AppError> {
-    let conn = state.pool.get()?;
-
-    let settings = crate::db::queries::get_multiple_settings(
-        &conn,
-        &[
-            "parental_enabled",
-            "parental_pin_hash",
-            "parental_auto_detect",
-            "parental_blocked_channels",
-            "parental_blocked_categories",
-            "parental_unlock_duration",
-            "parental_visibility",
-        ],
-    )?;
+    let settings = with_db(&state.pool, |conn| {
+        Ok(queries::get_multiple_settings(
+            conn,
+            &[
+                "parental_enabled",
+                "parental_pin_hash",
+                "parental_auto_detect",
+                "parental_blocked_channels",
+                "parental_blocked_categories",
+                "parental_unlock_duration",
+                "parental_visibility",
+            ],
+        )?)
+    })
+    .await?;
 
     let blocked_channels: Vec<i64> = settings
         .get("parental_blocked_channels")
