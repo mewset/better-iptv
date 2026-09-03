@@ -55,6 +55,21 @@ This file is a developer-changelog, aimed towards development changes.
 
 - **Series click on M3U profiles was a silent no-op** - `MainScreen` only rendered `SeriesView` for Xtream credentials and logged nothing otherwise
 
+- **Arch AppImage Died at Startup** - Every `-arch.AppImage` from v2.6.0 through v2.7.0 crashed immediately with `Failed to spawn child process "././/lib/x86_64-linux-gnu/webkit2gtk-4.1/WebKitNetworkProcess"` (Issue: #60)
+  - The repack step in `release.yml` deleted `usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/` (the helper processes) but kept `usr/lib/libwebkit2gtk-4.1.so.0`. linuxdeploy had patched that library to look for its helpers at exactly that relative path, resolved against the AppDir, and the WebKit build has no `WEBKIT_EXEC_PATH` override, so the spawn could only fail
+  - It went unnoticed because the AUR package never runs `AppRun`: its wrapper starts the binary with `LD_LIBRARY_PATH=/usr/lib`, i.e. system WebKit. The standalone AppImage was the only broken path
+  - Removing only the WebKit libraries is not enough either: system WebKit then resolves against the bundled Ubuntu `libsharpyuv`, and `libavif.so.16` fails on `SharpYuvConvertWithOptions`
+  - Fix: the `-arch` build drops `usr/lib`, `apprun-hooks` and `AppRun.wrapped` entirely and ships a plain `AppRun` that execs the binary against the system libraries, the same thing the AUR wrapper does. Asset shrinks from 90 MB to ~6 MB. `AppRun` checks for `libwebkit2gtk-4.1.so.0` first and prints the `pacman`/`dnf` command when it is missing
+  - Verified on Arch (Hyprland, Wayland) by running the repacked AppImage: it spawns `/usr/lib/webkit2gtk-4.1/WebKit{Network,Web}Process` and renders the UI. The regular AppImage on the same machine opens a blank window with `EGL_BAD_PARAMETER`, so the separate build is still needed
+  - The step now fails if any `usr/lib` survives in the AppDir, and selects the source AppImage with `! -name "*-arch.AppImage"` so a re-run cannot repack its own output
+  - `aur-repo/PKGBUILD` no longer `chmod`s `AppRun.wrapped`, which the new build does not contain
+
+### Credits
+
+Thanks to @omeringen for reporting the `-arch` AppImage crash in Issue #60 with
+the full error output. The relative `././/lib/x86_64-linux-gnu/webkit2gtk-4.1/`
+path in that message is what made the linuxdeploy rewrite traceable.
+
 ## [2.7.0] - 2026-08-31
 
 ### Added

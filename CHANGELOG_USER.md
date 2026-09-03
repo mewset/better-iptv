@@ -31,6 +31,11 @@ A simple overview of new features and improvements.
 - The channel grid no longer keeps re-requesting program info in the background after a refresh
 - Clicking Browse on a series in an M3U playlist no longer does nothing
 - Channels that were only filed under a "Series" category, but are ordinary channels, now show under Live TV with a Play button
+- Fixed a crash on launch ("WebKitNetworkProcess (No such file or directory)") in the plain `*-arch.AppImage` when run directly rather than installed from the AUR. It now uses your system's WebKitGTK as intended and has shrunk from 90 MB to about 6 MB. It needs `webkit2gtk-4.1` and `gtk3` installed and tells you so if they are missing (Issue: #60)
+
+### Thanks
+
+- **@omeringen** for reporting the `-arch` AppImage crash with the exact error output, which pointed straight at the cause (Issue: #60)
 
 ## Version 2.7.0 (August 31, 2026)
 
