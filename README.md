@@ -109,7 +109,7 @@ chmod +x Better.IPTV_*_amd64-arch.AppImage
 **Arch/Manjaro via the AUR:**
 ```bash
 yay -S better-iptv-bin   # prebuilt, the quick one
-yay -S better-iptv       # builds from source
+yay -S better-iptv       # same package, pulls in better-iptv-bin
 ```
 
 ---
