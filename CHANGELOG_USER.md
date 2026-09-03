@@ -4,7 +4,7 @@ A simple overview of new features and improvements.
 
 ---
 
-## Version 2.8.0 (September 2, 2026)
+## Version 2.8.0 (September 3, 2026)
 
 ### New Features
 
