@@ -242,10 +242,3 @@ jobs:
             gh release upload "${{ github.ref_name }}" "$ARCH_APPIMAGE" --clobber
             echo "✅ Uploaded: $ARCH_APPIMAGE"
           fi
-
-      - name: Trigger website rebuild (Linux only)
-        if: matrix.platform == 'ubuntu-24.04'
-        run: |
-          echo "🌐 Triggering better-iptv-web rebuild on Vercel..."
-          curl -s -X POST "${{ secrets.VERCEL_DEPLOY_HOOK }}"
-          echo "✅ Rebuild triggered"

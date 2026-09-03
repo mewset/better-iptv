@@ -1,0 +1,25 @@
+name: Rebuild website
+
+# better-iptv-web fetches the release list from the public GitHub API at build
+# time. Drafts are invisible there, so the rebuild has to wait until the
+# release is actually published — not until the build job finishes, which is
+# what release.yml used to do and why the site lagged one version behind
+# after every release until someone redeployed by hand.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Trigger better-iptv-web rebuild on Vercel
+        run: |
+          echo "🌐 Triggering better-iptv-web rebuild on Vercel for ${{ github.event.release.tag_name || 'manual run' }}..."
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${{ secrets.VERCEL_DEPLOY_HOOK }}")
+          echo "Deploy hook responded with HTTP $STATUS"
+          case "$STATUS" in
+            2*) echo "✅ Rebuild triggered" ;;
+            *)  echo "❌ Deploy hook failed"; exit 1 ;;
+          esac
