@@ -215,12 +215,17 @@ export default function MainScreen() {
     ) => {
       if (!currentPlaylist) return;
       try {
-        if (currentPlaylist.url && currentPlaylist.xtream_username && currentPlaylist.xtream_password) {
+        if (
+          currentPlaylist.url &&
+          currentPlaylist.xtream_username &&
+          currentPlaylist.xtream_password
+        ) {
           await playEpisodeAction(episodeId, extension, title, currentPlaylist, remainingEpisodes);
         } else {
-          const ids = (remainingEpisodes && remainingEpisodes.length > 0
-            ? remainingEpisodes.map((ep) => ep.id)
-            : [episodeId]
+          const ids = (
+            remainingEpisodes && remainingEpisodes.length > 0
+              ? remainingEpisodes.map((ep) => ep.id)
+              : [episodeId]
           ).map(Number);
           await playLocalEpisodesAction(ids, title);
         }
