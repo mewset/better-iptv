@@ -101,7 +101,13 @@ those clash and the app opens a white window or dies at startup with
 `webkit2gtk` instead, so despite the name it is the right file on **any**
 distro with recent libraries — Arch and Manjaro, but Fedora too.
 
+Because it bundles nothing, the `-arch` build needs `webkit2gtk-4.1`, `gtk3` and
+`mpv` from your distro, and tells you so if they are missing:
+
 ```bash
+sudo pacman -S webkit2gtk-4.1 gtk3 mpv      # Arch/Manjaro
+sudo dnf install webkit2gtk4.1 gtk3 mpv     # Fedora
+
 chmod +x Better.IPTV_*_amd64-arch.AppImage
 ./Better.IPTV_*_amd64-arch.AppImage
 ```

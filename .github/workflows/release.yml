@@ -130,7 +130,7 @@ jobs:
             **Note:** Make sure MPV is installed on your system before running Better IPTV.
 
             ### Installation:
-            - **Linux (Arch/Manjaro)**: Download `*-arch.AppImage`, make executable, and run
+            - **Linux (Arch/Manjaro/Fedora)**: Download `*-arch.AppImage`, make executable, and run (needs `webkit2gtk-4.1`, `gtk3` and `mpv` from your distro)
             - **Linux (Ubuntu/Debian)**: Download regular `.AppImage`, make executable, and run
             - **Windows**: Download `.msi` and install
             - **macOS**: Download `.dmg` and drag to Applications
@@ -143,8 +143,8 @@ jobs:
         run: |
           echo "📦 Creating Arch-compatible AppImage..."
 
-          # Find the built AppImage
-          APPIMAGE=$(find src-tauri/target/release/bundle/appimage -name "*.AppImage" | head -1)
+          # Find the built AppImage (never a -arch one left from a previous run)
+          APPIMAGE=$(find src-tauri/target/release/bundle/appimage -name "*.AppImage" ! -name "*-arch.AppImage" | head -1)
           if [ -z "$APPIMAGE" ]; then
             echo "❌ No AppImage found"
             exit 1
@@ -153,16 +153,66 @@ jobs:
 
           # Extract AppImage
           chmod +x "$APPIMAGE"
-          "$APPIMAGE" --appimage-extract
+          "$APPIMAGE" --appimage-extract > /dev/null
 
-          # Remove bundled libs that cause EGL issues on Arch/newer distros
-          # These systems have newer WebKit that works better with native libs
-          echo "🔧 Removing bundled WebKit libs for Arch compatibility..."
-          rm -rf squashfs-root/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1 || true
-          rm -rf squashfs-root/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0 || true
-          rm -rf squashfs-root/usr/lib/x86_64-linux-gnu/gio || true
-          rm -rf squashfs-root/usr/lib/x86_64-linux-gnu/gtk-3.0 || true
-          rm -f squashfs-root/usr/lib/libwayland-egl.so.1 || true
+          # Drop the bundled Ubuntu library stack entirely and run against the
+          # system one, the same way the AUR package does. That is what makes this
+          # build usable on distros with a current webkit2gtk, where the bundled
+          # WebKit paints a blank window or dies with "Could not create default
+          # EGL display".
+          #
+          # Deleting only part of the bundle does NOT work. linuxdeploy rewrites the
+          # helper-process path inside libwebkit2gtk-4.1.so.0 to the relative
+          # "././/lib/x86_64-linux-gnu/webkit2gtk-4.1/", resolved against the AppDir,
+          # and this WebKit build has no WEBKIT_EXEC_PATH to redirect it. Removing
+          # that helper directory while keeping the library is why every -arch build
+          # from v2.6.0 through v2.7.0 died at startup with
+          #   Failed to spawn child process ".../WebKitNetworkProcess"
+          # (Issue #60).
+          echo "🔧 Removing the bundled library stack so system WebKit/GTK is used..."
+          rm -rf squashfs-root/usr/lib
+          rm -rf squashfs-root/apprun-hooks
+          rm -f squashfs-root/AppRun.wrapped
+
+          # linuxdeploy's AppRun and its GTK hook only exist to point at the bundle
+          # that was just removed, so replace them with a plain launcher.
+          cat > squashfs-root/AppRun <<'APPRUN'
+          #!/bin/sh
+          # Better IPTV - build for distros shipping a current WebKitGTK (Arch, Fedora, ...).
+          # Uses the system WebKit/GTK stack; nothing is bundled.
+          HERE="$(dirname "$(readlink -f "$0")")"
+
+          have_webkit() {
+              for dir in /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu; do
+                  [ -e "$dir/libwebkit2gtk-4.1.so.0" ] && return 0
+              done
+              { /sbin/ldconfig -p 2>/dev/null || ldconfig -p 2>/dev/null; } \
+                  | grep -q 'libwebkit2gtk-4.1\.so\.0' && return 0
+              return 1
+          }
+
+          if ! have_webkit; then
+              echo "Better IPTV: this build needs your system's WebKitGTK runtime." >&2
+              echo "  Arch/Manjaro:  sudo pacman -S webkit2gtk-4.1 gtk3 mpv" >&2
+              echo "  Fedora:        sudo dnf install webkit2gtk4.1 gtk3 mpv" >&2
+              echo "Or use the regular Better.IPTV_*_amd64.AppImage instead." >&2
+              exit 1
+          fi
+
+          exec "$HERE/usr/bin/better-ip-tv" "$@"
+          APPRUN
+          chmod +x squashfs-root/AppRun
+
+          # Guard against the regression that shipped in v2.6.0-v2.7.0: a bundled
+          # WebKit without its helper processes. This build must ship no WebKit.
+          if [ -e squashfs-root/usr/lib/libwebkit2gtk-4.1.so.0 ] || [ -d squashfs-root/usr/lib ]; then
+            echo "❌ Bundled libraries still present - this build must use system libs only"
+            exit 1
+          fi
+          if [ ! -x squashfs-root/usr/bin/better-ip-tv ]; then
+            echo "❌ Application binary missing from the AppDir"
+            exit 1
+          fi
 
           # Download appimagetool
           echo "📥 Downloading appimagetool..."
