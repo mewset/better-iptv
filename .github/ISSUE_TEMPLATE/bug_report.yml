@@ -50,16 +50,19 @@ body:
   - type: dropdown
     id: os
     attributes:
-      label: Operating System
-      description: Which OS are you running?
+      label: Operating System & Install Method
+      description: How did you install Better IPTV? Pick the option matching the file or package you used.
       options:
-        - Linux (AppImage)
-        - Linux (Flatpak)
+        - Linux (AppImage, standard `_amd64.AppImage`)
+        - Linux (AppImage, Arch flavor `_amd64-arch.AppImage`)
+        - Linux (.deb, Ubuntu/Debian)
+        - Linux (.rpm, Fedora/RHEL)
         - Linux (AUR)
         - Linux (Built from source)
-        - Windows (MSI installer)
-        - Windows (Portable)
-        - macOS (DMG)
+        - Windows (.msi installer)
+        - Windows (setup.exe installer)
+        - Windows (Built from source)
+        - macOS (.dmg)
         - macOS (Built from source)
     validations:
       required: true
@@ -68,8 +71,8 @@ body:
     id: version
     attributes:
       label: Better IPTV Version
-      description: Which version are you using? (Check in Settings or GitHub release)
-      placeholder: e.g., 2.2.0
+      description: Which version are you using? (Settings → About, or the release you downloaded)
+      placeholder: e.g., 2.8.0
     validations:
       required: true
 
