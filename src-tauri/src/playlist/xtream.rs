@@ -1,7 +1,7 @@
 use crate::db::models::Channel;
 use crate::http::get_http_client;
 use anyhow::{Context, Result};
-use backoff::{ExponentialBackoff, future::retry};
+use backoff::{future::retry, ExponentialBackoff};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
@@ -331,7 +331,10 @@ async fn fetch_json_with_retry<T: for<'de> Deserialize<'de>>(
                     warn!("Xtream API {} returned status {}, retrying", action, status);
                     backoff::Error::transient(err)
                 } else {
-                    warn!("Xtream API {} returned status {}, giving up", action, status);
+                    warn!(
+                        "Xtream API {} returned status {}, giving up",
+                        action, status
+                    );
                     backoff::Error::permanent(err)
                 });
             }
@@ -386,7 +389,12 @@ async fn fetch_live_streams(
 
     let response: Vec<XtreamStream> =
         fetch_json_with_retry(&url, "live streams", user_agent).await?;
-    Ok(convert_streams_to_channels(creds, response, "live", category_map))
+    Ok(convert_streams_to_channels(
+        creds,
+        response,
+        "live",
+        category_map,
+    ))
 }
 
 /// Fetch VOD streams
@@ -404,7 +412,12 @@ async fn fetch_vod_streams(
 
     let response: Vec<XtreamStream> =
         fetch_json_with_retry(&url, "VOD streams", user_agent).await?;
-    Ok(convert_streams_to_channels(creds, response, "vod", category_map))
+    Ok(convert_streams_to_channels(
+        creds,
+        response,
+        "vod",
+        category_map,
+    ))
 }
 
 /// Fetch series
@@ -421,7 +434,12 @@ async fn fetch_series(
     );
 
     let response: Vec<XtreamStream> = fetch_json_with_retry(&url, "series", user_agent).await?;
-    Ok(convert_streams_to_channels(creds, response, "series", category_map))
+    Ok(convert_streams_to_channels(
+        creds,
+        response,
+        "series",
+        category_map,
+    ))
 }
 
 // Use shared EPG ID generation from utils module
@@ -607,7 +625,8 @@ mod lenient_scalar_tests {
         assert_eq!(season.season_number, "1");
         assert_eq!(season.episode_count, 10);
 
-        let quoted = r#"{"id":"309556","name":"Season 1","season_number":"1","episode_count":"10"}"#;
+        let quoted =
+            r#"{"id":"309556","name":"Season 1","season_number":"1","episode_count":"10"}"#;
         let season: Season = serde_json::from_str(quoted).unwrap();
         assert_eq!(season.id, "309556");
         assert_eq!(season.season_number, "1");
@@ -650,7 +669,9 @@ mod lenient_scalar_tests {
     #[test]
     fn out_of_range_integer_is_rejected_rather_than_silently_truncated() {
         let json = r#"{"id":"1","episode_num":3000000000,"title":"t","container_extension":"mp4","season":1,"info":{}}"#;
-        let err = serde_json::from_str::<Episode>(json).unwrap_err().to_string();
+        let err = serde_json::from_str::<Episode>(json)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("i32"), "unexpected error: {err}");
     }
 }
@@ -670,7 +691,8 @@ mod epg_id_tests {
 
     fn convert(json: &str, content_type: &str) -> Option<String> {
         let stream: XtreamStream = serde_json::from_str(json).unwrap();
-        let channels = convert_streams_to_channels(&creds(), vec![stream], content_type, &HashMap::new());
+        let channels =
+            convert_streams_to_channels(&creds(), vec![stream], content_type, &HashMap::new());
         channels.into_iter().next().unwrap().epg_id
     }
 
@@ -689,7 +711,13 @@ mod epg_id_tests {
 
     #[test]
     fn empty_or_missing_provider_id_leaves_epg_id_unset() {
-        assert_eq!(convert(r#"{"name":"BBC One","stream_id":3,"epg_channel_id":""}"#, "live"), None);
+        assert_eq!(
+            convert(
+                r#"{"name":"BBC One","stream_id":3,"epg_channel_id":""}"#,
+                "live"
+            ),
+            None
+        );
         assert_eq!(convert(r#"{"name":"BBC One","stream_id":4}"#, "live"), None);
     }
 

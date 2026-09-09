@@ -1,5 +1,5 @@
 use crate::commands::with_db;
-use crate::db::{queries, mutations};
+use crate::db::{mutations, queries};
 use crate::error::AppError;
 use crate::http;
 use crate::playlist::get_xtream_epg_url;
@@ -14,7 +14,10 @@ pub async fn get_setting(
     key: String,
 ) -> Result<Option<String>, AppError> {
     let key_for_log = key.clone();
-    let result = with_db(&state.pool, move |conn| Ok(queries::get_setting(conn, &key)?)).await?;
+    let result = with_db(&state.pool, move |conn| {
+        Ok(queries::get_setting(conn, &key)?)
+    })
+    .await?;
     debug!(
         "get_setting '{}' -> {}",
         key_for_log,
@@ -133,7 +136,11 @@ pub async fn set_active_profile_id(
     profile_id: i64,
 ) -> Result<(), AppError> {
     with_db(&state.pool, move |conn| {
-        Ok(mutations::set_setting(conn, "active_profile_id", &profile_id.to_string())?)
+        Ok(mutations::set_setting(
+            conn,
+            "active_profile_id",
+            &profile_id.to_string(),
+        )?)
     })
     .await?;
 

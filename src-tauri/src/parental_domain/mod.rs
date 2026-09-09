@@ -9,9 +9,7 @@ use argon2::{
 /// Validate PIN format (4-6 digits, only numbers)
 pub fn validate_pin(pin: &str) -> Result<(), AppError> {
     if pin.len() < 4 || pin.len() > 6 {
-        return Err(AppError::InvalidInput(
-            "PIN must be 4-6 digits".to_string(),
-        ));
+        return Err(AppError::InvalidInput("PIN must be 4-6 digits".to_string()));
     }
     if !pin.chars().all(|c| c.is_ascii_digit()) {
         return Err(AppError::InvalidInput(

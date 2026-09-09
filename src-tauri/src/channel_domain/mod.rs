@@ -180,10 +180,7 @@ pub fn filter_by_group(channels: Vec<Channel>, group_name: &str) -> Vec<Channel>
 /// * `channels` - Vector of channels to filter
 #[allow(dead_code)]
 pub fn filter_favorites(channels: Vec<Channel>) -> Vec<Channel> {
-    channels
-        .into_iter()
-        .filter(|c| c.is_favorite)
-        .collect()
+    channels.into_iter().filter(|c| c.is_favorite).collect()
 }
 
 /// Filter channels by playlist ID
@@ -321,10 +318,7 @@ pub fn has_epg_data(channel: &Channel) -> bool {
 /// * `channel` - The channel to get EPG identifier for
 #[allow(dead_code)]
 pub fn get_epg_identifier(channel: &Channel) -> Option<&str> {
-    channel
-        .epg_id
-        .as_deref()
-        .or(channel.tvg_name.as_deref())
+    channel.epg_id.as_deref().or(channel.tvg_name.as_deref())
 }
 
 #[cfg(test)]

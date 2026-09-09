@@ -16,13 +16,13 @@ mod utils;
 pub use error::{AppError, AppResult};
 
 use commands::*;
-use db::schema::{init_schema, ensure_active_profile};
+use db::schema::{ensure_active_profile, init_schema};
 use log::{info, warn};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use state::AppState;
 use tauri::Manager;
-use tauri_plugin_log::{Target, TargetKind, RotationStrategy, TimezoneStrategy};
+use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
 /// PRAGMA initializer for each new connection in the pool
 #[derive(Debug)]
@@ -35,7 +35,7 @@ impl r2d2::CustomizeConnection<rusqlite::Connection, rusqlite::Error> for Pragma
              PRAGMA synchronous = NORMAL;
              PRAGMA foreign_keys = ON;
              PRAGMA cache_size = 10000;
-             PRAGMA temp_store = memory;"
+             PRAGMA temp_store = memory;",
         )?;
         Ok(())
     }
@@ -80,8 +80,7 @@ pub fn run() {
                 .expect("Failed to get app data directory");
 
             // Create directory if it doesn't exist
-            std::fs::create_dir_all(&app_data_dir)
-                .expect("Failed to create app data directory");
+            std::fs::create_dir_all(&app_data_dir).expect("Failed to create app data directory");
 
             // Database path
             let db_path = app_data_dir.join("better-ip-tv.db");
@@ -101,14 +100,14 @@ pub fn run() {
 
             // Initialize schema using a connection from the pool
             {
-                let conn = pool.get().expect("Failed to get connection for schema init");
+                let conn = pool
+                    .get()
+                    .expect("Failed to get connection for schema init");
 
-                init_schema(&conn)
-                    .expect("Failed to initialize database schema");
+                init_schema(&conn).expect("Failed to initialize database schema");
 
                 // Run migration for active profile setting
-                ensure_active_profile(&conn)
-                    .expect("Failed to ensure active profile setting");
+                ensure_active_profile(&conn).expect("Failed to ensure active profile setting");
 
                 // Update EPG IDs for existing channels (for migration)
                 match db::mutations::update_channel_epg_ids(&conn) {

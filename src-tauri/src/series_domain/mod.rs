@@ -4,13 +4,13 @@
 //! Functions here are synchronous and do NOT include database operations.
 //! Database operations remain in the commands layer.
 
-use crate::error::AppError;
 use crate::db::models::{Channel, SeriesEpisode};
+use crate::error::AppError;
 use crate::playlist::{Episode, EpisodeInfo, Season, SeriesInfo, SeriesMetadata};
-use serde::{Deserialize, Serialize};
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::collections::{HashMap, BTreeMap};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 
 /// Episode data recovered from an M3U row name such as `Breaking Bad S01 E02 - Pilot`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,8 +46,9 @@ const NXN_REJECTED_PAIRS: &[(i32, i32)] = &[(24, 7), (24, 365), (4, 4), (3, 3), 
 
 /// A file extension on its own is not an episode title (`Show S01E02.mkv`
 /// must not yield the title `mkv`).
-const TITLE_ONLY_EXTENSIONS: &[&str] =
-    &["mkv", "mp4", "avi", "ts", "m3u8", "mov", "webm", "flv", "wmv", "m4v"];
+const TITLE_ONLY_EXTENSIONS: &[&str] = &[
+    "mkv", "mp4", "avi", "ts", "m3u8", "mov", "webm", "flv", "wmv", "m4v",
+];
 
 /// Match the `NxN` marker, rejecting pairs that are common channel-name
 /// idioms rather than episode numbers (see [`NXN_REJECTED_PAIRS`]).
@@ -58,7 +59,12 @@ fn nxn_match(name: &str) -> Option<(usize, usize, i32, i32)> {
     if NXN_REJECTED_PAIRS.contains(&(season, episode)) {
         return None;
     }
-    Some((c.get(2).unwrap().start(), c.get(3).unwrap().end(), season, episode))
+    Some((
+        c.get(2).unwrap().start(),
+        c.get(3).unwrap().end(),
+        season,
+        episode,
+    ))
 }
 
 /// Parse season and episode out of an M3U row name.
@@ -76,13 +82,25 @@ pub fn parse_episode_name(name: &str, group_name: Option<&str>) -> Option<Parsed
     let (start, end, season, episode, allow_group_fallback) =
         if let Some(c) = SEASON_EPISODE_RE.captures(name) {
             let m = c.get(0).unwrap();
-            (m.start(), m.end(), c[1].parse::<i32>().ok()?, c[2].parse::<i32>().ok()?, true)
+            (
+                m.start(),
+                m.end(),
+                c[1].parse::<i32>().ok()?,
+                c[2].parse::<i32>().ok()?,
+                true,
+            )
         } else if let Some((start, end, season, episode)) = nxn_match(name) {
             (start, end, season, episode, false)
         } else {
             let c = SEASON_WORD_RE.captures(name)?;
             let m = c.get(0).unwrap();
-            (m.start(), m.end(), c[1].parse::<i32>().ok()?, c[2].parse::<i32>().ok()?, true)
+            (
+                m.start(),
+                m.end(),
+                c[1].parse::<i32>().ok()?,
+                c[2].parse::<i32>().ok()?,
+                true,
+            )
         };
 
     let before = name[..start].trim_end_matches(NAME_TRAILING).trim();
@@ -90,13 +108,18 @@ pub fn parse_episode_name(name: &str, group_name: Option<&str>) -> Option<Parsed
         if !allow_group_fallback {
             return None;
         }
-        group_name.map(str::trim).filter(|g| !g.is_empty())?.to_string()
+        group_name
+            .map(str::trim)
+            .filter(|g| !g.is_empty())?
+            .to_string()
     } else {
         before.to_string()
     };
 
     let after = name[end..].trim_start_matches(TITLE_LEADING).trim();
-    let is_extension_only = TITLE_ONLY_EXTENSIONS.iter().any(|ext| after.eq_ignore_ascii_case(ext));
+    let is_extension_only = TITLE_ONLY_EXTENSIONS
+        .iter()
+        .any(|ext| after.eq_ignore_ascii_case(ext));
     let title = if after.is_empty() || is_extension_only {
         name.trim().to_string()
     } else {
@@ -579,7 +602,10 @@ mod tests {
         let p = parsed("Breaking Bad S01E02");
         assert_eq!(p.series_name, "Breaking Bad");
         assert_eq!((p.season, p.episode), (1, 2));
-        assert_eq!(p.title, "Breaking Bad S01E02", "no text after the marker: title is the full name");
+        assert_eq!(
+            p.title, "Breaking Bad S01E02",
+            "no text after the marker: title is the full name"
+        );
     }
 
     #[test]
@@ -628,7 +654,10 @@ mod tests {
 
     #[test]
     fn keeps_year_in_series_name() {
-        assert_eq!(parsed("Breaking Bad (2008) S01E02").series_name, "Breaking Bad (2008)");
+        assert_eq!(
+            parsed("Breaking Bad (2008) S01E02").series_name,
+            "Breaking Bad (2008)"
+        );
     }
 
     #[test]
@@ -669,7 +698,10 @@ mod tests {
         let p = parsed("Show S01E02.mkv");
         assert_eq!(p.series_name, "Show");
         assert_eq!((p.season, p.episode), (1, 2));
-        assert_eq!(p.title, "Show S01E02.mkv", "a bare extension is not a title");
+        assert_eq!(
+            p.title, "Show S01E02.mkv",
+            "a bare extension is not a title"
+        );
     }
 
     #[test]
@@ -697,7 +729,11 @@ mod tests {
             "3x3 Basketball",
             "Arena 2x2",
         ] {
-            assert!(parse_episode_name(name, None).is_none(), "'{}' must not parse", name);
+            assert!(
+                parse_episode_name(name, None).is_none(),
+                "'{}' must not parse",
+                name
+            );
         }
     }
 
@@ -777,7 +813,10 @@ mod tests {
         assert_eq!(s.channel.group_name.as_deref(), Some("Series"));
         assert!(s.channel.epg_id.is_none());
         assert_eq!(
-            s.episodes.iter().map(|e| (e.season, e.episode)).collect::<Vec<_>>(),
+            s.episodes
+                .iter()
+                .map(|e| (e.season, e.episode))
+                .collect::<Vec<_>>(),
             vec![(1, 1), (2, 1)]
         );
     }
@@ -813,7 +852,10 @@ mod tests {
             row(None, "Dark S01E01 [SD]", "Series", "series", 1),
         ]);
         assert_eq!(g.series[0].episodes.len(), 1);
-        assert_eq!(g.series[0].episodes[0].url, "http://host/Dark_S01E01_[HD].mkv");
+        assert_eq!(
+            g.series[0].episodes[0].url,
+            "http://host/Dark_S01E01_[HD].mkv"
+        );
     }
 
     #[test]
@@ -823,7 +865,11 @@ mod tests {
             row(None, "Dark S01E02", "Series", "series", 1),
             row(None, "Dark S01E01", "Series DE", "series", 2),
         ]);
-        assert_eq!(g.series.len(), 2, "same group merges, different group splits");
+        assert_eq!(
+            g.series.len(),
+            2,
+            "same group merges, different group splits"
+        );
         assert_eq!(g.series[0].episodes.len(), 2);
         assert_eq!(g.series[0].channel.name, "dark", "first spelling wins");
     }
@@ -832,7 +878,10 @@ mod tests {
     fn keeps_source_ids_and_favourite_flag() {
         let mut fav = row(Some(11), "Dark S01E02", "Series", "series", 1);
         fav.is_favorite = true;
-        let g = group_series(vec![row(Some(10), "Dark S01E01", "Series", "series", 0), fav]);
+        let g = group_series(vec![
+            row(Some(10), "Dark S01E01", "Series", "series", 0),
+            fav,
+        ]);
         assert_eq!(g.series[0].source_ids, vec![10, 11]);
         assert!(g.series[0].channel.is_favorite);
         assert!(g.series[0].channel.id.is_none(), "the series row is new");
@@ -886,8 +935,14 @@ mod tests {
         assert_eq!(s1[0].episode_num, 1);
         assert_eq!(s1[0].season, 1);
         assert_eq!(s1[0].container_extension, "mkv");
-        assert_eq!(s1[0].info.movie_image.as_deref(), Some("http://logo/10.png"));
-        assert_eq!(s1[1].container_extension, "mp4", "lower-cased, query string dropped");
+        assert_eq!(
+            s1[0].info.movie_image.as_deref(),
+            Some("http://logo/10.png")
+        );
+        assert_eq!(
+            s1[1].container_extension, "mp4",
+            "lower-cased, query string dropped"
+        );
 
         let s2 = &info.episodes["2"];
         assert_eq!(s2[0].container_extension, "", "no extension in URL");
@@ -905,14 +960,21 @@ mod tests {
 
     #[test]
     fn order_episodes_by_ids_follows_requested_order() {
-        let rows = vec![stored(1, 1, 1, "a"), stored(2, 1, 2, "b"), stored(3, 1, 3, "c")];
+        let rows = vec![
+            stored(1, 1, 1, "a"),
+            stored(2, 1, 2, "b"),
+            stored(3, 1, 3, "c"),
+        ];
         let ordered = order_episodes_by_ids(rows, &[3, 1]).unwrap();
         assert_eq!(ordered.iter().map(|e| e.id).collect::<Vec<_>>(), vec![3, 1]);
     }
 
     #[test]
     fn order_episodes_by_ids_rejects_empty() {
-        assert!(matches!(order_episodes_by_ids(vec![], &[]), Err(AppError::InvalidInput(_))));
+        assert!(matches!(
+            order_episodes_by_ids(vec![], &[]),
+            Err(AppError::InvalidInput(_))
+        ));
     }
 
     #[test]

@@ -96,7 +96,10 @@ fn parse_extinf_line(line: &str) -> HashMap<String, String> {
 
 /// Create Channel from parsed info
 fn create_channel_from_info(info: HashMap<String, String>, url: String, idx: usize) -> Channel {
-    let name = info.get("name").cloned().unwrap_or_else(|| "Unknown".to_string());
+    let name = info
+        .get("name")
+        .cloned()
+        .unwrap_or_else(|| "Unknown".to_string());
     let logo = info.get("tvg-logo").cloned();
     let group_name = info.get("group-title").cloned();
     let epg_id = info.get("tvg-id").cloned();
@@ -124,10 +127,16 @@ fn create_channel_from_info(info: HashMap<String, String>, url: String, idx: usi
 fn determine_content_type(group_name: &Option<String>, url: &str) -> String {
     if let Some(group) = group_name {
         let group_lower = group.to_lowercase();
-        if group_lower.contains("vod") || group_lower.contains("movie") || group_lower.contains("film") {
+        if group_lower.contains("vod")
+            || group_lower.contains("movie")
+            || group_lower.contains("film")
+        {
             return "vod".to_string();
         }
-        if group_lower.contains("series") || group_lower.contains("show") || group_lower.contains("tv show") {
+        if group_lower.contains("series")
+            || group_lower.contains("show")
+            || group_lower.contains("tv show")
+        {
             return "series".to_string();
         }
     }
@@ -166,9 +175,21 @@ http://stream.test.com/channel2.m3u8
 
     #[test]
     fn test_determine_content_type() {
-        assert_eq!(determine_content_type(&Some("VOD Movies".to_string()), "http://test.com"), "vod");
-        assert_eq!(determine_content_type(&Some("TV Series".to_string()), "http://test.com"), "series");
-        assert_eq!(determine_content_type(&Some("Live TV".to_string()), "http://test.com"), "live");
-        assert_eq!(determine_content_type(&None, "http://test.com/vod/movie.m3u8"), "vod");
+        assert_eq!(
+            determine_content_type(&Some("VOD Movies".to_string()), "http://test.com"),
+            "vod"
+        );
+        assert_eq!(
+            determine_content_type(&Some("TV Series".to_string()), "http://test.com"),
+            "series"
+        );
+        assert_eq!(
+            determine_content_type(&Some("Live TV".to_string()), "http://test.com"),
+            "live"
+        );
+        assert_eq!(
+            determine_content_type(&None, "http://test.com/vod/movie.m3u8"),
+            "vod"
+        );
     }
 }

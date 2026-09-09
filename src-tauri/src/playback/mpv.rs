@@ -1,14 +1,16 @@
+use anyhow::{Context, Result};
+use log::{debug, info, warn};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::Duration;
-use anyhow::{Context, Result};
-use log::{debug, info, warn};
 use wait_timeout::ChildExt;
 
 use crate::utils::mask_credentials;
 
 /// Allowed URL schemes for stream playback
-const ALLOWED_SCHEMES: &[&str] = &["http://", "https://", "rtsp://", "rtmp://", "rtp://", "udp://"];
+const ALLOWED_SCHEMES: &[&str] = &[
+    "http://", "https://", "rtsp://", "rtmp://", "rtp://", "udp://",
+];
 
 /// Characters that could be used for shell injection
 const FORBIDDEN_CHARS: &[char] = &['`', '$', ';', '|', '&', '>', '<', '\n', '\r', '\0'];
@@ -25,13 +27,19 @@ const MAX_URL_LENGTH: usize = 4096;
 fn validate_stream_url(url: &str) -> Result<()> {
     // Check URL length
     if url.len() > MAX_URL_LENGTH {
-        return Err(anyhow::anyhow!("URL exceeds maximum length of {} characters", MAX_URL_LENGTH));
+        return Err(anyhow::anyhow!(
+            "URL exceeds maximum length of {} characters",
+            MAX_URL_LENGTH
+        ));
     }
 
     // Check for allowed scheme
     let has_valid_scheme = ALLOWED_SCHEMES.iter().any(|scheme| url.starts_with(scheme));
     if !has_valid_scheme {
-        warn!("Rejected URL with invalid scheme: {}", url.chars().take(50).collect::<String>());
+        warn!(
+            "Rejected URL with invalid scheme: {}",
+            url.chars().take(50).collect::<String>()
+        );
         return Err(anyhow::anyhow!(
             "Invalid URL scheme. Allowed: http, https, rtsp, rtmp, rtp, udp"
         ));
@@ -131,9 +139,15 @@ impl MpvPlayer {
         // Deinterlacing
         if let Some(deinterlace) = options.deinterlace {
             match deinterlace {
-                "yes" => { cmd.arg("--deinterlace=yes"); }
-                "no" => { cmd.arg("--deinterlace=no"); }
-                _ => { cmd.arg("--deinterlace=auto"); }
+                "yes" => {
+                    cmd.arg("--deinterlace=yes");
+                }
+                "no" => {
+                    cmd.arg("--deinterlace=no");
+                }
+                _ => {
+                    cmd.arg("--deinterlace=auto");
+                }
             }
         }
 
@@ -178,8 +192,14 @@ impl MpvPlayer {
 
     /// Log MPV command with masked credentials
     fn log_command(cmd: &Command, episode_count: Option<usize>) {
-        let args: Vec<String> = cmd.get_args().map(|a| a.to_string_lossy().to_string()).collect();
-        let safe_args = args.iter().map(|arg| mask_credentials(arg)).collect::<Vec<_>>();
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        let safe_args = args
+            .iter()
+            .map(|arg| mask_credentials(arg))
+            .collect::<Vec<_>>();
 
         if let Some(count) = episode_count {
             info!("MPV playlist command: {} episodes", count);
@@ -339,5 +359,4 @@ mod tests {
         let long_url = format!("http://example.com/{}", "a".repeat(5000));
         assert!(validate_stream_url(&long_url).is_err());
     }
-
 }

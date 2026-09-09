@@ -31,11 +31,17 @@ pub fn mask_credentials(url: &str) -> String {
     let mut result = url.to_string();
 
     // Mask query parameters
-    result = USERNAME_QUERY_RE.replace_all(&result, "${1}****").to_string();
-    result = PASSWORD_QUERY_RE.replace_all(&result, "${1}****").to_string();
+    result = USERNAME_QUERY_RE
+        .replace_all(&result, "${1}****")
+        .to_string();
+    result = PASSWORD_QUERY_RE
+        .replace_all(&result, "${1}****")
+        .to_string();
 
     // Mask path-based credentials (Xtream format: /live|series|movie/user/pass/)
-    result = PATH_CREDENTIALS_RE.replace_all(&result, "/$1/****/****/").to_string();
+    result = PATH_CREDENTIALS_RE
+        .replace_all(&result, "/$1/****/****/")
+        .to_string();
 
     result
 }

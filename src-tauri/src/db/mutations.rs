@@ -1,9 +1,9 @@
-use rusqlite::{Connection, Result, params};
-use log::{debug, warn};
-use std::time::Instant;
 use super::models::*;
-use crate::utils::generate_epg_id_swedish;
 use crate::series_domain::{EpisodeInput, SeriesGroup};
+use crate::utils::generate_epg_id_swedish;
+use log::{debug, warn};
+use rusqlite::{params, Connection, Result};
+use std::time::Instant;
 
 // ========== Playlist Mutations ==========
 
@@ -89,7 +89,11 @@ pub fn create_channels_batch(conn: &Connection, channels: &[Channel]) -> Result<
         }
     }
 
-    debug!("create_channels_batch: {} channels in {:?}", channels.len(), start.elapsed());
+    debug!(
+        "create_channels_batch: {} channels in {:?}",
+        channels.len(),
+        start.elapsed()
+    );
     Ok(())
 }
 
@@ -366,7 +370,13 @@ pub fn merge_channels(
     tx.commit()?;
 
     let total = added + updated;
-    debug!("merge_channels: added={}, updated={}, removed={} in {:?}", added, updated, removed, start.elapsed());
+    debug!(
+        "merge_channels: added={}, updated={}, removed={} in {:?}",
+        added,
+        updated,
+        removed,
+        start.elapsed()
+    );
     Ok(MergeResult {
         added,
         updated,
@@ -432,7 +442,10 @@ pub fn replace_series_episodes(
     }
 
     tx.commit()?;
-    debug!("replace_series_episodes: {} episodes for playlist {}", written, playlist_id);
+    debug!(
+        "replace_series_episodes: {} episodes for playlist {}",
+        written, playlist_id
+    );
     Ok(written)
 }
 
@@ -442,9 +455,8 @@ pub fn replace_series_episodes(
 /// Uses a transaction with prepared statement for batch efficiency
 pub fn update_channel_epg_ids(conn: &Connection) -> Result<usize> {
     // Get all live channels without EPG IDs
-    let mut stmt = conn.prepare(
-        "SELECT id, name FROM channels WHERE content_type = 'live' AND epg_id IS NULL"
-    )?;
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM channels WHERE content_type = 'live' AND epg_id IS NULL")?;
     let channels: Vec<(i64, String)> = stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<Result<Vec<_>, _>>()?;
@@ -459,9 +471,7 @@ pub fn update_channel_epg_ids(conn: &Connection) -> Result<usize> {
     let mut updated_count = 0;
 
     {
-        let mut update_stmt = tx.prepare_cached(
-            "UPDATE channels SET epg_id = ?1 WHERE id = ?2"
-        )?;
+        let mut update_stmt = tx.prepare_cached("UPDATE channels SET epg_id = ?1 WHERE id = ?2")?;
 
         for (id, name) in &channels {
             if let Some(epg_id) = generate_epg_id_swedish(name) {
@@ -480,8 +490,8 @@ pub fn update_channel_epg_ids(conn: &Connection) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::test_helpers::{setup_test_db, create_test_playlist, create_test_channel};
     use crate::db::queries::*;
+    use crate::db::test_helpers::{create_test_channel, create_test_playlist, setup_test_db};
 
     // ========== Playlist Tests ==========
 
@@ -685,7 +695,12 @@ mod tests {
 
     // ========== Series episodes ==========
 
-    fn series_group(playlist_id: i64, name: &str, group: &str, episodes: &[(i32, i32)]) -> crate::series_domain::SeriesGroup {
+    fn series_group(
+        playlist_id: i64,
+        name: &str,
+        group: &str,
+        episodes: &[(i32, i32)],
+    ) -> crate::series_domain::SeriesGroup {
         use crate::series_domain::{EpisodeInput, SeriesGroup};
         SeriesGroup {
             channel: Channel {
@@ -722,7 +737,17 @@ mod tests {
         let conn = setup_test_db();
         let pid = create_test_playlist(&conn, "M3U");
 
-        let inserted = insert_series_groups(&conn, pid, &[series_group(pid, "Dark", "Series", &[(1, 1), (1, 2), (2, 1)])]).unwrap();
+        let inserted = insert_series_groups(
+            &conn,
+            pid,
+            &[series_group(
+                pid,
+                "Dark",
+                "Series",
+                &[(1, 1), (1, 2), (2, 1)],
+            )],
+        )
+        .unwrap();
         assert_eq!(inserted, 3);
 
         let channels = get_channels(&conn, Some(pid)).unwrap();
@@ -754,10 +779,16 @@ mod tests {
     fn deleting_series_channel_cascades_to_episodes() {
         let conn = setup_test_db();
         let pid = create_test_playlist(&conn, "M3U");
-        insert_series_groups(&conn, pid, &[series_group(pid, "Dark", "Series", &[(1, 1)])]).unwrap();
+        insert_series_groups(
+            &conn,
+            pid,
+            &[series_group(pid, "Dark", "Series", &[(1, 1)])],
+        )
+        .unwrap();
         let series_id = get_channels(&conn, Some(pid)).unwrap()[0].id.unwrap();
 
-        conn.execute("DELETE FROM channels WHERE id = ?1", params![series_id]).unwrap();
+        conn.execute("DELETE FROM channels WHERE id = ?1", params![series_id])
+            .unwrap();
 
         assert!(get_series_episodes(&conn, series_id).unwrap().is_empty());
     }
@@ -766,7 +797,17 @@ mod tests {
     fn get_series_episodes_by_ids_returns_only_requested_rows() {
         let conn = setup_test_db();
         let pid = create_test_playlist(&conn, "M3U");
-        insert_series_groups(&conn, pid, &[series_group(pid, "Dark", "Series", &[(1, 1), (1, 2), (1, 3)])]).unwrap();
+        insert_series_groups(
+            &conn,
+            pid,
+            &[series_group(
+                pid,
+                "Dark",
+                "Series",
+                &[(1, 1), (1, 2), (1, 3)],
+            )],
+        )
+        .unwrap();
         let series_id = get_channels(&conn, Some(pid)).unwrap()[0].id.unwrap();
         let all = get_series_episodes(&conn, series_id).unwrap();
 
@@ -840,7 +881,11 @@ mod tests {
         let conn = setup_test_db();
         let pid = create_test_playlist(&conn, "M3U");
         let live_id = create_test_channel(&conn, pid, "Dark");
-        conn.execute("UPDATE channels SET group_name = 'Series' WHERE id = ?1", params![live_id]).unwrap();
+        conn.execute(
+            "UPDATE channels SET group_name = 'Series' WHERE id = ?1",
+            params![live_id],
+        )
+        .unwrap();
 
         let fresh = series_group(pid, "Dark", "Series", &[(1, 1)]).channel;
         let result = merge_channels(&conn, pid, &[fresh], false).unwrap();
@@ -854,13 +899,19 @@ mod tests {
     fn replace_series_episodes_swaps_episode_set_and_keeps_favourite() {
         let conn = setup_test_db();
         let pid = create_test_playlist(&conn, "M3U");
-        insert_series_groups(&conn, pid, &[series_group(pid, "Dark", "Series", &[(1, 1), (1, 2)])]).unwrap();
+        insert_series_groups(
+            &conn,
+            pid,
+            &[series_group(pid, "Dark", "Series", &[(1, 1), (1, 2)])],
+        )
+        .unwrap();
         let series_id = get_channels(&conn, Some(pid)).unwrap()[0].id.unwrap();
         toggle_favorite(&conn, series_id).unwrap();
 
         // Provider now lists S01E02 and a new S01E03; S01E01 is gone.
         let fresh = series_group(pid, "Dark", "Series", &[(1, 2), (1, 3)]);
-        let merged = merge_channels(&conn, pid, std::slice::from_ref(&fresh.channel), false).unwrap();
+        let merged =
+            merge_channels(&conn, pid, std::slice::from_ref(&fresh.channel), false).unwrap();
         assert_eq!((merged.added, merged.updated, merged.removed), (0, 1, 0));
 
         let written = replace_series_episodes(&conn, pid, &[fresh]).unwrap();
@@ -883,10 +934,17 @@ mod tests {
         let conn = setup_test_db();
         let pid = create_test_playlist(&conn, "M3U");
 
-        let written = replace_series_episodes(&conn, pid, &[series_group(pid, "Ghost", "Series", &[(1, 1)])]).unwrap();
+        let written = replace_series_episodes(
+            &conn,
+            pid,
+            &[series_group(pid, "Ghost", "Series", &[(1, 1)])],
+        )
+        .unwrap();
 
         assert_eq!(written, 0);
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM series_episodes", [], |r| r.get(0)).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM series_episodes", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count, 0);
     }
 
@@ -896,7 +954,12 @@ mod tests {
         let a = create_test_playlist(&conn, "A");
         let b = create_test_playlist(&conn, "B");
         insert_series_groups(&conn, a, &[series_group(a, "Dark", "Series", &[(1, 1)])]).unwrap();
-        insert_series_groups(&conn, b, &[series_group(b, "Dark", "Series", &[(1, 1), (1, 2)])]).unwrap();
+        insert_series_groups(
+            &conn,
+            b,
+            &[series_group(b, "Dark", "Series", &[(1, 1), (1, 2)])],
+        )
+        .unwrap();
         let b_series = get_channels(&conn, Some(b)).unwrap()[0].id.unwrap();
 
         replace_series_episodes(&conn, a, &[series_group(a, "Dark", "Series", &[(2, 1)])]).unwrap();
@@ -955,12 +1018,21 @@ mod tests {
             // `tx` drops here without `commit()`, rolling everything back.
         }
 
-        assert!(get_playlists(&conn).unwrap().is_empty(), "playlist must not survive an uncommitted transaction");
-        assert!(get_channels(&conn, None).unwrap().is_empty(), "channels must not survive an uncommitted transaction");
+        assert!(
+            get_playlists(&conn).unwrap().is_empty(),
+            "playlist must not survive an uncommitted transaction"
+        );
+        assert!(
+            get_channels(&conn, None).unwrap().is_empty(),
+            "channels must not survive an uncommitted transaction"
+        );
         let episode_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM series_episodes", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(episode_count, 0, "episodes must not survive an uncommitted transaction");
+        assert_eq!(
+            episode_count, 0,
+            "episodes must not survive an uncommitted transaction"
+        );
     }
 
     /// The refresh seam the `content_type` column in `merge_channels`'s UPDATE
@@ -972,10 +1044,15 @@ mod tests {
         let conn = setup_test_db();
         let pid = create_test_playlist(&conn, "M3U");
         let live_id = create_test_channel(&conn, pid, "Dark");
-        conn.execute("UPDATE channels SET group_name = 'News' WHERE id = ?1", params![live_id]).unwrap();
+        conn.execute(
+            "UPDATE channels SET group_name = 'News' WHERE id = ?1",
+            params![live_id],
+        )
+        .unwrap();
 
         let fresh = series_group(pid, "Dark", "Series", &[(1, 1)]);
-        let result = merge_channels(&conn, pid, std::slice::from_ref(&fresh.channel), false).unwrap();
+        let result =
+            merge_channels(&conn, pid, std::slice::from_ref(&fresh.channel), false).unwrap();
 
         assert_eq!((result.added, result.updated, result.removed), (0, 1, 0));
         let row = get_channel_by_id(&conn, live_id).unwrap().unwrap();

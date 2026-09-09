@@ -1,9 +1,9 @@
 #![cfg(test)]
 
-use rusqlite::Connection;
 use super::models::*;
-use super::schema::init_schema;
 use super::mutations;
+use super::schema::init_schema;
+use rusqlite::Connection;
 
 /// Create an in-memory test database with schema initialized
 pub fn setup_test_db() -> Connection {

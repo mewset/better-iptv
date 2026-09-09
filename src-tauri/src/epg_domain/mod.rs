@@ -28,7 +28,9 @@ use chrono::{DateTime, Utc};
 pub fn validate_epg_url(url: &str) -> Result<(), AppError> {
     // Check if URL is empty or whitespace-only
     if url.trim().is_empty() {
-        return Err(AppError::InvalidInput("EPG URL cannot be empty".to_string()));
+        return Err(AppError::InvalidInput(
+            "EPG URL cannot be empty".to_string(),
+        ));
     }
 
     // Ensure URL uses HTTP or HTTPS protocol
@@ -95,7 +97,11 @@ pub const EPG_AUTO_REFRESH_INTERVAL_HOURS: i64 = 6;
 ///
 /// `last_fetched` is the RFC 3339 string stored in the `epg_last_fetched`
 /// setting. A missing or unreadable value counts as "never fetched".
-pub fn epg_refresh_due(last_fetched: Option<&str>, now: DateTime<Utc>, interval_hours: i64) -> bool {
+pub fn epg_refresh_due(
+    last_fetched: Option<&str>,
+    now: DateTime<Utc>,
+    interval_hours: i64,
+) -> bool {
     match last_fetched.and_then(|s| DateTime::parse_from_rfc3339(s).ok()) {
         Some(last) => now - last.with_timezone(&Utc) >= chrono::Duration::hours(interval_hours),
         None => true,
@@ -110,7 +116,11 @@ pub const EPG_AUTO_REFRESH_RETRY_MINUTES: i64 = 60;
 /// time of its previous attempt (the `epg_last_attempt` setting, stamped
 /// whether or not that attempt succeeded). A missing or unreadable value
 /// counts as "never attempted".
-pub fn epg_retry_allowed(last_attempt: Option<&str>, now: DateTime<Utc>, retry_minutes: i64) -> bool {
+pub fn epg_retry_allowed(
+    last_attempt: Option<&str>,
+    now: DateTime<Utc>,
+    retry_minutes: i64,
+) -> bool {
     match last_attempt.and_then(|s| DateTime::parse_from_rfc3339(s).ok()) {
         Some(last) => now - last.with_timezone(&Utc) >= chrono::Duration::minutes(retry_minutes),
         None => true,
@@ -198,12 +208,20 @@ mod tests {
 
         #[test]
         fn never_fetched_is_due() {
-            assert!(epg_refresh_due(None, Utc::now(), EPG_AUTO_REFRESH_INTERVAL_HOURS));
+            assert!(epg_refresh_due(
+                None,
+                Utc::now(),
+                EPG_AUTO_REFRESH_INTERVAL_HOURS
+            ));
         }
 
         #[test]
         fn unparsable_timestamp_is_due() {
-            assert!(epg_refresh_due(Some("yesterday"), Utc::now(), EPG_AUTO_REFRESH_INTERVAL_HOURS));
+            assert!(epg_refresh_due(
+                Some("yesterday"),
+                Utc::now(),
+                EPG_AUTO_REFRESH_INTERVAL_HOURS
+            ));
         }
 
         #[test]
@@ -224,8 +242,16 @@ mod tests {
         fn accepts_the_timestamp_format_written_by_force_refresh() {
             // chrono's to_rfc3339 with nanoseconds, as stored in epg_last_fetched.
             let now = Utc::now();
-            assert!(!epg_refresh_due(Some("2026-03-15T15:03:20.435045575+00:00"), now, 24 * 365 * 10));
-            assert!(epg_refresh_due(Some("2026-03-15T15:03:20.435045575+00:00"), now, 6));
+            assert!(!epg_refresh_due(
+                Some("2026-03-15T15:03:20.435045575+00:00"),
+                now,
+                24 * 365 * 10
+            ));
+            assert!(epg_refresh_due(
+                Some("2026-03-15T15:03:20.435045575+00:00"),
+                now,
+                6
+            ));
         }
     }
 
@@ -235,12 +261,20 @@ mod tests {
 
         #[test]
         fn never_attempted_is_allowed() {
-            assert!(epg_retry_allowed(None, Utc::now(), EPG_AUTO_REFRESH_RETRY_MINUTES));
+            assert!(epg_retry_allowed(
+                None,
+                Utc::now(),
+                EPG_AUTO_REFRESH_RETRY_MINUTES
+            ));
         }
 
         #[test]
         fn unparsable_timestamp_is_allowed() {
-            assert!(epg_retry_allowed(Some("yesterday"), Utc::now(), EPG_AUTO_REFRESH_RETRY_MINUTES));
+            assert!(epg_retry_allowed(
+                Some("yesterday"),
+                Utc::now(),
+                EPG_AUTO_REFRESH_RETRY_MINUTES
+            ));
         }
 
         #[test]

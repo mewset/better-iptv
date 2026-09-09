@@ -1,7 +1,9 @@
 use crate::commands::with_db;
-use crate::db::{models::*, queries, mutations};
+use crate::db::{models::*, mutations, queries};
 use crate::error::AppError;
-use crate::playlist::{fetch_xtream_channels_with_progress, parse_m3u, get_xtream_epg_url, XtreamCredentials};
+use crate::playlist::{
+    fetch_xtream_channels_with_progress, get_xtream_epg_url, parse_m3u, XtreamCredentials,
+};
 use crate::playlist_domain;
 use crate::series_domain::{self, SeriesGroup};
 use crate::state::AppState;
@@ -15,7 +17,9 @@ fn get_playlist_user_agent(db: &rusqlite::Connection) -> Result<String, AppError
     )?;
 
     let mode = settings.get("playlist_user_agent_mode").map(|s| s.as_str());
-    let custom = settings.get("playlist_user_agent_custom").map(|s| s.as_str());
+    let custom = settings
+        .get("playlist_user_agent_custom")
+        .map(|s| s.as_str());
 
     Ok(crate::http::resolve_playlist_user_agent(mode, custom))
 }
@@ -29,7 +33,10 @@ pub async fn import_playlist(
     playlist_domain::validate_playlist_name(&name)?;
     playlist_domain::validate_playlist_source(&source)?;
 
-    info!("M3U import started: {}", crate::utils::mask_credentials(&source));
+    info!(
+        "M3U import started: {}",
+        crate::utils::mask_credentials(&source)
+    );
 
     let playlist_user_agent = with_db(&state.pool, get_playlist_user_agent).await?;
 
@@ -102,19 +109,16 @@ pub async fn import_xtream_playlist(
     let playlist_user_agent = with_db(&state.pool, get_playlist_user_agent).await?;
 
     debug!("Fetching channels from Xtream API: {}", server_url);
-    let channels = fetch_xtream_channels_with_progress(
-        &creds,
-        Some(&playlist_user_agent),
-        |progress| {
+    let channels =
+        fetch_xtream_channels_with_progress(&creds, Some(&playlist_user_agent), |progress| {
             let _ = app.emit("import-progress", progress);
-        },
-    )
-    .await
-    .map_err(|e| {
-        let err_msg = format!("Failed to fetch Xtream channels: {}", e);
-        error!("{}", err_msg);
-        AppError::Http(err_msg)
-    })?;
+        })
+        .await
+        .map_err(|e| {
+            let err_msg = format!("Failed to fetch Xtream channels: {}", e);
+            error!("{}", err_msg);
+            AppError::Http(err_msg)
+        })?;
 
     info!("Fetched {} channels from Xtream API", channels.len());
 
@@ -155,7 +159,10 @@ pub async fn import_xtream_playlist(
             debug!("Inserted batch {}/{}", batch_num + 1, batches.len());
         }
 
-        info!("Xtream import completed: {} channels imported", total_channels);
+        info!(
+            "Xtream import completed: {} channels imported",
+            total_channels
+        );
 
         let existing_epg_url = queries::get_setting(&tx, "epg_url")?;
         let has_epg_url = existing_epg_url
@@ -204,24 +211,33 @@ pub async fn refresh_playlist(
             password: playlist.xtream_password.clone().unwrap_or_default(),
         };
 
-        info!("Refreshing Xtream playlist '{}' (ID {})", playlist.name, playlist_id);
-        let channels = fetch_xtream_channels_with_progress(&creds, Some(&playlist_user_agent), |progress| {
-            let _ = app.emit("refresh-progress", progress);
-        })
-        .await
-        .map_err(|e| {
-            error!("Failed to fetch Xtream channels for refresh: {}", e);
-            AppError::Http(e.to_string())
-        })?;
+        info!(
+            "Refreshing Xtream playlist '{}' (ID {})",
+            playlist.name, playlist_id
+        );
+        let channels =
+            fetch_xtream_channels_with_progress(&creds, Some(&playlist_user_agent), |progress| {
+                let _ = app.emit("refresh-progress", progress);
+            })
+            .await
+            .map_err(|e| {
+                error!("Failed to fetch Xtream channels for refresh: {}", e);
+                AppError::Http(e.to_string())
+            })?;
         (channels, Vec::new())
     } else {
         let source = playlist
             .url
             .clone()
             .or(playlist.file_path.clone())
-            .ok_or_else(|| AppError::InvalidInput("Playlist has no URL or file path".to_string()))?;
+            .ok_or_else(|| {
+                AppError::InvalidInput("Playlist has no URL or file path".to_string())
+            })?;
 
-        info!("Refreshing M3U playlist '{}' (ID {})", playlist.name, playlist_id);
+        info!(
+            "Refreshing M3U playlist '{}' (ID {})",
+            playlist.name, playlist_id
+        );
         let parsed = parse_m3u(&source, Some(&playlist_user_agent))
             .await
             .map_err(|e| {
@@ -255,10 +271,11 @@ pub async fn refresh_playlist(
 }
 
 #[tauri::command]
-pub async fn get_stale_playlist_ids(
-    state: State<'_, AppState>,
-) -> Result<Vec<i64>, AppError> {
-    let stale = with_db(&state.pool, |conn| Ok(queries::get_stale_playlists(conn, 7)?)).await?;
+pub async fn get_stale_playlist_ids(state: State<'_, AppState>) -> Result<Vec<i64>, AppError> {
+    let stale = with_db(&state.pool, |conn| {
+        Ok(queries::get_stale_playlists(conn, 7)?)
+    })
+    .await?;
     Ok(stale.iter().filter_map(|p| p.id).collect())
 }
 
@@ -269,7 +286,10 @@ pub async fn get_playlists(state: State<'_, AppState>) -> Result<Vec<Playlist>, 
 
 #[tauri::command]
 pub async fn delete_playlist(state: State<'_, AppState>, id: i64) -> Result<(), AppError> {
-    with_db(&state.pool, move |conn| Ok(mutations::delete_playlist(conn, id)?)).await
+    with_db(&state.pool, move |conn| {
+        Ok(mutations::delete_playlist(conn, id)?)
+    })
+    .await
 }
 
 #[tauri::command]

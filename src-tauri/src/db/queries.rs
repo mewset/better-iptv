@@ -1,6 +1,6 @@
-use rusqlite::{Connection, Result, Row, params};
-use std::collections::HashMap;
 use super::models::*;
+use rusqlite::{params, Connection, Result, Row};
+use std::collections::HashMap;
 
 // ========== Channel Query Helpers ==========
 
@@ -71,7 +71,8 @@ pub fn get_playlists(conn: &Connection) -> Result<Vec<Playlist>> {
         PLAYLIST_SELECT_COLUMNS
     );
     let mut stmt = conn.prepare(&sql)?;
-    let playlists = stmt.query_map([], map_playlist_row)?
+    let playlists = stmt
+        .query_map([], map_playlist_row)?
         .collect::<Result<Vec<_>>>()?;
     Ok(playlists)
 }
@@ -96,7 +97,8 @@ pub fn get_channels(conn: &Connection, playlist_id: Option<i64>) -> Result<Vec<C
             CHANNEL_SELECT_COLUMNS
         );
         let mut stmt = conn.prepare(&sql)?;
-        let channels = stmt.query_map(params![pid], map_channel_row)?
+        let channels = stmt
+            .query_map(params![pid], map_channel_row)?
             .collect::<Result<Vec<_>>>()?;
         Ok(channels)
     } else {
@@ -105,7 +107,8 @@ pub fn get_channels(conn: &Connection, playlist_id: Option<i64>) -> Result<Vec<C
             CHANNEL_SELECT_COLUMNS
         );
         let mut stmt = conn.prepare(&sql)?;
-        let channels = stmt.query_map([], map_channel_row)?
+        let channels = stmt
+            .query_map([], map_channel_row)?
             .collect::<Result<Vec<_>>>()?;
         Ok(channels)
     }
@@ -119,7 +122,8 @@ pub fn search_channels(conn: &Connection, query: &str) -> Result<Vec<Channel>> {
     );
     let mut stmt = conn.prepare(&sql)?;
 
-    let channels = stmt.query_map(params![search_pattern], map_channel_row)?
+    let channels = stmt
+        .query_map(params![search_pattern], map_channel_row)?
         .collect::<Result<Vec<_>>>()?;
 
     Ok(channels)
@@ -132,14 +136,18 @@ pub fn get_favorites(conn: &Connection) -> Result<Vec<Channel>> {
     );
     let mut stmt = conn.prepare(&sql)?;
 
-    let channels = stmt.query_map([], map_channel_row)?
+    let channels = stmt
+        .query_map([], map_channel_row)?
         .collect::<Result<Vec<_>>>()?;
 
     Ok(channels)
 }
 
 pub fn get_channel_by_id(conn: &Connection, id: i64) -> Result<Option<Channel>> {
-    let sql = format!("SELECT {} FROM channels WHERE id = ?1", CHANNEL_SELECT_COLUMNS);
+    let sql = format!(
+        "SELECT {} FROM channels WHERE id = ?1",
+        CHANNEL_SELECT_COLUMNS
+    );
     let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query_map(params![id], map_channel_row)?;
     rows.next().transpose()
@@ -148,13 +156,17 @@ pub fn get_channel_by_id(conn: &Connection, id: i64) -> Result<Option<Channel>> 
 // ========== Series Episode Queries ==========
 
 /// Episodes of one series row, ordered by season then episode.
-pub fn get_series_episodes(conn: &Connection, series_channel_id: i64) -> Result<Vec<SeriesEpisode>> {
+pub fn get_series_episodes(
+    conn: &Connection,
+    series_channel_id: i64,
+) -> Result<Vec<SeriesEpisode>> {
     let sql = format!(
         "SELECT {} FROM series_episodes WHERE series_channel_id = ?1 ORDER BY season, episode",
         SERIES_EPISODE_SELECT_COLUMNS
     );
     let mut stmt = conn.prepare(&sql)?;
-    let episodes = stmt.query_map(params![series_channel_id], map_series_episode_row)?
+    let episodes = stmt
+        .query_map(params![series_channel_id], map_series_episode_row)?
         .collect::<Result<Vec<_>>>()?;
     Ok(episodes)
 }
@@ -167,14 +179,18 @@ pub fn get_series_episodes_by_ids(conn: &Connection, ids: &[i64]) -> Result<Vec<
     }
     let ids_json = format!(
         "[{}]",
-        ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",")
+        ids.iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
     );
     let sql = format!(
         "SELECT {} FROM series_episodes WHERE id IN (SELECT value FROM json_each(?1))",
         SERIES_EPISODE_SELECT_COLUMNS
     );
     let mut stmt = conn.prepare(&sql)?;
-    let episodes = stmt.query_map(params![ids_json], map_series_episode_row)?
+    let episodes = stmt
+        .query_map(params![ids_json], map_series_episode_row)?
         .collect::<Result<Vec<_>>>()?;
     Ok(episodes)
 }
@@ -199,13 +215,17 @@ pub fn get_multiple_settings(conn: &Connection, keys: &[&str]) -> Result<HashMap
     }
 
     let placeholders = keys.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-    let sql = format!("SELECT key, value FROM settings WHERE key IN ({})", placeholders);
+    let sql = format!(
+        "SELECT key, value FROM settings WHERE key IN ({})",
+        placeholders
+    );
 
     let mut stmt = conn.prepare(&sql)?;
-    let result = stmt.query_map(rusqlite::params_from_iter(keys), |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    })?
-    .collect::<Result<HashMap<_, _>, _>>()?;
+    let result = stmt
+        .query_map(rusqlite::params_from_iter(keys), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<HashMap<_, _>, _>>()?;
 
     Ok(result)
 }
@@ -231,7 +251,8 @@ pub fn get_stale_playlists(conn: &Connection, days: i64) -> Result<Vec<Playlist>
     );
     let modifier = format!("-{} days", days);
     let mut stmt = conn.prepare(&sql)?;
-    let playlists = stmt.query_map(params![modifier], map_playlist_row)?
+    let playlists = stmt
+        .query_map(params![modifier], map_playlist_row)?
         .collect::<Result<Vec<_>>>()?;
     Ok(playlists)
 }
@@ -254,7 +275,8 @@ pub fn get_channel_groups(
                    GROUP BY group_name
                    ORDER BY cat_order, group_name";
         let mut stmt = conn.prepare(sql)?;
-        let groups = stmt.query_map(params![playlist_id, ct], |row| row.get::<_, String>(0))?
+        let groups = stmt
+            .query_map(params![playlist_id, ct], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<String>, _>>()?;
         Ok(groups)
     } else {
@@ -263,7 +285,8 @@ pub fn get_channel_groups(
                    GROUP BY group_name
                    ORDER BY cat_order, group_name";
         let mut stmt = conn.prepare(sql)?;
-        let groups = stmt.query_map(params![playlist_id], |row| row.get::<_, String>(0))?
+        let groups = stmt
+            .query_map(params![playlist_id], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<String>, _>>()?;
         Ok(groups)
     }
@@ -274,8 +297,8 @@ pub fn get_channel_groups(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::test_helpers::{setup_test_db, create_test_playlist, create_test_channel};
-    use crate::db::mutations::{create_channel, toggle_favorite, set_setting};
+    use crate::db::mutations::{create_channel, set_setting, toggle_favorite};
+    use crate::db::test_helpers::{create_test_channel, create_test_playlist, setup_test_db};
 
     // ========== Playlist Tests ==========
 

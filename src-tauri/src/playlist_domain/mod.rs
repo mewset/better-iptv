@@ -56,10 +56,7 @@ pub fn validate_playlist_source(source: &str) -> Result<(), AppError> {
 ///
 /// # Errors
 /// Returns `AppError::InvalidInput` if validation fails
-pub fn validate_xtream_credentials(
-    server_url: &str,
-    username: &str,
-) -> Result<(), AppError> {
+pub fn validate_xtream_credentials(server_url: &str, username: &str) -> Result<(), AppError> {
     if server_url.trim().is_empty() {
         return Err(AppError::InvalidInput(
             "Server URL cannot be empty".to_string(),
@@ -190,10 +187,7 @@ pub fn extract_xtream_credentials(playlist: &Playlist) -> Result<XtreamCredentia
 ///
 /// # Returns
 /// New vector of channels with playlist_id set
-pub fn assign_playlist_id_to_channels(
-    channels: Vec<Channel>,
-    playlist_id: i64,
-) -> Vec<Channel> {
+pub fn assign_playlist_id_to_channels(channels: Vec<Channel>, playlist_id: i64) -> Vec<Channel> {
     channels
         .into_iter()
         .map(|mut c| {
@@ -292,7 +286,10 @@ mod tests {
         let playlist = result.unwrap();
         assert_eq!(playlist.name, "Test Playlist");
         assert_eq!(playlist.url, None);
-        assert_eq!(playlist.file_path, Some("/path/to/playlist.m3u".to_string()));
+        assert_eq!(
+            playlist.file_path,
+            Some("/path/to/playlist.m3u".to_string())
+        );
     }
 
     #[test]

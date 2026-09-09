@@ -1,14 +1,14 @@
 use crate::commands::with_db;
-use crate::error::AppError;
+use crate::db::queries;
 use crate::epg::ChannelEpg;
 use crate::epg_domain;
 use crate::epg_domain::{
     epg_refresh_due, epg_retry_allowed, EPG_AUTO_REFRESH_INTERVAL_HOURS,
     EPG_AUTO_REFRESH_RETRY_MINUTES,
 };
+use crate::error::AppError;
 use crate::playlist::{get_xtream_epg_url, XtreamCredentials};
 use crate::state::AppState;
-use crate::db::queries;
 use log::{debug, info, warn};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -19,8 +19,8 @@ fn resolve_xtream_epg_user_agent(
     db: &rusqlite::Connection,
     target_epg_url: &str,
 ) -> Result<Option<String>, AppError> {
-    let active_profile_id = queries::get_setting(db, "active_profile_id")?
-        .and_then(|id| id.parse::<i64>().ok());
+    let active_profile_id =
+        queries::get_setting(db, "active_profile_id")?.and_then(|id| id.parse::<i64>().ok());
 
     let Some(profile_id) = active_profile_id else {
         return Ok(None);
@@ -55,7 +55,9 @@ fn resolve_xtream_epg_user_agent(
         &["playlist_user_agent_mode", "playlist_user_agent_custom"],
     )?;
     let mode = settings.get("playlist_user_agent_mode").map(|s| s.as_str());
-    let custom = settings.get("playlist_user_agent_custom").map(|s| s.as_str());
+    let custom = settings
+        .get("playlist_user_agent_custom")
+        .map(|s| s.as_str());
 
     Ok(Some(crate::http::resolve_playlist_user_agent(mode, custom)))
 }
@@ -76,7 +78,10 @@ pub struct EpgRefreshResult {
 }
 
 #[tauri::command]
-pub async fn fetch_epg_data(state: State<'_, AppState>, epg_url: String) -> Result<usize, AppError> {
+pub async fn fetch_epg_data(
+    state: State<'_, AppState>,
+    epg_url: String,
+) -> Result<usize, AppError> {
     let _guard = state.epg_refresh_lock.lock().await;
 
     let normalized_url = epg_domain::normalize_epg_url(&epg_url);
@@ -98,7 +103,11 @@ pub async fn fetch_epg_data(state: State<'_, AppState>, epg_url: String) -> Resu
             debug!("Updated EPG IDs for {} channels", updated);
         }
         let count = crate::epg::store_epg_programs(conn, &programs)?;
-        crate::db::mutations::set_setting(conn, "epg_last_fetched", &chrono::Utc::now().to_rfc3339())?;
+        crate::db::mutations::set_setting(
+            conn,
+            "epg_last_fetched",
+            &chrono::Utc::now().to_rfc3339(),
+        )?;
         Ok(count)
     })
     .await
@@ -174,7 +183,10 @@ pub async fn get_epg_status(state: State<'_, AppState>) -> Result<EpgStatus, App
 /// problems (no URL, invalid URL, download failure) and `Err` only for
 /// database failures. Shared by the Settings button and the background task.
 pub async fn run_epg_refresh(state: &AppState) -> Result<EpgRefreshResult, AppError> {
-    let epg_url = with_db(&state.pool, |conn| Ok(queries::get_setting(conn, "epg_url")?)).await?;
+    let epg_url = with_db(&state.pool, |conn| {
+        Ok(queries::get_setting(conn, "epg_url")?)
+    })
+    .await?;
 
     let epg_url = match epg_url {
         Some(url) if !url.trim().is_empty() => url,
@@ -188,7 +200,10 @@ pub async fn run_epg_refresh(state: &AppState) -> Result<EpgRefreshResult, AppEr
         }
     };
 
-    info!("Force refreshing EPG from: {}", crate::utils::mask_credentials(&epg_url));
+    info!(
+        "Force refreshing EPG from: {}",
+        crate::utils::mask_credentials(&epg_url)
+    );
 
     let normalized_url = epg_domain::normalize_epg_url(&epg_url);
     if let Err(e) = epg_domain::validate_epg_url(&normalized_url) {
@@ -319,7 +334,11 @@ pub async fn maybe_auto_refresh_epg(app: &AppHandle) {
 
     let stamp = now.to_rfc3339();
     let stamped = with_db(&state.pool, move |conn| {
-        Ok(crate::db::mutations::set_setting(conn, "epg_last_attempt", &stamp)?)
+        Ok(crate::db::mutations::set_setting(
+            conn,
+            "epg_last_attempt",
+            &stamp,
+        )?)
     })
     .await;
     if let Err(e) = stamped {
@@ -327,7 +346,10 @@ pub async fn maybe_auto_refresh_epg(app: &AppHandle) {
         return;
     }
 
-    info!("EPG auto-refresh: last fetch {:?}, refreshing", last_fetched);
+    info!(
+        "EPG auto-refresh: last fetch {:?}, refreshing",
+        last_fetched
+    );
     match run_epg_refresh(&state).await {
         Ok(result) if result.success => {
             if let Err(e) = app.emit("epg-refreshed", result) {

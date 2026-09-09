@@ -13,7 +13,11 @@ pub async fn set_parental_pin(state: State<'_, AppState>, pin: String) -> Result
     let password_hash = parental_domain::hash_pin(&pin)?;
 
     with_db(&state.pool, move |conn| {
-        Ok(mutations::set_setting(conn, "parental_pin_hash", &password_hash)?)
+        Ok(mutations::set_setting(
+            conn,
+            "parental_pin_hash",
+            &password_hash,
+        )?)
     })
     .await?;
 
@@ -22,7 +26,10 @@ pub async fn set_parental_pin(state: State<'_, AppState>, pin: String) -> Result
 }
 
 #[tauri::command]
-pub async fn verify_parental_pin(state: State<'_, AppState>, pin: String) -> Result<bool, AppError> {
+pub async fn verify_parental_pin(
+    state: State<'_, AppState>,
+    pin: String,
+) -> Result<bool, AppError> {
     let hash = with_db(&state.pool, |conn| {
         Ok(queries::get_setting(conn, "parental_pin_hash")?)
     })
@@ -34,8 +41,9 @@ pub async fn verify_parental_pin(state: State<'_, AppState>, pin: String) -> Res
     };
 
     // Argon2 verification is CPU-bound by design; keep it off the async worker too.
-    let is_valid = tokio::task::spawn_blocking(move || parental_domain::verify_pin_hash(&pin, &hash))
-        .await??;
+    let is_valid =
+        tokio::task::spawn_blocking(move || parental_domain::verify_pin_hash(&pin, &hash))
+            .await??;
 
     if is_valid {
         info!("Parental control PIN verified successfully");
@@ -78,13 +86,20 @@ pub async fn get_blocked_channels(state: State<'_, AppState>) -> Result<Vec<i64>
 }
 
 #[tauri::command]
-pub async fn set_blocked_channels(state: State<'_, AppState>, channel_ids: Vec<i64>) -> Result<(), AppError> {
+pub async fn set_blocked_channels(
+    state: State<'_, AppState>,
+    channel_ids: Vec<i64>,
+) -> Result<(), AppError> {
     let json_str = serde_json::to_string(&channel_ids)
         .map_err(|e| AppError::Parse(format!("Failed to serialize blocked channels: {}", e)))?;
     let count = channel_ids.len();
 
     with_db(&state.pool, move |conn| {
-        Ok(mutations::set_setting(conn, "parental_blocked_channels", &json_str)?)
+        Ok(mutations::set_setting(
+            conn,
+            "parental_blocked_channels",
+            &json_str,
+        )?)
     })
     .await?;
 
@@ -93,7 +108,9 @@ pub async fn set_blocked_channels(state: State<'_, AppState>, channel_ids: Vec<i
 }
 
 #[tauri::command]
-pub async fn get_parental_settings(state: State<'_, AppState>) -> Result<serde_json::Value, AppError> {
+pub async fn get_parental_settings(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
     let settings = with_db(&state.pool, |conn| {
         Ok(queries::get_multiple_settings(
             conn,

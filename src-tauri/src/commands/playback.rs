@@ -24,14 +24,30 @@ pub fn build_playback_options(
 ) -> Result<PlaybackSettings, AppError> {
     let settings = queries::get_multiple_settings(db, MPV_SETTING_KEYS)?;
 
-    let audio_lang = settings.get("audio_language").filter(|s| !s.is_empty()).cloned();
-    let subtitle_lang = settings.get("subtitle_language").filter(|s| !s.is_empty()).cloned();
-    let hwdec = settings.get("mpv_hardware_acceleration").map(|s| s != "false").unwrap_or(true);
+    let audio_lang = settings
+        .get("audio_language")
+        .filter(|s| !s.is_empty())
+        .cloned();
+    let subtitle_lang = settings
+        .get("subtitle_language")
+        .filter(|s| !s.is_empty())
+        .cloned();
+    let hwdec = settings
+        .get("mpv_hardware_acceleration")
+        .map(|s| s != "false")
+        .unwrap_or(true);
     let video_output = settings.get("mpv_video_output").cloned();
     let deinterlace = settings.get("mpv_deinterlace").cloned();
-    let start_fullscreen = settings.get("mpv_start_fullscreen").map(|s| s == "true").unwrap_or(false);
-    let cache_secs = settings.get("mpv_cache_secs").and_then(|s| s.parse::<u32>().ok());
-    let start_volume = settings.get("mpv_start_volume").and_then(|s| s.parse::<u32>().ok());
+    let start_fullscreen = settings
+        .get("mpv_start_fullscreen")
+        .map(|s| s == "true")
+        .unwrap_or(false);
+    let cache_secs = settings
+        .get("mpv_cache_secs")
+        .and_then(|s| s.parse::<u32>().ok());
+    let start_volume = settings
+        .get("mpv_start_volume")
+        .and_then(|s| s.parse::<u32>().ok());
 
     Ok(PlaybackSettings {
         title: title.map(|s| s.to_string()),
@@ -63,7 +79,10 @@ pub async fn play_channel(state: State<'_, AppState>, channel: Channel) -> Resul
 
     *state.current_channel.write().await = Some(CurrentChannel::from_channel(&channel));
 
-    info!("Playing channel: {} ({})", channel.name, channel.content_type);
+    info!(
+        "Playing channel: {} ({})",
+        channel.name, channel.content_type
+    );
 
     Ok(())
 }

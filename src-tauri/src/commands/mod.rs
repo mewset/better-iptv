@@ -1,20 +1,20 @@
 // Command modules organized by domain
-pub mod playback;
-pub mod playlist;
 pub mod channel;
 pub mod epg;
+pub mod parental;
+pub mod playback;
+pub mod playlist;
 pub mod series;
 pub mod settings;
-pub mod parental;
 
 // Re-export all commands for lib.rs
-pub use playback::*;
-pub use playlist::*;
 pub use channel::*;
 pub use epg::*;
+pub use parental::*;
+pub use playback::*;
+pub use playlist::*;
 pub use series::*;
 pub use settings::*;
-pub use parental::*;
 
 use crate::error::AppError;
 use r2d2::Pool;
@@ -26,10 +26,7 @@ use r2d2_sqlite::SqliteConnectionManager;
 /// the thread they run on, so a large import or merge would otherwise stall
 /// every other command until it finishes. Pool checkout happens inside the
 /// closure so any wait for a free connection also stays off the async worker.
-pub(crate) async fn with_db<T, F>(
-    pool: &Pool<SqliteConnectionManager>,
-    f: F,
-) -> Result<T, AppError>
+pub(crate) async fn with_db<T, F>(pool: &Pool<SqliteConnectionManager>, f: F) -> Result<T, AppError>
 where
     F: FnOnce(&rusqlite::Connection) -> Result<T, AppError> + Send + 'static,
     T: Send + 'static,

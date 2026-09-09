@@ -39,7 +39,10 @@ pub async fn fetch_and_parse_epg(url: &str, user_agent: Option<&str>) -> Result<
         .await
         .context("Failed to download EPG file")?;
 
-    let bytes = response.bytes().await.context("Failed to read EPG response")?;
+    let bytes = response
+        .bytes()
+        .await
+        .context("Failed to read EPG response")?;
 
     // Check if it's gzipped based on URL or magic bytes
     let xml_content = if url.ends_with(".gz") || is_gzipped(&bytes) {
@@ -52,7 +55,11 @@ pub async fn fetch_and_parse_epg(url: &str, user_agent: Option<&str>) -> Result<
 
     let parse_start = Instant::now();
     let programs = parse_xmltv(&xml_content)?;
-    debug!("EPG parse completed in {:?}: {} programs", parse_start.elapsed(), programs.len());
+    debug!(
+        "EPG parse completed in {:?}: {} programs",
+        parse_start.elapsed(),
+        programs.len()
+    );
 
     info!("Parsed {} EPG programs from XMLTV", programs.len());
     Ok(programs)
@@ -62,7 +69,11 @@ pub async fn fetch_and_parse_epg(url: &str, user_agent: Option<&str>) -> Result<
 pub fn store_epg_programs(conn: &Connection, programs: &[EpgProgram]) -> Result<usize> {
     let start = Instant::now();
     let count = store_programs(conn, programs)?;
-    debug!("EPG store completed in {:?}: {} programs", start.elapsed(), count);
+    debug!(
+        "EPG store completed in {:?}: {} programs",
+        start.elapsed(),
+        count
+    );
     info!("Stored {} EPG programs in database", count);
     Ok(count)
 }
@@ -98,45 +109,43 @@ fn parse_xmltv(xml: &str) -> Result<Vec<EpgProgram>> {
 
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) => {
-                match e.name().as_ref() {
-                    b"programme" => {
-                        let mut channel_id = String::new();
-                        let mut start_time = None;
-                        let mut end_time = None;
+            Ok(Event::Start(ref e)) => match e.name().as_ref() {
+                b"programme" => {
+                    let mut channel_id = String::new();
+                    let mut start_time = None;
+                    let mut end_time = None;
 
-                        for attr in e.attributes().flatten() {
-                            match attr.key.as_ref() {
-                                b"channel" => {
-                                    channel_id = String::from_utf8_lossy(&attr.value).to_string();
-                                }
-                                b"start" => {
-                                    start_time = parse_xmltv_time(&attr.value);
-                                }
-                                b"stop" => {
-                                    end_time = parse_xmltv_time(&attr.value);
-                                }
-                                _ => {}
+                    for attr in e.attributes().flatten() {
+                        match attr.key.as_ref() {
+                            b"channel" => {
+                                channel_id = String::from_utf8_lossy(&attr.value).to_string();
                             }
-                        }
-
-                        if let (Some(start), Some(end)) = (start_time, end_time) {
-                            current_program = Some(EpgProgramBuilder {
-                                channel_id,
-                                title: String::new(),
-                                description: None,
-                                start_time: start,
-                                end_time: end,
-                                category: None,
-                            });
+                            b"start" => {
+                                start_time = parse_xmltv_time(&attr.value);
+                            }
+                            b"stop" => {
+                                end_time = parse_xmltv_time(&attr.value);
+                            }
+                            _ => {}
                         }
                     }
-                    b"title" => in_title = true,
-                    b"desc" => in_desc = true,
-                    b"category" => in_category = true,
-                    _ => {}
+
+                    if let (Some(start), Some(end)) = (start_time, end_time) {
+                        current_program = Some(EpgProgramBuilder {
+                            channel_id,
+                            title: String::new(),
+                            description: None,
+                            start_time: start,
+                            end_time: end,
+                            category: None,
+                        });
+                    }
                 }
-            }
+                b"title" => in_title = true,
+                b"desc" => in_desc = true,
+                b"category" => in_category = true,
+                _ => {}
+            },
             Ok(Event::Text(e)) => {
                 if let Some(ref mut prog) = current_program {
                     let text = e.unescape().unwrap_or_default().to_string();
@@ -149,21 +158,19 @@ fn parse_xmltv(xml: &str) -> Result<Vec<EpgProgram>> {
                     }
                 }
             }
-            Ok(Event::End(ref e)) => {
-                match e.name().as_ref() {
-                    b"programme" => {
-                        if let Some(prog) = current_program.take() {
-                            if !prog.title.is_empty() {
-                                programs.push(prog.build());
-                            }
+            Ok(Event::End(ref e)) => match e.name().as_ref() {
+                b"programme" => {
+                    if let Some(prog) = current_program.take() {
+                        if !prog.title.is_empty() {
+                            programs.push(prog.build());
                         }
                     }
-                    b"title" => in_title = false,
-                    b"desc" => in_desc = false,
-                    b"category" => in_category = false,
-                    _ => {}
                 }
-            }
+                b"title" => in_title = false,
+                b"desc" => in_desc = false,
+                b"category" => in_category = false,
+                _ => {}
+            },
             Ok(Event::Eof) => break,
             Err(e) => {
                 warn!("XML parsing error: {}", e);
@@ -222,7 +229,13 @@ fn parse_tz_offset(tz_str: &str) -> Result<i32, ()> {
         return Err(());
     }
 
-    let sign = if tz_str.starts_with('+') { 1 } else if tz_str.starts_with('-') { -1 } else { return Err(()); };
+    let sign = if tz_str.starts_with('+') {
+        1
+    } else if tz_str.starts_with('-') {
+        -1
+    } else {
+        return Err(());
+    };
 
     let hours: i32 = tz_str[1..3].parse().map_err(|_| ())?;
     let minutes: i32 = tz_str[3..5].parse().map_err(|_| ())?;
@@ -447,7 +460,11 @@ mod tests {
         let conn = setup_test_db();
         let now = Utc::now();
 
-        store_epg_programs(&conn, &[programme("svt1.se", "Old", now - Duration::days(2), 30)]).unwrap();
+        store_epg_programs(
+            &conn,
+            &[programme("svt1.se", "Old", now - Duration::days(2), 30)],
+        )
+        .unwrap();
         store_epg_programs(&conn, &[programme("svt1.se", "New", now, 30)]).unwrap();
 
         let titles: Vec<String> = conn
@@ -473,8 +490,14 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(get_current_program(&conn, "svt1.se").unwrap().as_deref(), Some("Rapport"));
-        assert_eq!(get_next_program(&conn, "svt1.se").unwrap().as_deref(), Some("Aktuellt"));
+        assert_eq!(
+            get_current_program(&conn, "svt1.se").unwrap().as_deref(),
+            Some("Rapport")
+        );
+        assert_eq!(
+            get_next_program(&conn, "svt1.se").unwrap().as_deref(),
+            Some("Aktuellt")
+        );
         assert_eq!(get_current_program(&conn, "unknown").unwrap(), None);
     }
 
@@ -527,7 +550,11 @@ mod tests {
         ];
         let result = get_programs_for_channels(&conn, &ids).unwrap();
 
-        assert_eq!(result.len(), 2, "channels without any programme are omitted");
+        assert_eq!(
+            result.len(),
+            2,
+            "channels without any programme are omitted"
+        );
         let svt1 = &result["svt1.se"];
         assert_eq!(svt1.current.as_deref(), Some("Rapport"));
         assert_eq!(svt1.next.as_deref(), Some("Aktuellt"));

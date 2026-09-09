@@ -20,7 +20,11 @@ pub async fn get_channels(
         Ok(queries::get_channels(conn, playlist_id)?)
     })
     .await?;
-    debug!("get_channels playlist_id={:?} -> {} channels", playlist_id, channels.len());
+    debug!(
+        "get_channels playlist_id={:?} -> {} channels",
+        playlist_id,
+        channels.len()
+    );
     Ok(channels)
 }
 
@@ -38,7 +42,11 @@ pub async fn get_channel_groups(
 
     let ct_for_log = content_type.clone();
     let groups = with_db(&state.pool, move |conn| {
-        Ok(queries::get_channel_groups(conn, playlist_id, content_type.as_deref())?)
+        Ok(queries::get_channel_groups(
+            conn,
+            playlist_id,
+            content_type.as_deref(),
+        )?)
     })
     .await?;
     debug!(
@@ -62,7 +70,11 @@ pub async fn search_channels(
         Ok(queries::search_channels(conn, &query)?)
     })
     .await?;
-    debug!("search_channels query='{}' -> {} results", query_for_log, channels.len());
+    debug!(
+        "search_channels query='{}' -> {} results",
+        query_for_log,
+        channels.len()
+    );
     Ok(channels)
 }
 

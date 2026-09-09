@@ -253,7 +253,8 @@ pub fn migrate_m3u_series(conn: &Connection) -> Result<()> {
                 tx.execute("DELETE FROM channels WHERE id = ?1", rusqlite::params![id])?;
             }
         }
-        let episodes = crate::db::mutations::insert_series_groups(&tx, playlist_id, &grouped.series)?;
+        let episodes =
+            crate::db::mutations::insert_series_groups(&tx, playlist_id, &grouped.series)?;
 
         log::info!(
             "Migration: playlist {} grouped into {} series ({} episodes), {} rows reclassified as live",
@@ -280,11 +281,7 @@ pub fn ensure_active_profile(conn: &Connection) -> Result<()> {
 
         if let Some(first_playlist) = playlists.first() {
             let playlist_id = first_playlist.id.unwrap().to_string();
-            crate::db::mutations::set_setting(
-                conn,
-                "active_profile_id",
-                &playlist_id
-            )?;
+            crate::db::mutations::set_setting(conn, "active_profile_id", &playlist_id)?;
             log::info!(
                 "Migration: Set active profile to first playlist (ID: {})",
                 playlist_id
@@ -420,7 +417,10 @@ mod tests {
         let series: Vec<_> = m3u.iter().filter(|c| c.content_type == "series").collect();
         assert_eq!(series.len(), 1, "two episode rows collapse into one series");
         assert_eq!(series[0].name, "Dark");
-        assert!(series[0].is_favorite, "favourite carried over from an episode row");
+        assert!(
+            series[0].is_favorite,
+            "favourite carried over from an episode row"
+        );
         assert_eq!(series[0].sort_order, 5);
         assert_eq!(series[0].url, "http://host/d1.mkv");
 
@@ -432,8 +432,13 @@ mod tests {
         assert_eq!(cc.content_type, "live", "no episode marker: linear channel");
         assert_eq!(cc.id, Some(12), "updated in place");
 
-        assert!(m3u.iter().any(|c| c.name == "SVT1" && c.content_type == "live"));
-        assert!(m3u.iter().all(|c| c.id != Some(10) && c.id != Some(11)), "episode rows deleted");
+        assert!(m3u
+            .iter()
+            .any(|c| c.name == "SVT1" && c.content_type == "live"));
+        assert!(
+            m3u.iter().all(|c| c.id != Some(10) && c.id != Some(11)),
+            "episode rows deleted"
+        );
     }
 
     #[test]
@@ -454,10 +459,14 @@ mod tests {
         let conn = seed_pre_grouping_db();
         init_schema(&conn).unwrap();
         assert_eq!(
-            queries::get_setting(&conn, M3U_SERIES_GROUPED_KEY).unwrap().as_deref(),
+            queries::get_setting(&conn, M3U_SERIES_GROUPED_KEY)
+                .unwrap()
+                .as_deref(),
             Some("1")
         );
-        let before: i64 = conn.query_row("SELECT COUNT(*) FROM channels", [], |r| r.get(0)).unwrap();
+        let before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM channels", [], |r| r.get(0))
+            .unwrap();
 
         // Simulate a row that would be regrouped if the migration ran again
         conn.execute(
@@ -468,7 +477,9 @@ mod tests {
         .unwrap();
         migrate_m3u_series(&conn).unwrap();
 
-        let after: i64 = conn.query_row("SELECT COUNT(*) FROM channels", [], |r| r.get(0)).unwrap();
+        let after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM channels", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(after, before + 1, "second run does not regroup");
     }
 
@@ -476,6 +487,8 @@ mod tests {
     fn fresh_database_marks_migration_done() {
         let conn = Connection::open_in_memory().unwrap();
         init_schema(&conn).unwrap();
-        assert!(queries::get_setting(&conn, M3U_SERIES_GROUPED_KEY).unwrap().is_some());
+        assert!(queries::get_setting(&conn, M3U_SERIES_GROUPED_KEY)
+            .unwrap()
+            .is_some());
     }
 }
