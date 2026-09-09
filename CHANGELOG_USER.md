@@ -9,7 +9,7 @@ A simple overview of new features and improvements.
 ### Fixes
 
 - The app icon no longer looks blurry on macOS (Issue: #62)
-- Refreshing an Xtream playlist could replace a live channel with a movie, or drop one of them, when the provider used the same number for both
+- Refreshing an Xtream playlist could replace a live channel with a movie, or drop one of them, when the provider used the same ID for both
 
 ### Thanks
 
