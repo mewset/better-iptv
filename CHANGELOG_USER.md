@@ -4,7 +4,7 @@ A simple overview of new features and improvements.
 
 ---
 
-## Unreleased
+## Version 2.8.1 (September 9, 2026)
 
 ### Fixes
 
