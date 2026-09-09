@@ -50,6 +50,8 @@ export default [
         // Node/Test globals
         global: 'readonly',
         process: 'readonly',
+        // Injected by `define` in vite.config.ts and vitest.config.ts
+        __APP_VERSION__: 'readonly',
       },
     },
     plugins: {

@@ -2,8 +2,12 @@ use lazy_static::lazy_static;
 use reqwest::Client;
 use std::time::Duration;
 
-pub const DEFAULT_HTTP_USER_AGENT: &str =
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Better-IPTV/2.1.1";
+/// Built from the crate version at compile time, which `sync-version.cjs`
+/// keeps equal to the version in `package.json` and `tauri.conf.json`.
+pub const DEFAULT_HTTP_USER_AGENT: &str = concat!(
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Better-IPTV/",
+    env!("CARGO_PKG_VERSION")
+);
 const TIVIMATE_HTTP_USER_AGENT: &str = "TiviMate/4.7.0 (Linux;Android 10) ExoPlayerLib/2.18.1";
 const VLC_HTTP_USER_AGENT: &str = "VLC/3.0.20 LibVLC/3.0.20";
 pub const MAX_CUSTOM_USER_AGENT_LENGTH: usize = 512;
@@ -54,4 +58,36 @@ pub fn normalize_custom_user_agent(value: &str) -> Option<String> {
 /// Get the shared HTTP client for making requests
 pub fn get_http_client() -> &'static Client {
     &HTTP_CLIENT
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_default_user_agent_carries_the_running_app_version() {
+        // It read "Better-IPTV/2.1.1" from 4bd85d4 until 2026-09-09: a literal
+        // that never followed the releases it was supposed to identify.
+        assert!(
+            DEFAULT_HTTP_USER_AGENT.ends_with(concat!("Better-IPTV/", env!("CARGO_PKG_VERSION"))),
+            "user agent {DEFAULT_HTTP_USER_AGENT:?} does not end with the crate version {}",
+            env!("CARGO_PKG_VERSION")
+        );
+    }
+
+    #[test]
+    fn the_default_mode_resolves_to_the_versioned_default() {
+        assert_eq!(
+            resolve_playlist_user_agent(Some("default"), None),
+            DEFAULT_HTTP_USER_AGENT
+        );
+    }
+
+    #[test]
+    fn a_blank_custom_agent_falls_back_to_the_versioned_default() {
+        assert_eq!(
+            resolve_playlist_user_agent(Some("custom"), Some("   ")),
+            DEFAULT_HTTP_USER_AGENT
+        );
+    }
 }
