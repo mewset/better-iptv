@@ -3,6 +3,7 @@
 ## Report Bugs
 
 [Create an issue](https://github.com/mewset/better-iptv/issues/new) with:
+
 - Detailed description
 - Steps to reproduce
 - OS and app version
@@ -12,6 +13,7 @@
 ## Suggest Features
 
 [Open a feature request](https://github.com/mewset/better-iptv/issues/new) describing:
+
 - What you want
 - Why it's useful
 - How it should work
@@ -78,6 +80,32 @@ npm run tauri build
   fix: resolve EPG timezone bug
   docs: update README installation steps
   ```
+
+## Versioning
+
+Better IPTV follows [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
+Your commit type decides which kind of release your change lands in.
+
+| Commit type                                                            | Release               |
+| ---------------------------------------------------------------------- | --------------------- |
+| A breaking change, marked `feat!:` or with a `BREAKING CHANGE:` footer | MAJOR                 |
+| `feat:`                                                                | MINOR                 |
+| `fix:`, `perf:`                                                        | PATCH                 |
+| `ci:`, `style:`, `chore:`, `docs:`, `refactor:`, `test:`               | No release of its own |
+
+The highest class among the changes decides the whole release, and it never
+moves more than one step. A single `feat:` alongside a dozen `fix:` commits
+still makes it a MINOR. Changes in the last row ride along with the next
+release rather than justifying one.
+
+A breaking change means people have to redo something to keep using the app,
+such as their profiles, playlists or parental PIN. Mark it even when the commit
+itself is a fix.
+
+**Do not bump the version in your pull request.** `package.json`,
+`src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` and `src-tauri/tauri.conf.json`
+all carry the version, and the maintainer bumps them together at release time.
+A bump in a PR only creates a conflict.
 
 ## Pull Request Process
 
