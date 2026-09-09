@@ -20,9 +20,9 @@
     "aur:update": "bash dev-scripts/update-aur.sh",
     "version:sync": "node dev-scripts/sync-version.cjs",
     "ci:test": "scripts/ci-test-local.sh",
-    "version:patch": "npm version patch && npm run version:sync",
-    "version:minor": "npm version minor && npm run version:sync",
-    "version:major": "npm version major && npm run version:sync",
+    "version:patch": "npm version patch --no-git-tag-version && npm run version:sync",
+    "version:minor": "npm version minor --no-git-tag-version && npm run version:sync",
+    "version:major": "npm version major --no-git-tag-version && npm run version:sync",
     "downloads": "bash dev-scripts/download-stats.sh"
   },
   "dependencies": {
