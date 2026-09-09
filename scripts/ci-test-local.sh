@@ -53,6 +53,7 @@ run_test "Frontend tests" "npm run test:run"
 echo -e "${YELLOW}🦀 Rust Checks${NC}"
 echo -e "${YELLOW}===============${NC}\n"
 
+run_test "Rust formatting" "(cd src-tauri && cargo fmt --check)"
 run_test "Rust clippy" "(cd src-tauri && cargo clippy --all-targets -- -D warnings -A dead_code)"
 run_test "Rust tests" "(cd src-tauri && cargo test)"
 

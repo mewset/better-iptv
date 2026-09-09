@@ -3,6 +3,13 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## Unreleased
+
+### Changed
+
+- **`cargo fmt --check` is now one of the checks** - `scripts/ci-test-local.sh` runs it ahead of clippy, so `npm run ci:test` fails on unformatted Rust exactly as CI does; `test.yml` gained the matching step, and CONTRIBUTING.md lists `cargo fmt` again after `f27e826` pulled the advice for want of enforcement
+  - The one-time reformat of `src-tauri` is its own commit, 23 of 32 files and no net change in line count. It is listed in `.git-blame-ignore-revs`, which GitHub honours on its own; locally it takes `git config blame.ignoreRevsFile .git-blame-ignore-revs` once
+
 ## [2.8.1] - 2026-09-09
 
 ### Changed

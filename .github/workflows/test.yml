@@ -57,6 +57,9 @@ jobs:
       - name: Run frontend tests
         run: npm run test:run
 
+      - name: Check Rust formatting
+        run: cd src-tauri && cargo fmt --check
+
       - name: Run Rust clippy
         run: cd src-tauri && cargo clippy --all-targets -- -D warnings -A dead_code
 
@@ -78,6 +81,7 @@ jobs:
           echo "- ✅ Frontend linting" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Code formatting" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Frontend tests" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Rust formatting" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Rust clippy" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Rust tests" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Test build" >> $GITHUB_STEP_SUMMARY

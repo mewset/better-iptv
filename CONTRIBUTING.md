@@ -67,8 +67,9 @@ npm run tauri build
 ## Code Standards
 
 - **TypeScript**: Follow ESLint config (`npm run lint`)
-- **Rust**: Keep clippy clean with the flags CI uses
+- **Rust**: Format with rustfmt and keep clippy clean, with the flags CI uses
   ```bash
+  cd src-tauri && cargo fmt
   cd src-tauri && cargo clippy --all-targets -- -D warnings -A dead_code
   ```
 - **Commits**: Use [Conventional Commits](https://www.conventionalcommits.org/)
