@@ -30,6 +30,7 @@ CLAUDE.md
 *.claude
 .serena/
 claudedocs/
+.playwright-mcp/
 docs/
 plans/
 
