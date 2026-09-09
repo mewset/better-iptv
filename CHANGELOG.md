@@ -3,6 +3,21 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## Unreleased
+
+### Fixed
+
+- **macOS app icon was a 16x16 image upscaled to icon size** - `src-tauri/icons/icon.icns` was not an ICNS container at all, but a 16x16 PNG saved under the `.icns` extension (734 bytes, `icns` magic absent). macOS had nothing but those 256 pixels to draw from, so Finder, the Dock, Get Info and the Quick Look preview all showed a heavily blurred logo (Issue: #62)
+  - The initial commit shipped a valid ICNS. A single logo swap on 2026-02-26 broke it twice within three minutes: `fa0a47a` replaced it with a 1024x1024 PNG and `da136a4`, the follow-up meant to correct the source image, with a 16x16 PNG - each still carrying the `.icns` name. It shipped that way in five releases, 2.5.0 through 2.8.0, because the failure is invisible on Linux and Windows
+  - Regenerated with `tauri icon` from `src/assets/logo/logo-1024.png` (converted to RGBA first; the source is RGB and the CLI needs an alpha channel). The file is now a valid `icns` container of 895342 bytes carrying `ic07`-`ic14` plus the legacy `is32`/`il32`/`s8mk`/`l8mk` chunks, i.e. every size from 16x16 up to 1024x1024
+  - Only `icon.icns` changed. The `.ico` and the PNG variants listed in `tauri.conf.json` were already correct, and the artwork is unchanged
+
+### Credits
+
+Thanks to @KenAdamss for reporting the blurred macOS icon in Issue #62. The Get
+Info screenshot showed the icon blurred at every size rather than only at large
+sizes, which pointed at the source file instead of at a missing retina variant.
+
 ## [2.8.0] - 2026-09-03
 
 ### Added

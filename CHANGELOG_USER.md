@@ -4,6 +4,16 @@ A simple overview of new features and improvements.
 
 ---
 
+## Unreleased
+
+### Fixes
+
+- The app icon no longer looks blurry on macOS (Issue: #62)
+
+### Thanks
+
+- **@KenAdamss** for reporting the blurred macOS icon (Issue: #62)
+
 ## Version 2.8.0 (September 3, 2026)
 
 ### New Features
