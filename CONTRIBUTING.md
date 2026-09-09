@@ -18,6 +18,20 @@
 
 ## Development Setup
 
+### Prerequisites
+
+- [Rust](https://rustup.rs/) (stable) and Node.js 20
+- MPV, so there is something to play with
+- The Tauri system libraries for your platform, see the
+  [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
+  On Ubuntu/Debian this is what CI installs:
+
+  ```bash
+  sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+  ```
+
+### Setup
+
 ```bash
 # Fork & clone
 git clone https://github.com/YOUR-USERNAME/better-iptv.git
@@ -30,9 +44,18 @@ npm install
 npm run tauri dev
 
 # Run tests
-npm run test          # Frontend tests
+npm run test:run            # Frontend tests (npm run test starts watch mode)
 cd src-tauri && cargo test  # Rust tests
 ```
+
+### Run the CI checks locally
+
+```bash
+npm run ci:test                  # lint, format, tests and clippy, same steps and flags as GitHub Actions
+npm run ci:test -- --with-build  # also the full Tauri build that CI runs
+```
+
+Run it before opening a PR. Details in [scripts/README.md](scripts/README.md).
 
 ### Build from Source
 
@@ -44,10 +67,9 @@ npm run tauri build
 ## Code Standards
 
 - **TypeScript**: Follow ESLint config (`npm run lint`)
-- **Rust**: Use `rustfmt` and `clippy`
+- **Rust**: Keep clippy clean with the flags CI uses
   ```bash
-  cargo fmt
-  cargo clippy
+  cd src-tauri && cargo clippy --all-targets -- -D warnings -A dead_code
   ```
 - **Commits**: Use [Conventional Commits](https://www.conventionalcommits.org/)
   ```
@@ -60,7 +82,7 @@ npm run tauri build
 
 1. Create feature branch: `git checkout -b feature/my-feature`
 2. Make changes with tests
-3. Run linters: `npm run lint && cargo clippy`
+3. Run the CI checks: `npm run ci:test`
 4. Commit: `git commit -m "feat: description"`
 5. Push: `git push origin feature/my-feature`
 6. Open PR on GitHub with detailed description

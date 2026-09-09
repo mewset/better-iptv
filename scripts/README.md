@@ -30,7 +30,7 @@ Runs exactly the same checks as GitHub Actions CI:
 
 **Rust Checks:**
 
-- `cargo clippy --all-targets -- -D warnings` - Rust linting
+- `cargo clippy --all-targets -- -D warnings -A dead_code` - Rust linting
 - `cargo test` - Rust unit tests
 
 **Optional Build Test:**
@@ -98,7 +98,3 @@ git push
 - Changed TypeScript code → Run to catch lint/format errors
 - Changed Rust code → Run to catch clippy warnings
 - Before creating PR → Always run with `--with-build`
-
----
-
-**Last Updated:** 2025-12-17
