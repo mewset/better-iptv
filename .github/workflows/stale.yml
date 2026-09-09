@@ -28,10 +28,10 @@ jobs:
           close-issue-message: |
             This issue has been automatically closed due to inactivity.
             If you believe this is still relevant, please reopen or create a new issue.
-          days-before-stale: 14
+          days-before-stale: 60
           days-before-close: 14
           stale-issue-label: 'stale'
-          exempt-issue-labels: 'pinned,security,priority:critical,needs-investigation'
+          exempt-issue-labels: 'bug,pinned,security,priority:critical,needs-investigation'
 
           # Pull Requests
           stale-pr-message: |
