@@ -4,6 +4,12 @@ A simple overview of new features and improvements.
 
 ---
 
+## Unreleased
+
+### New Features
+
+- Added a version check, so you know when a new version is released. It can be turned off in Settings
+
 ## Version 2.8.1 (September 9, 2026)
 
 ### Fixes
@@ -20,11 +26,13 @@ A simple overview of new features and improvements.
 ### New Features
 
 **EPG Updates Itself**
+
 - The program guide now refreshes automatically every six hours while the app is running
 - Channel cards update on their own after a refresh; the **Update Now** button in Settings still works
 - If the EPG address is broken, the app retries at most once an hour instead of every quarter hour
 
 **Series in M3U Playlists**
+
 - Series from an M3U playlist now show up as one card per show. Browse opens seasons and episodes, and Play queues the rest of the season, just like Xtream
 - Episodes are recognised from names like `S01E02`, `1x02` or `Season 1 Episode 2`
 - Existing playlists are converted the first time you start the app; a favourite on an episode moves to the show
@@ -53,6 +61,7 @@ A simple overview of new features and improvements.
 ### New Features
 
 **Video Playback Settings**
+
 - New settings in the Playback tab to customize how video plays:
   - **Video Output** - switch renderer if you get a black screen or visual glitches
   - **Deinterlacing** - fixes jagged lines on live TV channels (especially 1080i broadcasts like SVT)
@@ -63,53 +72,65 @@ A simple overview of new features and improvements.
 - Hardware acceleration toggle now actually takes effect
 
 **Reorganized Settings**
+
 - Settings are now split into 6 tabs for easier navigation
 - EPG settings have their own tab
 - Playback tab contains all video and audio settings in one place
 
 **Channel Logo Fallback**
+
 - Channel logos that fail to load now show the channel's initial letter on a colored background instead of a broken image
 
 **Next Program on Channel Cards**
+
 - Channel cards now show what's coming up next, so you can see both the current and the next program at a glance
 
 ### Bug Fixes
 
 **Clicking a Channel Now Plays It**
+
 - Previously only the blue Play button at the bottom of a card started playback - clicking the channel logo or name did nothing, which made the app look frozen
 - Now you can click anywhere on a channel card to start it, the way you'd expect
 - Thanks to everyone who reported this (Issue: #55)
 
 **Log Files Are Where We Say They Are**
+
 - The log file location in the README and the bug report form was wrong on Windows, macOS and Linux, so anyone who went looking for their log found an empty folder
 - The correct paths are now listed - handy if you ever need to report a problem (Issue: #55)
 
 **Theme Switcher Now Works**
+
 - Switching between Light, Dark, and System theme in Settings now actually changes the app's appearance
 - "System" follows your OS preference and updates automatically if you change it
 - Your theme choice is applied instantly when you click it
 
 **Series and Movies Get Their Artwork Back**
+
 - Series covers were missing entirely for many providers - the artwork was being discarded silently, with nothing shown as an error
 - Movie and series artwork now fills the card properly, while live TV logos stay fully visible instead of being cropped
 
 **Series and Episodes Load from More Providers**
+
 - Some providers send episode and season numbers in a slightly different format, which previously caused the whole series list to fail to load
 - Better IPTV now accepts both formats, so series should appear for providers where they used to be missing
 
 **Large Playlists Refresh Correctly**
+
 - Refreshing a very large playlist (roughly 33,000 channels or more) failed with a database error and left the playlist un-updated
 - Playlist refresh now works regardless of how many channels you have
 
 **Channel Logos on Older Providers**
+
 - Logos served over an insecure (plain HTTP) connection were blocked and never appeared
 - These now load normally
 
 **Renaming a Profile Updates Everywhere**
+
 - Renaming the profile you are currently using left the old name showing in Settings and in the refresh dialogs until you switched profiles or restarted
 - The new name now appears immediately everywhere
 
 **Category Bar Follows the Light Theme**
+
 - The row of category buttons stayed dark even in Light mode, showing up as a dark stripe across an otherwise light window
 - It now matches whichever theme you have chosen
 - The category names are also easier to read from a distance, and the buttons have a clearer edge so they stand out from the bar
@@ -117,10 +138,12 @@ A simple overview of new features and improvements.
 ### Improvements
 
 **Smoother Scrolling on Slower Hardware**
+
 - Scrolling through large channel lists (50,000+ channels) should feel significantly smoother, especially on older computers with integrated graphics
 - Reduced unnecessary work when scrolling - the app now skips re-drawing cards that haven't changed
 
 **Clearer Install and Setup Instructions**
+
 - The README had drifted out of date: setup steps named buttons that no longer exist, download filenames were wrong, and EPG setup pointed at the wrong settings tab
 - The `-arch` AppImage is now explained properly - despite the name it is the right download for any Linux distro with up-to-date system libraries, Fedora included (Issue: #54)
 - Added a table showing where your database and log file live on each platform
@@ -136,6 +159,7 @@ A simple overview of new features and improvements.
 ### Improvements
 
 **Smoother Scrolling**
+
 - Scrolling through large channel lists is now noticeably smoother - this fix should have been included in 2.6.0 but didn't make it in time
 
 ---
@@ -145,18 +169,22 @@ A simple overview of new features and improvements.
 ### New Features
 
 **About Tab**
+
 - New "About" tab in Settings with app version, donation links, and a button to open the log folder
 
 ### Improvements
 
 **Faster Backend**
+
 - The app now handles multiple operations at once instead of queuing them one by one
 - Browsing channels while loading EPG data no longer causes delays
 
 **Better Logging**
+
 - More detailed logging for easier troubleshooting
 
 **Smoother Channel Browsing**
+
 - Searching channels is now faster and smoother, especially with large playlists (10,000+ channels)
 - Switching between Live TV, Movies, Series, and Favorites tabs feels more responsive
 - Toggling favorites no longer causes the channel list to briefly flicker
@@ -169,6 +197,7 @@ A simple overview of new features and improvements.
 ### New Features
 
 **Favorites**
+
 - New **Favorites** tab next to Live TV, Movies, and Series
 - Click the **star** on any channel card to add it to your favorites
 - Stars appear when you hover over a channel - click to save it
@@ -177,6 +206,7 @@ A simple overview of new features and improvements.
 - Favorites are saved and survive playlist refreshes
 
 **Custom User-Agent for Playlist Requests**
+
 - New setting in **Settings > General > Playlist Requests**
 - Choose between **Default**, **TiviMate**, **VLC**, or **Custom** User-Agent
 - Add your own User-Agent string when a provider requires it
@@ -185,6 +215,7 @@ A simple overview of new features and improvements.
 ### Improvements
 
 **Smarter EPG User-Agent Handling**
+
 - If your EPG comes from your active Xtream provider, the same selected User-Agent is used
 - If your EPG is from an external URL, the app does **not** force your custom/preset User-Agent
 
@@ -197,18 +228,21 @@ A simple overview of new features and improvements.
 ### New Features
 
 **Keyboard Shortcuts**
+
 - Press **Space** to play or stop the current channel
 - Press **/** to jump to the search bar instantly
 - Press **Escape** to stop playback
 - Shortcuts are disabled while typing in search or other input fields
 
 **Playlist Auto-Refresh**
+
 - The app now checks if your playlist is older than 7 days and offers to refresh it on startup
 - New **Refresh** button in Settings > General to manually update your channel list
 - Smart merge: new channels are added, removed channels are cleaned up, and your **favorites are preserved**
 - Shows a progress summary with how many channels were added, updated, or removed
 
 **Better EPG (TV Guide) Experience**
+
 - **Automatic setup for Xtream providers** - When you add an Xtream Codes playlist, the app now automatically configures your TV guide! No more manually finding and entering EPG URLs.
 - **Smart default** - If you clear the EPG URL field, it automatically falls back to your Xtream provider's TV guide. The EPG is always configured for Xtream users!
 - **Manual refresh button** - New "Update Now" button in Settings > General lets you refresh EPG data anytime without changing settings.
@@ -226,6 +260,7 @@ A simple overview of new features and improvements.
 ### Bug Fixes
 
 **Fixed Crash on Arch Linux / Manjaro**
+
 - Fixed a startup crash that showed "Could not create default EGL display" error
 - This affected users on Arch Linux, Manjaro, and other rolling-release distros using Wayland
 - The app now provides a special Arch-compatible version that works perfectly with your system
@@ -233,6 +268,7 @@ A simple overview of new features and improvements.
 ### What's New for Linux Users
 
 **Two AppImage Options:**
+
 - **Arch/Manjaro/Fedora users**: Download the `*-arch.AppImage` version
 - **Ubuntu/Debian users**: Download the regular `.AppImage` version
 
@@ -247,6 +283,7 @@ The Arch version uses your system's graphics libraries instead of bundled ones, 
 ### New Features
 
 **Parental Controls 🔒**
+
 - Protect your family with PIN-protected content restrictions
 - **Set a secure PIN** (4-6 digits) to control access to restricted content
 - **Block specific channels** - Choose exactly which channels to restrict
@@ -269,6 +306,7 @@ Perfect for families who want to ensure kids only see appropriate content!
 ### Improvements
 
 **Smoother User Experience 🎨**
+
 - **Professional modal dialogs** - Replaced old-style browser popups with beautiful custom dialogs
   - All confirmation and error messages now appear in sleek, modern modals
   - Consistent design across the entire app
@@ -278,12 +316,14 @@ Perfect for families who want to ensure kids only see appropriate content!
   - Easy to find EPG sources if your provider doesn't include them
 
 **Parental Controls Work Better Now! 🔧**
+
 - **Auto-detect actually works** - When you enable auto-detect and save, the app now scans all your channels and adds adult content to the blocked list (it didn't do this before!)
 - **Lock and Blur modes now show channels** - Previously these modes would hide channels just like "Hide" mode. Now they actually show the channels with a lock icon or blur effect, and you can click them to unlock!
 - **Easier to unlock channels** - Just click anywhere on a locked channel card to enter your PIN and watch
 - **PIN modal works smoothly** - Fixed a bug where the PIN entry would get stuck on "Processing..." if you unlocked multiple channels in a row
 
 **No More MPV Installation on Windows! 🎉**
+
 - Windows users no longer need to install MPV separately
 - Everything you need is included in the installer
 - Just download, install, and start watching - that's it!
@@ -293,11 +333,13 @@ Perfect for families who want to ensure kids only see appropriate content!
 **Note for Mac and Linux users**: You'll still install MPV the usual way (via Homebrew on Mac or your package manager on Linux). This change only affects Windows.
 
 **Fixed Linux Wayland Display Issue 🐧**
+
 - Fixed crash on startup for Linux users with Wayland display server
 - The app now automatically works around a WebKit bug that caused "EGL_BAD_PARAMETER" errors
 - No configuration needed - it just works!
 
 **Better Settings Organization 📑**
+
 - Settings menu now uses clean tabs instead of a long scrolling list
 - Four organized tabs: General, Playback, Parental, and Profiles
 - Much easier to find what you're looking for!
@@ -310,6 +352,7 @@ Perfect for families who want to ensure kids only see appropriate content!
 ### New Features
 
 **Category Quick-Access Bar**
+
 - New horizontal scrollable bar showing provider categories (Sweden, Norway, F1, etc.)
 - Click any category chip to instantly filter channels
 - Categories update automatically based on your selected content type (Live TV, Movies, Series)
@@ -327,14 +370,17 @@ This makes it much faster to find channels from your favorite categories without
 ### Improvements
 
 **Better Error Handling**
+
 - Clearer and more informative error messages
 - Errors in one part of the app no longer crash the whole application
 
 **Faster Performance**
+
 - Improved database performance for large channel lists
 - Optimized code for a smoother experience
 
 **Higher Quality**
+
 - 76 new automated tests for improved stability
 - Restructured code for easier maintenance and fewer bugs
 
@@ -345,31 +391,37 @@ This makes it much faster to find channels from your favorite categories without
 ### New Features
 
 **Multiple Profiles**
+
 - Add and manage multiple IPTV playlists as separate profiles
 - Easily switch between different providers or setups
 - Each profile keeps its own channels and favorites
 
 **Language Preferences**
+
 - Set your preferred audio language (19 languages available)
 - Set your preferred subtitle language
 - Includes Swedish, English, Norwegian, Danish, Finnish, German, French, Spanish, Italian, Portuguese, Dutch, Polish, Russian, Arabic, Turkish, Japanese, Chinese, and Korean
 
 **Responsive Layout**
+
 - Channel cards now adapt to your screen size
 - Better experience on everything from phones to 8K monitors
 
 ### Improvements
 
 **Better Compatibility**
+
 - Fixed crashes on Wayland systems (Arch Linux with Hyprland, etc.)
 - Works better with more IPTV providers
 
 **Usability**
+
 - Live TV is now the default view when opening the app
 - Dark mode now works properly in all dropdown menus
 - Removed confusing "Remember Position" setting that didn't work
 
 **Privacy**
+
 - Log files now hide your login credentials automatically
 - Safe to share logs when reporting bugs
 
@@ -378,6 +430,7 @@ This makes it much faster to find channels from your favorite categories without
 ## Version 2.0.1 (November 15, 2025)
 
 ### Fixes
+
 - Fixed AppImage not launching on some systems
 - Fixed display errors on Wayland
 

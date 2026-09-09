@@ -5,6 +5,17 @@ This file is a developer-changelog, aimed towards development changes.
 
 ## Unreleased
 
+### Added
+
+- **Update check against the GitHub release list** - `check_for_update` asks `api.github.com` for the newest non-prerelease release, compares its tag with the running version and returns the tag plus its release URL when it is newer
+  - `update_domain::is_newer_version` parses `MAJOR.MINOR.PATCH` numerically, tolerating a leading `v`, a missing component and a `-rc1` suffix. A string comparison would rank `2.10.0` below `2.9.0`; the test for that case is the reason the function exists rather than an inline compare
+  - Either side unparsable means "not newer", so a version the app cannot read never produces a badge
+  - `update_domain::update_check_due` spaces the network call a day apart, built like `epg_refresh_due`. The newest tag seen is cached in the `update_latest_version` setting, so the badge survives a restart without another request, and the timestamp is only stamped on success, so a failed check retries at the next start instead of going quiet for a day
+  - Every failure path returns `None`: disabled, offline, rate limited, unreadable body. The check never blocks startup and never raises a dialog
+  - `useUpdateCheck` calls it once per mount; `MainScreen` renders a link beside the title when it resolves, opening the release page through `openUrl` as the About tab already does
+  - The release page is the target rather than an asset, because a user who installed from the AUR should update through their package manager and the app cannot tell how it was installed
+  - New setting `update_check_enabled`, default on, with a toggle under Settings → General
+
 ### Changed
 
 - **`cargo fmt --check` is now one of the checks** - `scripts/ci-test-local.sh` runs it ahead of clippy, so `npm run ci:test` fails on unformatted Rust exactly as CI does; `test.yml` gained the matching step, and CONTRIBUTING.md lists `cargo fmt` again after `f27e826` pulled the advice for want of enforcement
