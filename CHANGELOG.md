@@ -5,6 +5,13 @@ This file is a developer-changelog, aimed towards development changes.
 
 ## Unreleased
 
+### Changed
+
+- **Favicon was still the Vite scaffold logo** - `index.html` had carried `/vite.svg` since the initial commit, so the purple-and-yellow Vite mark was the page icon in every build
+  - It now references `./src/assets/logo/logo-256.webp` by relative path. Vite rewrites asset URLs in `index.html` at build time, and the file is already bundled because `Setup.tsx`, `LoadingScreen.tsx` and `AboutTab.tsx` import it, so the favicon resolves to the same hashed asset instead of adding a second copy
+  - `public/` held only `vite.svg` and `tauri.svg`, neither of them referenced after the swap, and is gone. `vite.config.ts` does not set `publicDir`, so the build is unaffected by its absence
+  - Visible in a browser tab during `npm run dev`; the packaged app draws its window and taskbar icon from `src-tauri/icons/`, which is unchanged
+
 ### Fixed
 
 - **macOS app icon was a 16x16 image upscaled to icon size** - `src-tauri/icons/icon.icns` was not an ICNS container at all, but a 16x16 PNG saved under the `.icns` extension (734 bytes, `icns` magic absent). macOS had nothing but those 256 pixels to draw from, so Finder, the Dock, Get Info and the Quick Look preview all showed a heavily blurred logo (Issue: #62)
