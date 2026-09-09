@@ -31,7 +31,7 @@ jobs:
           days-before-stale: 60
           days-before-close: 14
           stale-issue-label: 'stale'
-          exempt-issue-labels: 'bug,pinned,security,priority:critical,needs-investigation'
+          exempt-issue-labels: 'bug,pinned,security,priority:critical,needs-investigation,fixed-pending-release'
 
           # Pull Requests
           stale-pr-message: |

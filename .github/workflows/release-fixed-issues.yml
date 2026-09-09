@@ -1,0 +1,83 @@
+name: Close fixed issues on release
+
+# Fixes land on main without a closing keyword: the commit trailers read
+# "Issue: #62", not "Fixes #62", so GitHub does not close the report the
+# moment the fix is pushed. That is deliberate. A reporter told "fixed" has
+# nothing to download until the release goes out.
+#
+# Instead the issue keeps the fixed-pending-release label until there is a
+# build carrying the fix, and this workflow closes it then. release.yml
+# creates the release as a draft, so "published" is the moment the release is
+# released by hand after the assets are checked, which is exactly the moment
+# the fix becomes downloadable.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to act on, e.g. v2.8.0'
+        required: true
+      dry_run:
+        description: 'Only list the issues, do not touch them'
+        type: boolean
+        default: true
+
+jobs:
+  close:
+    # Prereleases are not what reporters are waiting for, so they close nothing.
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+
+    steps:
+      - name: Close the issues waiting for this release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          LABEL: fixed-pending-release
+        run: |
+          set -euo pipefail
+
+          if [ -z "$TAG" ]; then
+            echo "::error::No release tag to act on"
+            exit 1
+          fi
+
+          RELEASE_URL="https://github.com/${GH_REPO}/releases/tag/${TAG}"
+
+          mapfile -t ISSUES < <(gh issue list --state open --label "$LABEL" --limit 100 --json number --jq '.[].number')
+
+          if [ ${#ISSUES[@]} -eq 0 ]; then
+            echo "No open issue carries $LABEL. Nothing to close for $TAG."
+            exit 0
+          fi
+
+          echo "🏷️  Waiting for $TAG: ${ISSUES[*]}"
+
+          if [ "$DRY_RUN" = 'true' ]; then
+            echo "🔍 Dry run, leaving them untouched."
+            exit 0
+          fi
+
+          for N in "${ISSUES[@]}"; do
+            gh issue comment "$N" --body "This is now released in ${TAG}.
+
+          Thanks again for reporting it. If it still happens on that build, comment here and I will reopen.
+
+          ${RELEASE_URL}"
+
+            # Removing a label an issue does not carry is a 404, so only pass
+            # the ones it actually has.
+            STALE_LABELS=$(gh issue view "$N" --json labels \
+              --jq '[.labels[].name] | map(select(. == env.LABEL or . == "in-progress")) | join(",")')
+            if [ -n "$STALE_LABELS" ]; then
+              gh issue edit "$N" --remove-label "$STALE_LABELS"
+            fi
+
+            gh issue close "$N" --reason completed
+            echo "✅ Closed #$N"
+          done
