@@ -18,6 +18,8 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Changed
 
+- **CONTRIBUTING.md now explains the versioning** - the project has followed semver since 2.0.0, but nothing said so; it showed only in the `version:major|minor|patch` scripts and the conventional-commits line. A new Versioning section maps commit type to release size, states that the highest class among the changes decides the whole release, and asks contributors not to bump the version in a PR, since four files carry it and the maintainer moves them together
+
 - **`cargo fmt --check` is now one of the checks** - `scripts/ci-test-local.sh` runs it ahead of clippy, so `npm run ci:test` fails on unformatted Rust exactly as CI does; `test.yml` gained the matching step, and CONTRIBUTING.md lists `cargo fmt` again after `f27e826` pulled the advice for want of enforcement
   - The one-time reformat of `src-tauri` is its own commit, 23 of 32 files and no net change in line count. It is listed in `.git-blame-ignore-revs`, which GitHub honours on its own; locally it takes `git config blame.ignoreRevsFile .git-blame-ignore-revs` once
 
