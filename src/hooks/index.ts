@@ -24,3 +24,6 @@ export { useEpgData, useChannelEpg } from './useEpgData';
 
 // Keyboard shortcuts
 export { useKeyboardShortcuts } from './useKeyboardShortcuts';
+
+// Update check
+export { useUpdateCheck } from './useUpdateCheck';

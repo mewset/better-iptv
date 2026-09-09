@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Channel, Playlist, SeriesInfo, MergeResult } from '../types';
+import type { Channel, Playlist, SeriesInfo, MergeResult, UpdateInfo } from '../types';
 
 // ========== MPV Commands ==========
 
@@ -225,4 +225,10 @@ export interface ParentalSettings {
 
 export async function getParentalSettings(): Promise<ParentalSettings> {
   return await invoke('get_parental_settings');
+}
+
+// ========== Update Check ==========
+
+export async function checkForUpdate(): Promise<UpdateInfo | null> {
+  return await invoke('check_for_update');
 }

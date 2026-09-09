@@ -11,6 +11,7 @@ mod playlist;
 mod playlist_domain;
 mod series_domain;
 mod state;
+mod update_domain;
 mod utils;
 
 pub use error::{AppError, AppResult};
@@ -182,6 +183,8 @@ pub fn run() {
             get_blocked_channels,
             set_blocked_channels,
             get_parental_settings,
+            // Update check
+            check_for_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

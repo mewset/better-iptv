@@ -6,6 +6,7 @@ pub mod playback;
 pub mod playlist;
 pub mod series;
 pub mod settings;
+pub mod update;
 
 // Re-export all commands for lib.rs
 pub use channel::*;
@@ -15,6 +16,7 @@ pub use playback::*;
 pub use playlist::*;
 pub use series::*;
 pub use settings::*;
+pub use update::*;
 
 use crate::error::AppError;
 use r2d2::Pool;

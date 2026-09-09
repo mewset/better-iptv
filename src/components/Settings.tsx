@@ -53,6 +53,7 @@ export default function Settings({ onClose }: SettingsProps) {
   const [theme, setTheme] = useState<Theme>('system');
   const [playlistUserAgentMode, setPlaylistUserAgentMode] = useState<UserAgentMode>('default');
   const [playlistUserAgentCustom, setPlaylistUserAgentCustom] = useState('');
+  const [updateCheckEnabled, setUpdateCheckEnabled] = useState(true);
 
   // EPG tab state
   const [epgUrl, setEpgUrl] = useState('');
@@ -106,6 +107,7 @@ export default function Settings({ onClose }: SettingsProps) {
         const savedCacheSecs = await getSetting('mpv_cache_secs');
         const savedStartVolume = await getSetting('mpv_start_volume');
         const savedHwAccel = await getSetting('mpv_hardware_acceleration');
+        const savedUpdateCheck = await getSetting('update_check_enabled');
 
         if (savedEpgUrl) {
           setEpgUrl(savedEpgUrl);
@@ -121,6 +123,10 @@ export default function Settings({ onClose }: SettingsProps) {
         }
         if (savedPlaylistUserAgentCustom) {
           setPlaylistUserAgentCustom(savedPlaylistUserAgentCustom);
+        }
+        // Absent means never saved, which is the default: on.
+        if (savedUpdateCheck !== null) {
+          setUpdateCheckEnabled(savedUpdateCheck !== 'false');
         }
 
         // Convert ISO codes back to language codes for UI
@@ -286,6 +292,7 @@ export default function Settings({ onClose }: SettingsProps) {
 
       await setSetting('playlist_user_agent_mode', playlistUserAgentMode);
       await setSetting('playlist_user_agent_custom', sanitizedCustomUserAgent);
+      await setSetting('update_check_enabled', updateCheckEnabled.toString());
 
       // Save MPV playback settings
       await setSetting('mpv_hardware_acceleration', hardwareAcceleration.toString());
@@ -391,6 +398,8 @@ export default function Settings({ onClose }: SettingsProps) {
                   currentPlaylist?.id ? () => setShowRefreshModal(true) : undefined
                 }
                 playlistName={currentPlaylist?.name}
+                updateCheckEnabled={updateCheckEnabled}
+                onUpdateCheckEnabledChange={setUpdateCheckEnabled}
               />
             </TabsContent>
 

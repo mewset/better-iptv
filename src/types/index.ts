@@ -101,3 +101,9 @@ export interface SeriesMetadata {
   rating?: string;
   backdrop_path?: string[];
 }
+
+/** A GitHub release newer than the running app. */
+export interface UpdateInfo {
+  version: string;
+  url: string;
+}

@@ -28,6 +28,8 @@ import { useChannelPlayback } from '../hooks/useChannelPlayback';
 import { shouldBlockChannel } from '../lib/parentalControls';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useChannelFilter } from '../hooks/useChannelFilter';
+import { useUpdateCheck } from '../hooks/useUpdateCheck';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 /** Xtream series URLs end in `/SERIES_ID.ext`; returns null when that is not the case. */
 function parseXtreamSeriesId(url: string): number | null {
@@ -92,6 +94,7 @@ export default function MainScreen() {
   useKeyboardShortcuts(searchInputRef);
 
   // Responsive grid configuration
+  const update = useUpdateCheck();
   const { columns, cardHeight, estimatedRowHeight } = useResponsiveGrid();
 
   // Load parental settings on mount
@@ -288,7 +291,22 @@ export default function MainScreen() {
       {/* Header */}
       <div className="border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
         <div className="mx-auto flex items-center justify-between px-2">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Better IPTV</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Better IPTV</h1>
+            {update && (
+              <button
+                onClick={() =>
+                  openUrl(update.url).catch((err) =>
+                    logger.warn('Failed to open the release page:', err)
+                  )
+                }
+                title={`Better IPTV ${update.version} is available`}
+                className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
+              >
+                {update.version} available
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-600 dark:text-gray-400">
               {channels.length} channels

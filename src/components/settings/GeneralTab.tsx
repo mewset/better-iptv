@@ -44,6 +44,10 @@ interface GeneralTabProps {
   // Playlist refresh
   onRefreshPlaylist?: () => void;
   playlistName?: string;
+
+  // Update check
+  updateCheckEnabled: boolean;
+  onUpdateCheckEnabledChange: (enabled: boolean) => void;
 }
 
 export default function GeneralTab({
@@ -55,6 +59,8 @@ export default function GeneralTab({
   onPlaylistUserAgentCustomChange,
   onRefreshPlaylist,
   playlistName,
+  updateCheckEnabled,
+  onUpdateCheckEnabledChange,
 }: GeneralTabProps) {
   const userAgentPreview = getUserAgentPreview(playlistUserAgentMode, playlistUserAgentCustom);
 
@@ -159,6 +165,27 @@ export default function GeneralTab({
               ))}
             </div>
           </div>
+        </div>
+      </section>
+
+      <section>
+        <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">Updates</h3>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              Check for new versions
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Asks GitHub once a day whether a newer release exists, and shows a link next to the
+              title when there is one. Nothing is downloaded or installed automatically.
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            checked={updateCheckEnabled}
+            onChange={(e) => onUpdateCheckEnabledChange(e.target.checked)}
+            className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500"
+          />
         </div>
       </section>
     </div>
