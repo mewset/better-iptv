@@ -174,12 +174,22 @@ pub fn update_playlist_last_updated(conn: &Connection, id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Extract stream_id from an Xtream-style URL.
+/// Extract a match key from an Xtream-style URL.
 /// Pattern: /{live|movie|series}/user/pass/{stream_id}.{ext}
-fn extract_stream_id_from_url(url: &str) -> Option<i64> {
-    let path = url.rsplit('/').next()?;
-    let id_str = path.split('.').next()?;
-    id_str.parse::<i64>().ok()
+///
+/// Panels number live streams, movies and series independently, so the
+/// same id can name one of each. The key carries the content segment as
+/// well as the id to keep them apart; an unknown segment falls back to
+/// the bare id so unusual URL shapes still match by number.
+fn extract_stream_key_from_url(url: &str) -> Option<String> {
+    let mut parts = url.rsplit('/');
+    let file = parts.next()?;
+    let id: i64 = file.split('.').next()?.parse().ok()?;
+    let kind = parts
+        .nth(2)
+        .filter(|k| matches!(*k, "live" | "movie" | "series"))
+        .unwrap_or("");
+    Some(format!("{}:{}", kind, id))
 }
 
 /// Merge new channels into an existing playlist, preserving favorites.
@@ -234,8 +244,8 @@ pub fn merge_channels(
 
     if match_by_stream_id {
         for ch in &existing {
-            if let Some(sid) = extract_stream_id_from_url(&ch.url) {
-                lookup.insert(format!("sid:{}", sid), (ch.id, ch.is_favorite));
+            if let Some(key) = extract_stream_key_from_url(&ch.url) {
+                lookup.insert(format!("sid:{}", key), (ch.id, ch.is_favorite));
             }
         }
     } else {
@@ -272,8 +282,8 @@ pub fn merge_channels(
         for ch in new_channels {
             // Try to find a match
             let matched = if match_by_stream_id {
-                extract_stream_id_from_url(&ch.url)
-                    .and_then(|sid| lookup.get(&format!("sid:{}", sid)))
+                extract_stream_key_from_url(&ch.url)
+                    .and_then(|key| lookup.get(&format!("sid:{}", key)))
             } else {
                 // Try (name, group_name) first, then name only
                 let key = format!(
@@ -771,6 +781,58 @@ mod tests {
     fn get_channel_by_id_returns_none_for_unknown() {
         let conn = setup_test_db();
         assert!(get_channel_by_id(&conn, 999).unwrap().is_none());
+    }
+
+    fn xtream_channel(playlist_id: i64, name: &str, kind: &str, id: i64) -> Channel {
+        let (segment, ext, content_type) = match kind {
+            "live" => ("live", "m3u8", "live"),
+            "vod" => ("movie", "mp4", "vod"),
+            _ => ("series", "mp4", "series"),
+        };
+        Channel {
+            id: None,
+            playlist_id,
+            name: name.to_string(),
+            url: format!("http://x/{}/u/p/{}.{}", segment, id, ext),
+            logo: None,
+            group_name: None,
+            epg_id: None,
+            tvg_name: None,
+            content_type: content_type.to_string(),
+            is_favorite: false,
+            sort_order: 0,
+            category_order: 0,
+            created_at: None,
+        }
+    }
+
+    #[test]
+    fn merge_channels_xtream_ids_do_not_collide_across_content_types() {
+        // Xtream panels number live streams, movies and series independently,
+        // so a live channel and a movie can share the id 500.
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "Xtream");
+        let live_id = create_channel(&conn, &xtream_channel(pid, "TV4", "live", 500)).unwrap();
+        create_channel(&conn, &xtream_channel(pid, "Heat", "vod", 500)).unwrap();
+        toggle_favorite(&conn, live_id).unwrap();
+
+        let fresh = vec![
+            xtream_channel(pid, "TV4", "live", 500),
+            xtream_channel(pid, "Heat", "vod", 500),
+        ];
+        let result = merge_channels(&conn, pid, &fresh, true).unwrap();
+
+        assert_eq!((result.added, result.updated, result.removed), (0, 2, 0));
+        let channels = get_channels(&conn, Some(pid)).unwrap();
+        assert_eq!(channels.len(), 2, "both rows survive the refresh");
+        let live = get_channel_by_id(&conn, live_id).unwrap().unwrap();
+        assert!(live.is_favorite, "favourite stays on the live channel");
+        assert!(
+            live.url.contains("/live/"),
+            "live row keeps its live URL, got {}",
+            live.url
+        );
+        assert_eq!(live.content_type, "live");
     }
 
     #[test]
