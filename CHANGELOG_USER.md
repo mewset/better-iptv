@@ -10,6 +10,10 @@ A simple overview of new features and improvements.
 
 - Added a version check, so you know when a new version is released. It can be turned off in Settings
 
+### Fixes
+
+- The app now identifies itself with its real version number when fetching playlists and program guides
+
 ## Version 2.8.1 (September 9, 2026)
 
 ### Fixes

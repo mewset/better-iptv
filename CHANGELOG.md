@@ -21,6 +21,15 @@ This file is a developer-changelog, aimed towards development changes.
 - **`cargo fmt --check` is now one of the checks** - `scripts/ci-test-local.sh` runs it ahead of clippy, so `npm run ci:test` fails on unformatted Rust exactly as CI does; `test.yml` gained the matching step, and CONTRIBUTING.md lists `cargo fmt` again after `f27e826` pulled the advice for want of enforcement
   - The one-time reformat of `src-tauri` is its own commit, 23 of 32 files and no net change in line count. It is listed in `.git-blame-ignore-revs`, which GitHub honours on its own; locally it takes `git config blame.ignoreRevsFile .git-blame-ignore-revs` once
 
+### Fixed
+
+- **The user agent claimed to be version 2.1.1** - `DEFAULT_HTTP_USER_AGENT` ended in a literal `Better-IPTV/2.1.1`, written when the setting was added in `4bd85d4` and never derived from anything. Every playlist and EPG request since has identified the app as 2.1.1, and the preview under Settings → General showed the same stale string from a second literal of its own
+  - Both halves now come from the version in `package.json`: Rust builds the constant with `concat!` and `env!("CARGO_PKG_VERSION")`, and the frontend reads an `__APP_VERSION__` define. `dev-scripts/sync-version.cjs` already keeps `Cargo.toml` equal to `package.json`, so one bump moves both
+  - `scripts/app-version.mjs` reads the version for `vite.config.ts` and `vitest.config.ts` alike; a copy in each config would be the same drift that caused the bug. `eslint.config.js` declares the injected global
+  - `src/lib/userAgent.ts` replaces the literal that lived in `GeneralTab.tsx`, so the preview cannot disagree with what is sent
+  - `http::tests::the_default_user_agent_carries_the_running_app_version` fails on any version that stops following the crate, which is what the old constant did silently. The built bundle was checked too: it carries the prefix plus an injected `"2.8.1"`
+  - The three preset agents (TiviMate, VLC) are still written out in both languages. They are fixed strings that name other products, so they cannot go stale the same way, but the duplication is real
+
 ## [2.8.1] - 2026-09-09
 
 ### Changed
