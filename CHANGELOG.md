@@ -12,6 +12,10 @@ This file is a developer-changelog, aimed towards development changes.
   - Regenerated with `tauri icon` from `src/assets/logo/logo-1024.png` (converted to RGBA first; the source is RGB and the CLI needs an alpha channel). The file is now a valid `icns` container of 895342 bytes carrying `ic07`-`ic14` plus the legacy `is32`/`il32`/`s8mk`/`l8mk` chunks, i.e. every size from 16x16 up to 1024x1024
   - Only `icon.icns` changed. The `.ico` and the PNG variants listed in `tauri.conf.json` were already correct, and the artwork is unchanged
 
+- **Xtream refresh merged channels of different types that share an id** - `merge_channels` keyed Xtream rows on the bare number at the end of the stream URL, but panels number live streams, movies and series independently, so a live channel and a movie with id 500 matched the same row. Whichever came last in the playlist overwrote that row's URL and content type; the other one was left unmatched and deleted, taking any favourite on it along
+  - `extract_stream_key_from_url` (was `extract_stream_id_from_url`) now keys on `{live|movie|series}:{id}`, read from the URL's content segment; an unrecognised segment falls back to the bare id so unusual URL shapes still match by number
+  - `merge_channels_xtream_ids_do_not_collide_across_content_types` reproduces the loss - `removed: 1` before the fix, `0` after
+
 ### Credits
 
 Thanks to @KenAdamss for reporting the blurred macOS icon in Issue #62. The Get
