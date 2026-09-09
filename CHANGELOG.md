@@ -16,6 +16,9 @@ This file is a developer-changelog, aimed towards development changes.
   - `extract_stream_key_from_url` (was `extract_stream_id_from_url`) now keys on `{live|movie|series}:{id}`, read from the URL's content segment; an unrecognised segment falls back to the bare id so unusual URL shapes still match by number
   - `merge_channels_xtream_ids_do_not_collide_across_content_types` reproduces the loss - `removed: 1` before the fix, `0` after
 
+- **`scripts/ci-test-local.sh` was not executable in git** - tracked as `100644`, so `./scripts/ci-test-local.sh` from a fresh clone failed with "Permission denied"; it only ran locally because of a chmod git never saw. Now `100755`
+  - CONTRIBUTING.md now lists the prerequisites CI installs and points at `npm run ci:test`; it no longer suggests `npm run test` (watch mode), a bare `cargo clippy` from the repo root, or `cargo fmt`, which CI does not check
+
 ### Credits
 
 Thanks to @KenAdamss for reporting the blurred macOS icon in Issue #62. The Get
