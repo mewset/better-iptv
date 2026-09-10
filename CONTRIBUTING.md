@@ -83,8 +83,10 @@ npm run tauri build
 
 ## Versioning
 
-Better IPTV follows [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`.
-Your commit type decides which kind of release your change lands in.
+Better IPTV's versioning is based on [Semantic Versioning](https://semver.org/):
+`MAJOR.MINOR.PATCH`. Your commit type decides which kind of release your change
+lands in. The project takes one deliberate step away from strict semver, noted
+below.
 
 | Commit type                                                            | Release               |
 | ---------------------------------------------------------------------- | --------------------- |
@@ -97,6 +99,25 @@ The highest class among the changes decides the whole release, and it never
 moves more than one step. A single `feat:` alongside a dozen `fix:` commits
 still makes it a MINOR. Changes in the last row ride along with the next
 release rather than justifying one.
+
+**Where the project departs from semver.** A `feat:` that touches none of what
+the app is for may ship in a PATCH release, however large it is. What the app is
+for means playback, playlists and channels, the programme guide, profiles, and
+parental controls. A check that reports whether a newer release exists is the
+example: it adds something to the app, but nothing about watching television
+changes. Strict semver makes any new feature a MINOR regardless, and this is
+where the project parts company with it, so that a release does not claim a
+number promising more than it delivers to the person watching.
+
+Anything in that list is a MINOR even when the change is two lines. Size is not
+the test. What the addition is about is the test.
+
+**And the maintainer has the last word.** The table and the paragraph above
+describe how releases are normally sized, not a rule that decides on its own.
+The maintainer makes the call at release time and can read it either way when a
+change does not sit neatly on one side. Label your commits by type as the table
+says and leave the version alone; the sizing is not yours to settle in a pull
+request.
 
 A breaking change means people have to redo something to keep using the app,
 such as their profiles, playlists or parental PIN. Mark it even when the commit
