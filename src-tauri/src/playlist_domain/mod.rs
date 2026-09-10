@@ -47,6 +47,29 @@ pub fn validate_playlist_source(source: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Reject a refresh that produced no channels.
+///
+/// A provider answering with an HTML error page under HTTP 200, an expired
+/// subscription, or a truncated response all parse to an empty channel list.
+/// `merge_channels` would then find every stored row unmatched and delete the
+/// playlist's entire contents, favourites included, while reporting success.
+///
+/// A provider that has genuinely removed every channel is not a case worth
+/// supporting: the user can delete the playlist themselves.
+///
+/// # Errors
+/// Returns `AppError::EmptyRefresh` when `channel_count` is zero.
+pub fn validate_refresh_not_empty(channel_count: usize) -> Result<(), AppError> {
+    if channel_count == 0 {
+        return Err(AppError::EmptyRefresh(
+            "The provider returned no channels, so the playlist was kept unchanged. \
+             Check the playlist URL or your subscription and try again."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Validate Xtream credentials
 ///
 /// # Rules
@@ -220,6 +243,35 @@ pub const DEFAULT_BATCH_SIZE: usize = 1000;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refresh_with_channels_is_accepted() {
+        assert!(validate_refresh_not_empty(1).is_ok());
+        assert!(validate_refresh_not_empty(12_089).is_ok());
+    }
+
+    #[test]
+    fn refresh_that_produced_nothing_is_refused() {
+        // A provider answering with an HTML error page under HTTP 200 parses
+        // to zero channels. Letting that through would make every stored row
+        // stale and empty the playlist.
+        let err = validate_refresh_not_empty(0).unwrap_err();
+        assert!(
+            matches!(err, AppError::EmptyRefresh(_)),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn the_refusal_explains_that_channels_were_kept() {
+        // The message reaches the user through the refresh dialog, so it has
+        // to say the playlist is intact rather than just that something failed.
+        let message = validate_refresh_not_empty(0).unwrap_err().to_string();
+        assert!(
+            message.contains("kept") || message.contains("unchanged"),
+            "message does not reassure the user: {message}"
+        );
+    }
 
     #[test]
     fn test_validate_playlist_name_valid() {

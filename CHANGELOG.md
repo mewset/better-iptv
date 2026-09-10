@@ -25,6 +25,13 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Fixed
 
+- **A refresh that returned nothing emptied the playlist** - a provider answering with an HTML error page under HTTP 200, an expired subscription or a truncated response all parse to an empty channel list. `merge_channels` then found every stored row unmatched and deleted the playlist's entire contents, favourites included, while `refresh_playlist` logged the result as a success
+  - `playlist_domain::validate_refresh_not_empty` refuses a zero-channel result, and `refresh_playlist` calls it after the fetch and before the database work, so nothing is written on the way out. The message names the playlist as kept rather than only reporting a failure, because it reaches the user through the refresh dialog
+  - The check sits in the domain layer rather than in `merge_channels`, whose contract is to make the stored rows match the list it is handed. "An empty list means the fetch failed" is policy, and policy belongs with the command
+  - A provider that has genuinely removed every channel is not a supported case; the user can delete the playlist. Treating zero as a failure is the safe reading in every other situation
+  - `parser.rs` accepts a file with no `#EXTM3U` header and skips lines it does not recognise, which is why an HTML page parses cleanly to nothing rather than raising a parse error. That leniency is deliberate and unchanged; this guard is the backstop
+  - Found during the whole-branch review of the refresh work below, which made the gap visible: that fix promises a refresh will not remove channels, and this was the remaining path where one still could
+
 - **A provider that sent a category id as a number failed the whole playlist import** - `XtreamStream.category_id` was a strict `Option<String>`, and the streams are decoded as one `Vec`, so a single row carrying `"category_id":7` instead of `"7"` rejected the entire response. `fetch_json_with_retry` classifies a decode error as permanent, so it failed fast rather than after the retry budget
   - The cause is on the panel side: Xtream Codes panels are PHP, and `JSON_NUMERIC_CHECK` on `json_encode` turns every digit-only string into a JSON number. It is per-panel, which is why the field is a string from most providers and a number from some
   - `category_id` now uses the existing `de_lenient_opt_string`, so both forms land as `Some("7")` and match the category map. It also folds `""` to `None`; an empty string used to be kept and then silently miss every lookup

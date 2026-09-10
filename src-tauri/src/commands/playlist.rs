@@ -251,6 +251,13 @@ pub async fn refresh_playlist(
         (channels, grouped.series)
     };
 
+    // Refuse a refresh that produced nothing before touching the database. A
+    // provider answering with an HTML error page under HTTP 200, an expired
+    // subscription or a truncated response all parse to an empty list, and
+    // merge_channels would then find every stored row unmatched and delete the
+    // playlist's entire contents, favourites included, while reporting success.
+    playlist_domain::validate_refresh_not_empty(fresh_channels.len())?;
+
     let playlist_name = playlist.name.clone();
     let result = with_db(&state.pool, move |conn| {
         let result = mutations::merge_channels(conn, playlist_id, &fresh_channels, is_xtream)?;

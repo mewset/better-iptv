@@ -52,6 +52,12 @@ pub enum AppError {
     /// Configuration error
     #[error("Configuration error: {0}")]
     Config(String),
+
+    /// A refresh produced no channels at all. Treated as a failed fetch
+    /// rather than a provider that removed everything, because letting it
+    /// through would make every stored row stale and empty the playlist.
+    #[error("{0}")]
+    EmptyRefresh(String),
 }
 
 // Implement From traits for automatic error conversion

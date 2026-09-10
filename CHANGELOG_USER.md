@@ -16,6 +16,7 @@ A simple overview of new features and improvements.
 - Fixed movies not playing when the provider serves them in a format other than MP4
 - The app now identifies itself with its real version number when fetching playlists and program guides
 - Refreshing a playlist no longer removes channels your provider has just added
+- A refresh that returns no channels now reports an error instead of emptying the playlist
 - The taskbar now shows the app icon on KDE Plasma and GNOME
 
 ### Thanks
