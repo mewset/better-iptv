@@ -113,7 +113,10 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         [],
     )?;
 
-    // Create index for channel search (LIKE queries on name and group_name)
+    // Retained but currently serves nothing: it was built for the LIKE queries of
+    // the removed search_channels command. Dropping this statement would not
+    // remove the index from existing databases, so retiring it is a separate
+    // migration decision.
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_channel_search
          ON channels(name, group_name)",
