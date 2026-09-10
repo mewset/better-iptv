@@ -191,22 +191,40 @@ pub fn run() {
 
 #[cfg(test)]
 mod desktop_entry_tests {
+    const TEMPLATE: &str = include_str!("../templates/better-iptv.desktop");
+    const CONFIG: &str = include_str!("../tauri.conf.json");
+
     /// The Linux desktop entry must announce the same string the window
     /// reports as its class, or KDE's taskbar and GNOME Shell fall back to a
-    /// generic icon. Tauri renders `{{{name}}}` as the product name
-    /// ("Better IPTV") while the window class is the program name.
+    /// generic icon. The window class is the main binary name, which the
+    /// bundler exposes as `{{{exec}}}`. `{{{name}}}` is the product name
+    /// ("Better IPTV") and was the original bug.
     #[test]
-    fn startup_wm_class_matches_the_binary_name() {
-        let template = include_str!("../templates/better-iptv.desktop");
-        let line = template
+    fn startup_wm_class_uses_the_exec_variable() {
+        let line = TEMPLATE
             .lines()
             .find(|l| l.starts_with("StartupWMClass="))
             .expect("template must declare StartupWMClass");
 
         assert_eq!(
-            line,
-            format!("StartupWMClass={}", env!("CARGO_PKG_NAME")),
-            "desktop entry drifted from the binary name"
+            line, "StartupWMClass={{{exec}}}",
+            "StartupWMClass must render from the binary name, not the product name"
         );
+    }
+
+    /// The template above only matters while the bundler renders it. Both
+    /// Linux bundles that carry a desktop entry must still point at it.
+    #[test]
+    fn deb_and_rpm_bundles_render_this_template() {
+        let config: serde_json::Value =
+            serde_json::from_str(CONFIG).expect("tauri.conf.json must be valid JSON");
+
+        for bundle in ["deb", "rpm"] {
+            assert_eq!(
+                config["bundle"]["linux"][bundle]["desktopTemplate"],
+                "templates/better-iptv.desktop",
+                "bundle.linux.{bundle}.desktopTemplate no longer points at the tested template"
+            );
+        }
     }
 }
