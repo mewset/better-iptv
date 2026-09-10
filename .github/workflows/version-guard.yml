@@ -1,0 +1,47 @@
+name: Version Guard
+
+# Four files carry the app version and the maintainer moves them together at
+# release time, so a version set inside a pull request only creates a conflict
+# later. CONTRIBUTING.md says so; this puts the message on the offending line
+# in the pull request's Files changed tab instead of leaving it to review.
+
+on:
+  pull_request:
+    branches: [main]
+
+# Read-only, and deliberately so. This job needs nothing but the two commits,
+# which means a pull request from a fork can never gain write access through
+# it. Adding write permissions here, or moving the trigger to
+# `pull_request_target` to get them, would put a token capable of changing this
+# repository into a job that reads a contributor's files.
+permissions:
+  contents: read
+
+concurrency:
+  group: version-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  version-guard:
+    name: App version matches main
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Compare the app version against the base
+        # Prints one ::error annotation per file whose version moved, anchored
+        # to the line that sets it, and exits 1. No dependencies to install:
+        # the script uses only Node built-ins and git.
+        run: |
+          node scripts/check-version-bump.mjs \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}"
