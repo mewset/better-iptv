@@ -70,6 +70,25 @@ pub fn validate_refresh_not_empty(channel_count: usize) -> Result<(), AppError> 
     Ok(())
 }
 
+/// Reject an import that produced no channels.
+///
+/// Same cause as [`validate_refresh_not_empty`], milder symptom: nothing is
+/// destroyed, but the user gets a playlist that silently contains nothing and
+/// no hint whether the address, the subscription or the app is at fault.
+///
+/// # Errors
+/// Returns `AppError::EmptyRefresh` when `channel_count` is zero.
+pub fn validate_import_not_empty(channel_count: usize) -> Result<(), AppError> {
+    if channel_count == 0 {
+        return Err(AppError::EmptyRefresh(
+            "The provider returned no channels, so nothing was imported. \
+             Check the address and your subscription, then try again."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Validate Xtream credentials
 ///
 /// # Rules
@@ -243,6 +262,36 @@ pub const DEFAULT_BATCH_SIZE: usize = 1000;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn import_with_channels_is_accepted() {
+        assert!(validate_import_not_empty(1).is_ok());
+        assert!(validate_import_not_empty(12_089).is_ok());
+    }
+
+    #[test]
+    fn import_that_produced_nothing_is_refused() {
+        let err = validate_import_not_empty(0).unwrap_err();
+        assert!(
+            matches!(err, AppError::EmptyRefresh(_)),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn the_import_refusal_does_not_claim_anything_was_kept() {
+        // Nothing exists yet on an import, so the refresh wording would be
+        // nonsense. The user needs to know no playlist was created.
+        let message = validate_import_not_empty(0).unwrap_err().to_string();
+        assert!(
+            !message.contains("kept") && !message.contains("unchanged"),
+            "import message reuses the refresh wording: {message}"
+        );
+        assert!(
+            message.contains("imported") || message.contains("added"),
+            "message does not say what did not happen: {message}"
+        );
+    }
 
     #[test]
     fn refresh_with_channels_is_accepted() {

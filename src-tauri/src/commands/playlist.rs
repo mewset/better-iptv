@@ -43,6 +43,13 @@ pub async fn import_playlist(
     let channels = parse_m3u(&source, Some(&playlist_user_agent))
         .await
         .map_err(|e| AppError::Parse(e.to_string()))?;
+
+    // The parser skips lines it does not recognise and needs no #EXTM3U
+    // header, so a login page or an expired-subscription notice served under
+    // HTTP 200 parses cleanly to nothing. Refuse before the playlist row is
+    // created, or the user gets an empty playlist and no idea why.
+    playlist_domain::validate_import_not_empty(channels.len())?;
+
     let grouped = series_domain::group_series(channels);
 
     let playlist = playlist_domain::build_m3u_playlist(name, source)?;
@@ -121,6 +128,11 @@ pub async fn import_xtream_playlist(
         })?;
 
     info!("Fetched {} channels from Xtream API", channels.len());
+
+    // An account with no active subscription answers every list endpoint with
+    // an empty array rather than an error, so the import would otherwise
+    // succeed into an empty playlist.
+    playlist_domain::validate_import_not_empty(channels.len())?;
 
     let playlist = playlist_domain::build_xtream_playlist(name, server_url, username, password)?;
     let epg_url = get_xtream_epg_url(&creds);

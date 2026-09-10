@@ -17,6 +17,7 @@ A simple overview of new features and improvements.
 - The app now identifies itself with its real version number when fetching playlists and program guides
 - Refreshing a playlist no longer removes channels your provider has just added
 - A refresh that returns no channels now reports an error instead of emptying the playlist
+- Adding a playlist that returns no channels now reports an error instead of creating an empty one
 - The taskbar now shows the app icon on KDE Plasma and GNOME
 
 ### Thanks
