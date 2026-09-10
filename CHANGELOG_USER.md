@@ -12,7 +12,13 @@ A simple overview of new features and improvements.
 
 ### Fixes
 
+- Fixed Xtream playlists from some providers not importing, or importing without categories
+- Fixed movies not playing when the provider serves them in a format other than MP4
 - The app now identifies itself with its real version number when fetching playlists and program guides
+
+### Thanks
+
+- **@francois2metz**, whose work in his own fork pointed us at both Xtream problems
 
 ## Version 2.8.1 (September 9, 2026)
 
