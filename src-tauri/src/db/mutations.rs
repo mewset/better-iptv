@@ -351,7 +351,7 @@ pub fn merge_channels(
     if removed > 0 {
         // The ids go as one JSON array instead of one bound parameter each.
         // An `IN (?, ?, ...)` list trips SQLite's SQLITE_MAX_VARIABLE_NUMBER
-        // (32766) once a playlist keeps that many channels, failing the whole
+        // (32766) once a refresh drops that many channels, failing the whole
         // refresh with a raw SQL error. These ids come straight from the
         // `channels.id` column, so formatting the array by hand always yields
         // valid JSON.
@@ -647,6 +647,66 @@ mod tests {
             get_channels(&conn, Some(playlist_id)).unwrap().len(),
             KEEP_COUNT as usize
         );
+    }
+
+    /// Since the prune deletes an explicit stale list, the array that has to
+    /// dodge SQLITE_MAX_VARIABLE_NUMBER carries the ids being DROPPED, not the
+    /// ids being kept. The test above drops one row, so it exercises an array
+    /// of one id and would pass against a bound-parameter `IN (?, ?, ...)`
+    /// list. This one drops more than 32766 rows in a single refresh, which
+    /// is what an `IN (?, ?, ...)` regression cannot survive.
+    #[test]
+    fn test_merge_channels_prunes_more_stale_rows_than_sqlite_variable_limit() {
+        let conn = setup_test_db();
+        let playlist_id = create_test_playlist(&conn, "Huge Playlist");
+
+        // Above SQLITE_MAX_VARIABLE_NUMBER (32766).
+        const DROP_COUNT: i32 = 33_000;
+        let existing: Vec<Channel> = (0..DROP_COUNT + 1)
+            .map(|i| Channel {
+                id: None,
+                playlist_id,
+                name: format!("Channel {}", i),
+                url: format!("http://example.com/stream{}.m3u8", i),
+                logo: None,
+                group_name: Some("Huge Group".to_string()),
+                epg_id: None,
+                tvg_name: None,
+                content_type: "live".to_string(),
+                is_favorite: false,
+                sort_order: i,
+                category_order: 0,
+                created_at: None,
+            })
+            .collect();
+        let tx = conn.unchecked_transaction().unwrap();
+        create_channels_batch(&tx, &existing).unwrap();
+        tx.commit().unwrap();
+
+        // The refresh keeps only the last channel and adds one new one, so
+        // the prune has to delete 33 000 stale rows in one statement.
+        let mut refreshed = vec![existing[DROP_COUNT as usize].clone()];
+        refreshed.push(Channel {
+            id: None,
+            playlist_id,
+            name: "Brand New".to_string(),
+            url: "http://example.com/brand-new.m3u8".to_string(),
+            logo: None,
+            group_name: Some("Huge Group".to_string()),
+            epg_id: None,
+            tvg_name: None,
+            content_type: "live".to_string(),
+            is_favorite: false,
+            sort_order: 0,
+            category_order: 0,
+            created_at: None,
+        });
+        let result = merge_channels(&conn, playlist_id, &refreshed, false).unwrap();
+
+        assert_eq!(result.removed, DROP_COUNT as usize);
+        assert_eq!(result.added, 1);
+        assert_eq!(result.updated, 1);
+        assert_eq!(get_channels(&conn, Some(playlist_id)).unwrap().len(), 2);
     }
 
     // ========== Settings Tests ==========
