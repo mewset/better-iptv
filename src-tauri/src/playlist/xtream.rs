@@ -158,6 +158,7 @@ pub struct EpisodeInfo {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SeriesMetadata {
+    #[serde(deserialize_with = "de_lenient_string")]
     pub name: String,
     pub cover: Option<String>,
     pub plot: Option<String>,
@@ -184,7 +185,13 @@ struct XtreamStream {
     // Without the alias, series parsed cleanly but silently lost all artwork.
     #[serde(alias = "cover")]
     stream_icon: Option<String>,
+    // Panels running PHP's JSON_NUMERIC_CHECK emit every digit-only string as a
+    // number, so this arrives as `7` from some providers and `"7"` from others.
+    #[serde(default, deserialize_with = "de_lenient_opt_string")]
     category_id: Option<String>,
+    // Only get_vod_streams reports this; live and series listings omit it.
+    #[serde(default, deserialize_with = "de_lenient_opt_string")]
+    container_extension: Option<String>,
     // Provider-side EPG channel id, matching the ids in the provider's
     // xmltv.php feed. Fallback for names the Swedish heuristic does not cover.
     #[serde(default, deserialize_with = "de_lenient_opt_string")]
@@ -195,7 +202,10 @@ struct XtreamStream {
 
 #[derive(Debug, Deserialize)]
 struct XtreamCategory {
+    #[serde(deserialize_with = "de_lenient_string")]
     category_id: String,
+    // A category literally named "2024" arrives as a number.
+    #[serde(deserialize_with = "de_lenient_string")]
     category_name: String,
 }
 
@@ -464,7 +474,12 @@ fn convert_streams_to_channels(
                 _ => default_content_type,
             };
 
-            let url = build_stream_url(creds, stream.stream_id, content_type);
+            let url = build_stream_url(
+                creds,
+                stream.stream_id,
+                content_type,
+                safe_container_extension(stream.container_extension.as_deref()),
+            );
 
             // Generate EPG ID for live channels. The Swedish name heuristic
             // comes first so existing external-XMLTV setups keep matching;
@@ -502,8 +517,27 @@ fn convert_streams_to_channels(
         .collect()
 }
 
-/// Build stream URL for Xtream Codes
-fn build_stream_url(creds: &XtreamCredentials, stream_id: i64, content_type: &str) -> String {
+/// Constrain a provider-supplied container extension to something that cannot
+/// rewrite the request path or query, falling back to the historical `mp4`.
+fn safe_container_extension(ext: Option<&str>) -> &str {
+    match ext {
+        Some(e) if (1..=8).contains(&e.len()) && e.chars().all(|c| c.is_ascii_alphanumeric()) => e,
+        _ => "mp4",
+    }
+}
+
+/// Build stream URL for Xtream Codes.
+///
+/// The `series` arm is deliberately not given the extension: that URL is an id
+/// carrier which `parseXtreamSeriesId` in MainScreen.tsx and
+/// `extract_stream_key_from_url` in db/mutations.rs read the id back out of. It
+/// is never handed to MPV; episodes get their own URLs from `Episode.container_extension`.
+fn build_stream_url(
+    creds: &XtreamCredentials,
+    stream_id: i64,
+    content_type: &str,
+    container_extension: &str,
+) -> String {
     let base_url = creds.server_url.trim_end_matches('/');
 
     match content_type {
@@ -512,8 +546,8 @@ fn build_stream_url(creds: &XtreamCredentials, stream_id: i64, content_type: &st
             base_url, creds.username, creds.password, stream_id
         ),
         "vod" => format!(
-            "{}/movie/{}/{}/{}.mp4",
-            base_url, creds.username, creds.password, stream_id
+            "{}/movie/{}/{}/{}.{}",
+            base_url, creds.username, creds.password, stream_id, container_extension
         ),
         "series" => format!(
             "{}/series/{}/{}/{}.mp4",
@@ -576,7 +610,7 @@ pub fn build_episode_url(creds: &XtreamCredentials, episode_id: &str, extension:
 
 #[cfg(test)]
 mod lenient_scalar_tests {
-    use super::{Episode, Season, SeriesMetadata, XtreamStream};
+    use super::{Episode, Season, SeriesMetadata, XtreamCategory, XtreamStream};
 
     // Each case below fails to parse against strict serde typing. They are the
     // shapes real Xtream panels have been observed to return.
@@ -667,12 +701,176 @@ mod lenient_scalar_tests {
     }
 
     #[test]
+    fn stream_list_survives_a_numeric_category_id() {
+        // Panels with PHP's JSON_NUMERIC_CHECK emit every digit-only string as a
+        // number. Decoding is done on the whole Vec, so one such row used to fail
+        // the entire playlist import.
+        let json = r#"[{"name":"A","stream_id":1,"category_id":"7"},
+                       {"name":"B","stream_id":2,"category_id":7}]"#;
+        let streams: Vec<XtreamStream> = serde_json::from_str(json).unwrap();
+        assert_eq!(streams[0].category_id.as_deref(), Some("7"));
+        assert_eq!(streams[1].category_id.as_deref(), Some("7"));
+    }
+
+    #[test]
+    fn stream_category_id_is_none_when_absent_empty_or_null() {
+        for json in [
+            r#"{"name":"A","stream_id":1}"#,
+            r#"{"name":"A","stream_id":1,"category_id":""}"#,
+            r#"{"name":"A","stream_id":1,"category_id":null}"#,
+        ] {
+            let s: XtreamStream = serde_json::from_str(json).unwrap();
+            assert_eq!(s.category_id, None, "unexpected category for {json}");
+        }
+    }
+
+    #[test]
+    fn category_accepts_a_numeric_id_and_name() {
+        // A category literally named "2024" arrives as a number and used to
+        // empty the whole category map.
+        let json = r#"{"category_id":7,"category_name":2024}"#;
+        let c: XtreamCategory = serde_json::from_str(json).unwrap();
+        assert_eq!(c.category_id, "7");
+        assert_eq!(c.category_name, "2024");
+    }
+
+    #[test]
+    fn series_metadata_accepts_a_numeric_name() {
+        // Shows called "1883", "24" or "1899" are real.
+        let json = r#"{"name":1883}"#;
+        let meta: SeriesMetadata = serde_json::from_str(json).unwrap();
+        assert_eq!(meta.name, "1883");
+    }
+
+    #[test]
     fn out_of_range_integer_is_rejected_rather_than_silently_truncated() {
         let json = r#"{"id":"1","episode_num":3000000000,"title":"t","container_extension":"mp4","season":1,"info":{}}"#;
         let err = serde_json::from_str::<Episode>(json)
             .unwrap_err()
             .to_string();
         assert!(err.contains("i32"), "unexpected error: {err}");
+    }
+}
+
+#[cfg(test)]
+mod stream_url_tests {
+    use super::{
+        convert_streams_to_channels, safe_container_extension, XtreamCredentials, XtreamStream,
+    };
+    use std::collections::HashMap;
+
+    fn creds() -> XtreamCredentials {
+        XtreamCredentials {
+            server_url: "http://provider.test".to_string(),
+            username: "u".to_string(),
+            password: "p".to_string(),
+        }
+    }
+
+    fn url_for(json: &str, content_type: &str) -> String {
+        let stream: XtreamStream = serde_json::from_str(json).unwrap();
+        let channels =
+            convert_streams_to_channels(&creds(), vec![stream], content_type, &HashMap::new());
+        channels.into_iter().next().unwrap().url
+    }
+
+    #[test]
+    fn vod_url_uses_the_container_extension_the_provider_reports() {
+        let json = r#"{"name":"Film","stream_id":42,"container_extension":"mkv"}"#;
+        assert_eq!(
+            url_for(json, "vod"),
+            "http://provider.test/movie/u/p/42.mkv"
+        );
+    }
+
+    #[test]
+    fn vod_url_falls_back_to_mp4_when_the_extension_is_unusable() {
+        // Absent, empty and null must all reproduce the pre-fix behaviour
+        // rather than emit a trailing dot.
+        for json in [
+            r#"{"name":"Film","stream_id":42}"#,
+            r#"{"name":"Film","stream_id":42,"container_extension":""}"#,
+            r#"{"name":"Film","stream_id":42,"container_extension":null}"#,
+        ] {
+            assert_eq!(
+                url_for(json, "vod"),
+                "http://provider.test/movie/u/p/42.mp4",
+                "unexpected url for {json}"
+            );
+        }
+    }
+
+    #[test]
+    fn live_url_ignores_the_container_extension() {
+        let json = r#"{"name":"Ch","stream_id":42,"container_extension":"mkv"}"#;
+        assert_eq!(
+            url_for(json, "live"),
+            "http://provider.test/live/u/p/42.m3u8"
+        );
+    }
+
+    #[test]
+    fn series_url_stays_mp4_because_it_is_an_id_carrier_not_a_stream() {
+        // The frontend parses the series id out of this URL and never hands it
+        // to MPV; episode URLs are built separately from Episode.container_extension.
+        let json = r#"{"name":"Show","series_id":77,"container_extension":"mkv"}"#;
+        assert_eq!(
+            url_for(json, "series"),
+            "http://provider.test/series/u/p/77.mp4"
+        );
+    }
+
+    #[test]
+    fn extension_that_could_rewrite_the_request_path_is_rejected() {
+        for bad in [
+            "mkv?token=x",
+            "mp4/../../admin",
+            "mp 4",
+            "m$4",
+            "",
+            "toolongextension",
+        ] {
+            assert_eq!(
+                safe_container_extension(Some(bad)),
+                "mp4",
+                "should have rejected {bad:?}"
+            );
+        }
+        assert_eq!(safe_container_extension(None), "mp4");
+    }
+
+    #[test]
+    fn ordinary_extensions_pass_through_in_any_case() {
+        for good in ["mkv", "MKV", "m4v", "ts", "mp4"] {
+            assert_eq!(safe_container_extension(Some(good)), good);
+        }
+    }
+}
+
+#[cfg(test)]
+mod category_lookup_tests {
+    use super::{convert_streams_to_channels, XtreamCredentials, XtreamStream};
+    use std::collections::HashMap;
+
+    #[test]
+    fn a_numeric_category_id_still_resolves_its_group() {
+        let creds = XtreamCredentials {
+            server_url: "http://provider.test".to_string(),
+            username: "u".to_string(),
+            password: "p".to_string(),
+        };
+        let mut map = HashMap::new();
+        map.insert("7".to_string(), ("Sport".to_string(), 3));
+
+        let stream: XtreamStream =
+            serde_json::from_str(r#"{"name":"Ch","stream_id":1,"category_id":7}"#).unwrap();
+        let channel = convert_streams_to_channels(&creds, vec![stream], "live", &map)
+            .into_iter()
+            .next()
+            .unwrap();
+
+        assert_eq!(channel.group_name.as_deref(), Some("Sport"));
+        assert_eq!(channel.category_order, 3);
     }
 }
 
