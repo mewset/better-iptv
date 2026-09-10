@@ -11,4 +11,7 @@ Exec=env WEBKIT_DISABLE_DMABUF_RENDERER=1 {{{exec}}}
 Icon={{{icon}}}
 Terminal=false
 Categories={{{categories}}}
-StartupWMClass={{{name}}}
+# Must equal the binary name, not the product name: this is matched against
+# the Wayland app_id / X11 class, which Tauri sets from the program name.
+# Asserted by desktop_entry_tests::startup_wm_class_matches_the_binary_name.
+StartupWMClass=better-ip-tv

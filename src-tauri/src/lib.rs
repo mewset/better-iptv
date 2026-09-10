@@ -188,3 +188,25 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod desktop_entry_tests {
+    /// The Linux desktop entry must announce the same string the window
+    /// reports as its class, or KDE's taskbar and GNOME Shell fall back to a
+    /// generic icon. Tauri renders `{{{name}}}` as the product name
+    /// ("Better IPTV") while the window class is the program name.
+    #[test]
+    fn startup_wm_class_matches_the_binary_name() {
+        let template = include_str!("../templates/better-iptv.desktop");
+        let line = template
+            .lines()
+            .find(|l| l.starts_with("StartupWMClass="))
+            .expect("template must declare StartupWMClass");
+
+        assert_eq!(
+            line,
+            format!("StartupWMClass={}", env!("CARGO_PKG_NAME")),
+            "desktop entry drifted from the binary name"
+        );
+    }
+}
