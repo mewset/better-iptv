@@ -61,10 +61,6 @@ export async function getChannels(playlistId?: number): Promise<Channel[]> {
   return await invoke('get_channels', { playlistId });
 }
 
-export async function searchChannels(query: string): Promise<Channel[]> {
-  return await invoke('search_channels', { query });
-}
-
 export async function toggleFavorite(channelId: number): Promise<void> {
   await invoke('toggle_favorite', { channelId });
 }

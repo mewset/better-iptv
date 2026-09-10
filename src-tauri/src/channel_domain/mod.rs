@@ -9,58 +9,7 @@ use crate::error::AppError;
 /// Valid content types for channels
 const VALID_CONTENT_TYPES: &[&str] = &["live", "vod", "series"];
 
-/// Maximum allowed search query length
-const MAX_SEARCH_QUERY_LENGTH: usize = 100;
-
-/// Minimum allowed search query length
-const MIN_SEARCH_QUERY_LENGTH: usize = 1;
-
 // ========== Validation Functions ==========
-
-/// Validate search query
-///
-/// Ensures the search query is not empty, not too long, and contains valid characters.
-///
-/// # Arguments
-/// * `query` - The search query string
-///
-/// # Errors
-/// Returns `AppError::InvalidInput` if:
-/// - Query is empty or only whitespace
-/// - Query exceeds maximum length
-///
-/// # Examples
-/// ```ignore
-/// use better_ip_tv::channel_domain::validate_search_query;
-///
-/// assert!(validate_search_query("BBC").is_ok());
-/// assert!(validate_search_query("").is_err());
-/// ```ignore
-pub fn validate_search_query(query: &str) -> Result<(), AppError> {
-    let trimmed = query.trim();
-
-    if trimmed.is_empty() {
-        return Err(AppError::InvalidInput(
-            "Search query cannot be empty".to_string(),
-        ));
-    }
-
-    if trimmed.len() < MIN_SEARCH_QUERY_LENGTH {
-        return Err(AppError::InvalidInput(format!(
-            "Search query must be at least {} character(s)",
-            MIN_SEARCH_QUERY_LENGTH
-        )));
-    }
-
-    if query.len() > MAX_SEARCH_QUERY_LENGTH {
-        return Err(AppError::InvalidInput(format!(
-            "Search query too long (max {} characters)",
-            MAX_SEARCH_QUERY_LENGTH
-        )));
-    }
-
-    Ok(())
-}
 
 /// Validate content type
 ///
@@ -341,15 +290,6 @@ mod tests {
             category_order: 0,
             created_at: None,
         }
-    }
-
-    #[test]
-    fn test_validate_search_query() {
-        assert!(validate_search_query("BBC").is_ok());
-        assert!(validate_search_query("  valid  ").is_ok());
-        assert!(validate_search_query("").is_err());
-        assert!(validate_search_query("   ").is_err());
-        assert!(validate_search_query(&"a".repeat(101)).is_err());
     }
 
     #[test]

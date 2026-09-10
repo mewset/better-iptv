@@ -114,21 +114,6 @@ pub fn get_channels(conn: &Connection, playlist_id: Option<i64>) -> Result<Vec<C
     }
 }
 
-pub fn search_channels(conn: &Connection, query: &str) -> Result<Vec<Channel>> {
-    let search_pattern = format!("%{}%", query);
-    let sql = format!(
-        "SELECT {} FROM channels WHERE name LIKE ?1 OR group_name LIKE ?1 ORDER BY is_favorite DESC, name LIMIT 100",
-        CHANNEL_SELECT_COLUMNS
-    );
-    let mut stmt = conn.prepare(&sql)?;
-
-    let channels = stmt
-        .query_map(params![search_pattern], map_channel_row)?
-        .collect::<Result<Vec<_>>>()?;
-
-    Ok(channels)
-}
-
 pub fn get_favorites(conn: &Connection) -> Result<Vec<Channel>> {
     let sql = format!(
         "SELECT {} FROM channels WHERE is_favorite = 1 ORDER BY name",
@@ -329,32 +314,6 @@ mod tests {
 
         assert_eq!(channels1.len(), 2);
         assert_eq!(channels2.len(), 1);
-    }
-
-    #[test]
-    fn test_search_channels() {
-        let conn = setup_test_db();
-        let playlist_id = create_test_playlist(&conn, "Test Playlist");
-
-        create_test_channel(&conn, playlist_id, "SVT1 HD");
-        create_test_channel(&conn, playlist_id, "SVT2 HD");
-        create_test_channel(&conn, playlist_id, "TV4 HD");
-
-        let results = search_channels(&conn, "SVT").unwrap();
-        assert_eq!(results.len(), 2);
-
-        let results = search_channels(&conn, "TV4").unwrap();
-        assert_eq!(results.len(), 1);
-    }
-
-    #[test]
-    fn test_search_channels_case_insensitive() {
-        let conn = setup_test_db();
-        let playlist_id = create_test_playlist(&conn, "Test Playlist");
-        create_test_channel(&conn, playlist_id, "SVT1 HD");
-
-        let results = search_channels(&conn, "svt").unwrap();
-        assert_eq!(results.len(), 1);
     }
 
     #[test]
