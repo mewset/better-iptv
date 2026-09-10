@@ -335,36 +335,40 @@ pub fn merge_channels(
         }
     }
 
-    // 4. Delete unmatched old channels
-    let removed = existing.len() - matched_ids.len();
-    if removed > 0 {
-        if matched_ids.is_empty() {
-            tx.execute(
-                "DELETE FROM channels WHERE playlist_id = ?1",
-                params![playlist_id],
-            )?;
-        } else {
-            // Pass the ids to keep as one JSON array instead of one bound
-            // parameter each. A `NOT IN (?, ?, ...)` list trips SQLite's
-            // SQLITE_MAX_VARIABLE_NUMBER (32766) once a playlist keeps that
-            // many channels, failing the whole refresh with a raw SQL error.
-            // These ids come straight from the `channels.id` column, so
-            // formatting the array by hand always yields valid JSON.
-            let ids_json = format!(
-                "[{}]",
-                matched_ids
-                    .iter()
-                    .map(|id| id.to_string())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            );
+    // 4. Delete the pre-existing rows this refresh did not match.
+    //
+    // Deleting by an explicit stale list rather than by `id NOT IN matched`:
+    // the inverse match also caught every row step 3 had just inserted, since
+    // those are in this playlist and cannot be in `matched_ids`, so a refresh
+    // that dropped one stale channel also deleted every channel it had added.
+    let stale_ids: Vec<i64> = existing
+        .iter()
+        .map(|ch| ch.id)
+        .filter(|id| !matched_ids.contains(id))
+        .collect();
+    let removed = stale_ids.len();
 
-            tx.execute(
-                "DELETE FROM channels WHERE playlist_id = ?1
-                 AND id NOT IN (SELECT value FROM json_each(?2))",
-                params![playlist_id, ids_json],
-            )?;
-        }
+    if removed > 0 {
+        // The ids go as one JSON array instead of one bound parameter each.
+        // An `IN (?, ?, ...)` list trips SQLite's SQLITE_MAX_VARIABLE_NUMBER
+        // (32766) once a playlist keeps that many channels, failing the whole
+        // refresh with a raw SQL error. These ids come straight from the
+        // `channels.id` column, so formatting the array by hand always yields
+        // valid JSON.
+        let ids_json = format!(
+            "[{}]",
+            stale_ids
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+
+        tx.execute(
+            "DELETE FROM channels WHERE playlist_id = ?1
+             AND id IN (SELECT value FROM json_each(?2))",
+            params![playlist_id, ids_json],
+        )?;
     }
 
     tx.commit()?;
@@ -847,6 +851,24 @@ mod tests {
         }
     }
 
+    fn m3u_channel(playlist_id: i64, name: &str, group: &str) -> Channel {
+        Channel {
+            id: None,
+            playlist_id,
+            name: name.to_string(),
+            url: format!("http://m3u.test/{}.m3u8", name.replace(' ', "_")),
+            logo: None,
+            group_name: Some(group.to_string()),
+            epg_id: None,
+            tvg_name: None,
+            content_type: "live".to_string(),
+            is_favorite: false,
+            sort_order: 0,
+            category_order: 0,
+            created_at: None,
+        }
+    }
+
     #[test]
     fn merge_channels_xtream_ids_do_not_collide_across_content_types() {
         // Xtream panels number live streams, movies and series independently,
@@ -874,6 +896,85 @@ mod tests {
             live.url
         );
         assert_eq!(live.content_type, "live");
+    }
+
+    #[test]
+    fn refresh_keeps_new_channels_when_it_also_removes_a_stale_one() {
+        // The stale-row cleanup used to delete by inverse match, which also
+        // caught every row inserted moments earlier in the same transaction.
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "Xtream");
+        create_channel(&conn, &xtream_channel(pid, "Keep", "live", 1)).unwrap();
+        create_channel(&conn, &xtream_channel(pid, "Gone", "live", 2)).unwrap();
+
+        let fresh = vec![
+            xtream_channel(pid, "Keep", "live", 1),
+            xtream_channel(pid, "New A", "live", 3),
+            xtream_channel(pid, "New B", "live", 4),
+        ];
+        let result = merge_channels(&conn, pid, &fresh, true).unwrap();
+
+        let mut names: Vec<String> = get_channels(&conn, Some(pid))
+            .unwrap()
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["Keep", "New A", "New B"]);
+        assert_eq!(result.added, 2);
+        assert_eq!(result.updated, 1);
+        assert_eq!(result.removed, 1);
+    }
+
+    #[test]
+    fn m3u_refresh_keeps_new_channels_when_it_also_removes_a_stale_one() {
+        // Steps 3 and 4 are shared; only the lookup key differs, so the M3U
+        // path had the identical hole.
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "M3U");
+        create_channel(&conn, &m3u_channel(pid, "Keep", "News")).unwrap();
+        create_channel(&conn, &m3u_channel(pid, "Gone", "News")).unwrap();
+
+        let fresh = vec![
+            m3u_channel(pid, "Keep", "News"),
+            m3u_channel(pid, "New A", "News"),
+        ];
+        let result = merge_channels(&conn, pid, &fresh, false).unwrap();
+
+        let mut names: Vec<String> = get_channels(&conn, Some(pid))
+            .unwrap()
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["Keep", "New A"]);
+        assert_eq!(result.removed, 1);
+    }
+
+    #[test]
+    fn refresh_that_matches_nothing_replaces_rather_than_empties_the_playlist() {
+        // The matched_ids.is_empty() branch deleted the whole playlist,
+        // including the rows step 3 had just inserted.
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "M3U");
+        create_channel(&conn, &m3u_channel(pid, "Old A", "News")).unwrap();
+        create_channel(&conn, &m3u_channel(pid, "Old B", "News")).unwrap();
+
+        let fresh = vec![
+            m3u_channel(pid, "Fresh A", "News"),
+            m3u_channel(pid, "Fresh B", "News"),
+        ];
+        let result = merge_channels(&conn, pid, &fresh, false).unwrap();
+
+        let mut names: Vec<String> = get_channels(&conn, Some(pid))
+            .unwrap()
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["Fresh A", "Fresh B"]);
+        assert_eq!(result.added, 2);
+        assert_eq!(result.removed, 2);
     }
 
     #[test]
