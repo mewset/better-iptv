@@ -127,13 +127,13 @@ jobs:
             ## What's Changed
             See the assets below to download Better IPTV for your platform.
 
-            **Note:** Make sure MPV is installed on your system before running Better IPTV.
+            **Note:** On Linux and macOS, install MPV from your package manager before running Better IPTV. The Windows installers bundle it.
 
             ### Installation:
             - **Linux (Arch/Manjaro/Fedora)**: Download `*-arch.AppImage`, make executable, and run (needs `webkit2gtk-4.1`, `gtk3` and `mpv` from your distro)
             - **Linux (Ubuntu/Debian)**: Download regular `.AppImage`, make executable, and run
-            - **Windows**: Download `.msi` and install
-            - **macOS**: Download `.dmg` and drag to Applications
+            - **Windows**: Download `.msi` and install — MPV is included, nothing else to install
+            - **macOS**: Download `.dmg` and drag to Applications — needs `brew install mpv`
           releaseDraft: true
           prerelease: false
           args: --verbose
