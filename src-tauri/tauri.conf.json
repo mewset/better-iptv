@@ -31,9 +31,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "../resources/mpv/*"
-    ],
+    "resources": {
+      "../resources/mpv/": "mpv/"
+    },
     "linux": {
       "deb": {
         "desktopTemplate": "templates/better-iptv.desktop"
