@@ -40,3 +40,8 @@ RELEASE_GUIDE.md
 aur/
 aur-repo/
 dev-scripts/
+
+# Maintainer-only, lives in scripts/ because the download-stats skill calls it
+# by that path. Ignored by name rather than by directory: everything else in
+# scripts/ is build and CI tooling that a fresh clone needs.
+scripts/download-stats.py
