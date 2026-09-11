@@ -90,19 +90,28 @@ pub fn get_playlist_by_id(conn: &Connection, id: i64) -> Result<Option<Playlist>
 
 // ========== Channel Queries ==========
 
-/// Read the last known Xtream subscription expiry for a playlist
+/// Read what is remembered about a playlist's Xtream subscription
 ///
-/// `None` covers every case the caller treats alike: the playlist has never
-/// been checked, it is not an Xtream playlist, the account has no expiry date,
-/// or the playlist is gone.
-pub fn get_xtream_expiry(conn: &Connection, playlist_id: i64) -> Result<Option<String>> {
-    conn.query_row(
-        "SELECT xtream_exp_date FROM playlists WHERE id = ?1",
-        [playlist_id],
-        |row| row.get::<_, Option<String>>(0),
-    )
-    .optional()
-    .map(|value| value.flatten())
+/// Both fields empty covers every case the caller treats alike: the playlist
+/// has never been checked, it is not an Xtream playlist, or it is gone.
+pub fn get_xtream_expiry_cache(conn: &Connection, playlist_id: i64) -> Result<XtreamExpiryCache> {
+    let row = conn
+        .query_row(
+            "SELECT xtream_exp_date, xtream_exp_checked_at FROM playlists WHERE id = ?1",
+            [playlist_id],
+            |row| {
+                Ok(XtreamExpiryCache {
+                    expires_at: row.get(0)?,
+                    checked_at: row.get(1)?,
+                })
+            },
+        )
+        .optional()?;
+
+    Ok(row.unwrap_or(XtreamExpiryCache {
+        expires_at: None,
+        checked_at: None,
+    }))
 }
 
 pub fn get_channels(conn: &Connection, playlist_id: Option<i64>) -> Result<Vec<Channel>> {

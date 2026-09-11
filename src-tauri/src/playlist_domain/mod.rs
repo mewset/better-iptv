@@ -17,6 +17,39 @@ use crate::playlist::XtreamCredentials;
 
 // ========== Xtream Subscription ==========
 
+/// How old a check may be before the provider is asked again.
+pub const SUBSCRIPTION_CHECK_INTERVAL_HOURS: i64 = 1;
+
+/// Decide whether to ask the provider about a subscription now
+///
+/// A stored expiry that has not yet passed is left alone however old the check
+/// is: the date only moves on a renewal, and a renewal cannot shorten it. That
+/// takes the provider out of the loop for every account in good standing.
+///
+/// Everything else is asked about, but no more often than `interval_hours`.
+/// That covers a subscription that has run out, where a renewal would show up,
+/// and a lifetime account, whose missing date is indistinguishable in the cache
+/// from never having been checked. Without the timestamp such an account would
+/// be asked about on every visit, which some providers rate limit hard.
+pub fn subscription_check_due(
+    cached_expiry: Option<&str>,
+    last_checked: Option<&str>,
+    now: DateTime<Utc>,
+    interval_hours: i64,
+) -> bool {
+    let expiry = cached_expiry.and_then(|s| DateTime::parse_from_rfc3339(s).ok());
+    if let Some(expiry) = expiry {
+        if expiry.with_timezone(&Utc) > now {
+            return false;
+        }
+    }
+
+    match last_checked.and_then(|s| DateTime::parse_from_rfc3339(s).ok()) {
+        Some(last) => now - last.with_timezone(&Utc) >= chrono::Duration::hours(interval_hours),
+        None => true,
+    }
+}
+
 /// Parse the `exp_date` an Xtream panel reports for an account
 ///
 /// The value is Unix seconds. A missing field, an empty string and `0` all mean
@@ -528,6 +561,86 @@ mod tests {
         assert_eq!(batches[0].len(), 1000);
         assert_eq!(batches[1].len(), 1000);
         assert_eq!(batches[2].len(), 500);
+    }
+
+    // ========== Xtream subscription throttling ==========
+
+    fn at(day: u32, hour: u32) -> DateTime<Utc> {
+        use chrono::TimeZone;
+        Utc.with_ymd_and_hms(2026, 9, day, hour, 0, 0).unwrap()
+    }
+
+    #[test]
+    fn a_subscription_with_time_left_is_not_asked_about_again() {
+        // The date can only move forward on a renewal, so a future expiry is
+        // still true however long ago it was read. This is the case that takes
+        // the provider out of the loop entirely.
+        assert!(!subscription_check_due(
+            Some("2027-03-12T00:00:00+00:00"),
+            Some("2026-09-01T00:00:00+00:00"),
+            at(11, 12),
+            1
+        ));
+    }
+
+    #[test]
+    fn a_subscription_that_has_run_out_is_asked_about_again() {
+        // This is where a renewal would show up.
+        assert!(subscription_check_due(
+            Some("2026-08-01T00:00:00+00:00"),
+            Some("2026-09-11T09:00:00+00:00"),
+            at(11, 12),
+            1
+        ));
+    }
+
+    #[test]
+    fn a_subscription_that_has_run_out_is_not_asked_about_twice_in_an_hour() {
+        // Opening the tab repeatedly must not turn into a request each time.
+        assert!(!subscription_check_due(
+            Some("2026-08-01T00:00:00+00:00"),
+            Some("2026-09-11T11:30:00+00:00"),
+            at(11, 12),
+            1
+        ));
+    }
+
+    #[test]
+    fn a_profile_never_checked_is_asked_about() {
+        assert!(subscription_check_due(None, None, at(11, 12), 1));
+    }
+
+    #[test]
+    fn an_account_with_no_expiry_date_is_throttled_like_an_expired_one() {
+        // A lifetime account reports no date, which in the cache is
+        // indistinguishable from never having been checked. Without the
+        // timestamp it would be asked about on every visit, forever.
+        assert!(!subscription_check_due(
+            None,
+            Some("2026-09-11T11:30:00+00:00"),
+            at(11, 12),
+            1
+        ));
+    }
+
+    #[test]
+    fn an_unreadable_stored_expiry_is_treated_as_no_expiry() {
+        assert!(subscription_check_due(
+            Some("nonsense"),
+            None,
+            at(11, 12),
+            1
+        ));
+    }
+
+    #[test]
+    fn an_unreadable_timestamp_counts_as_never_checked() {
+        assert!(subscription_check_due(
+            None,
+            Some("nonsense"),
+            at(11, 12),
+            1
+        ));
     }
 
     // ========== Xtream subscription expiry ==========

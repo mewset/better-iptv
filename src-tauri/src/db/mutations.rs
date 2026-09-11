@@ -38,18 +38,21 @@ pub fn rename_playlist(conn: &Connection, playlist_id: i64, new_name: &str) -> R
 
 // ========== Channel Mutations ==========
 
-/// Store the Xtream subscription expiry last reported for a playlist
+/// Store what the provider last reported about a playlist's subscription
 ///
-/// `None` clears it, so an account that stops reporting a date stops showing
-/// one rather than keeping the value it had.
+/// A `None` date clears the stored one, so an account that stops reporting a
+/// date stops showing one rather than keeping the value it had. `checked_at`
+/// is written either way, since a check that found no date still happened and
+/// still counts against asking again.
 pub fn set_xtream_expiry(
     conn: &Connection,
     playlist_id: i64,
     exp_date: Option<&str>,
+    checked_at: &str,
 ) -> Result<()> {
     conn.execute(
-        "UPDATE playlists SET xtream_exp_date = ?1 WHERE id = ?2",
-        rusqlite::params![exp_date, playlist_id],
+        "UPDATE playlists SET xtream_exp_date = ?1, xtream_exp_checked_at = ?2 WHERE id = ?3",
+        rusqlite::params![exp_date, checked_at, playlist_id],
     )?;
     Ok(())
 }
@@ -559,27 +562,52 @@ mod tests {
         let conn = setup_test_db();
         let id = create_test_playlist(&conn, "Provider");
 
-        assert_eq!(get_xtream_expiry(&conn, id).unwrap(), None);
+        let empty = get_xtream_expiry_cache(&conn, id).unwrap();
+        assert_eq!(empty.expires_at, None);
+        assert_eq!(empty.checked_at, None);
 
-        set_xtream_expiry(&conn, id, Some("2027-03-12T00:00:00Z")).unwrap();
+        set_xtream_expiry(
+            &conn,
+            id,
+            Some("2027-03-12T00:00:00+00:00"),
+            "2026-09-11T12:00:00+00:00",
+        )
+        .unwrap();
 
+        let stored = get_xtream_expiry_cache(&conn, id).unwrap();
         assert_eq!(
-            get_xtream_expiry(&conn, id).unwrap().as_deref(),
-            Some("2027-03-12T00:00:00Z")
+            stored.expires_at.as_deref(),
+            Some("2027-03-12T00:00:00+00:00")
+        );
+        assert_eq!(
+            stored.checked_at.as_deref(),
+            Some("2026-09-11T12:00:00+00:00")
         );
     }
 
     #[test]
-    fn an_account_that_stopped_reporting_an_expiry_clears_the_cache() {
+    fn an_account_that_stopped_reporting_an_expiry_clears_the_date_but_records_the_check() {
         // A lifetime upgrade turns a date into no date. Keeping the old one
-        // would leave the user looking at an expiry that no longer applies.
+        // would leave the user looking at an expiry that no longer applies,
+        // and losing the timestamp would make the profile ask on every visit.
         let conn = setup_test_db();
         let id = create_test_playlist(&conn, "Provider");
-        set_xtream_expiry(&conn, id, Some("2027-03-12T00:00:00Z")).unwrap();
+        set_xtream_expiry(
+            &conn,
+            id,
+            Some("2027-03-12T00:00:00+00:00"),
+            "2026-09-11T12:00:00+00:00",
+        )
+        .unwrap();
 
-        set_xtream_expiry(&conn, id, None).unwrap();
+        set_xtream_expiry(&conn, id, None, "2026-09-11T13:00:00+00:00").unwrap();
 
-        assert_eq!(get_xtream_expiry(&conn, id).unwrap(), None);
+        let stored = get_xtream_expiry_cache(&conn, id).unwrap();
+        assert_eq!(stored.expires_at, None);
+        assert_eq!(
+            stored.checked_at.as_deref(),
+            Some("2026-09-11T13:00:00+00:00")
+        );
     }
 
     #[test]
@@ -588,15 +616,25 @@ mod tests {
         let first = create_test_playlist(&conn, "Provider A");
         let second = create_test_playlist(&conn, "Provider B");
 
-        set_xtream_expiry(&conn, first, Some("2027-03-12T00:00:00Z")).unwrap();
+        set_xtream_expiry(
+            &conn,
+            first,
+            Some("2027-03-12T00:00:00+00:00"),
+            "2026-09-11T12:00:00+00:00",
+        )
+        .unwrap();
 
-        assert!(get_xtream_expiry(&conn, second).unwrap().is_none());
+        let other = get_xtream_expiry_cache(&conn, second).unwrap();
+        assert_eq!(other.expires_at, None);
+        assert_eq!(other.checked_at, None);
     }
 
     #[test]
     fn reading_the_expiry_of_a_playlist_that_does_not_exist_is_not_an_error() {
         let conn = setup_test_db();
-        assert_eq!(get_xtream_expiry(&conn, 4242).unwrap(), None);
+        let missing = get_xtream_expiry_cache(&conn, 4242).unwrap();
+        assert_eq!(missing.expires_at, None);
+        assert_eq!(missing.checked_at, None);
     }
 
     // ========== Channel Tests ==========

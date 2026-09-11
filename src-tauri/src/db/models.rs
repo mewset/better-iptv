@@ -13,6 +13,17 @@ pub struct Playlist {
     pub created_at: Option<String>,
 }
 
+/// What the database remembers about a playlist's Xtream subscription
+///
+/// `expires_at` is RFC 3339, or `None` for an account with no expiry date or
+/// one never successfully read. `checked_at` is when the provider was last
+/// asked, which is what keeps a profile from asking on every visit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XtreamExpiryCache {
+    pub expires_at: Option<String>,
+    pub checked_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Channel {
     pub id: Option<i64>,

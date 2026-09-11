@@ -22,14 +22,19 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             xtream_username TEXT,
             xtream_password TEXT,
             xtream_exp_date TIMESTAMP,
+            xtream_exp_checked_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )",
         [],
     )?;
 
-    // Migration: Add xtream_exp_date column if it doesn't exist (for existing databases)
+    // Migration: Add Xtream subscription columns if they don't exist (for existing databases)
     let _ = conn.execute(
         "ALTER TABLE playlists ADD COLUMN xtream_exp_date TIMESTAMP",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE playlists ADD COLUMN xtream_exp_checked_at TIMESTAMP",
         [],
     );
 
@@ -472,13 +477,16 @@ mod tests {
 
         init_schema(&conn).unwrap();
 
-        crate::db::mutations::set_xtream_expiry(&conn, 2, Some("2027-03-12T00:00:00Z")).unwrap();
-        assert_eq!(
-            crate::db::queries::get_xtream_expiry(&conn, 2)
-                .unwrap()
-                .as_deref(),
-            Some("2027-03-12T00:00:00Z")
-        );
+        crate::db::mutations::set_xtream_expiry(
+            &conn,
+            2,
+            Some("2027-03-12T00:00:00Z"),
+            "2026-09-11T12:00:00Z",
+        )
+        .unwrap();
+        let stored = crate::db::queries::get_xtream_expiry_cache(&conn, 2).unwrap();
+        assert_eq!(stored.expires_at.as_deref(), Some("2027-03-12T00:00:00Z"));
+        assert_eq!(stored.checked_at.as_deref(), Some("2026-09-11T12:00:00Z"));
     }
 
     #[test]

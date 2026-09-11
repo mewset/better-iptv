@@ -214,12 +214,12 @@ pub async fn get_subscription_expiry(
     state: State<'_, AppState>,
     playlist_id: i64,
 ) -> Result<Option<String>, AppError> {
-    let (playlist, user_agent, cached) = with_db(&state.pool, move |conn| {
+    let (playlist, user_agent, cache) = with_db(&state.pool, move |conn| {
         let playlist = queries::get_playlist_by_id(conn, playlist_id)?
             .ok_or(AppError::PlaylistNotFound(playlist_id))?;
         let user_agent = get_playlist_user_agent(conn)?;
-        let cached = queries::get_xtream_expiry(conn, playlist_id)?;
-        Ok((playlist, user_agent, cached))
+        let cache = queries::get_xtream_expiry_cache(conn, playlist_id)?;
+        Ok((playlist, user_agent, cache))
     })
     .await?;
 
@@ -227,22 +227,37 @@ pub async fn get_subscription_expiry(
         return Ok(None);
     };
 
+    let now = chrono::Utc::now();
+    if !playlist_domain::subscription_check_due(
+        cache.expires_at.as_deref(),
+        cache.checked_at.as_deref(),
+        now,
+        playlist_domain::SUBSCRIPTION_CHECK_INTERVAL_HOURS,
+    ) {
+        debug!(
+            "Subscription expiry for playlist {playlist_id} is current, not asking the provider"
+        );
+        return Ok(cache.expires_at);
+    }
+
     let user_info = match crate::playlist::fetch_user_info(&creds, Some(&user_agent)).await {
         Ok(user_info) => user_info,
         Err(e) => {
             debug!("Subscription expiry lookup failed, using last known value: {e}");
-            return Ok(cached);
+            return Ok(cache.expires_at);
         }
     };
 
     let expiry = playlist_domain::xtream_expiry_for_storage(user_info.exp_date.as_deref());
 
     let to_store = expiry.clone();
+    let checked_at = now.to_rfc3339();
     with_db(&state.pool, move |conn| {
         Ok(mutations::set_xtream_expiry(
             conn,
             playlist_id,
             to_store.as_deref(),
+            &checked_at,
         )?)
     })
     .await?;
