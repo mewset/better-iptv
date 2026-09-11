@@ -2,6 +2,9 @@
 
 ## Report Bugs
 
+For a security problem, do not open an issue. Report it privately, see
+[SECURITY.md](SECURITY.md).
+
 [Create an issue](https://github.com/mewset/better-iptv/issues/new) with:
 
 - Detailed description

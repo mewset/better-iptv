@@ -7,6 +7,14 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Added
 
+- **A security policy, and private vulnerability reporting** - the repository had no security contact, no `SECURITY.md` and no disclosure process, so anyone finding a problem had only the public issue tracker, which is where the details reach an attacker before a fixed release does
+  - GitHub's private vulnerability reporting is now enabled, and `SECURITY.md` points at it rather than at an address. That keeps a personal mailbox out of a public file and gives the report a private thread, a draft advisory and a place to credit the reporter
+  - The policy states a week as the first-reply target and tells a reporter what to do if that passes: open an ordinary issue saying only that a security report is waiting, with no details. A policy that promises nothing about response time is the reason reporters go public
+  - Disclosure terms are deliberately loose. Report privately, allow time for a fix, then publish freely; a reporter who wants a deadline sets it in the report. Demanding indefinite silence is what makes researchers skip the private channel
+  - The scope section names the actual threat model, a playlist or programme guide the user did not write, and lists what counts: argument injection into MPV, anything in a provider response that reaches code execution or file access, escaping the webview CSP, exposure of stored credentials or the parental PIN, and any unrequested network listener. Out of scope are MPV's own bugs, a provider's servers, an attacker who already has local access, and the app fetching addresses the user typed
+  - Only the latest release is patched, which is stated rather than implied; there is no branch to backport to
+  - Prompted by Fredolx/open-tv#424, where a researcher reported six findings publicly and said outright that the absent security contact was why. Our code was checked against all six classes and matched none of them, so this closes the process gap the report exposed rather than a vulnerability
+
 - **Update check against the GitHub release list** - `check_for_update` asks `api.github.com` for the newest non-prerelease release, compares its tag with the running version and returns the tag plus its release URL when it is newer
   - `update_domain::is_newer_version` parses `MAJOR.MINOR.PATCH` numerically, tolerating a leading `v`, a missing component and a `-rc1` suffix. A string comparison would rank `2.10.0` below `2.9.0`; the test for that case is the reason the function exists rather than an inline compare
   - Either side unparsable means "not newer", so a version the app cannot read never produces a badge
