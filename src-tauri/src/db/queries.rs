@@ -1,5 +1,5 @@
 use super::models::*;
-use rusqlite::{params, Connection, Result, Row};
+use rusqlite::{params, Connection, OptionalExtension, Result, Row};
 use std::collections::HashMap;
 
 // ========== Channel Query Helpers ==========
@@ -89,6 +89,21 @@ pub fn get_playlist_by_id(conn: &Connection, id: i64) -> Result<Option<Playlist>
 }
 
 // ========== Channel Queries ==========
+
+/// Read the last known Xtream subscription expiry for a playlist
+///
+/// `None` covers every case the caller treats alike: the playlist has never
+/// been checked, it is not an Xtream playlist, the account has no expiry date,
+/// or the playlist is gone.
+pub fn get_xtream_expiry(conn: &Connection, playlist_id: i64) -> Result<Option<String>> {
+    conn.query_row(
+        "SELECT xtream_exp_date FROM playlists WHERE id = ?1",
+        [playlist_id],
+        |row| row.get::<_, Option<String>>(0),
+    )
+    .optional()
+    .map(|value| value.flatten())
+}
 
 pub fn get_channels(conn: &Connection, playlist_id: Option<i64>) -> Result<Vec<Channel>> {
     if let Some(pid) = playlist_id {

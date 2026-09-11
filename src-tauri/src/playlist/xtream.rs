@@ -102,6 +102,19 @@ fn de_lenient_opt_string<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Strin
     }
 }
 
+/// The account envelope `player_api.php` returns when called with no action
+#[derive(Debug, Deserialize)]
+pub struct XtreamUserInfoResponse {
+    pub user_info: XtreamUserInfo,
+}
+
+/// The subset of `user_info` this app reads
+#[derive(Debug, Deserialize)]
+pub struct XtreamUserInfo {
+    #[serde(default, deserialize_with = "de_lenient_opt_string")]
+    pub exp_date: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct XtreamCredentials {
     pub server_url: String,
@@ -382,6 +395,41 @@ async fn fetch_categories(
     );
 
     fetch_json_with_retry(&url, action, user_agent).await
+}
+
+/// Fetch the account information the panel holds for these credentials
+///
+/// Called with no `action`, `player_api.php` answers with the account envelope
+/// rather than a stream list. This is a single attempt with no retry, unlike
+/// the import calls: the only thing read from it is the expiry date shown in
+/// settings, and a caller that cannot reach the panel falls back to the last
+/// value it stored. Sixty seconds of retries for a line of text is not a trade
+/// worth making.
+pub async fn fetch_user_info(
+    creds: &XtreamCredentials,
+    user_agent: Option<&str>,
+) -> Result<XtreamUserInfo> {
+    let url = format!(
+        "{}/player_api.php?username={}&password={}",
+        creds.server_url.trim_end_matches('/'),
+        creds.username,
+        creds.password
+    );
+
+    let request = get_http_client().get(&url);
+    let request = if let Some(ua) = user_agent {
+        request.header(reqwest::header::USER_AGENT, ua)
+    } else {
+        request
+    };
+
+    let response = request.send().await.context("Request failed")?;
+    if !response.status().is_success() {
+        return Err(anyhow::anyhow!("HTTP error: {}", response.status()));
+    }
+
+    let parsed: XtreamUserInfoResponse = response.json().await.context("Malformed account info")?;
+    Ok(parsed.user_info)
 }
 
 /// Fetch live TV streams
@@ -949,5 +997,48 @@ mod retry_tests {
         assert!(!is_retryable_status(StatusCode::FORBIDDEN));
         assert!(!is_retryable_status(StatusCode::NOT_FOUND));
         assert!(!is_retryable_status(StatusCode::BAD_REQUEST));
+    }
+}
+
+#[cfg(test)]
+mod user_info_tests {
+    use super::XtreamUserInfoResponse;
+
+    #[test]
+    fn an_expiry_sent_as_a_string_is_read() {
+        let json = r#"{"user_info":{"username":"u","status":"Active","exp_date":"1773532800"}}"#;
+        let parsed: XtreamUserInfoResponse = serde_json::from_str(json).expect("should decode");
+        assert_eq!(parsed.user_info.exp_date.as_deref(), Some("1773532800"));
+    }
+
+    #[test]
+    fn an_expiry_sent_as_a_number_is_read_the_same_way() {
+        // Panels running JSON_NUMERIC_CHECK send every digit-only string as a
+        // JSON number, so both shapes arrive in the wild.
+        let json = r#"{"user_info":{"username":"u","status":"Active","exp_date":1773532800}}"#;
+        let parsed: XtreamUserInfoResponse = serde_json::from_str(json).expect("should decode");
+        assert_eq!(parsed.user_info.exp_date.as_deref(), Some("1773532800"));
+    }
+
+    #[test]
+    fn a_null_expiry_decodes_as_absent() {
+        let json = r#"{"user_info":{"username":"u","exp_date":null}}"#;
+        let parsed: XtreamUserInfoResponse = serde_json::from_str(json).expect("should decode");
+        assert!(parsed.user_info.exp_date.is_none());
+    }
+
+    #[test]
+    fn a_missing_expiry_field_decodes_as_absent() {
+        let json = r#"{"user_info":{"username":"u"}}"#;
+        let parsed: XtreamUserInfoResponse = serde_json::from_str(json).expect("should decode");
+        assert!(parsed.user_info.exp_date.is_none());
+    }
+
+    #[test]
+    fn a_response_without_user_info_is_refused() {
+        // A wrong username or password answers {"user_info":{"auth":0}} or a
+        // bare error object; nothing to show either way.
+        let json = r#"{"error":"unauthorized"}"#;
+        assert!(serde_json::from_str::<XtreamUserInfoResponse>(json).is_err());
     }
 }

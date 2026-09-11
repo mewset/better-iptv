@@ -38,6 +38,22 @@ pub fn rename_playlist(conn: &Connection, playlist_id: i64, new_name: &str) -> R
 
 // ========== Channel Mutations ==========
 
+/// Store the Xtream subscription expiry last reported for a playlist
+///
+/// `None` clears it, so an account that stops reporting a date stops showing
+/// one rather than keeping the value it had.
+pub fn set_xtream_expiry(
+    conn: &Connection,
+    playlist_id: i64,
+    exp_date: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE playlists SET xtream_exp_date = ?1 WHERE id = ?2",
+        rusqlite::params![exp_date, playlist_id],
+    )?;
+    Ok(())
+}
+
 pub fn create_channel(conn: &Connection, channel: &Channel) -> Result<i64> {
     conn.execute(
         "INSERT INTO channels (playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, is_favorite, sort_order, category_order)
@@ -534,6 +550,53 @@ mod tests {
 
         let playlists = get_playlists(&conn).unwrap();
         assert_eq!(playlists[0].name, "New Name");
+    }
+
+    // ========== Xtream Expiry Tests ==========
+
+    #[test]
+    fn the_cached_expiry_starts_empty_and_survives_a_write() {
+        let conn = setup_test_db();
+        let id = create_test_playlist(&conn, "Provider");
+
+        assert_eq!(get_xtream_expiry(&conn, id).unwrap(), None);
+
+        set_xtream_expiry(&conn, id, Some("2027-03-12T00:00:00Z")).unwrap();
+
+        assert_eq!(
+            get_xtream_expiry(&conn, id).unwrap().as_deref(),
+            Some("2027-03-12T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn an_account_that_stopped_reporting_an_expiry_clears_the_cache() {
+        // A lifetime upgrade turns a date into no date. Keeping the old one
+        // would leave the user looking at an expiry that no longer applies.
+        let conn = setup_test_db();
+        let id = create_test_playlist(&conn, "Provider");
+        set_xtream_expiry(&conn, id, Some("2027-03-12T00:00:00Z")).unwrap();
+
+        set_xtream_expiry(&conn, id, None).unwrap();
+
+        assert_eq!(get_xtream_expiry(&conn, id).unwrap(), None);
+    }
+
+    #[test]
+    fn the_cached_expiry_is_kept_per_playlist() {
+        let conn = setup_test_db();
+        let first = create_test_playlist(&conn, "Provider A");
+        let second = create_test_playlist(&conn, "Provider B");
+
+        set_xtream_expiry(&conn, first, Some("2027-03-12T00:00:00Z")).unwrap();
+
+        assert!(get_xtream_expiry(&conn, second).unwrap().is_none());
+    }
+
+    #[test]
+    fn reading_the_expiry_of_a_playlist_that_does_not_exist_is_not_an_error() {
+        let conn = setup_test_db();
+        assert_eq!(get_xtream_expiry(&conn, 4242).unwrap(), None);
     }
 
     // ========== Channel Tests ==========

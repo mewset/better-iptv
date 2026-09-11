@@ -21,10 +21,17 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             auto_refresh BOOLEAN DEFAULT 0,
             xtream_username TEXT,
             xtream_password TEXT,
+            xtream_exp_date TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )",
         [],
     )?;
+
+    // Migration: Add xtream_exp_date column if it doesn't exist (for existing databases)
+    let _ = conn.execute(
+        "ALTER TABLE playlists ADD COLUMN xtream_exp_date TIMESTAMP",
+        [],
+    );
 
     // Channels table
     conn.execute(
@@ -455,6 +462,23 @@ mod tests {
         assert_eq!(xtream[0].id, Some(20));
         assert_eq!(xtream[0].content_type, "series");
         assert!(queries::get_series_episodes(&conn, 20).unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_older_database_gains_the_xtream_expiry_column() {
+        // The column arrived after release, so every existing installation
+        // reaches init_schema with a playlists table that lacks it.
+        let conn = seed_pre_grouping_db();
+
+        init_schema(&conn).unwrap();
+
+        crate::db::mutations::set_xtream_expiry(&conn, 2, Some("2027-03-12T00:00:00Z")).unwrap();
+        assert_eq!(
+            crate::db::queries::get_xtream_expiry(&conn, 2)
+                .unwrap()
+                .as_deref(),
+            Some("2027-03-12T00:00:00Z")
+        );
     }
 
     #[test]

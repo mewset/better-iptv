@@ -47,6 +47,16 @@ export async function deletePlaylist(id: number): Promise<void> {
   await invoke('delete_playlist', { id });
 }
 
+/**
+ * The Xtream subscription expiry for a playlist, RFC 3339, or null.
+ *
+ * Null covers an M3U playlist, an account with no expiry date, and a provider
+ * that could not be reached with nothing stored from an earlier check.
+ */
+export async function getSubscriptionExpiry(playlistId: number): Promise<string | null> {
+  return await invoke('get_subscription_expiry', { playlistId });
+}
+
 export async function refreshPlaylist(playlistId: number): Promise<MergeResult> {
   return await invoke('refresh_playlist', { playlistId });
 }

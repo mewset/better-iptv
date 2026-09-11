@@ -201,6 +201,55 @@ pub async fn import_xtream_playlist(
     .await
 }
 
+/// Read the subscription expiry an Xtream provider reports for a playlist
+///
+/// Asks the panel on every call, so a renewal shows up without waiting for a
+/// playlist refresh, and caches the answer. `None` covers every case with
+/// nothing to show: an M3U playlist, an account with no expiry date, or a
+/// provider that could not be reached with no earlier value stored. Failing to
+/// reach the provider is not an error here; the line is decoration and must
+/// never interrupt someone whose provider happens to be down.
+#[tauri::command]
+pub async fn get_subscription_expiry(
+    state: State<'_, AppState>,
+    playlist_id: i64,
+) -> Result<Option<String>, AppError> {
+    let (playlist, user_agent, cached) = with_db(&state.pool, move |conn| {
+        let playlist = queries::get_playlist_by_id(conn, playlist_id)?
+            .ok_or(AppError::PlaylistNotFound(playlist_id))?;
+        let user_agent = get_playlist_user_agent(conn)?;
+        let cached = queries::get_xtream_expiry(conn, playlist_id)?;
+        Ok((playlist, user_agent, cached))
+    })
+    .await?;
+
+    let Ok(creds) = playlist_domain::extract_xtream_credentials(&playlist) else {
+        return Ok(None);
+    };
+
+    let user_info = match crate::playlist::fetch_user_info(&creds, Some(&user_agent)).await {
+        Ok(user_info) => user_info,
+        Err(e) => {
+            debug!("Subscription expiry lookup failed, using last known value: {e}");
+            return Ok(cached);
+        }
+    };
+
+    let expiry = playlist_domain::xtream_expiry_for_storage(user_info.exp_date.as_deref());
+
+    let to_store = expiry.clone();
+    with_db(&state.pool, move |conn| {
+        Ok(mutations::set_xtream_expiry(
+            conn,
+            playlist_id,
+            to_store.as_deref(),
+        )?)
+    })
+    .await?;
+
+    Ok(expiry)
+}
+
 #[tauri::command]
 pub async fn refresh_playlist(
     app: AppHandle,

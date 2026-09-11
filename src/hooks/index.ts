@@ -27,3 +27,6 @@ export { useKeyboardShortcuts } from './useKeyboardShortcuts';
 
 // Update check
 export { useUpdateCheck } from './useUpdateCheck';
+
+// Xtream subscription expiry
+export { useSubscriptionExpiries } from './useSubscriptionExpiries';

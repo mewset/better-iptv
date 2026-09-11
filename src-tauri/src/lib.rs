@@ -151,6 +151,7 @@ pub fn run() {
             get_playlists,
             delete_playlist,
             refresh_playlist,
+            get_subscription_expiry,
             get_stale_playlist_ids,
             // Channel commands
             get_channels,

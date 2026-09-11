@@ -9,9 +9,38 @@
 //!
 //! Database operations remain in the commands layer or db module.
 
+use chrono::{DateTime, Utc};
+
 use crate::db::models::{Channel, Playlist};
 use crate::error::AppError;
 use crate::playlist::XtreamCredentials;
+
+// ========== Xtream Subscription ==========
+
+/// Parse the `exp_date` an Xtream panel reports for an account
+///
+/// The value is Unix seconds. A missing field, an empty string and `0` all mean
+/// the account has no expiry date, which panels use for lifetime accounts; `0`
+/// in particular must not render as January 1970. Anything unparsable is
+/// treated the same way, since a date we cannot read is not worth showing.
+///
+/// A date already in the past is returned like any other. The caller decides
+/// how to word it.
+pub fn parse_xtream_exp_date(raw: Option<&str>) -> Option<DateTime<Utc>> {
+    let seconds: i64 = raw?.trim().parse().ok()?;
+    if seconds <= 0 {
+        return None;
+    }
+    DateTime::from_timestamp(seconds, 0)
+}
+
+/// Convert the panel's `exp_date` into the form this app stores and sends on
+///
+/// RFC 3339 in UTC. The value is written to the database and handed to the
+/// frontend unchanged, which formats it in the user's own locale.
+pub fn xtream_expiry_for_storage(raw: Option<&str>) -> Option<String> {
+    parse_xtream_exp_date(raw).map(|instant| instant.to_rfc3339())
+}
 
 // ========== Validation Functions ==========
 
@@ -499,5 +528,73 @@ mod tests {
         assert_eq!(batches[0].len(), 1000);
         assert_eq!(batches[1].len(), 1000);
         assert_eq!(batches[2].len(), 500);
+    }
+
+    // ========== Xtream subscription expiry ==========
+
+    #[test]
+    fn an_expiry_is_stored_as_an_rfc3339_utc_instant() {
+        // The stored string crosses into the frontend and is parsed there, so
+        // the format is a contract rather than an implementation detail.
+        assert_eq!(
+            xtream_expiry_for_storage(Some("1773532800")).as_deref(),
+            Some("2026-03-15T00:00:00+00:00")
+        );
+    }
+
+    #[test]
+    fn an_account_without_an_expiry_stores_nothing() {
+        assert_eq!(xtream_expiry_for_storage(None), None);
+        assert_eq!(xtream_expiry_for_storage(Some("0")), None);
+        assert_eq!(xtream_expiry_for_storage(Some("lifetime")), None);
+    }
+
+    #[test]
+    fn a_unix_timestamp_becomes_the_expiry_instant() {
+        let parsed = parse_xtream_exp_date(Some("1773532800")).expect("timestamp should parse");
+        assert_eq!(parsed.timestamp(), 1_773_532_800);
+    }
+
+    #[test]
+    fn surrounding_whitespace_does_not_stop_a_timestamp_parsing() {
+        let parsed = parse_xtream_exp_date(Some("  1773532800  ")).expect("timestamp should parse");
+        assert_eq!(parsed.timestamp(), 1_773_532_800);
+    }
+
+    #[test]
+    fn a_missing_field_means_no_expiry_date() {
+        assert!(parse_xtream_exp_date(None).is_none());
+    }
+
+    #[test]
+    fn an_empty_value_means_no_expiry_date() {
+        assert!(parse_xtream_exp_date(Some("")).is_none());
+        assert!(parse_xtream_exp_date(Some("   ")).is_none());
+    }
+
+    #[test]
+    fn zero_means_no_expiry_date_rather_than_the_epoch() {
+        // Panels send 0 for an account that never expires. Rendering that as
+        // 1 January 1970 would read as an account that expired long ago.
+        assert!(parse_xtream_exp_date(Some("0")).is_none());
+    }
+
+    #[test]
+    fn a_negative_timestamp_is_refused() {
+        assert!(parse_xtream_exp_date(Some("-1")).is_none());
+    }
+
+    #[test]
+    fn a_value_that_is_not_a_timestamp_is_refused() {
+        assert!(parse_xtream_exp_date(Some("unlimited")).is_none());
+        assert!(parse_xtream_exp_date(Some("2027-03-12")).is_none());
+    }
+
+    #[test]
+    fn an_expiry_already_in_the_past_still_parses() {
+        // The caller decides how to word a date that has passed; the parser
+        // must not silently drop it, or the user sees nothing at all.
+        let parsed = parse_xtream_exp_date(Some("1000000000")).expect("timestamp should parse");
+        assert_eq!(parsed.timestamp(), 1_000_000_000);
     }
 }

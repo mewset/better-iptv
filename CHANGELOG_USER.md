@@ -9,6 +9,7 @@ A simple overview of new features and improvements.
 ### New Features
 
 - Added a version check, so you know when a new version is released. It can be turned off in Settings
+- Each profile in Settings now shows when its Xtream subscription runs out
 
 ### Fixes
 

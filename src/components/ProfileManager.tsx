@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { usePlayerStore } from '../stores/player-store';
 import { setActiveProfileId, deletePlaylist, renamePlaylist, getChannels } from '../lib/tauri';
 import { logger } from '../lib/logger';
+import { useSubscriptionExpiries } from '../hooks/useSubscriptionExpiries';
+import { formatSubscriptionExpiry } from '../lib/subscriptionExpiry';
 import Setup from './Setup';
 import ErrorModal from './modals/ErrorModal';
 import type { Playlist } from '../types';
@@ -20,6 +22,12 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
     setChannels,
     setIsSetupComplete,
   } = usePlayerStore();
+
+  // Only Xtream profiles have a subscription; an M3U profile is a plain file
+  // or address and the backend has nothing to ask about.
+  const expiries = useSubscriptionExpiries(
+    playlists.filter((p) => p.xtream_username && p.id).map((p) => p.id!)
+  );
 
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -194,6 +202,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
             const isEditing = editingId === playlist.id;
             const type = playlist.xtream_username ? 'Xtream Codes' : 'M3U URL';
             const icon = type === 'Xtream Codes' ? '📡' : '📺';
+            const expiryLine = formatSubscriptionExpiry(playlist.id ? expiries[playlist.id] : null);
 
             return (
               <div
@@ -226,6 +235,9 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
                         </h3>
                       )}
                       <p className="text-sm text-gray-600 dark:text-gray-400">Type: {type}</p>
+                      {expiryLine && (
+                        <p className="text-sm text-gray-600 dark:text-gray-400">{expiryLine}</p>
+                      )}
                     </div>
                   </div>
 
