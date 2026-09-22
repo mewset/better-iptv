@@ -4,6 +4,12 @@ A simple overview of new features and improvements.
 
 ---
 
+## Unreleased
+
+### Improvements
+
+- Updated the app framework and several of the libraries Better IPTV is built on, including security fixes
+
 ## Version 2.9.0 (September 11, 2026)
 
 ### New Features

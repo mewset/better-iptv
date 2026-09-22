@@ -3,6 +3,22 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## Unreleased
+
+### Changed
+
+- **Dependency updates closing 17 of 18 Dependabot advisories** - Dependabot alerts were enabled on the repository, deliberately without `dependabot.yml` and with security updates left off, so it flags and never opens a pull request. The first scan reported 18 advisories against the Rust tree, none of which `npm audit` can see
+  - `openssl` 0.10.75 -> 0.10.81, `rustls-webpki` 0.103.9 -> 0.103.15, `serde_with` 3.17.0 -> 3.22.0 and `tauri` 2.10.3 -> 2.11.6. All inside semver, so `Cargo.toml` is untouched and only `Cargo.lock` moves
+  - `rand` needed four copies resolved. 0.8.5, 0.9.2 and 0.10.0 moved to 0.8.8, 0.9.5 and 0.10.3. The fourth, 0.7.3, had no fix in its own line and sat inside an advisory range starting at 0.7.0; it left as a side effect of the Tauri bump, which drops `kuchikiki` for a newer html5ever stack and takes the `selectors` -> `phf_codegen` -> `phf_generator` chain with it
+  - That chain was a build dependency reached only by `tauri-build` during code generation, never linked into the binary. Dependabot labels every cargo dependency `runtime` because `Cargo.lock` does not record the distinction the way npm's lockfile does, so the Rust list reads more severe than what ships warrants
+  - The eight `openssl` advisories are all low-level APIs - `Deriver::derive`, AES key wrap, `MdCtxRef::digest_final`, the PSK and cookie trampolines - reached by neither this code nor the TLS paths `reqwest` uses. They are fixed because the fix costs a lockfile line, not because they were reachable
+  - The `tauri` advisory is the one touching this project's own boundary: origin confusion letting a remote page invoke local-only commands. The configured CSP sets `script-src 'self'`, so no remote script runs in the webview, and `img-src` permits remote channel logos, which cannot reach IPC
+  - `glib` stays at 0.18.5 and keeps its advisory open. The fix is 0.20.0, a major bump owned by Tauri's GTK stack rather than by this project, and the finding is unsoundness in the `Iterator` impls for `VariantStrIter` rather than a reachable hole. It waits for Tauri to move
+  - `@tauri-apps/api`, `@tauri-apps/plugin-log`, `@tauri-apps/plugin-opener` and `@tauri-apps/cli` move with the crates. The Tauri CLI refuses to build when an npm package and its Rust crate differ on major or minor, so bumping the crate is not optional on the JavaScript side. It is one change, not two, and `npm run ci:test` only catches it with `--with-build`, since the app build is behind that flag locally while CI always runs it
+  - The other 31 advisories are npm and every one is scoped `development` - vite, postcss, js-yaml, vitest, rollup. `npm audit --omit=dev` reports zero; none of that code is bundled into the app
+
+- **`libdbus-1-dev` added to the Ubuntu package list in the test and release workflows** - Tauri 2.11 routes through `tao` 0.35, which pulls in `dbus` and `libdbus-sys`. That crate's build script resolves `dbus-1` through pkg-config, and neither workflow installed the headers. It builds locally because the development machine has them, which is exactly the kind of gap that only ever appears on a runner
+
 ## [2.9.0] - 2026-09-11
 
 ### Added
