@@ -17,6 +17,12 @@ This file is a developer-changelog, aimed towards development changes.
   - `@tauri-apps/api`, `@tauri-apps/plugin-log`, `@tauri-apps/plugin-opener` and `@tauri-apps/cli` move with the crates. The Tauri CLI refuses to build when an npm package and its Rust crate differ on major or minor, so bumping the crate is not optional on the JavaScript side. It is one change, not two, and `npm run ci:test` only catches it with `--with-build`, since the app build is behind that flag locally while CI always runs it
   - The other 31 advisories are npm and every one is scoped `development` - vite, postcss, js-yaml, vitest, rollup. `npm audit --omit=dev` reports zero; none of that code is bundled into the app
 
+- **npm dependencies updated within semver, clearing the remaining 31 advisories** - every one was scoped `development`, so none of it was ever bundled into the app, which is why `npm audit --omit=dev` read zero while `npm audit` read nineteen
+  - `npm update` alone was enough; `package.json` is untouched because the declared caret ranges already permitted these versions, and only `package-lock.json` moves. vite 7.2.2 -> 7.3.6, vitest 4.0.16 -> 4.1.11, postcss 8.5.6 -> 8.5.28, prettier 3.7.3 -> 3.9.8 and the rest of the tree with them
+  - The vite advisories were the ones worth closing despite being dev-only: a path traversal and two `server.fs.deny` bypasses in the dev server, which is a real surface while `npm run tauri dev` is running on a developer's machine, even though it never ships
+  - prettier crossing two minors without reformatting a single file was checked before the build rather than assumed, since a formatting change would have meant a reformat commit and a `.git-blame-ignore-revs` entry
+  - Majors are deliberately left: Vite 8, Vitest 5, Tailwind 4, TypeScript 7, ESLint 10 and `@vitejs/plugin-react` 6 each carry breaking changes and belong in their own change, not in a security sweep
+
 - **`libdbus-1-dev` added to the Ubuntu package list in the test and release workflows** - Tauri 2.11 routes through `tao` 0.35, which pulls in `dbus` and `libdbus-sys`. That crate's build script resolves `dbus-1` through pkg-config, and neither workflow installed the headers. It builds locally because the development machine has them, which is exactly the kind of gap that only ever appears on a runner
 
 ## [2.9.0] - 2026-09-11
