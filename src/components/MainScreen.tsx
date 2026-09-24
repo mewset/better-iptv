@@ -11,6 +11,7 @@ import {
 import { CategoryBar } from './CategoryBar';
 import { ChannelCard } from './ChannelCard';
 import { PosterCard } from './PosterCard';
+import { MoviesHero } from './MoviesHero';
 import { NowPlayingBar } from './NowPlayingBar';
 import { Rail } from './Rail';
 import { TopBar } from './TopBar';
@@ -31,6 +32,7 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useChannelFilter } from '../hooks/useChannelFilter';
 import { useUpdateCheck } from '../hooks/useUpdateCheck';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { newestTitle } from '../lib/newestTitle';
 
 /** Xtream series URLs end in `/SERIES_ID.ext`; returns null when that is not the case. */
 function parseXtreamSeriesId(url: string): number | null {
@@ -81,10 +83,12 @@ export default function MainScreen() {
   // Search & filters
   const searchQuery = usePlayerStore((s) => s.searchQuery);
   const contentTypeFilter = usePlayerStore((s) => s.contentTypeFilter);
+  const categoryFilter = usePlayerStore((s) => s.categoryFilter);
   const setSearchQuery = usePlayerStore((s) => s.setSearchQuery);
   const setContentTypeFilter = usePlayerStore((s) => s.setContentTypeFilter);
   const setCategories = usePlayerStore((s) => s.setCategories);
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300);
+  const trimmedQuery = debouncedSearchQuery.trim();
 
   // Consolidated channel filtering (content type, category, parental, search)
   const filteredChannels = useChannelFilter(debouncedSearchQuery);
@@ -219,6 +223,20 @@ export default function MainScreen() {
     blockedCategories,
   ]);
 
+  // The "Recently added" hero: the newest Movies title, shown only while
+  // browsing Movies unfiltered (no category, no search) - the same
+  // conditions that give `kind === 'poster'` for this section, plus "a
+  // newest title exists". A blocked title (parental hide/lock/blur) is never
+  // the hero; hide mode already removes blocked channels from
+  // `filteredChannels`, but lock/blur keep them in the list with `blockedMap`
+  // flagging them, so this excludes those explicitly.
+  const heroChannel = useMemo(() => {
+    if (contentTypeFilter !== 'vod' || categoryFilter || trimmedQuery !== '') return null;
+    const eligible = filteredChannels.filter((c) => !blockedMap.get(c.id!));
+    return newestTitle(eligible);
+  }, [contentTypeFilter, categoryFilter, trimmedQuery, filteredChannels, blockedMap]);
+  const showHero = heroChannel !== null;
+
   // Virtual scrolling setup - virtualize by rows (dynamic items per row).
   // Live and poster rows are genuinely different heights (fixed 208px vs a
   // formula that depends on the viewport and, until Task 13's rail lands,
@@ -227,12 +245,19 @@ export default function MainScreen() {
   // actual height via `measureElement` below, which is what keeps rows from
   // overlapping when that guess is wrong or when a kind switch would
   // otherwise leave stale cached sizes from the other kind's rows.
-  const rowCount = Math.ceil(filteredChannels.length / columns);
+  //
+  // The hero (when shown) is virtual row 0, ahead of every card row: card
+  // rows shift by one so their `startIndex` math still lines up with
+  // `filteredChannels`. Its `272 + 20` estimate is only the initial guess -
+  // like every other row, it measures its own real height via
+  // `measureElement`.
+  const gridRowCount = Math.ceil(filteredChannels.length / columns);
+  const rowCount = gridRowCount + (showHero ? 1 : 0);
 
   const rowVirtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => estimatedRowHeight,
+    estimateSize: (index) => (showHero && index === 0 ? 272 + 20 : estimatedRowHeight),
     overscan: 5, // Pre-render 5 rows above/below for smoother scroll on large lists
   });
 
@@ -240,10 +265,11 @@ export default function MainScreen() {
   // measurement: a Live row and a Movies row can coincidentally share the
   // same rowCount, so TanStack Virtual has no other signal that the old
   // sizes no longer apply. Force a remeasure so the new kind's rows don't
-  // inherit the previous kind's cached heights.
+  // inherit the previous kind's cached heights. Showing/hiding the hero shifts
+  // every card row's index by one, which needs the same remeasure.
   useEffect(() => {
     rowVirtualizer.measure();
-  }, [kind, columns, rowVirtualizer]);
+  }, [kind, columns, showHero, rowVirtualizer]);
 
   const handlePlayChannel = useCallback(
     async (channel: Channel) => {
@@ -382,8 +408,6 @@ export default function MainScreen() {
   const activeProfile = playlists.find((p) => p.id === activeProfileId);
   const profileInitial = activeProfile?.name.trim().charAt(0).toUpperCase() || '?';
 
-  const trimmedQuery = debouncedSearchQuery.trim();
-
   // Title and count follow the section; the count is the filtered list, not
   // the playlist total.
   let title = SECTION_TITLES[contentTypeFilter];
@@ -477,7 +501,35 @@ export default function MainScreen() {
                   }}
                 >
                   {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const startIndex = virtualRow.index * columns;
+                    const isHeroRow = showHero && virtualRow.index === 0;
+
+                    if (isHeroRow) {
+                      return (
+                        <div
+                          key={virtualRow.key}
+                          ref={rowVirtualizer.measureElement}
+                          data-index={virtualRow.index}
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                        >
+                          {/* pb-5 (20px) carries the gap below the hero, the
+                              same estimate the virtualiser's initial guess
+                              uses (272 + 20); the row still measures its own
+                              real height via `measureElement` above. */}
+                          <div className="pb-5">
+                            <MoviesHero channel={heroChannel!} onPlay={handlePlayChannel} />
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const cardRowIndex = showHero ? virtualRow.index - 1 : virtualRow.index;
+                    const startIndex = cardRowIndex * columns;
                     const rowItems = filteredChannels.slice(startIndex, startIndex + columns);
 
                     return (
