@@ -402,6 +402,58 @@ pub fn get_programs_for_channels(
     Ok(result)
 }
 
+/// One row of a programme guide: title, optional synopsis and RFC 3339 start/end.
+#[derive(Debug, Clone, Serialize)]
+pub struct GuideProgram {
+    pub title: String,
+    pub description: Option<String>,
+    pub start_time: String,
+    pub end_time: String,
+}
+
+/// Programmes for many channels within a time window.
+///
+/// A programme is included if it overlaps `[from, to)` at all
+/// (`end_time > from AND start_time < to`), so one already playing at `from`
+/// is included while one that ends exactly at `from` or starts exactly at
+/// `to` is not. `from` and `to` must already be RFC 3339 strings in the same
+/// format `store_epg_programs` writes (UTC `to_rfc3339()`); callers should
+/// run them through `epg_domain::validate_guide_window` first so the string
+/// comparison in the SQL below is exact. Every id in `epg_ids` is a key in
+/// the result, with an empty `Vec` when it has no programmes in the window.
+pub fn get_guide(
+    conn: &Connection,
+    epg_ids: &[String],
+    from: &str,
+    to: &str,
+) -> Result<HashMap<String, Vec<GuideProgram>>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT title, description, start_time, end_time FROM epg_programs
+         WHERE channel_epg_id = ?1 AND end_time > ?2 AND start_time < ?3
+         ORDER BY start_time",
+    )?;
+
+    let mut result = HashMap::with_capacity(epg_ids.len());
+    for id in epg_ids {
+        if result.contains_key(id) {
+            continue;
+        }
+        let programmes = stmt
+            .query_map(rusqlite::params![id, from, to], |row| {
+                Ok(GuideProgram {
+                    title: row.get(0)?,
+                    description: row.get(1)?,
+                    start_time: row.get(2)?,
+                    end_time: row.get(3)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        result.insert(id.clone(), programmes);
+    }
+
+    Ok(result)
+}
+
 // Builder struct for constructing programs
 struct EpgProgramBuilder {
     channel_id: String,
@@ -638,5 +690,84 @@ mod tests {
         let epg = map.get("tv4.se").unwrap();
         assert!(epg.current.is_none() && epg.current_start.is_none() && epg.current_end.is_none());
         assert_eq!(epg.next.as_deref(), Some("Later"));
+    }
+
+    #[test]
+    fn guide_includes_overlapping_and_excludes_boundary_touching_programmes() {
+        let conn = setup_test_db();
+        let from = Utc::now();
+        let to = from + Duration::hours(2);
+
+        store_epg_programs(
+            &conn,
+            &[
+                // Starts before the window and ends after `from`: overlaps the start.
+                programme("svt1.se", "Overlap", from - Duration::minutes(30), 45),
+                // Fully inside the window; stored out of chronological order.
+                programme("svt1.se", "Second", from + Duration::minutes(30), 30),
+                programme("svt1.se", "First", from + Duration::minutes(5), 10),
+                // Ends exactly at `from`: must be excluded.
+                programme("svt1.se", "EndsAtFrom", from - Duration::minutes(20), 20),
+                // Starts exactly at `to`: must be excluded.
+                programme("svt1.se", "StartsAtTo", to, 30),
+            ],
+        )
+        .unwrap();
+
+        let result = get_guide(
+            &conn,
+            &["svt1.se".to_string()],
+            &from.to_rfc3339(),
+            &to.to_rfc3339(),
+        )
+        .unwrap();
+
+        let titles: Vec<&str> = result["svt1.se"].iter().map(|p| p.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            vec!["Overlap", "First", "Second"],
+            "boundary-touching programmes are excluded and results are ordered by start"
+        );
+    }
+
+    #[test]
+    fn guide_isolates_channels_and_gives_empty_vec_for_ids_without_programmes() {
+        let conn = setup_test_db();
+        let from = Utc::now();
+        let to = from + Duration::hours(2);
+
+        store_epg_programs(
+            &conn,
+            &[
+                programme("svt1.se", "Rapport", from + Duration::minutes(5), 30),
+                programme("tv4.se", "Nyheterna", from + Duration::minutes(10), 20),
+            ],
+        )
+        .unwrap();
+
+        let result = get_guide(
+            &conn,
+            &[
+                "svt1.se".to_string(),
+                "tv4.se".to_string(),
+                "unknown.se".to_string(),
+            ],
+            &from.to_rfc3339(),
+            &to.to_rfc3339(),
+        )
+        .unwrap();
+
+        let svt1: Vec<&str> = result["svt1.se"].iter().map(|p| p.title.as_str()).collect();
+        let tv4: Vec<&str> = result["tv4.se"].iter().map(|p| p.title.as_str()).collect();
+        assert_eq!(
+            svt1,
+            vec!["Rapport"],
+            "other channels' programmes do not leak in"
+        );
+        assert_eq!(tv4, vec!["Nyheterna"]);
+        assert!(
+            result["unknown.se"].is_empty(),
+            "an id without programmes still maps to an empty vec"
+        );
     }
 }

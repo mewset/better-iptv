@@ -192,6 +192,26 @@ export async function getChannelsEpg(epgIds: string[]): Promise<Record<string, C
   return await invoke('get_channels_epg', { epgIds });
 }
 
+export interface GuideProgram {
+  title: string;
+  description: string | null;
+  start_time: string;
+  end_time: string;
+}
+
+/**
+ * Programmes for many channels within a time window (max 100 ids, max 48h
+ * span). `from`/`to` are RFC 3339 strings; every requested id is a key in
+ * the result, with an empty array when it has no programmes in the window.
+ */
+export async function getGuide(
+  epgIds: string[],
+  from: string,
+  to: string
+): Promise<Record<string, GuideProgram[]>> {
+  return await invoke('get_guide', { epgIds, from, to });
+}
+
 export interface EpgStatus {
   has_url: boolean;
   last_fetched: string | null;

@@ -1,6 +1,6 @@
 use crate::commands::with_db;
 use crate::db::queries;
-use crate::epg::ChannelEpg;
+use crate::epg::{ChannelEpg, GuideProgram};
 use crate::epg_domain;
 use crate::epg_domain::{
     epg_refresh_due, epg_retry_allowed, EPG_AUTO_REFRESH_INTERVAL_HOURS,
@@ -157,6 +157,35 @@ pub async fn get_channels_epg(
     .await?;
     debug!("get_channels_epg -> {} channels with data", result.len());
     Ok(result)
+}
+
+/// Upper bound on channels per guide request; the guide shows at most 100 rows.
+const MAX_GUIDE_CHANNELS: usize = 100;
+
+#[tauri::command]
+pub async fn get_guide(
+    state: State<'_, AppState>,
+    epg_ids: Vec<String>,
+    from: String,
+    to: String,
+) -> Result<HashMap<String, Vec<GuideProgram>>, AppError> {
+    if epg_ids.len() > MAX_GUIDE_CHANNELS {
+        return Err(AppError::InvalidInput(format!(
+            "At most {} EPG ids per guide request",
+            MAX_GUIDE_CHANNELS
+        )));
+    }
+
+    for id in &epg_ids {
+        epg_domain::validate_channel_epg_id(id)?;
+    }
+
+    let (from, to) = epg_domain::validate_guide_window(&from, &to)?;
+
+    with_db(&state.pool, move |conn| {
+        Ok(crate::epg::get_guide(conn, &epg_ids, &from, &to)?)
+    })
+    .await
 }
 
 #[tauri::command]
