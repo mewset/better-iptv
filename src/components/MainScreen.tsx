@@ -641,8 +641,9 @@ export default function MainScreen() {
           </>
         )}
 
-        {/* Now Playing Bar */}
-        {currentChannel && (
+        {/* Now Playing Bar. Not over Settings, where it would cover Save and
+            Cancel; playback carries on and the dock returns on leaving. */}
+        {currentChannel && view !== 'settings' && (
           <NowPlayingBar
             channel={currentChannel}
             epg={channelEpgData.get(currentChannel.id)}
