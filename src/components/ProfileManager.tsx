@@ -310,7 +310,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
       <ErrorModal
         isOpen={switchError !== null}
         onClose={clearError}
-        title="Failed to Switch Profile"
+        title="Failed to switch profile"
         message={switchError ?? ''}
       />
     </>

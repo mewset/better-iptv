@@ -141,6 +141,69 @@ describe('TopBar', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
+  it('returns focus to the control that opened the menu, when one is given', async () => {
+    function FromOutside() {
+      const [open, setOpen] = useState(false);
+      const opener = useRef<globalThis.HTMLButtonElement>(null);
+      return (
+        <>
+          <button ref={opener} onClick={() => setOpen(true)}>
+            Avatar
+          </button>
+          <TopBar
+            {...baseProps()}
+            profileMenuOpen={open}
+            onProfileMenuOpenChange={setOpen}
+            profileMenuReturnFocus={opener}
+          />
+        </>
+      );
+    }
+    render(<FromOutside />);
+    const avatar = screen.getByRole('button', { name: 'Avatar' });
+
+    fireEvent.click(avatar);
+    expect(screen.getByRole('menuitemradio', { name: 'Home' })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole('menuitemradio', { name: 'Home' }), { key: 'Escape' });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(avatar).toHaveFocus();
+
+    fireEvent.click(avatar);
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Cabin' }));
+    await waitFor(() => expect(switchTo).toHaveBeenCalledWith(cabin));
+    expect(avatar).toHaveFocus();
+  });
+
+  it('closes the menu when focus moves outside it, without pulling focus back', () => {
+    render(
+      <div>
+        <button>Elsewhere</button>
+        <Controlled />
+      </div>
+    );
+    const trigger = screen.getByRole('button', { name: /Home/ });
+    fireEvent.click(trigger);
+    const elsewhere = screen.getByRole('button', { name: 'Elsewhere' });
+    const item = screen.getByRole('menuitemradio', { name: 'Cabin' });
+
+    // Moving between items keeps it open.
+    fireEvent.focusOut(screen.getByRole('menuitemradio', { name: 'Home' }), {
+      relatedTarget: item,
+    });
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    // A focusout with no new target (a click on something unfocusable) is
+    // left to the outside-press listener.
+    fireEvent.focusOut(item, { relatedTarget: null });
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    elsewhere.focus();
+    fireEvent.focusOut(item, { relatedTarget: elsewhere });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(elsewhere).toHaveFocus();
+    expect(switchTo).not.toHaveBeenCalled();
+  });
+
   it('shows a failed switch in the error modal', () => {
     switchError = 'Failed to switch profile: provider unreachable';
     render(<TopBar {...baseProps()} />);

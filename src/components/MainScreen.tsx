@@ -117,11 +117,17 @@ export default function MainScreen() {
   const { channelEpgData } = useEpgData(filteredChannels);
 
   const [selectedSeries, setSelectedSeries] = useState<Channel | null>(null);
+  // The profile the series was opened under. A series belongs to one
+  // provider: after a profile switch its id means nothing to the new one.
+  const [seriesPlaylistId, setSeriesPlaylistId] = useState<number | null>(null);
   // Settings becomes a view in Task 15; until then 'settings' is never set
   // and the Settings rail button opens the modal below.
   const [view, setView] = useState<'browse' | 'series' | 'settings'>('browse');
   const [showSettings, setShowSettings] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  // Which control opened the profile menu, so focus returns there on close.
+  const [profileMenuFromRail, setProfileMenuFromRail] = useState(false);
+  const railProfileRef = useRef<globalThis.HTMLButtonElement>(null);
   const playlists = usePlayerStore((s) => s.playlists);
   const activeProfileId = usePlayerStore((s) => s.activeProfileId);
   const [showPinModal, setShowPinModal] = useState(false);
@@ -270,6 +276,7 @@ export default function MainScreen() {
       const result = await playChannelAction(channel);
       if (result?.type === 'series') {
         setSelectedSeries(result.channel);
+        setSeriesPlaylistId(usePlayerStore.getState().currentPlaylist?.id ?? null);
         setView('series');
       }
     },
@@ -310,6 +317,10 @@ export default function MainScreen() {
   // the episodes grouped at import. Memoised: SeriesView re-loads when it changes.
   const loadSeries = useCallback(async (): Promise<SeriesInfo> => {
     if (!selectedSeries) throw new Error('No series selected');
+    // Never ask a different profile's provider about this series.
+    if (currentPlaylist?.id !== seriesPlaylistId) {
+      throw new Error('The series belongs to another profile');
+    }
     const url = currentPlaylist?.url;
     const username = currentPlaylist?.xtream_username;
     const password = currentPlaylist?.xtream_password;
@@ -322,7 +333,7 @@ export default function MainScreen() {
       return getSeriesInfo(url, username, password, seriesId);
     }
     return getLocalSeriesInfo(selectedSeries.id);
-  }, [selectedSeries, currentPlaylist]);
+  }, [selectedSeries, seriesPlaylistId, currentPlaylist]);
 
   const handlePinSuccess = useCallback(() => {
     setShowPinModal(false);
@@ -343,8 +354,20 @@ export default function MainScreen() {
 
   const closeSeries = useCallback(() => {
     setSelectedSeries(null);
+    setSeriesPlaylistId(null);
     setView('browse');
   }, []);
+
+  // A profile switch closes the series detail. The render below already
+  // hides SeriesView the moment the profiles differ, so it unmounts before
+  // its load effect could run with the new profile; this effect then resets
+  // the state so the view is really back to browse.
+  const currentPlaylistId = currentPlaylist?.id ?? null;
+  const seriesOpen =
+    view === 'series' && selectedSeries !== null && seriesPlaylistId === currentPlaylistId;
+  useEffect(() => {
+    if (view === 'series' && seriesPlaylistId !== currentPlaylistId) closeSeries();
+  }, [view, seriesPlaylistId, currentPlaylistId, closeSeries]);
 
   const handleSection = useCallback(
     (section: Section) => {
@@ -377,7 +400,7 @@ export default function MainScreen() {
   if (view === 'settings') {
     title = 'Settings';
     subtitle = 'Ctrl+1–6 switches sections';
-  } else if (view === 'series' && selectedSeries) {
+  } else if (seriesOpen && selectedSeries) {
     subtitle = selectedSeries.name;
   }
 
@@ -389,7 +412,11 @@ export default function MainScreen() {
         view={view === 'settings' || showSettings ? 'settings' : 'browse'}
         onSettings={() => setShowSettings(true)}
         profileInitial={profileInitial}
-        onProfile={() => setProfileMenuOpen(true)}
+        onProfile={() => {
+          setProfileMenuFromRail(true);
+          setProfileMenuOpen(true);
+        }}
+        profileButtonRef={railProfileRef}
       />
       <main className="relative flex min-w-0 flex-1 flex-col">
         <TopBar
@@ -402,10 +429,14 @@ export default function MainScreen() {
           onOpenUpdate={handleOpenUpdate}
           showSearch={view === 'browse'}
           profileMenuOpen={profileMenuOpen}
-          onProfileMenuOpenChange={setProfileMenuOpen}
+          onProfileMenuOpenChange={(open) => {
+            if (open) setProfileMenuFromRail(false);
+            setProfileMenuOpen(open);
+          }}
+          profileMenuReturnFocus={profileMenuFromRail ? railProfileRef : undefined}
         />
 
-        {view === 'series' && selectedSeries ? (
+        {seriesOpen ? (
           // Its own error screen covers an unparsable Xtream URL.
           <SeriesView
             loadSeries={loadSeries}

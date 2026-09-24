@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Check, ChevronDown, Search } from 'lucide-react';
 import { usePlayerStore } from '../stores/player-store';
 import { useProfileSwitch } from '../hooks/useProfileSwitch';
@@ -17,6 +17,12 @@ interface TopBarProps {
   /** The profile menu is controlled so the rail's avatar can open it too. */
   profileMenuOpen: boolean;
   onProfileMenuOpenChange: (open: boolean) => void;
+  /**
+   * Where focus goes back to when the menu closes by Escape or a choice.
+   * MainScreen passes the rail avatar when that opened the menu; otherwise
+   * focus returns to the top bar's own trigger.
+   */
+  profileMenuReturnFocus?: React.RefObject<globalThis.HTMLElement | null>;
 }
 
 function initialOf(name: string | undefined): string {
@@ -39,6 +45,7 @@ export function TopBar({
   showSearch,
   profileMenuOpen,
   onProfileMenuOpenChange,
+  profileMenuReturnFocus,
 }: TopBarProps) {
   const playlists = usePlayerStore((s) => s.playlists);
   const activeProfileId = usePlayerStore((s) => s.activeProfileId);
@@ -50,6 +57,9 @@ export function TopBar({
   const menuRef = useRef<globalThis.HTMLDivElement>(null);
 
   const close = onProfileMenuOpenChange;
+  const returnFocus = useCallback(() => {
+    (profileMenuReturnFocus?.current ?? triggerRef.current)?.focus();
+  }, [profileMenuReturnFocus]);
 
   // While the menu is open: an outside press closes it, and Escape closes it
   // without reaching the global shortcut handler (which would stop
@@ -67,7 +77,7 @@ export function TopBar({
       e.stopPropagation();
       e.preventDefault();
       close(false);
-      triggerRef.current?.focus();
+      returnFocus();
     };
 
     document.addEventListener('mousedown', onPointerDown);
@@ -76,7 +86,7 @@ export function TopBar({
       document.removeEventListener('mousedown', onPointerDown);
       window.removeEventListener('keydown', onKeyDown, true);
     };
-  }, [profileMenuOpen, close]);
+  }, [profileMenuOpen, close, returnFocus]);
 
   // Move focus into the menu when it opens, onto the active profile.
   useEffect(() => {
@@ -108,8 +118,18 @@ export function TopBar({
 
   const choose = (playlist: Playlist) => {
     close(false);
-    triggerRef.current?.focus();
+    returnFocus();
     if (playlist.id !== activeProfileId) void switchTo(playlist);
+  };
+
+  // Focus leaving the switcher (Tab past the last item, say) closes the
+  // menu without pulling focus back. A null relatedTarget means a press on
+  // something unfocusable; the outside-press listener already covers that,
+  // and WebKit does not focus buttons on click, so ignoring it keeps a click
+  // on a menu item from closing the menu before the click lands.
+  const onSwitcherBlur = (e: React.FocusEvent<globalThis.HTMLDivElement>) => {
+    const next = e.relatedTarget as globalThis.Node | null;
+    if (profileMenuOpen && next && !switcherRef.current?.contains(next)) close(false);
   };
 
   // The error modal sits outside <header>: the header's backdrop-filter makes
@@ -154,7 +174,7 @@ export function TopBar({
           </label>
         )}
 
-        <div ref={switcherRef} className="relative shrink-0">
+        <div ref={switcherRef} onBlur={onSwitcherBlur} className="relative shrink-0">
           <button
             ref={triggerRef}
             type="button"

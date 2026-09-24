@@ -18,6 +18,8 @@ interface RailProps {
   onSettings: () => void;
   profileInitial: string;
   onProfile: () => void;
+  /** Lets MainScreen return focus to the avatar when the menu it opened closes. */
+  profileButtonRef?: React.Ref<globalThis.HTMLButtonElement>;
 }
 
 const SECTIONS: Array<{ value: Section; label: string; Icon: LucideIcon }> = [
@@ -74,6 +76,7 @@ export const Rail = memo(function Rail({
   onSettings,
   profileInitial,
   onProfile,
+  profileButtonRef,
 }: RailProps) {
   return (
     <nav
@@ -105,6 +108,7 @@ export const Rail = memo(function Rail({
       />
       <button
         type="button"
+        ref={profileButtonRef}
         onClick={onProfile}
         aria-label="Switch profile"
         title="Switch profile"
