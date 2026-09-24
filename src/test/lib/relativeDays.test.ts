@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { refreshedAgo } from '../../lib/relativeDays';
+import { daysSince, refreshedAgo } from '../../lib/relativeDays';
 
 describe('refreshedAgo', () => {
   it('says "Refreshed today" for the same local day', () => {
@@ -32,5 +32,18 @@ describe('refreshedAgo', () => {
     const now = new Date('2026-03-10T00:10:00');
     const lastUpdated = new Date('2026-03-09T23:50:00').toISOString();
     expect(refreshedAgo(lastUpdated, now.getTime())).toBe('Refreshed yesterday');
+  });
+
+  it('reads SQLite\'s "YYYY-MM-DD HH:MM:SS" last_updated as UTC', () => {
+    // SQLite's CURRENT_TIMESTAMP is UTC without a T or Z. Read as local time
+    // it shifts by the UTC offset, which moves it across local midnight here.
+    const sqlite = (d: Date) => d.toISOString().slice(0, 19).replace('T', ' ');
+    const lastUpdated = new Date('2026-03-09T23:50:00'); // local
+    const now = new Date('2026-03-10T00:10:00').getTime(); // local, 20 min later
+    expect(refreshedAgo(sqlite(lastUpdated), now)).toBe('Refreshed yesterday');
+    expect(daysSince(sqlite(lastUpdated), now)).toBe(daysSince(lastUpdated.toISOString(), now));
+
+    const sameDay = new Date('2026-03-10T00:05:00'); // local, just after midnight
+    expect(refreshedAgo(sqlite(sameDay), now)).toBe('Refreshed today');
   });
 });
