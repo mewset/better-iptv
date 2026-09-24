@@ -4,6 +4,7 @@ import { usePlayerStore } from '../stores/player-store';
 import { listen } from '@tauri-apps/api/event';
 import { logger } from '../lib/logger';
 import type { Playlist } from '../types';
+import { X } from 'lucide-react';
 import LoadingScreen from './LoadingScreen';
 import logoImage from '../assets/logo/logo-256.webp';
 
@@ -125,9 +126,7 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
 
   return (
     <div className={onCancel ? '' : 'flex min-h-screen items-center justify-center bg-bg p-4'}>
-      <div
-        className={`relative rounded-lg bg-surface p-8 shadow-xl ${onCancel ? 'w-full max-w-md' : 'w-full max-w-md'}`}
-      >
+      <div className="relative w-full max-w-md rounded-lg bg-surface p-8 shadow-xl">
         {/* Modal mode loading overlay */}
         {isLoading && onCancel && (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-surface/80 backdrop-blur-sm">
@@ -150,7 +149,7 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
             aria-label="Cancel"
             className="absolute right-4 top-4 text-text-faint hover:text-text-muted"
           >
-            ✕
+            <X className="h-5 w-5" aria-hidden="true" />
           </button>
         )}
 
