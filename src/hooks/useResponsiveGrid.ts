@@ -25,10 +25,13 @@ const BREAKPOINTS: BreakpointConfig[] = [
 ];
 
 const GAP = 16; // Tailwind gap-4
-const HEADER_HEIGHT = 200; // Approximate header + search + tabs height
-const NOW_PLAYING_HEIGHT = 100; // Now playing bar
-const PADDING = 32; // Container padding
-const VISIBLE_ROWS = 4; // Target number of visible rows
+// Live cards have a fixed 208px shape (124px logo area + a fixed info block),
+// so the grid no longer solves for an ideal card height per viewport - it
+// only picks a column count per breakpoint.
+// (Task 11 replaces this with calculateGridConfig(width, height, kind), which
+// needs a per-item-kind height again; the BREAKPOINTS' min/maxCardHeight are
+// kept for that.)
+const LIVE_CARD_HEIGHT = 208;
 
 function getBreakpointConfig(width: number): BreakpointConfig {
   // Find the highest matching breakpoint
@@ -41,31 +44,16 @@ function getBreakpointConfig(width: number): BreakpointConfig {
   return config;
 }
 
-function calculateGridConfig(viewportWidth: number, viewportHeight: number): GridConfig {
+function calculateGridConfig(viewportWidth: number): GridConfig {
   const breakpoint = getBreakpointConfig(viewportWidth);
 
-  // Calculate available height for the grid
-  const availableHeight = viewportHeight - HEADER_HEIGHT - NOW_PLAYING_HEIGHT - PADDING;
-
-  // Calculate ideal card height to show VISIBLE_ROWS rows
-  // Total height = (cardHeight + gap) * rows - gap (no gap after last row)
-  // availableHeight = (cardHeight + gap) * VISIBLE_ROWS - gap
-  // cardHeight = (availableHeight + gap) / VISIBLE_ROWS - gap
-  const idealCardHeight = (availableHeight + GAP) / VISIBLE_ROWS - GAP;
-
-  // Clamp card height within breakpoint bounds
-  const cardHeight = Math.max(
-    breakpoint.minCardHeight,
-    Math.min(breakpoint.maxCardHeight, idealCardHeight)
-  );
-
   // Row height includes gap for virtualizer
-  const estimatedRowHeight = cardHeight + GAP;
+  const estimatedRowHeight = LIVE_CARD_HEIGHT + GAP;
 
   return {
     columns: breakpoint.columns,
-    cardHeight: Math.round(cardHeight),
-    estimatedRowHeight: Math.round(estimatedRowHeight),
+    cardHeight: LIVE_CARD_HEIGHT,
+    estimatedRowHeight,
     gap: GAP,
   };
 }
@@ -74,18 +62,18 @@ export function useResponsiveGrid(): GridConfig {
   const [gridConfig, setGridConfig] = useState<GridConfig>(() => {
     // Initial calculation based on window size (or defaults for SSR)
     if (typeof window !== 'undefined') {
-      return calculateGridConfig(window.innerWidth, window.innerHeight);
+      return calculateGridConfig(window.innerWidth);
     }
     return {
       columns: 4,
-      cardHeight: 280,
-      estimatedRowHeight: 296,
+      cardHeight: LIVE_CARD_HEIGHT,
+      estimatedRowHeight: LIVE_CARD_HEIGHT + GAP,
       gap: GAP,
     };
   });
 
   const handleResize = useCallback(() => {
-    const newConfig = calculateGridConfig(window.innerWidth, window.innerHeight);
+    const newConfig = calculateGridConfig(window.innerWidth);
     setGridConfig((prev) => {
       // Only update if values changed to prevent unnecessary re-renders
       if (

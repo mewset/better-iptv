@@ -95,7 +95,7 @@ export default function MainScreen() {
 
   // Responsive grid configuration
   const update = useUpdateCheck();
-  const { columns, cardHeight, estimatedRowHeight } = useResponsiveGrid();
+  const { columns, estimatedRowHeight } = useResponsiveGrid();
 
   // Load parental settings on mount
   useEffect(() => {
@@ -381,9 +381,7 @@ export default function MainScreen() {
                             isPlaying={currentChannel?.id === channel.id && isPlaying}
                             onPlay={handlePlayChannel}
                             onToggleFavorite={toggleChannelFavorite}
-                            currentProgram={channelEpgData.get(channel.id)?.current}
-                            nextProgram={channelEpgData.get(channel.id)?.next}
-                            cardHeight={cardHeight}
+                            epg={channelEpgData.get(channel.id)}
                             isBlocked={isChannelBlocked}
                             parentalVisibility={parentalVisibility}
                           />

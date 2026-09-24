@@ -31,7 +31,6 @@ function renderCard(props: Partial<React.ComponentProps<typeof ChannelCard>> = {
       channel={channel}
       isPlaying={false}
       onPlay={onPlay}
-      cardHeight={280}
       onToggleFavorite={onToggleFavorite}
       {...props}
     />
@@ -77,7 +76,7 @@ describe('ChannelCard click targets', () => {
     const buttons = screen.getAllByRole('button');
     expect(buttons.map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual([
       'Add to favorites',
-      'Play',
+      'Play SVT1',
     ]);
   });
 });
