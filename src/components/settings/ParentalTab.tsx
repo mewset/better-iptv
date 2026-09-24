@@ -45,17 +45,13 @@ export default function ParentalTab({
   return (
     <div className="space-y-6">
       <section>
-        <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
-          Parental Controls
-        </h3>
+        <h3 className="mb-4 text-lg font-semibold text-text">Parental Controls</h3>
         <div className="space-y-4">
           {/* Enable toggle */}
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Enable Parental Controls
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-sm font-medium text-text-muted">Enable Parental Controls</p>
+              <p className="text-xs text-text-faint">
                 Restrict access to channels with PIN protection
               </p>
             </div>
@@ -70,7 +66,7 @@ export default function ParentalTab({
                   onEnabledChange(e.target.checked);
                 }
               }}
-              className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500"
+              className="h-4 w-4 rounded text-accent-text focus:ring-accent"
             />
           </div>
 
@@ -78,20 +74,18 @@ export default function ParentalTab({
             <>
               {/* PIN Setup */}
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  PIN Code
-                </label>
+                <label className="mb-2 block text-sm font-medium text-text-muted">PIN Code</label>
                 {hasPin ? (
                   <div className="flex gap-2">
                     <button
                       onClick={onChangePin}
-                      className="rounded-lg bg-gray-600 px-4 py-2 text-white hover:bg-gray-700"
+                      className="rounded-lg bg-surface-2 px-4 py-2 text-text hover:bg-surface-hover"
                     >
                       Change PIN
                     </button>
                     <button
                       onClick={onResetPin}
-                      className="rounded-lg bg-red-600 px-4 py-2 text-white hover:bg-red-700"
+                      className="rounded-lg bg-danger px-4 py-2 text-on-danger hover:bg-danger/90"
                     >
                       Reset PIN
                     </button>
@@ -99,12 +93,12 @@ export default function ParentalTab({
                 ) : (
                   <button
                     onClick={onSetPin}
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+                    className="rounded-lg bg-accent px-4 py-2 text-on-accent hover:bg-accent-hover"
                   >
                     Set PIN
                   </button>
                 )}
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                <p className="mt-1 text-xs text-text-faint">
                   {hasPin ? 'PIN is currently set' : 'No PIN set - parental controls inactive'}
                 </p>
               </div>
@@ -113,14 +107,14 @@ export default function ParentalTab({
                 <>
                   {/* Manual Channel Blocking */}
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <label className="mb-2 block text-sm font-medium text-text-muted">
                       Blocked Channels
                     </label>
                     <button
                       onClick={onOpenChannelBlocking}
-                      className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
+                      className="flex items-center gap-2 rounded-lg border border-border-strong px-4 py-2 hover:bg-surface-hover"
                     >
-                      <Lock className="h-4 w-4" />
+                      <Lock className="h-4 w-4" aria-hidden="true" />
                       <span>Select Channels ({blockedCount} blocked)</span>
                     </button>
                   </div>
@@ -128,10 +122,8 @@ export default function ParentalTab({
                   {/* Auto-detection toggle */}
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                        Auto-detect 18+ Content
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                      <p className="text-sm font-medium text-text-muted">Auto-detect 18+ Content</p>
+                      <p className="text-xs text-text-faint">
                         Automatically blocks channels with +18, XXX, Adult in name
                       </p>
                     </div>
@@ -139,25 +131,25 @@ export default function ParentalTab({
                       type="checkbox"
                       checked={autoDetect}
                       onChange={(e) => onAutoDetectChange(e.target.checked)}
-                      className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500"
+                      className="h-4 w-4 rounded text-accent-text focus:ring-accent"
                     />
                   </div>
 
                   {/* Visibility mode */}
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <label className="mb-2 block text-sm font-medium text-text-muted">
                       Visibility Mode
                     </label>
                     <select
                       value={visibility}
                       onChange={(e) => onVisibilityChange(e.target.value as ParentalVisibility)}
-                      className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:[color-scheme:dark]"
+                      className="w-full rounded-lg border border-border-strong bg-surface px-4 py-2 text-text focus:border-transparent focus:ring-2 focus:ring-accent dark:[color-scheme:dark]"
                     >
                       <option value="hide">Hide completely</option>
                       <option value="lock">Show with lock icon</option>
                       <option value="blur">Show blurred</option>
                     </select>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    <p className="mt-1 text-xs text-text-faint">
                       How blocked channels appear in the list
                     </p>
                   </div>
