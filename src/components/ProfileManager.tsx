@@ -38,6 +38,13 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
 
   const [channelCounts, setChannelCounts] = useState<Record<number, number>>({});
 
+  // A joined key keeps the effect from re-running on every render (a freshly
+  // built playlists array would otherwise cause that), while still refetching
+  // when a profile is added or removed - otherwise a newly created profile
+  // never gets a count for the rest of the session, and a deleted one's count
+  // lingers in state.
+  const playlistIdsKey = playlists.map((p) => p.id).join(',');
+
   useEffect(() => {
     let cancelled = false;
     getPlaylistChannelCounts()
@@ -48,7 +55,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [playlistIdsKey]);
 
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -294,7 +301,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
                   )}
 
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] tabular-nums text-text-muted">
-                    {countKnown && <span>{count} channels</span>}
+                    {countKnown && <span>{count === 1 ? '1 channel' : `${count} channels`}</span>}
                     {refreshedLine && <span>{refreshedLine}</span>}
                     {expiryLine && (
                       <span

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import ProfileManager from '../../components/ProfileManager';
 import { usePlayerStore } from '../../stores/player-store';
 import type { Playlist } from '../../types';
@@ -115,5 +115,39 @@ describe('ProfileManager subscription expiry', () => {
     render(<ProfileManager onClose={vi.fn()} />);
 
     expect(await screen.findByText('42 channels')).toBeInTheDocument();
+  });
+
+  it('shows the singular "1 channel" for a count of exactly one', async () => {
+    vi.mocked(getPlaylistChannelCounts).mockResolvedValue({ 7: 1 });
+    setProfiles([playlist(7, 'Single Channel Provider', false)]);
+
+    render(<ProfileManager onClose={vi.fn()} />);
+
+    expect(await screen.findByText('1 channel')).toBeInTheDocument();
+    expect(screen.queryByText('1 channels')).not.toBeInTheDocument();
+  });
+
+  it('refetches channel counts when a profile is added, so the new card gets a count', async () => {
+    vi.mocked(getPlaylistChannelCounts)
+      .mockResolvedValueOnce({ 8: 10 })
+      .mockResolvedValueOnce({ 8: 10, 9: 20 });
+
+    setProfiles([playlist(8, 'First Provider', false)]);
+
+    render(<ProfileManager onClose={vi.fn()} />);
+
+    expect(await screen.findByText('10 channels')).toBeInTheDocument();
+    expect(getPlaylistChannelCounts).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      usePlayerStore.setState({
+        playlists: [...usePlayerStore.getState().playlists, playlist(9, 'Second Provider', false)],
+      });
+    });
+
+    await waitFor(() => expect(getPlaylistChannelCounts).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('20 channels')).toBeInTheDocument();
+    // The first card's count survives the refetch rather than disappearing.
+    expect(screen.getByText('10 channels')).toBeInTheDocument();
   });
 });

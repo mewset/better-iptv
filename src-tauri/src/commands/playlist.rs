@@ -8,6 +8,7 @@ use crate::playlist_domain;
 use crate::series_domain::{self, SeriesGroup};
 use crate::state::AppState;
 use log::{debug, error, info};
+use std::collections::HashMap;
 use tauri::{AppHandle, Emitter, State};
 
 fn get_playlist_user_agent(db: &rusqlite::Connection) -> Result<String, AppError> {
@@ -380,7 +381,7 @@ pub async fn delete_playlist(state: State<'_, AppState>, id: i64) -> Result<(), 
 #[tauri::command]
 pub async fn get_playlist_channel_counts(
     state: State<'_, AppState>,
-) -> Result<std::collections::HashMap<i64, i64>, AppError> {
+) -> Result<HashMap<i64, i64>, AppError> {
     with_db(&state.pool, |conn| {
         Ok(queries::get_playlist_channel_counts(conn)?)
     })
