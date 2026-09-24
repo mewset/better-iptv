@@ -1,13 +1,11 @@
 import { describe, it, expect } from 'vitest';
-// @ts-ignore - vitest in jsdom can access fs for test setup
-import { readFileSync } from 'fs';
-// @ts-ignore
-import { join } from 'path';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-// @ts-ignore - process is available in vitest
-const css = readFileSync(join(process.cwd(), 'src/index.css'), 'utf8');
-// @ts-ignore
-const tw = readFileSync(join(process.cwd(), 'tailwind.config.js'), 'utf8');
+const here = dirname(fileURLToPath(import.meta.url));
+const css = readFileSync(resolve(here, '../../index.css'), 'utf8');
+const tw = readFileSync(resolve(here, '../../../tailwind.config.js'), 'utf8');
 
 const TOKENS = [
   'bg',
