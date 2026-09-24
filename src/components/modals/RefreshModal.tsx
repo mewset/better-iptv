@@ -144,7 +144,7 @@ export default function RefreshModal({
 
           {error && (
             <>
-              <div className="rounded-lg border border-danger/20 bg-danger/10 p-3 text-sm text-danger">
+              <div className="rounded-lg border border-danger/20 bg-danger/10 p-3 text-sm text-text">
                 Failed to refresh playlist: {error}
               </div>
               <button

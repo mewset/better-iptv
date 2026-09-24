@@ -273,7 +273,7 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
           )}
 
           {error && (
-            <div className="rounded-md border border-danger/20 bg-danger/10 px-4 py-3 text-sm text-danger">
+            <div className="rounded-md border border-danger/20 bg-danger/10 px-4 py-3 text-sm text-text">
               {error}
             </div>
           )}
