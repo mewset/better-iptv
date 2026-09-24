@@ -52,10 +52,9 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
         return seriesChannels;
       case 'favorites':
         return favoriteChannels;
-      case 'guide': {
-        const hasLiveFavorite = favoriteChannels.some((c) => c.content_type === 'live');
-        return hasLiveFavorite ? favoriteChannels : liveChannels;
-      }
+      case 'guide':
+        // Every live channel; the guide's own Favorites chip narrows it.
+        return liveChannels;
     }
   }, [
     contentTypeFilter,
@@ -98,17 +97,10 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
       );
     }
 
-    // The guide only ever shows live channels, even when its base list came
-    // from favoriteChannels (which can hold favourited movies and series).
-    if (contentTypeFilter === 'guide') {
-      result = result.filter((c) => c.content_type === 'live');
-    }
-
     setFilteredChannels(result);
   }, [
     baseList,
     categoryFilter,
-    contentTypeFilter,
     debouncedSearchQuery,
     parentalEnabled,
     parentalUnlocked,

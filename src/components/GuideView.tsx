@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarRange, Lock, Play, X } from 'lucide-react';
+import { usePlayerStore } from '../stores/player-store';
 import type { Channel } from '../types';
 import { getEpgStatus, type GuideProgram } from '../lib/tauri';
 import { blockGeometry, guideChannels } from '../lib/guideLayout';
@@ -263,7 +264,11 @@ function DetailPanel({ selection, now, dockVisible, onWatch, onClose }: DetailPa
 }
 
 export interface GuideViewProps {
-  /** The guide section's filtered list; rows are its first 100 with an `epg_id`. */
+  /**
+   * The guide section's filtered list (every live channel, narrowed by
+   * category, parental hide and search); rows are its first 100 with an
+   * `epg_id`, after the Favorites chip's own narrowing.
+   */
   channels: Channel[];
   playingChannelId: number | null;
   /** MainScreen's play path, so parental checks apply. */
@@ -292,6 +297,9 @@ export function GuideView({
   const [selection, setSelection] = useState<Selection | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [hasSource, setHasSource] = useState<boolean | null>(null);
+  // Session-only: the view remembers it while mounted, a fresh guide starts on all.
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const categoryFilter = usePlayerStore((s) => s.categoryFilter);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), NOW_TICK_MS);
@@ -314,8 +322,12 @@ export function GuideView({
     };
   }, []);
 
-  const rows = useMemo(() => guideChannels(channels), [channels]);
-  const { programs, window: win, loading } = useGuide(channels, dayOffset);
+  const listed = useMemo(
+    () => (favoritesOnly ? channels.filter((c) => c.is_favorite) : channels),
+    [channels, favoritesOnly]
+  );
+  const rows = useMemo(() => guideChannels(listed), [listed]);
+  const { programs, window: win, loading } = useGuide(listed, dayOffset);
 
   // Escape closes the detail panel before anything else sees it. A bubble
   // listener on document runs before useKeyboardShortcuts' window listener
@@ -397,8 +409,26 @@ export function GuideView({
             </button>
           ))}
         </div>
-        <div className="min-w-0 flex-1">
-          <CategoryBar />
+        <div className="flex min-w-0 flex-1 items-center">
+          <div className="shrink-0 py-3 pb-6 pl-4">
+            <button
+              type="button"
+              aria-pressed={favoritesOnly}
+              onClick={() => {
+                setFavoritesOnly((on) => !on);
+                setSelection(null);
+              }}
+              className={cn(CHIP, favoritesOnly ? CHIP_ACTIVE : CHIP_IDLE)}
+            >
+              Favorites
+            </button>
+          </div>
+          <div className="min-w-0 flex-1">
+            <CategoryBar
+              allSelected={!favoritesOnly && categoryFilter === null}
+              onAll={() => setFavoritesOnly(false)}
+            />
+          </div>
         </div>
       </div>
 
@@ -407,8 +437,10 @@ export function GuideView({
       >
         {rows.length === 0 ? (
           <p className="py-16 text-center text-text-muted">
-            {channels.length === 0
-              ? 'No channels in this list'
+            {listed.length === 0
+              ? favoritesOnly
+                ? 'No favorite channels yet'
+                : 'No channels in this list'
               : 'None of these channels has guide data'}
           </p>
         ) : (

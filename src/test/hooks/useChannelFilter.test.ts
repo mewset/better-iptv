@@ -85,21 +85,21 @@ describe('channel filtering logic', () => {
     expect(result.current[0].name).toBe('Sport News');
   });
 
-  it('guide section lists live favourites when there are any', () => {
+  it('guide section lists all live channels even when live favourites exist', () => {
     const channels = [
       makeChannel({ id: 1, name: 'Live Fav', content_type: 'live', is_favorite: true }),
       makeChannel({ id: 2, name: 'Live Not Fav', content_type: 'live', is_favorite: false }),
+      makeChannel({ id: 3, name: 'Fav Movie', content_type: 'vod', is_favorite: true }),
     ];
     usePlayerStore.getState().setChannels(channels);
     usePlayerStore.setState({ contentTypeFilter: 'guide' });
 
     const { result } = renderHook(() => useChannelFilter(''));
 
-    expect(result.current).toHaveLength(1);
-    expect(result.current[0].name).toBe('Live Fav');
+    expect(result.current.map((c) => c.name)).toEqual(['Live Fav', 'Live Not Fav']);
   });
 
-  it('guide section falls back to all live channels without live favourites', () => {
+  it('guide section lists only live channels', () => {
     const channels = [
       makeChannel({ id: 1, name: 'Live 1', content_type: 'live', is_favorite: false }),
       makeChannel({ id: 2, name: 'Fav Movie', content_type: 'vod', is_favorite: true }),

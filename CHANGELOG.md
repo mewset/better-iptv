@@ -20,7 +20,7 @@ This file is a developer-changelog, aimed towards development changes.
   - Profile cards show a channel count from the new `get_playlist_channel_counts` command (`src-tauri/src/db/queries.rs`, `src-tauri/src/commands/playlist.rs`), plus a relative refresh age and expiry emphasis
   - The first-launch `Setup` screen is redesigned with live MPV detection status and an install link
   - The Movies section gains a "Recently added" hero row (`MoviesHero.tsx`, `src/lib/newestTitle.ts`)
-  - A new `get_guide` command (`src-tauri/src/commands/epg.rs`, `src-tauri/src/epg/xmltv.rs`) returns programmes for a set of channels across a time window, validated by `epg_domain::validate_guide_window` (rejects an inverted or zero-width window before it reaches SQL). `GuideView.tsx` renders it, opened with the `G` key and closed through the same Escape ownership order as Settings
+  - A new `get_guide` command (`src-tauri/src/commands/epg.rs`, `src-tauri/src/epg/xmltv.rs`) returns programmes for a set of channels across a time window, validated by `epg_domain::validate_guide_window` (rejects an inverted or zero-width window before it reaches SQL). `GuideView.tsx` renders it, opened with the `G` key and closed through the same Escape ownership order as Settings. Its rows are every live channel (`useChannelFilter.ts`), narrowed by the category chips and by a Favorites chip ahead of them that lasts while the guide stays open
 
 ### Credits
 

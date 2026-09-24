@@ -78,6 +78,34 @@ describe('GuideView', () => {
     usePlayerStore.setState({ categories: [], categoryFilter: null });
   });
 
+  it('a Favorites chip narrows the rows to favourites and All restores every channel', async () => {
+    const favSvt1 = { ...svt1, is_favorite: true };
+    usePlayerStore.setState({ categories: ['Sweden'], categoryFilter: null });
+    renderGuide({ channels: [favSvt1, tv4] });
+    expect(await screen.findByRole('row', { name: 'SVT1' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: 'TV4' })).toBeInTheDocument();
+
+    const chip = screen.getByRole('button', { name: 'Favorites' });
+    expect(chip).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(chip);
+
+    expect(chip).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('row', { name: 'SVT1' })).toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: 'TV4' })).toBeNull();
+    expect(screen.getByRole('tab', { name: 'All' })).toHaveAttribute('aria-selected', 'false');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'All' }));
+    expect(chip).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('row', { name: 'TV4' })).toBeInTheDocument();
+  });
+
+  it('says so when Favorites is on and no channel is a favourite', async () => {
+    renderGuide();
+    await screen.findByRole('row', { name: 'SVT1' });
+    fireEvent.click(screen.getByRole('button', { name: 'Favorites' }));
+    expect(screen.getByText('No favorite channels yet')).toBeInTheDocument();
+  });
+
   it('renders one row per channel with its programmes as buttons', async () => {
     renderGuide();
     const svtRow = await screen.findByRole('row', { name: 'SVT1' });
