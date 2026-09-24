@@ -73,7 +73,10 @@ export default function EpgTab({
                   disabled={!epgStatus.has_url || isUpdatingEpg}
                   className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm text-on-accent transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <RefreshCw className={`h-4 w-4 ${isUpdatingEpg ? 'animate-spin' : ''}`} />
+                  <RefreshCw
+                    className={`h-4 w-4 ${isUpdatingEpg ? 'animate-spin' : ''}`}
+                    aria-hidden="true"
+                  />
                   {isUpdatingEpg ? 'Updating...' : 'Update Now'}
                 </button>
               </div>
