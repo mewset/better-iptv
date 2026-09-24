@@ -2,6 +2,15 @@ import { create } from 'zustand';
 import type { Channel, Playlist, SeriesInfo } from '../types';
 import { getParentalSettings, getBlockedChannels, toggleFavorite } from '../lib/tauri';
 
+/** Current/next programme for one channel, with optional start/end times. */
+export interface EpgEntry {
+  current: string;
+  currentStart?: string;
+  currentEnd?: string;
+  next?: string;
+  nextStart?: string;
+}
+
 interface PlayerState {
   // Playlists
   playlists: Playlist[];
@@ -49,9 +58,9 @@ interface PlayerState {
   setCurrentProgram: (program: string | null) => void;
   setNextProgram: (program: string | null) => void;
 
-  // EPG data for all channels (channelId -> { current, next })
-  channelEpgData: Map<number, { current: string; next?: string }>;
-  setChannelEpg: (channelId: number, current: string | null, next?: string | null) => void;
+  // EPG data for all channels (channelId -> EpgEntry)
+  channelEpgData: Map<number, EpgEntry>;
+  setChannelEpg: (channelId: number, entry: EpgEntry | null) => void;
   clearAllEpg: () => void;
   epgRefreshTrigger: number;
   triggerEpgRefresh: () => void;
@@ -182,11 +191,11 @@ export const usePlayerStore = create<PlayerState>((set) => ({
 
   // EPG data for all channels
   channelEpgData: new Map(),
-  setChannelEpg: (channelId, current, next) =>
+  setChannelEpg: (channelId, entry) =>
     set((state) => {
       const newMap = new Map(state.channelEpgData);
-      if (current) {
-        newMap.set(channelId, { current, next: next ?? undefined });
+      if (entry) {
+        newMap.set(channelId, entry);
       } else {
         newMap.delete(channelId);
       }

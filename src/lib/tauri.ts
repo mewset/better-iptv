@@ -168,7 +168,10 @@ export async function getChannelEpg(channelEpgId: string): Promise<[string | nul
 
 export interface ChannelEpg {
   current: string | null;
+  current_start: string | null;
+  current_end: string | null;
   next: string | null;
+  next_start: string | null;
 }
 
 /** Current/next programme for many channels in one IPC call (max 500 ids). */

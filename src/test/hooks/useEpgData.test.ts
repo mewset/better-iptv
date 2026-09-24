@@ -37,8 +37,20 @@ describe('useEpgData', () => {
 
   it('fetches EPG for all live channels with an epg_id in one call', async () => {
     vi.mocked(getChannelsEpg).mockResolvedValue({
-      'svt1.se': { current: 'Rapport', next: 'Aktuellt' },
-      'tv4.se': { current: 'Nyheterna', next: null },
+      'svt1.se': {
+        current: 'Rapport',
+        current_start: '2026-09-24T18:00:00Z',
+        current_end: '2026-09-24T18:30:00Z',
+        next: 'Aktuellt',
+        next_start: '2026-09-24T18:30:00Z',
+      },
+      'tv4.se': {
+        current: 'Nyheterna',
+        current_start: null,
+        current_end: null,
+        next: null,
+        next_start: null,
+      },
     });
 
     const channels = [
@@ -55,7 +67,13 @@ describe('useEpgData', () => {
 
     await waitFor(() => {
       const data = usePlayerStore.getState().channelEpgData;
-      expect(data.get(1)).toEqual({ current: 'Rapport', next: 'Aktuellt' });
+      expect(data.get(1)).toEqual({
+        current: 'Rapport',
+        currentStart: '2026-09-24T18:00:00Z',
+        currentEnd: '2026-09-24T18:30:00Z',
+        next: 'Aktuellt',
+        nextStart: '2026-09-24T18:30:00Z',
+      });
       expect(data.get(2)).toEqual({ current: 'Nyheterna', next: undefined });
       expect(data.has(3)).toBe(false);
       expect(data.has(4)).toBe(false);
@@ -76,7 +94,15 @@ describe('useEpgData', () => {
     // entry?.current is missing). This proves the cache was actually cleared,
     // not just that a second backend call happened.
     vi.mocked(getChannelsEpg)
-      .mockResolvedValueOnce({ 'svt1.se': { current: 'Rapport', next: null } })
+      .mockResolvedValueOnce({
+        'svt1.se': {
+          current: 'Rapport',
+          current_start: null,
+          current_end: null,
+          next: null,
+          next_start: null,
+        },
+      })
       .mockResolvedValue({});
     const channels = [makeChannel({ id: 1, name: 'SVT1', epg_id: 'svt1.se' })];
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { usePlayerStore } from '../stores/player-store';
+import type { EpgEntry } from '../stores/player-store';
 import { getChannelsEpg } from '../lib/tauri';
 import { logger } from '../lib/logger';
 import type { Channel } from '../types';
@@ -21,8 +22,8 @@ const EPG_CONFIG = {
  * Hook result for EPG data
  */
 interface UseEpgDataResult {
-  /** EPG data map (channel ID -> current and next program titles) */
-  channelEpgData: Map<number, { current: string; next?: string }>;
+  /** EPG data map (channel ID -> EpgEntry) */
+  channelEpgData: Map<number, EpgEntry>;
   /** Trigger a manual refresh of EPG data */
   refreshEpg: () => void;
 }
@@ -89,7 +90,13 @@ export function useEpgData(channels: Channel[]): UseEpgDataResult {
         for (const channel of channelsWithEpg) {
           const entry = epgById[channel.epg_id!];
           if (entry?.current && channel.id) {
-            setChannelEpg(channel.id, entry.current, entry.next);
+            setChannelEpg(channel.id, {
+              current: entry.current,
+              currentStart: entry.current_start ?? undefined,
+              currentEnd: entry.current_end ?? undefined,
+              next: entry.next ?? undefined,
+              nextStart: entry.next_start ?? undefined,
+            });
           }
         }
       } catch (err) {
@@ -180,9 +187,7 @@ export function useEpgData(channels: Channel[]): UseEpgDataResult {
  * Hook for EPG data for a specific channel
  * Useful when you only need EPG for the current channel
  */
-export function useChannelEpg(
-  channelId: number | undefined
-): { current: string; next?: string } | undefined {
+export function useChannelEpg(channelId: number | undefined): EpgEntry | undefined {
   const channelEpgData = usePlayerStore((s) => s.channelEpgData);
 
   if (!channelId) return undefined;

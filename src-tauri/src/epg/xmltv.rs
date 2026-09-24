@@ -326,11 +326,15 @@ pub fn get_next_program(conn: &Connection, channel_epg_id: &str) -> Result<Optio
     Ok(program)
 }
 
-/// Current and next programme title for one channel.
+/// Current and next programme for one channel, with the current programme's
+/// start/end and the next programme's start as RFC 3339 strings (as stored).
 #[derive(Debug, Clone, Serialize)]
 pub struct ChannelEpg {
     pub current: Option<String>,
+    pub current_start: Option<String>,
+    pub current_end: Option<String>,
     pub next: Option<String>,
+    pub next_start: Option<String>,
 }
 
 /// Look up current and next programme for many channels in one go.
@@ -346,13 +350,13 @@ pub fn get_programs_for_channels(
     let now = Utc::now().to_rfc3339();
 
     let mut current_stmt = conn.prepare_cached(
-        "SELECT title FROM epg_programs
+        "SELECT title, start_time, end_time FROM epg_programs
          WHERE channel_epg_id = ?1 AND start_time <= ?2 AND end_time > ?2
          ORDER BY start_time DESC
          LIMIT 1",
     )?;
     let mut next_stmt = conn.prepare_cached(
-        "SELECT title FROM epg_programs
+        "SELECT title, start_time FROM epg_programs
          WHERE channel_epg_id = ?1 AND start_time > ?2
          ORDER BY start_time ASC
          LIMIT 1",
@@ -363,14 +367,35 @@ pub fn get_programs_for_channels(
         if result.contains_key(id) {
             continue;
         }
-        let current: Option<String> = current_stmt
-            .query_row(rusqlite::params![id, now], |row| row.get(0))
+        let current: Option<(String, String, String)> = current_stmt
+            .query_row(rusqlite::params![id, now], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
             .optional()?;
-        let next: Option<String> = next_stmt
-            .query_row(rusqlite::params![id, now], |row| row.get(0))
+        let next: Option<(String, String)> = next_stmt
+            .query_row(rusqlite::params![id, now], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
             .optional()?;
         if current.is_some() || next.is_some() {
-            result.insert(id.clone(), ChannelEpg { current, next });
+            let (current, current_start, current_end) = match current {
+                Some((t, s, e)) => (Some(t), Some(s), Some(e)),
+                None => (None, None, None),
+            };
+            let (next, next_start) = match next {
+                Some((t, s)) => (Some(t), Some(s)),
+                None => (None, None),
+            };
+            result.insert(
+                id.clone(),
+                ChannelEpg {
+                    current,
+                    current_start,
+                    current_end,
+                    next,
+                    next_start,
+                },
+            );
         }
     }
 
@@ -561,5 +586,57 @@ mod tests {
         let tv4 = &result["tv4.se"];
         assert_eq!(tv4.current, None);
         assert_eq!(tv4.next.as_deref(), Some("Nyheterna"));
+    }
+
+    #[test]
+    fn batch_lookup_returns_times_for_current_and_next() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+        let current_start = now - Duration::minutes(10);
+        let next_start = now + Duration::minutes(20);
+        store_epg_programs(
+            &conn,
+            &[
+                programme("svt1.se", "Rapport", current_start, 30),
+                programme("svt1.se", "Aktuellt", next_start, 30),
+            ],
+        )
+        .unwrap();
+
+        let map = get_programs_for_channels(&conn, &["svt1.se".to_string()]).unwrap();
+        let epg = map.get("svt1.se").unwrap();
+        assert_eq!(epg.current.as_deref(), Some("Rapport"));
+        assert_eq!(
+            epg.current_start.as_deref(),
+            Some(current_start.to_rfc3339().as_str())
+        );
+        assert_eq!(
+            epg.current_end.as_deref(),
+            Some(
+                (current_start + Duration::minutes(30))
+                    .to_rfc3339()
+                    .as_str()
+            )
+        );
+        assert_eq!(epg.next.as_deref(), Some("Aktuellt"));
+        assert_eq!(
+            epg.next_start.as_deref(),
+            Some(next_start.to_rfc3339().as_str())
+        );
+    }
+
+    #[test]
+    fn batch_lookup_with_only_a_next_programme_has_no_current_times() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+        store_epg_programs(
+            &conn,
+            &[programme("tv4.se", "Later", now + Duration::hours(1), 30)],
+        )
+        .unwrap();
+        let map = get_programs_for_channels(&conn, &["tv4.se".to_string()]).unwrap();
+        let epg = map.get("tv4.se").unwrap();
+        assert!(epg.current.is_none() && epg.current_start.is_none() && epg.current_end.is_none());
+        assert_eq!(epg.next.as_deref(), Some("Later"));
     }
 }
