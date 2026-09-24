@@ -15,14 +15,22 @@ export default {
       colors: {
         bg: 'rgb(var(--color-bg) / <alpha-value>)',
         surface: 'rgb(var(--color-surface) / <alpha-value>)',
+        'surface-2': 'rgb(var(--color-surface-2) / <alpha-value>)',
         'surface-hover': 'rgb(var(--color-surface-hover) / <alpha-value>)',
         text: 'rgb(var(--color-text) / <alpha-value>)',
         'text-muted': 'rgb(var(--color-text-muted) / <alpha-value>)',
+        'text-faint': 'rgb(var(--color-text-faint) / <alpha-value>)',
         border: 'rgb(var(--color-border) / <alpha-value>)',
+        'border-strong': 'rgb(var(--color-border-strong) / <alpha-value>)',
         accent: {
           DEFAULT: 'rgb(var(--color-accent) / <alpha-value>)',
           hover: 'rgb(var(--color-accent-hover) / <alpha-value>)',
+          text: 'rgb(var(--color-accent-text) / <alpha-value>)',
         },
+        'on-accent': 'rgb(var(--color-on-accent) / <alpha-value>)',
+        danger: 'rgb(var(--color-danger) / <alpha-value>)',
+        'on-danger': 'rgb(var(--color-on-danger) / <alpha-value>)',
+        success: 'rgb(var(--color-success) / <alpha-value>)',
       },
       // Type that scales with the viewport. The app is used on a TV as well as
       // a desktop monitor, and clamp() covers both ends continuously - no

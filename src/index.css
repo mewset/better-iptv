@@ -19,10 +19,13 @@
 :root {
   --color-bg: 249 250 251; /* gray-50 */
   --color-surface: 255 255 255; /* white */
+  --color-surface-2: 229 231 235; /* gray-200: secondary buttons, logo grounds */
   --color-surface-hover: 243 244 246; /* gray-100 */
   --color-text: 17 24 39; /* gray-900 */
-  --color-text-muted: 107 114 128; /* gray-500 */
+  --color-text-muted: 75 85 99; /* gray-600: covers the gray-600 and gray-700 levels */
+  --color-text-faint: 107 114 128; /* gray-500 */
   --color-border: 229 231 235; /* gray-200 */
+  --color-border-strong: 209 213 219; /* gray-300: inputs */
 
   /*
    * The accent deliberately does not change between themes. Accent surfaces
@@ -33,14 +36,26 @@
    */
   --color-accent: 37 99 235; /* blue-600 */
   --color-accent-hover: 29 78 216; /* blue-700 */
+  --color-accent-text: 37 99 235; /* blue-600 as text */
+  --color-on-accent: 255 255 255;
+  --color-danger: 220 38 38; /* red-600 */
+  --color-on-danger: 255 255 255;
+  --color-success: 22 163 74; /* green-600 */
 }
 
 .dark {
   --color-bg: 17 24 39; /* gray-900 */
   --color-surface: 31 41 55; /* gray-800 */
+  --color-surface-2: 55 65 81; /* gray-700 */
   --color-surface-hover: 55 65 81; /* gray-700 */
-  --color-text: 255 255 255; /* white */
+  --color-text: 255 255 255;
   --color-text-muted: 156 163 175; /* gray-400 */
+  --color-text-faint: 156 163 175; /* gray-400 */
   --color-border: 55 65 81; /* gray-700 */
-  /* --color-accent and --color-accent-hover intentionally inherit from :root */
+  --color-border-strong: 75 85 99; /* gray-600 */
+  --color-accent-text: 96 165 250; /* blue-400 */
+  --color-danger: 220 38 38;
+  --color-on-danger: 255 255 255;
+  --color-success: 74 222 128; /* green-400 */
+  /* --color-accent, --color-accent-hover and --color-on-accent inherit from :root */
 }
