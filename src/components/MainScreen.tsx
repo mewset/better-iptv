@@ -94,11 +94,16 @@ export default function MainScreen() {
   // Global keyboard shortcuts (Space=play/stop, /=focus search, Escape=stop)
   useKeyboardShortcuts(searchInputRef);
 
-  // Responsive grid configuration. Movies and series get the poster grid;
-  // everything else (including Favorites, which mixes content types) keeps
-  // the live-shaped grid.
+  // Responsive grid configuration. Movies and series get the poster grid,
+  // but only while browsing them unfiltered: a non-empty search spans every
+  // content type (design doc: "search stays cross-type"), so a cross-type
+  // result list keeps the live-shaped grid, same as Favorites.
   const update = useUpdateCheck();
-  const kind = contentTypeFilter === 'vod' || contentTypeFilter === 'series' ? 'poster' : 'live';
+  const kind =
+    (contentTypeFilter === 'vod' || contentTypeFilter === 'series') &&
+    debouncedSearchQuery.trim() === ''
+      ? 'poster'
+      : 'live';
   const { columns, estimatedRowHeight } = useResponsiveGrid(kind);
 
   // Load parental settings on mount

@@ -56,7 +56,7 @@ describe('channel filtering logic', () => {
     expect(usePlayerStore.getState().favoriteChannels[0].name).toBe('Fav');
   });
 
-  it('has no "all" section: search runs inside the current section', () => {
+  it('search spans all content types when a query is set', () => {
     const channels = [
       makeChannel({ id: 1, name: 'Sport Live', content_type: 'live' }),
       makeChannel({ id: 2, name: 'Sport Movie', content_type: 'vod' }),
@@ -67,8 +67,22 @@ describe('channel filtering logic', () => {
 
     const { result } = renderHook(() => useChannelFilter('sport'));
 
+    expect(result.current).toHaveLength(2);
+    expect(result.current.map((c) => c.name).sort()).toEqual(['Sport Live', 'Sport Movie']);
+  });
+
+  it('search in the guide stays live-only', () => {
+    const channels = [
+      makeChannel({ id: 1, name: 'Sport News', content_type: 'live' }),
+      makeChannel({ id: 2, name: 'Sport Movie', content_type: 'vod' }),
+    ];
+    usePlayerStore.getState().setChannels(channels);
+    usePlayerStore.setState({ contentTypeFilter: 'guide' });
+
+    const { result } = renderHook(() => useChannelFilter('sport'));
+
     expect(result.current).toHaveLength(1);
-    expect(result.current[0].name).toBe('Sport Movie');
+    expect(result.current[0].name).toBe('Sport News');
   });
 
   it('guide section lists live favourites when there are any', () => {
