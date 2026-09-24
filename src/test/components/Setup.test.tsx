@@ -94,4 +94,32 @@ describe('Setup', () => {
 
     expect(await screen.findByText('Please enter a playlist name')).toBeInTheDocument();
   });
+
+  it('shows profile-specific copy in the overlay (onCancel) mode, not the first-launch heading', async () => {
+    vi.mocked(checkMpvInstalled).mockResolvedValue(true);
+
+    render(<Setup onCancel={vi.fn()} />);
+
+    expect(await screen.findByText('Add a profile')).toBeInTheDocument();
+    expect(screen.queryByText('Add your first playlist')).not.toBeInTheDocument();
+  });
+
+  it('switches to the Xtream tab with ArrowRight from the M3U tab', async () => {
+    vi.mocked(checkMpvInstalled).mockResolvedValue(true);
+
+    render(<Setup />);
+
+    const m3uTab = screen.getByRole('tab', { name: 'M3U URL' });
+    const xtreamTab = screen.getByRole('tab', { name: 'Xtream Codes' });
+
+    expect(m3uTab).toHaveAttribute('tabIndex', '0');
+    expect(xtreamTab).toHaveAttribute('tabIndex', '-1');
+
+    fireEvent.keyDown(m3uTab, { key: 'ArrowRight' });
+
+    expect(xtreamTab).toHaveAttribute('aria-selected', 'true');
+    expect(xtreamTab).toHaveAttribute('tabIndex', '0');
+    expect(m3uTab).toHaveAttribute('tabIndex', '-1');
+    expect(screen.getByLabelText('Server URL')).toBeInTheDocument();
+  });
 });

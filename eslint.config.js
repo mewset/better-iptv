@@ -43,6 +43,7 @@ export default [
         Promise: 'readonly',
         HTMLElement: 'readonly',
         HTMLDivElement: 'readonly',
+        HTMLButtonElement: 'readonly',
         alert: 'readonly',
         React: 'readonly',
         AbortController: 'readonly',

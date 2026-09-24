@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { importPlaylist, importXtreamPlaylist, getChannels, checkMpvInstalled } from '../lib/tauri';
 import { usePlayerStore } from '../stores/player-store';
 import { listen } from '@tauri-apps/api/event';
@@ -42,6 +42,9 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
   // as "not found" rather than left in an unknown state.
   const [mpvInstalled, setMpvInstalled] = useState<boolean | null>(null);
 
+  const m3uTabRef = useRef<HTMLButtonElement>(null);
+  const xtreamTabRef = useRef<HTMLButtonElement>(null);
+
   const { setIsSetupComplete, setChannels, setIsLoading, setCurrentPlaylist, isLoading } =
     usePlayerStore();
 
@@ -82,6 +85,17 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
     openUrl(MPV_INSTALL_URL).catch((err) =>
       logger.warn('Failed to open the MPV install page:', err)
     );
+  };
+
+  // Tabs keyboard model (WAI-ARIA APG): ArrowLeft/ArrowRight move between
+  // tabs and select the newly-focused one (automatic activation). With only
+  // two tabs, either arrow key just swaps to the other one.
+  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const next: ImportType = importType === 'm3u' ? 'xtream' : 'm3u';
+    setImportType(next);
+    (next === 'm3u' ? m3uTabRef : xtreamTabRef).current?.focus();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -192,10 +206,13 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
         className="mb-4 h-[52px] w-[52px] rounded-[14px]"
       />
 
-      <h1 className="font-display text-[34px] font-bold text-text">Add your first playlist</h1>
+      <h1 className="font-display text-[34px] font-bold text-text">
+        {onCancel ? 'Add a profile' : 'Add your first playlist'}
+      </h1>
       <p className="mt-2 text-sm text-text-muted">
-        Paste an M3U link or sign in to your Xtream Codes provider. Everything is stored on this
-        computer and nothing is sent anywhere else.
+        {onCancel
+          ? 'Each profile is one playlist or provider. Add an M3U link or sign in to an Xtream Codes provider.'
+          : 'Paste an M3U link or sign in to your Xtream Codes provider. Everything is stored on this computer and nothing is sent anywhere else.'}
       </p>
 
       {/* Import type segmented control */}
@@ -205,10 +222,13 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
         className="mt-6 grid grid-cols-2 gap-1 rounded-xl bg-text/5 p-1"
       >
         <button
+          ref={m3uTabRef}
           type="button"
           role="tab"
           aria-selected={importType === 'm3u'}
+          tabIndex={importType === 'm3u' ? 0 : -1}
           onClick={() => setImportType('m3u')}
+          onKeyDown={handleTabKeyDown}
           className={`rounded-lg py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
             importType === 'm3u' ? 'bg-text text-bg' : 'text-text-muted'
           }`}
@@ -216,10 +236,13 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
           M3U URL
         </button>
         <button
+          ref={xtreamTabRef}
           type="button"
           role="tab"
           aria-selected={importType === 'xtream'}
+          tabIndex={importType === 'xtream' ? 0 : -1}
           onClick={() => setImportType('xtream')}
+          onKeyDown={handleTabKeyDown}
           className={`rounded-lg py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
             importType === 'xtream' ? 'bg-text text-bg' : 'text-text-muted'
           }`}
