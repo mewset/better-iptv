@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Square } from 'lucide-react';
 import type { Channel } from '../types';
 import type { EpgEntry } from '../stores/player-store';
@@ -34,6 +34,12 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   onStop,
 }: NowPlayingBarProps) {
   const [logoFailed, setLogoFailed] = useState(false);
+  // The dock stays mounted for as long as any channel plays, so a failed
+  // logo load for one channel must not stick around once playback moves to
+  // a different channel with its own (possibly working) logo.
+  useEffect(() => {
+    setLogoFailed(false);
+  }, [channel.id, channel.logo]);
   const showLogo = Boolean(channel.logo) && !logoFailed;
 
   const programme = epg?.current ?? currentProgram ?? null;
@@ -70,10 +76,17 @@ export const NowPlayingBar = memo(function NowPlayingBar({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-1.5">
-          <span className="truncate text-sm font-semibold text-text">{channel.name}</span>
-          {programme && <span className="truncate text-sm text-text-muted">{programme}</span>}
+          <span className="max-w-[40%] shrink-0 truncate text-sm font-semibold text-text">
+            {channel.name}
+          </span>
+          {programme && (
+            <span className="min-w-0 flex-1 truncate text-sm text-text-muted">{programme}</span>
+          )}
           {(hasRange || minsLeft !== null) && (
-            <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-text-muted">
+            <span
+              data-time-range
+              className="shrink-0 whitespace-nowrap text-xs tabular-nums text-text-muted"
+            >
               {hasRange && `${startTime}–${endTime}`}
               {minsLeft !== null && ` · ${minsLeft} min left`}
             </span>
@@ -99,7 +112,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
         type="button"
         aria-label="Stop playback"
         onClick={onStop}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent text-on-accent focus-visible:ring-2 focus-visible:ring-accent"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent text-on-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         <Square className="h-4 w-4 fill-current" aria-hidden="true" />
       </button>

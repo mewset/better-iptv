@@ -94,4 +94,61 @@ describe('NowPlayingBar', () => {
     const { container } = render(<NowPlayingBar channel={ch} onStop={vi.fn()} />);
     expect(container.querySelectorAll('[data-bar]')).toHaveLength(7);
   });
+
+  it('resets the failed-logo state when the playing channel changes', () => {
+    const chB: Channel = { ...ch, id: 2, name: 'BBC One', logo: 'http://x/bbc.png' };
+    const { container, rerender } = render(
+      <NowPlayingBar channel={{ ...ch, logo: 'http://x/svt1.png' }} onStop={vi.fn()} />
+    );
+    const img = container.querySelector('img');
+    expect(img).not.toBeNull();
+    fireEvent.error(img!);
+    // Channel A's logo failed: falls back to ColorBars.
+    expect(container.querySelectorAll('[data-bar]')).toHaveLength(7);
+
+    rerender(<NowPlayingBar channel={chB} onStop={vi.fn()} />);
+
+    // Channel B has its own logo and never errored: it must render its <img>,
+    // not stay stuck on channel A's failed-logo fallback.
+    const imgB = container.querySelector('img');
+    expect(imgB).not.toBeNull();
+    expect(imgB).toHaveAttribute('src', 'http://x/bbc.png');
+    expect(container.querySelectorAll('[data-bar]')).toHaveLength(0);
+  });
+
+  it('truncates the name, programme and time-range instead of overflowing', () => {
+    const { container } = render(
+      <NowPlayingBar
+        channel={{
+          ...ch,
+          name: 'An Extremely Long Channel Name That Must Not Blow Out The Dock Layout',
+        }}
+        epg={{
+          current:
+            'An Equally Long Programme Title That Must Also Not Overflow The Fixed-Height Dock',
+          currentStart: iso(-15),
+          currentEnd: iso(45),
+        }}
+        onStop={vi.fn()}
+      />
+    );
+    const name = screen.getByText(/An Extremely Long Channel Name/);
+    const programme = screen.getByText(/An Equally Long Programme Title/);
+    expect(name.className).toMatch(/truncate/);
+    expect(name.className).toMatch(/shrink-0/);
+    expect(name.className).toMatch(/max-w-\[40%\]/);
+    expect(programme.className).toMatch(/truncate/);
+    expect(programme.className).toMatch(/min-w-0/);
+    expect(programme.className).toMatch(/flex-1/);
+    const timeRange = container.querySelector('[data-time-range]');
+    expect(timeRange).not.toBeNull();
+    expect(timeRange!.className).toMatch(/shrink-0/);
+  });
+
+  it('gives the Stop button a visible-only focus ring', () => {
+    render(<NowPlayingBar channel={ch} onStop={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Stop playback' }).className).toMatch(
+      /focus-visible:outline-none/
+    );
+  });
 });
