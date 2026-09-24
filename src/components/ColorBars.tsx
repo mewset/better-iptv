@@ -1,4 +1,4 @@
-const BARS = ['#B9B9B9', '#B9B900', '#00B9B9', '#00B900', '#B900B9', '#B90000', '#0000B9'];
+export const BARS = ['#B9B9B9', '#B9B900', '#00B9B9', '#00B900', '#B900B9', '#B90000', '#0000B9'];
 
 /** Test-card placeholder for a channel or episode without artwork. */
 export function ColorBars({ label, className = '' }: { label: string; className?: string }) {
