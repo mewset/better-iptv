@@ -1,18 +1,30 @@
-import { useState } from 'react';
-import { KeyRound, Link, Plus } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, Info, KeyRound, Link, Plus, RefreshCw } from 'lucide-react';
 import { usePlayerStore } from '../stores/player-store';
-import { deletePlaylist, renamePlaylist } from '../lib/tauri';
+import {
+  deletePlaylist,
+  getChannels,
+  getPlaylistChannelCounts,
+  renamePlaylist,
+} from '../lib/tauri';
 import { logger } from '../lib/logger';
 import { useSubscriptionExpiries } from '../hooks/useSubscriptionExpiries';
 import { useProfileSwitch } from '../hooks/useProfileSwitch';
 import { formatSubscriptionExpiry } from '../lib/subscriptionExpiry';
+import { daysSince, refreshedAgo } from '../lib/relativeDays';
+import { cn } from '../lib/utils';
 import Setup from './Setup';
 import ErrorModal from './modals/ErrorModal';
+import RefreshModal from './modals/RefreshModal';
 import type { Playlist } from '../types';
 
 interface ProfileManagerProps {
   onClose: () => void; // Closes the Settings view, e.g. after the last profile is deleted
 }
+
+/** A subscription within this many days of ending (or already ended) reads as urgent. */
+const EXPIRY_SOON_DAYS = 60;
+const STALE_REFRESH_DAYS = 7;
 
 export default function ProfileManager({ onClose }: ProfileManagerProps) {
   const { playlists, activeProfileId, currentPlaylist, setCurrentPlaylist, setIsSetupComplete } =
@@ -24,10 +36,25 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
     playlists.filter((p) => p.xtream_username && p.id).map((p) => p.id!)
   );
 
+  const [channelCounts, setChannelCounts] = useState<Record<number, number>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    getPlaylistChannelCounts()
+      .then((counts) => {
+        if (!cancelled) setChannelCounts(counts);
+      })
+      .catch((err) => logger.debug('Failed to load playlist channel counts:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
   const [showDeleteWarning, setShowDeleteWarning] = useState<number | null>(null);
+  const [refreshingId, setRefreshingId] = useState<number | null>(null);
 
   // Error modal state
   const [showErrorModal, setShowErrorModal] = useState(false);
@@ -155,17 +182,45 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
     await handleActivateProfile(newPlaylist);
   };
 
+  // Refresh one profile's playlist, reloading its channels if it is the
+  // active one and refreshing every card's channel count afterwards.
+  const refreshTarget = playlists.find((p) => p.id === refreshingId) ?? null;
+
+  const handleRefreshComplete = async () => {
+    try {
+      setChannelCounts(await getPlaylistChannelCounts());
+    } catch (err) {
+      logger.debug('Failed to reload playlist channel counts after refresh:', err);
+    }
+
+    if (refreshTarget?.id && refreshTarget.id === currentPlaylist?.id) {
+      try {
+        const freshChannels = await getChannels(refreshTarget.id);
+        usePlayerStore.setState({ channels: freshChannels });
+      } catch (err) {
+        logger.error('Failed to reload channels after refresh:', err);
+      }
+    }
+  };
+
   return (
     <>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-text">Profiles</h3>
+      <div className="space-y-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="font-display text-2xl font-semibold text-text">Profiles</h2>
+            <p className="mt-1 text-sm text-text-muted">
+              Each profile is one playlist or provider. Switching profiles swaps the whole channel
+              list, favorites and guide.
+            </p>
+          </div>
           <button
+            type="button"
             onClick={() => setShowSetupModal(true)}
-            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-on-accent transition-colors hover:bg-accent-hover"
+            className="flex shrink-0 items-center gap-2 rounded-lg bg-accent px-4 py-2 text-on-accent transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
-            Create New Profile
+            Add profile
           </button>
         </div>
 
@@ -173,92 +228,155 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
           {playlists.map((playlist) => {
             const isActive = playlist.id === activeProfileId;
             const isEditing = editingId === playlist.id;
-            const type = playlist.xtream_username ? 'Xtream Codes' : 'M3U URL';
-            const expiryLine = formatSubscriptionExpiry(playlist.id ? expiries[playlist.id] : null);
+            const isXtream = Boolean(playlist.xtream_username);
+            const kind = isXtream ? 'Xtream Codes' : 'M3U';
+
+            const count = playlist.id !== undefined ? channelCounts[playlist.id] : undefined;
+            const countKnown = count !== undefined;
+
+            const refreshedLine = refreshedAgo(playlist.last_updated);
+            const refreshAgeDays = daysSince(playlist.last_updated);
+            const olderThanWeek = refreshAgeDays !== null && refreshAgeDays > STALE_REFRESH_DAYS;
+
+            const rawExpiry = playlist.id ? expiries[playlist.id] : null;
+            const expiryLine = formatSubscriptionExpiry(rawExpiry);
+            const expiryDate = rawExpiry ? new Date(rawExpiry) : null;
+            const daysUntilExpiry =
+              expiryDate && !Number.isNaN(expiryDate.getTime())
+                ? Math.floor((expiryDate.getTime() - Date.now()) / 86_400_000)
+                : null;
+            const expirySoon = daysUntilExpiry !== null && daysUntilExpiry <= EXPIRY_SOON_DAYS;
 
             return (
-              <div
+              <article
                 key={playlist.id}
-                className={`rounded-lg border-2 p-4 transition-all ${
-                  isActive ? 'border-accent bg-accent/10' : 'border-border-strong bg-surface'
-                }`}
+                className={cn(
+                  'flex items-center gap-5 rounded-2xl border p-5 transition-colors',
+                  isActive ? 'border-accent bg-text/5' : 'border-border'
+                )}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex flex-1 items-center gap-3">
-                    {type === 'Xtream Codes' ? (
-                      <KeyRound className="h-6 w-6 text-text-muted" aria-hidden="true" />
-                    ) : (
-                      <Link className="h-6 w-6 text-text-muted" aria-hidden="true" />
-                    )}
-                    <div className="flex-1">
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={editName}
-                          onChange={(e) => setEditName(e.target.value)}
-                          className="w-full rounded-md border border-border-strong bg-surface px-3 py-1 text-text"
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleSaveRename(playlist.id!);
-                            if (e.key === 'Escape') handleCancelRename();
-                          }}
-                        />
-                      ) : (
-                        <h3 className="font-semibold text-text">{playlist.name}</h3>
-                      )}
-                      <p className="text-sm text-text-muted">Type: {type}</p>
-                      {expiryLine && <p className="text-sm text-text-muted">{expiryLine}</p>}
-                    </div>
-                  </div>
+                <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[14px] border border-border bg-surface-2">
+                  {isXtream ? (
+                    <KeyRound
+                      className={cn('h-6 w-6', isActive ? 'text-accent-text' : 'text-text-muted')}
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <Link
+                      className={cn('h-6 w-6', isActive ? 'text-accent-text' : 'text-text-muted')}
+                      aria-hidden="true"
+                    />
+                  )}
+                </div>
 
-                  <div className="flex items-center gap-2">
-                    {isActive ? (
-                      <span className="rounded-full bg-accent px-3 py-1 text-sm font-medium text-on-accent">
-                        Active
+                <div className="min-w-0 flex-1">
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="w-full max-w-sm rounded-md border border-border-strong bg-surface px-3 py-1 text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveRename(playlist.id!);
+                        if (e.key === 'Escape') handleCancelRename();
+                      }}
+                    />
+                  ) : (
+                    <div className="flex min-w-0 items-center gap-2">
+                      <h3 className="truncate font-display text-xl font-semibold text-text">
+                        {playlist.name}
+                      </h3>
+                      <span className="shrink-0 rounded-md border border-border px-2 text-xs text-text-muted">
+                        {kind}
                       </span>
-                    ) : (
-                      <button
-                        onClick={() => handleActivateProfile(playlist)}
-                        className="rounded-md bg-accent px-3 py-1 text-sm font-medium text-on-accent transition-colors hover:bg-accent-hover"
-                      >
-                        Activate
-                      </button>
-                    )}
+                    </div>
+                  )}
 
-                    {isEditing ? (
-                      <>
-                        <button
-                          onClick={() => handleSaveRename(playlist.id!)}
-                          className="rounded-md bg-accent px-3 py-1 text-sm text-on-accent hover:bg-accent-hover"
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={handleCancelRename}
-                          className="rounded-md bg-surface-2 px-3 py-1 text-sm text-text hover:bg-surface-hover"
-                        >
-                          Cancel
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => handleStartRename(playlist)}
-                          className="rounded-md bg-surface-2 px-3 py-1 text-sm text-text hover:bg-surface-hover"
-                        >
-                          Rename
-                        </button>
-                        <button
-                          onClick={() => handleDeleteProfile(playlist.id!)}
-                          className="rounded-md bg-danger px-3 py-1 text-sm text-on-danger hover:bg-danger/90"
-                        >
-                          Delete
-                        </button>
-                      </>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] tabular-nums text-text-muted">
+                    {countKnown && <span>{count} channels</span>}
+                    {refreshedLine && <span>{refreshedLine}</span>}
+                    {expiryLine && (
+                      <span
+                        className={cn(
+                          'flex items-center gap-1',
+                          expirySoon ? 'font-semibold text-accent-text' : 'text-text-muted'
+                        )}
+                      >
+                        {expirySoon && <Info className="h-3.5 w-3.5" aria-hidden="true" />}
+                        {expiryLine}
+                      </span>
+                    )}
+                    {olderThanWeek && (
+                      <span className="flex items-center gap-1 text-text-muted">
+                        <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                        Older than a week
+                      </span>
                     )}
                   </div>
                 </div>
-              </div>
+
+                <div className="flex shrink-0 items-center gap-2">
+                  {isEditing ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleSaveRename(playlist.id!)}
+                        className="rounded-md bg-accent px-3 py-1.5 text-sm text-on-accent transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCancelRename}
+                        className="rounded-md border border-border-strong bg-text/5 px-3 py-1.5 text-sm text-text transition-colors hover:bg-text/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {isActive ? (
+                        <span className="flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-sm font-medium text-on-accent">
+                          <Check className="h-4 w-4" aria-hidden="true" />
+                          Active
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleActivateProfile(playlist)}
+                          aria-label={`Switch to ${playlist.name}`}
+                          className="rounded-full border border-border-strong bg-text/5 px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-text/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        >
+                          Switch to
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => handleStartRename(playlist)}
+                        className="rounded px-2 py-1 text-sm text-text-muted transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      >
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRefreshingId(playlist.id!)}
+                        className="rounded px-2 py-1 text-sm text-text-muted transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      >
+                        Refresh
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteProfile(playlist.id!)}
+                        className="rounded px-2 py-1 text-sm text-text-muted transition-colors hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </div>
+              </article>
             );
           })}
         </div>
@@ -317,6 +435,17 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
         title="Failed to switch profile"
         message={switchError ?? ''}
       />
+
+      {/* Per-profile refresh, triggered by a card's Refresh button */}
+      {refreshTarget?.id && (
+        <RefreshModal
+          isOpen={true}
+          onClose={() => setRefreshingId(null)}
+          playlistId={refreshTarget.id}
+          playlistName={refreshTarget.name}
+          onRefreshComplete={handleRefreshComplete}
+        />
+      )}
     </>
   );
 }

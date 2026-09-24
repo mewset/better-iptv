@@ -9,16 +9,20 @@ vi.mock('../../lib/tauri', () => ({
   deletePlaylist: vi.fn(),
   renamePlaylist: vi.fn(),
   getChannels: vi.fn(async () => []),
-  getSubscriptionExpiry: vi.fn(async (id: number) =>
-    id === 1 ? '2026-02-01T00:00:00+00:00' : '2099-03-15T00:00:00+00:00'
-  ),
+  getSubscriptionExpiry: vi.fn(),
+  getPlaylistChannelCounts: vi.fn(),
   importPlaylist: vi.fn(),
   importXtreamPlaylist: vi.fn(),
 }));
 
-import { getSubscriptionExpiry } from '../../lib/tauri';
+import { getSubscriptionExpiry, getPlaylistChannelCounts } from '../../lib/tauri';
 
-function playlist(id: number, name: string, xtream: boolean): Playlist {
+function playlist(
+  id: number,
+  name: string,
+  xtream: boolean,
+  extra: Partial<Playlist> = {}
+): Playlist {
   return {
     id,
     name,
@@ -26,6 +30,7 @@ function playlist(id: number, name: string, xtream: boolean): Playlist {
     auto_refresh: false,
     xtream_username: xtream ? 'user' : undefined,
     xtream_password: xtream ? 'pass' : undefined,
+    ...extra,
   };
 }
 
@@ -36,6 +41,16 @@ function setProfiles(playlists: Playlist[]) {
 describe('ProfileManager subscription expiry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // A per-test-suite default map; individual ids used across the file:
+    // 1 = expired long ago, 2 = expires far in the future, 4 = expires soon.
+    vi.mocked(getSubscriptionExpiry).mockImplementation(async (id: number) => {
+      if (id === 1) return '2026-02-01T00:00:00+00:00';
+      if (id === 2) return '2099-03-15T00:00:00+00:00';
+      if (id === 4) return new Date(Date.now() + 30 * 86_400_000).toISOString();
+      return null;
+    });
+    vi.mocked(getPlaylistChannelCounts).mockResolvedValue({});
   });
 
   it('shows the expiry on the card of the profile it belongs to', async () => {
@@ -63,5 +78,42 @@ describe('ProfileManager subscription expiry', () => {
     await waitFor(() => expect(screen.getByText('Plain M3U')).toBeInTheDocument());
     expect(screen.queryByText(/Subscription end/)).not.toBeInTheDocument();
     expect(getSubscriptionExpiry).not.toHaveBeenCalled();
+  });
+
+  it('gives an expiry within 60 days the accent treatment', async () => {
+    setProfiles([playlist(4, 'Expiring Soon Provider', true)]);
+
+    render(<ProfileManager onClose={vi.fn()} />);
+
+    const line = await screen.findByText(/Subscription ends/);
+    expect(line).toHaveClass('text-accent-text');
+    expect(line).toHaveClass('font-semibold');
+  });
+
+  it('does not give a far-future expiry the accent treatment', async () => {
+    setProfiles([playlist(2, 'Live Provider', true)]);
+
+    render(<ProfileManager onClose={vi.fn()} />);
+
+    const line = await screen.findByText(/Subscription ends/);
+    expect(line).not.toHaveClass('text-accent-text');
+  });
+
+  it('flags a playlist refreshed more than a week ago', async () => {
+    const nineDaysAgo = new Date(Date.now() - 9 * 86_400_000).toISOString();
+    setProfiles([playlist(5, 'Stale Cabin', false, { last_updated: nineDaysAgo })]);
+
+    render(<ProfileManager onClose={vi.fn()} />);
+
+    expect(await screen.findByText('Older than a week')).toBeInTheDocument();
+  });
+
+  it('renders the channel count from get_playlist_channel_counts', async () => {
+    vi.mocked(getPlaylistChannelCounts).mockResolvedValue({ 6: 42 });
+    setProfiles([playlist(6, 'Counted Provider', false)]);
+
+    render(<ProfileManager onClose={vi.fn()} />);
+
+    expect(await screen.findByText('42 channels')).toBeInTheDocument();
   });
 });

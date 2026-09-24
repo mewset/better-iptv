@@ -65,6 +65,19 @@ export async function getStalePlaylistIds(): Promise<number[]> {
   return await invoke('get_stale_playlist_ids');
 }
 
+/**
+ * Channel count per playlist, for the profile cards. A playlist with no
+ * channels is absent from the map rather than mapped to 0.
+ *
+ * serde turns the Rust side's `HashMap<i64, i64>` keys into JSON object keys,
+ * which are always strings, so the wire payload has string keys even though
+ * they are playlist ids; this converts them back to numbers.
+ */
+export async function getPlaylistChannelCounts(): Promise<Record<number, number>> {
+  const raw = await invoke<Record<string, number>>('get_playlist_channel_counts');
+  return Object.fromEntries(Object.entries(raw).map(([id, count]) => [Number(id), count]));
+}
+
 // ========== Channel Commands ==========
 
 export async function getChannels(playlistId?: number): Promise<Channel[]> {

@@ -37,6 +37,7 @@ vi.mock('../../lib/tauri', () => ({
   deletePlaylist: vi.fn(async () => {}),
   setActiveProfileId: vi.fn(async () => {}),
   getSubscriptionExpiry: vi.fn(async () => null),
+  getPlaylistChannelCounts: vi.fn(async () => ({})),
 }));
 
 /** Settings next to the global shortcuts, as MainScreen mounts them. */
