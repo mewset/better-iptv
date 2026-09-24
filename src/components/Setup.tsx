@@ -42,8 +42,8 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
   // as "not found" rather than left in an unknown state.
   const [mpvInstalled, setMpvInstalled] = useState<boolean | null>(null);
 
-  const m3uTabRef = useRef<HTMLButtonElement>(null);
-  const xtreamTabRef = useRef<HTMLButtonElement>(null);
+  const m3uTabRef = useRef<globalThis.HTMLButtonElement>(null);
+  const xtreamTabRef = useRef<globalThis.HTMLButtonElement>(null);
 
   const { setIsSetupComplete, setChannels, setIsLoading, setCurrentPlaylist, isLoading } =
     usePlayerStore();
@@ -90,7 +90,7 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
   // Tabs keyboard model (WAI-ARIA APG): ArrowLeft/ArrowRight move between
   // tabs and select the newly-focused one (automatic activation). With only
   // two tabs, either arrow key just swaps to the other one.
-  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+  const handleTabKeyDown = (e: React.KeyboardEvent<globalThis.HTMLButtonElement>) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
     const next: ImportType = importType === 'm3u' ? 'xtream' : 'm3u';
