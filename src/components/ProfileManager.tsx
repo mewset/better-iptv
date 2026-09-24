@@ -5,6 +5,7 @@ import {
   deletePlaylist,
   getChannels,
   getPlaylistChannelCounts,
+  getPlaylists,
   renamePlaylist,
 } from '../lib/tauri';
 import { logger } from '../lib/logger';
@@ -27,8 +28,15 @@ const EXPIRY_SOON_DAYS = 60;
 const STALE_REFRESH_DAYS = 7;
 
 export default function ProfileManager({ onClose }: ProfileManagerProps) {
-  const { playlists, activeProfileId, currentPlaylist, setCurrentPlaylist, setIsSetupComplete } =
-    usePlayerStore();
+  const {
+    playlists,
+    activeProfileId,
+    currentPlaylist,
+    setCurrentPlaylist,
+    setIsSetupComplete,
+    setChannels,
+    setPlaylists,
+  } = usePlayerStore();
 
   // Only Xtream profiles have a subscription; an M3U profile is a plain file
   // or address and the backend has nothing to ask about.
@@ -190,7 +198,8 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
   };
 
   // Refresh one profile's playlist, reloading its channels if it is the
-  // active one and refreshing every card's channel count afterwards.
+  // active one and refreshing every card's channel count and refresh date
+  // afterwards.
   const refreshTarget = playlists.find((p) => p.id === refreshingId) ?? null;
 
   const handleRefreshComplete = async () => {
@@ -200,10 +209,16 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
       logger.debug('Failed to reload playlist channel counts after refresh:', err);
     }
 
+    try {
+      setPlaylists(await getPlaylists());
+    } catch (err) {
+      logger.debug('Failed to reload playlists after refresh:', err);
+    }
+
     if (refreshTarget?.id && refreshTarget.id === currentPlaylist?.id) {
       try {
         const freshChannels = await getChannels(refreshTarget.id);
-        usePlayerStore.setState({ channels: freshChannels });
+        setChannels(freshChannels);
       } catch (err) {
         logger.error('Failed to reload channels after refresh:', err);
       }
