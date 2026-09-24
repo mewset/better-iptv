@@ -5,6 +5,8 @@ import { ColorBars } from './ColorBars';
 interface MoviesHeroProps {
   channel: Channel;
   onPlay: (channel: Channel) => void;
+  /** This title is the one playing: the button reads "Playing" and is inert (play would toggle it off). */
+  isPlaying?: boolean;
 }
 
 /**
@@ -13,7 +15,7 @@ interface MoviesHeroProps {
  * virtualiser by the caller (`MainScreen`) — this component only renders the
  * row's content, it does not manage its own position or measurement.
  */
-export function MoviesHero({ channel, onPlay }: MoviesHeroProps) {
+export function MoviesHero({ channel, onPlay, isPlaying = false }: MoviesHeroProps) {
   return (
     <section
       aria-label="Recently added"
@@ -46,12 +48,16 @@ export function MoviesHero({ channel, onPlay }: MoviesHeroProps) {
         <p className="text-[13px] text-text-muted">{channel.group_name ?? ''}</p>
         <button
           type="button"
-          aria-label={`Play ${channel.name}`}
-          onClick={() => onPlay(channel)}
-          className="flex h-11 w-fit items-center gap-2 rounded-xl bg-accent px-5 font-bold text-on-accent focus-visible:ring-2 focus-visible:ring-accent"
+          aria-label={`${isPlaying ? 'Playing' : 'Play'} ${channel.name}`}
+          disabled={isPlaying}
+          aria-disabled={isPlaying}
+          onClick={() => {
+            if (!isPlaying) onPlay(channel);
+          }}
+          className="flex h-11 w-fit items-center gap-2 rounded-xl bg-accent px-5 font-bold text-on-accent focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default"
         >
-          <Play className="h-4 w-4" aria-hidden="true" />
-          <span>Play</span>
+          {!isPlaying && <Play className="h-4 w-4" aria-hidden="true" />}
+          <span>{isPlaying ? 'Playing' : 'Play'}</span>
         </button>
       </div>
     </section>

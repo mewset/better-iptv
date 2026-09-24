@@ -152,6 +152,18 @@ describe('GuideView', () => {
     expect(panel.querySelector('[data-progress]')).not.toBeNull();
   });
 
+  it('Watch now reads "Playing" and does nothing when that channel already plays', async () => {
+    const props = renderGuide({ playingChannelId: 1 });
+    fireEvent.click(await screen.findByRole('button', { name: blockName(airing, 'SVT1') }));
+    const panel = screen.getByRole('region', { name: 'Selected programme' });
+    expect(within(panel).queryByRole('button', { name: 'Watch now' })).toBeNull();
+    const button = within(panel).getByRole('button', { name: 'Playing' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(button);
+    expect(props.onPlay).not.toHaveBeenCalled();
+  });
+
   it('a later programme has no minutes left and no progress', async () => {
     renderGuide();
     fireEvent.click(await screen.findByRole('button', { name: blockName(later, 'SVT1') }));

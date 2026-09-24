@@ -193,11 +193,13 @@ interface DetailPanelProps {
   selection: Selection;
   now: number;
   dockVisible: boolean;
+  /** The selected channel is the one playing: Watch now would toggle it off. */
+  playing: boolean;
   onWatch: (channel: Channel) => void;
   onClose: () => void;
 }
 
-function DetailPanel({ selection, now, dockVisible, onWatch, onClose }: DetailPanelProps) {
+function DetailPanel({ selection, now, dockVisible, playing, onWatch, onClose }: DetailPanelProps) {
   const { channel, program } = selection;
   const airing = isAiring(program, now);
   const range = timeRange(program);
@@ -245,11 +247,15 @@ function DetailPanel({ selection, now, dockVisible, onWatch, onClose }: DetailPa
 
       <button
         type="button"
-        onClick={() => onWatch(channel)}
-        className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+        disabled={playing}
+        aria-disabled={playing}
+        onClick={() => {
+          if (!playing) onWatch(channel);
+        }}
+        className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-default disabled:hover:bg-accent"
       >
-        <Play className="h-4 w-4 fill-current" aria-hidden="true" />
-        Watch now
+        {!playing && <Play className="h-4 w-4 fill-current" aria-hidden="true" />}
+        {playing ? 'Playing' : 'Watch now'}
       </button>
       <button
         type="button"
@@ -511,6 +517,7 @@ export function GuideView({
           selection={selection}
           now={now}
           dockVisible={dockVisible}
+          playing={playingChannelId === selection.channel.id}
           onWatch={onPlay}
           onClose={() => setSelection(null)}
         />

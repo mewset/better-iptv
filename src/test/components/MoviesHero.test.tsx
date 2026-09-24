@@ -29,6 +29,18 @@ describe('MoviesHero', () => {
     expect(onPlay).toHaveBeenCalledWith(movie);
   });
 
+  it('reads "Playing", disabled and inert, while this title is the one playing', () => {
+    const onPlay = vi.fn();
+    render(<MoviesHero channel={movie} onPlay={onPlay} isPlaying />);
+
+    const button = screen.getByRole('button', { name: 'Playing Dune: Part Two' });
+    expect(button).toHaveTextContent('Playing');
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(button);
+    expect(onPlay).not.toHaveBeenCalled();
+  });
+
   it('is labelled as a "Recently added" section', () => {
     render(<MoviesHero channel={movie} onPlay={vi.fn()} />);
     expect(screen.getByRole('region', { name: 'Recently added' })).toBeInTheDocument();

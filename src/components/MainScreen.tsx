@@ -575,7 +575,11 @@ export default function MainScreen() {
                               uses (272 + 20); the row still measures its own
                               real height via `measureElement` above. */}
                           <div className="pb-5">
-                            <MoviesHero channel={heroChannel!} onPlay={handlePlayChannel} />
+                            <MoviesHero
+                              channel={heroChannel!}
+                              onPlay={handlePlayChannel}
+                              isPlaying={isPlaying && currentChannel?.id === heroChannel!.id}
+                            />
                           </div>
                         </div>
                       );
