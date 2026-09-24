@@ -80,6 +80,55 @@ describe('useEpgData', () => {
     });
   });
 
+  it('always includes the playing channel in the batch, even when it is not in the list', async () => {
+    vi.mocked(getChannelsEpg).mockResolvedValue({
+      'svt1.se': {
+        current: 'Rapport',
+        current_start: null,
+        current_end: null,
+        next: null,
+        next_start: null,
+      },
+    });
+    const visible = [makeChannel({ id: 1, name: 'SVT1', epg_id: 'svt1.se' })];
+    const playing = makeChannel({ id: 9, name: 'Kanal 5', epg_id: 'kanal5.se' });
+
+    renderHook(() => useEpgData(visible, playing));
+
+    await waitFor(() => expect(getChannelsEpg).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    expect(vi.mocked(getChannelsEpg).mock.calls[0][0]).toEqual(
+      expect.arrayContaining(['svt1.se', 'kanal5.se'])
+    );
+  });
+
+  it('refetches the playing channel when its cached programme has ended', async () => {
+    const past = (m: number) => new Date(Date.now() - m * 60000).toISOString();
+    const playing = makeChannel({ id: 9, name: 'Kanal 5', epg_id: 'kanal5.se' });
+    usePlayerStore.setState({
+      channelEpgData: new Map([
+        [9, { current: 'Old show', currentStart: past(90), currentEnd: past(30) }],
+      ]),
+    });
+    vi.mocked(getChannelsEpg).mockResolvedValue({
+      'kanal5.se': {
+        current: 'New show',
+        current_start: null,
+        current_end: null,
+        next: null,
+        next_start: null,
+      },
+    });
+
+    renderHook(() => useEpgData([], playing));
+
+    await waitFor(() => expect(getChannelsEpg).toHaveBeenCalledWith(['kanal5.se']), {
+      timeout: 2000,
+    });
+    await waitFor(() =>
+      expect(usePlayerStore.getState().channelEpgData.get(9)?.current).toBe('New show')
+    );
+  });
+
   it('does not call the backend when no channel has an epg_id', async () => {
     renderHook(() => useEpgData([makeChannel({ id: 1 })]));
 

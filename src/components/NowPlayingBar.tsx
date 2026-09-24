@@ -28,7 +28,7 @@ interface NowPlayingBarProps {
  */
 export const NowPlayingBar = memo(function NowPlayingBar({
   channel,
-  epg,
+  epg: cachedEpg,
   currentProgram,
   nextProgram,
   onStop,
@@ -41,6 +41,11 @@ export const NowPlayingBar = memo(function NowPlayingBar({
     setLogoFailed(false);
   }, [channel.id, channel.logo]);
   const showLogo = Boolean(channel.logo) && !logoFailed;
+
+  // A cached entry whose programme already ended is stale (the refetch has
+  // not landed yet): drop it and use the playback strings instead.
+  const endMs = cachedEpg?.currentEnd ? Date.parse(cachedEpg.currentEnd) : NaN;
+  const epg = !Number.isNaN(endMs) && endMs <= Date.now() ? undefined : cachedEpg;
 
   const programme = epg?.current ?? currentProgram ?? null;
   const next = epg?.next ?? nextProgram ?? null;

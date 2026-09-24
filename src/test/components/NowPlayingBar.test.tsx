@@ -83,6 +83,30 @@ describe('NowPlayingBar', () => {
     expect(screen.getByText('Sport', { exact: false })).toBeInTheDocument();
   });
 
+  it('ignores a cached epg entry whose programme has already ended and uses the fallback strings', () => {
+    const { container } = render(
+      <NowPlayingBar
+        channel={ch}
+        epg={{
+          current: 'Old show',
+          currentStart: iso(-90),
+          currentEnd: iso(-30),
+          next: 'Old next',
+          nextStart: iso(-30),
+        }}
+        currentProgram="Fresh show"
+        nextProgram="Fresh next"
+        onStop={vi.fn()}
+      />
+    );
+    expect(screen.queryByText('Old show')).toBeNull();
+    expect(screen.queryByText(/Old next/)).toBeNull();
+    expect(screen.getByText('Fresh show')).toBeInTheDocument();
+    expect(screen.getByText(/Fresh next/)).toBeInTheDocument();
+    expect(container.querySelector('[data-progress]')).toBeNull();
+    expect(container.textContent).not.toMatch(/min left/);
+  });
+
   it('calls onStop when the stop button is clicked', () => {
     const onStop = vi.fn();
     render(<NowPlayingBar channel={ch} onStop={onStop} />);

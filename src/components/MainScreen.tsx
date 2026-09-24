@@ -118,8 +118,9 @@ export default function MainScreen() {
   const parentalVisibility = usePlayerStore((s) => s.parentalVisibility);
   const loadParentalSettings = usePlayerStore((s) => s.loadParentalSettings);
 
-  // Use consolidated EPG hook for channel EPG data (with debouncing and caching)
-  const { channelEpgData } = useEpgData(filteredChannels);
+  // Use consolidated EPG hook for channel EPG data (with debouncing and
+  // caching). The playing channel always rides along so the dock stays fresh.
+  const { channelEpgData } = useEpgData(filteredChannels, currentChannel);
 
   const [selectedSeries, setSelectedSeries] = useState<Channel | null>(null);
   // The profile the series was opened under. A series belongs to one
