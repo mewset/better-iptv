@@ -170,7 +170,14 @@ export default function MainScreen() {
     blockedCategories,
   ]);
 
-  // Virtual scrolling setup - virtualize by rows (dynamic items per row)
+  // Virtual scrolling setup - virtualize by rows (dynamic items per row).
+  // Live and poster rows are genuinely different heights (fixed 208px vs a
+  // formula that depends on the viewport and, until Task 13's rail lands,
+  // real padding this component doesn't model). `estimatedRowHeight` is only
+  // the *initial guess* for a not-yet-rendered row; each row measures its own
+  // actual height via `measureElement` below, which is what keeps rows from
+  // overlapping when that guess is wrong or when a kind switch would
+  // otherwise leave stale cached sizes from the other kind's rows.
   const rowCount = Math.ceil(filteredChannels.length / columns);
 
   const rowVirtualizer = useVirtualizer({
@@ -179,6 +186,15 @@ export default function MainScreen() {
     estimateSize: () => estimatedRowHeight,
     overscan: 5, // Pre-render 5 rows above/below for smoother scroll on large lists
   });
+
+  // A `kind` (and therefore column count) switch invalidates every cached row
+  // measurement: a Live row and a Movies row can coincidentally share the
+  // same rowCount, so TanStack Virtual has no other signal that the old
+  // sizes no longer apply. Force a remeasure so the new kind's rows don't
+  // inherit the previous kind's cached heights.
+  useEffect(() => {
+    rowVirtualizer.measure();
+  }, [kind, columns, rowVirtualizer]);
 
   const handlePlayChannel = useCallback(
     async (channel: Channel) => {
@@ -365,16 +381,26 @@ export default function MainScreen() {
                 return (
                   <div
                     key={virtualRow.key}
+                    ref={rowVirtualizer.measureElement}
+                    data-index={virtualRow.index}
                     style={{
                       position: 'absolute',
                       top: 0,
                       left: 0,
                       width: '100%',
-                      height: `${virtualRow.size}px`,
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
                   >
-                    <div className={`grid ${getGridClasses(columns)} gap-4`}>
+                    {/* No forced height: the row measures its own real
+                        content height via `measureElement` above, since a
+                        formula-only estimate drifts from the actual layout
+                        (padding, scrollbar, and — until Task 13's rail lands
+                        — the missing 72px rail this task's height formula
+                        already assumes). `pb-4` carries the 16px row gap
+                        inside the measured element, because rows are
+                        absolutely positioned and stacked by `translateY`
+                        rather than a normal-flow gap. */}
+                    <div className={`grid ${getGridClasses(columns)} gap-4 pb-4`}>
                       {rowItems.map((channel) => {
                         const isChannelBlocked = blockedMap.get(channel.id!) ?? false;
 

@@ -114,20 +114,19 @@ export const PosterCard = memo(function PosterCard({
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                aria-label={`${isSeries ? 'Open' : 'Play'} ${channel.name}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   onOpen(channel);
                 }}
-                className="flex h-9 flex-1 items-center justify-center gap-1.5 truncate rounded-[10px] bg-accent px-2 text-sm font-semibold text-on-accent focus-visible:ring-2 focus-visible:ring-accent"
+                className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-[10px] bg-accent px-2 text-sm font-semibold text-on-accent focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {isSeries ? (
                   <Clapperboard className="h-4 w-4 shrink-0" aria-hidden="true" />
                 ) : (
                   <Play className="h-4 w-4 shrink-0" aria-hidden="true" />
                 )}
-                <span className="truncate">
-                  {isSeries ? 'Open' : 'Play'} {channel.name}
-                </span>
+                <span>{isSeries ? 'Open' : 'Play'}</span>
               </button>
               <button
                 type="button"
