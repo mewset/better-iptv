@@ -81,4 +81,23 @@ describe('live ChannelCard', () => {
       expect(onPlay).toHaveBeenCalledWith(ch);
     }
   );
+
+  it.each(['lock', 'blur'] as const)(
+    'in %s mode exposes only the unlock control, not favourite or play',
+    (mode) => {
+      render(
+        <ChannelCard
+          channel={ch}
+          isPlaying={false}
+          onPlay={vi.fn()}
+          isBlocked
+          parentalVisibility={mode}
+        />
+      );
+      expect(screen.queryByRole('button', { name: 'Play SVT1' })).toBeNull();
+      expect(screen.queryByRole('button', { name: /favorites/i })).toBeNull();
+      expect(screen.getAllByRole('button')).toHaveLength(1);
+      expect(screen.getByRole('button', { name: 'Unlock SVT1 with PIN' })).toBeInTheDocument();
+    }
+  );
 });

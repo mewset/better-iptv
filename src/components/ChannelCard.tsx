@@ -86,42 +86,50 @@ export const ChannelCard = memo(function ChannelCard({
           </span>
         )}
 
-        <button
-          type="button"
-          aria-label={channel.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleFavorite?.(channel.id);
-          }}
-          className={`absolute right-2 top-2 flex h-[30px] w-[30px] items-center justify-center rounded-full bg-black/35 transition-opacity focus-visible:ring-2 focus-visible:ring-accent ${
-            channel.is_favorite
-              ? 'opacity-100'
-              : 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100'
-          }`}
-        >
-          <Star
-            className={`h-4 w-4 ${
-              channel.is_favorite ? 'fill-current text-accent-text' : 'text-[#F2F2F0]/55'
-            }`}
-            aria-hidden="true"
-          />
-        </button>
+        {/* A blocked card's only control is the unlock button below: the
+            favourite and play/stop buttons are not rendered here at all, so a
+            blocked channel never exposes a way to favourite it (no PIN
+            required) or a second, invisible tab stop underneath the overlay. */}
+        {!blocked && (
+          <>
+            <button
+              type="button"
+              aria-label={channel.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFavorite?.(channel.id);
+              }}
+              className={`absolute right-2 top-2 flex h-[30px] w-[30px] items-center justify-center rounded-full bg-black/35 transition-opacity focus-visible:ring-2 focus-visible:ring-accent ${
+                channel.is_favorite
+                  ? 'opacity-100'
+                  : 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100'
+              }`}
+            >
+              <Star
+                className={`h-4 w-4 ${
+                  channel.is_favorite ? 'fill-current text-accent-text' : 'text-[#F2F2F0]/55'
+                }`}
+                aria-hidden="true"
+              />
+            </button>
 
-        <button
-          type="button"
-          aria-label={isPlaying ? `Stop ${channel.name}` : `Play ${channel.name}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onPlay(channel);
-          }}
-          className="absolute left-1/2 top-1/2 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-accent text-on-accent opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100"
-        >
-          {isPlaying ? (
-            <Square className="h-4 w-4" aria-hidden="true" />
-          ) : (
-            <Play className="h-4 w-4" aria-hidden="true" />
-          )}
-        </button>
+            <button
+              type="button"
+              aria-label={isPlaying ? `Stop ${channel.name}` : `Play ${channel.name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onPlay(channel);
+              }}
+              className="absolute left-1/2 top-1/2 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-accent text-on-accent opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100"
+            >
+              {isPlaying ? (
+                <Square className="h-4 w-4" aria-hidden="true" />
+              ) : (
+                <Play className="h-4 w-4" aria-hidden="true" />
+              )}
+            </button>
+          </>
+        )}
 
         {pct !== null && (
           <div data-progress className="absolute inset-x-0 bottom-0 h-[3px] bg-text/10">
@@ -149,16 +157,16 @@ export const ChannelCard = memo(function ChannelCard({
           </p>
         ) : epg?.current ? (
           <>
-            <div className="flex items-baseline gap-1.5">
+            <div className="flex items-baseline gap-1.5 text-[13px]">
               {nowTime && (
                 <span className="font-semibold tabular-nums text-accent-text">{nowTime}</span>
               )}
-              <span className="truncate text-[13px] text-text">{epg.current}</span>
+              <span className="truncate text-text">{epg.current}</span>
             </div>
             {epg.next && (
-              <div className="flex items-baseline gap-1.5">
-                {nextTime && <span className="text-text-faint">{nextTime}</span>}
-                <span className="truncate text-xs text-text-faint">{epg.next}</span>
+              <div className="flex items-baseline gap-1.5 text-xs">
+                {nextTime && <span className="tabular-nums text-text-faint">{nextTime}</span>}
+                <span className="truncate text-text-faint">{epg.next}</span>
               </div>
             )}
           </>
@@ -168,6 +176,10 @@ export const ChannelCard = memo(function ChannelCard({
       </div>
 
       {blocked && (
+        // backdrop-blur on a list item is otherwise off-limits (see global
+        // constraints), but the parental "blur" visibility mode is this
+        // exception by definition: it is the opt-in feature this button
+        // renders, not incidental glass styling, so the blur stays.
         <button
           type="button"
           aria-label={`Unlock ${channel.name} with PIN`}
