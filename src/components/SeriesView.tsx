@@ -55,7 +55,7 @@ export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: Series
 
   if (isLoading) {
     return (
-      <div className="flex h-screen flex-col bg-bg">
+      <div className="flex h-full min-h-0 flex-col bg-bg">
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
             <div className="mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4 border-accent border-t-transparent"></div>
@@ -68,7 +68,7 @@ export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: Series
 
   if (error || !currentSeries) {
     return (
-      <div className="flex h-screen flex-col bg-bg">
+      <div className="flex h-full min-h-0 flex-col bg-bg">
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
             <p className="mb-4 font-medium text-danger">{error || 'Failed to load series'}</p>
@@ -87,7 +87,7 @@ export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: Series
   const selectedSeasonEpisodes = selectedSeason ? currentSeries.episodes[selectedSeason] || [] : [];
 
   return (
-    <div className="flex h-screen flex-col bg-bg">
+    <div className="flex h-full min-h-0 flex-col bg-bg">
       {/* Header */}
       <div className="border-b border-border bg-surface p-4">
         <div className="mx-auto max-w-7xl">

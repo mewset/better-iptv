@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { usePlayerStore } from '../stores/player-store';
+import { usePlayerStore, type Section } from '../stores/player-store';
 import {
   getChannelGroups,
   getStalePlaylistIds,
@@ -11,10 +11,10 @@ import {
 import { CategoryBar } from './CategoryBar';
 import { ChannelCard } from './ChannelCard';
 import { PosterCard } from './PosterCard';
-import { SearchBar } from './SearchBar';
-import { ContentTypeTabs } from './ContentTypeTabs';
 import { NowPlayingBar } from './NowPlayingBar';
-import { Settings as SettingsIcon } from 'lucide-react';
+import { Rail } from './Rail';
+import { TopBar } from './TopBar';
+import { Search } from 'lucide-react';
 import SeriesView from './SeriesView';
 import SettingsModal from './Settings';
 import PinEntryModal from './modals/PinEntryModal';
@@ -39,10 +39,45 @@ function parseXtreamSeriesId(url: string): number | null {
   return Number.isNaN(id) ? null : id;
 }
 
-export default function MainScreen() {
-  // Channel data
-  const channels = usePlayerStore((s) => s.channels);
+const SECTION_TITLES: Record<Section, string> = {
+  live: 'Live TV',
+  vod: 'Movies',
+  series: 'Series',
+  favorites: 'Favorites',
+  guide: 'TV Guide',
+};
 
+// [singular, plural] count nouns per section. While a search spans every
+// content type the list is no longer one kind, so it counts "results".
+const SECTION_COUNT_NOUNS: Record<Exclude<Section, 'guide'>, [string, string]> = {
+  live: ['channel', 'channels'],
+  vod: ['title', 'titles'],
+  series: ['series', 'series'],
+  favorites: ['favorite', 'favorites'],
+};
+const RESULT_NOUNS: [string, string] = ['result', 'results'];
+
+function countLabel(n: number, [one, many]: [string, string]): string {
+  return `${n.toLocaleString()} ${n === 1 ? one : many}`;
+}
+
+const guideDateFormat = new Intl.DateTimeFormat(undefined, {
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+});
+const guideTimeFormat = new Intl.DateTimeFormat(undefined, {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+/** "Thursday 24 September · 20:12" in the user's locale; render-time value. */
+function guideSubtitle(now: Date): string {
+  return `${guideDateFormat.format(now)} · ${guideTimeFormat.format(now)}`;
+}
+
+export default function MainScreen() {
   // Search & filters
   const searchQuery = usePlayerStore((s) => s.searchQuery);
   const contentTypeFilter = usePlayerStore((s) => s.contentTypeFilter);
@@ -82,7 +117,13 @@ export default function MainScreen() {
   const { channelEpgData } = useEpgData(filteredChannels);
 
   const [selectedSeries, setSelectedSeries] = useState<Channel | null>(null);
+  // Settings becomes a view in Task 15; until then 'settings' is never set
+  // and the Settings rail button opens the modal below.
+  const [view, setView] = useState<'browse' | 'series' | 'settings'>('browse');
   const [showSettings, setShowSettings] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const playlists = usePlayerStore((s) => s.playlists);
+  const activeProfileId = usePlayerStore((s) => s.activeProfileId);
   const [showPinModal, setShowPinModal] = useState(false);
   const [pendingChannel, setPendingChannel] = useState<Channel | null>(null);
   const parentRef = useRef<HTMLDivElement>(null);
@@ -229,6 +270,7 @@ export default function MainScreen() {
       const result = await playChannelAction(channel);
       if (result?.type === 'series') {
         setSelectedSeries(result.channel);
+        setView('series');
       }
     },
     [playChannelAction]
@@ -299,156 +341,181 @@ export default function MainScreen() {
     await stopPlaybackAction();
   }, [stopPlaybackAction]);
 
-  // If a series is selected, show the SeriesView. Its own error screen covers
-  // an unparsable Xtream URL, so the dedicated fallback is gone.
-  if (selectedSeries) {
-    return (
-      <SeriesView
-        loadSeries={loadSeries}
-        onBack={() => setSelectedSeries(null)}
-        onPlayEpisode={handlePlayEpisode}
-      />
-    );
+  const closeSeries = useCallback(() => {
+    setSelectedSeries(null);
+    setView('browse');
+  }, []);
+
+  const handleSection = useCallback(
+    (section: Section) => {
+      setContentTypeFilter(section);
+      closeSeries();
+    },
+    [setContentTypeFilter, closeSeries]
+  );
+
+  const handleOpenUpdate = useCallback(() => {
+    if (!update) return;
+    openUrl(update.url).catch((err) => logger.warn('Failed to open the release page:', err));
+  }, [update]);
+
+  const activeProfile = playlists.find((p) => p.id === activeProfileId);
+  const profileInitial = activeProfile?.name.trim().charAt(0).toUpperCase() || '?';
+
+  const trimmedQuery = debouncedSearchQuery.trim();
+
+  // Title and count follow the section; the count is the filtered list, not
+  // the playlist total.
+  let title = SECTION_TITLES[contentTypeFilter];
+  let subtitle =
+    contentTypeFilter === 'guide'
+      ? guideSubtitle(new Date())
+      : countLabel(
+          filteredChannels.length,
+          trimmedQuery ? RESULT_NOUNS : SECTION_COUNT_NOUNS[contentTypeFilter]
+        );
+  if (view === 'settings') {
+    title = 'Settings';
+    subtitle = 'Ctrl+1–6 switches sections';
+  } else if (view === 'series' && selectedSeries) {
+    subtitle = selectedSeries.name;
   }
 
   return (
-    <div className="flex h-screen flex-col bg-gray-50 dark:bg-gray-900">
-      {/* Header */}
-      <div className="border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-        <div className="mx-auto flex items-center justify-between px-2">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Better IPTV</h1>
-            {update && (
-              <button
-                onClick={() =>
-                  openUrl(update.url).catch((err) =>
-                    logger.warn('Failed to open the release page:', err)
-                  )
-                }
-                title={`Better IPTV ${update.version} is available`}
-                className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
-              >
-                {update.version} available
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600 dark:text-gray-400">
-              {channels.length} channels
-            </span>
-            <button
-              onClick={() => setShowSettings(true)}
-              className="rounded-lg p-2 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
-              title="Settings"
-            >
-              <SettingsIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Search Bar */}
-      <SearchBar ref={searchInputRef} value={searchQuery} onChange={setSearchQuery} />
-
-      {/* Content Type Tabs */}
-      <ContentTypeTabs activeFilter={contentTypeFilter} onFilterChange={setContentTypeFilter} />
-
-      {/* Category Bar - horizontal scrollable chips */}
-      <CategoryBar />
-
-      {/* Channel List with Virtual Scrolling */}
-      <div
-        ref={parentRef}
-        className="flex-1 overflow-y-auto"
-        id="channel-list"
-        role="tabpanel"
-        aria-label="Channel list"
-      >
-        <div className="mx-auto p-4">
-          {filteredChannels.length === 0 ? (
-            <div className="py-12 text-center">
-              <p className="text-gray-500 dark:text-gray-400">
-                {searchQuery ? 'No channels found' : 'No channels available'}
-              </p>
-            </div>
-          ) : (
-            <div
-              style={{
-                height: `${rowVirtualizer.getTotalSize()}px`,
-                width: '100%',
-                position: 'relative',
-              }}
-            >
-              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                const startIndex = virtualRow.index * columns;
-                const rowItems = filteredChannels.slice(startIndex, startIndex + columns);
-
-                return (
-                  <div
-                    key={virtualRow.key}
-                    ref={rowVirtualizer.measureElement}
-                    data-index={virtualRow.index}
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
-                  >
-                    {/* No forced height: the row measures its own real
-                        content height via `measureElement` above, since a
-                        formula-only estimate drifts from the actual layout
-                        (padding, scrollbar, and — until Task 13's rail lands
-                        — the missing 72px rail this task's height formula
-                        already assumes). `pb-4` carries the 16px row gap
-                        inside the measured element, because rows are
-                        absolutely positioned and stacked by `translateY`
-                        rather than a normal-flow gap. */}
-                    <div className={`grid ${getGridClasses(columns)} gap-4 pb-4`}>
-                      {rowItems.map((channel) => {
-                        const isChannelBlocked = blockedMap.get(channel.id!) ?? false;
-
-                        return kind === 'poster' ? (
-                          <PosterCard
-                            key={channel.id}
-                            channel={channel}
-                            onOpen={handlePlayChannel}
-                            onToggleFavorite={toggleChannelFavorite}
-                            isBlocked={isChannelBlocked}
-                            parentalVisibility={parentalVisibility}
-                          />
-                        ) : (
-                          <ChannelCard
-                            key={channel.id}
-                            channel={channel}
-                            isPlaying={currentChannel?.id === channel.id && isPlaying}
-                            onPlay={handlePlayChannel}
-                            onToggleFavorite={toggleChannelFavorite}
-                            epg={channelEpgData.get(channel.id)}
-                            isBlocked={isChannelBlocked}
-                            parentalVisibility={parentalVisibility}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Now Playing Bar */}
-      {currentChannel && (
-        <NowPlayingBar
-          channel={currentChannel}
-          currentProgram={currentProgram}
-          nextProgram={nextProgram}
-          onStop={handleStop}
+    <div className="flex h-screen bg-bg text-text">
+      <Rail
+        section={contentTypeFilter}
+        onSection={handleSection}
+        view={view === 'settings' || showSettings ? 'settings' : 'browse'}
+        onSettings={() => setShowSettings(true)}
+        profileInitial={profileInitial}
+        onProfile={() => setProfileMenuOpen(true)}
+      />
+      <main className="relative flex min-w-0 flex-1 flex-col">
+        <TopBar
+          title={title}
+          subtitle={subtitle}
+          searchRef={searchInputRef}
+          query={searchQuery}
+          onQuery={setSearchQuery}
+          update={update}
+          onOpenUpdate={handleOpenUpdate}
+          showSearch={view === 'browse'}
+          profileMenuOpen={profileMenuOpen}
+          onProfileMenuOpenChange={setProfileMenuOpen}
         />
-      )}
+
+        {view === 'series' && selectedSeries ? (
+          // Its own error screen covers an unparsable Xtream URL.
+          <SeriesView
+            loadSeries={loadSeries}
+            onBack={closeSeries}
+            onPlayEpisode={handlePlayEpisode}
+          />
+        ) : (
+          // 'guide' renders the live grid until the TV Guide view (Task 20).
+          <>
+            <div className="px-10 pt-6">
+              <CategoryBar />
+            </div>
+
+            {/* Channel list with virtual scrolling */}
+            <div
+              ref={parentRef}
+              className="flex-1 overflow-y-auto px-10 pb-32 pt-5"
+              id="channel-list"
+              role="region"
+              aria-label="Channel list"
+            >
+              {filteredChannels.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 py-16 text-center text-text-muted">
+                  {trimmedQuery ? (
+                    <>
+                      <Search className="h-6 w-6" aria-hidden="true" />
+                      <p>No matches for &ldquo;{trimmedQuery}&rdquo;</p>
+                    </>
+                  ) : (
+                    <p>Nothing in this section yet</p>
+                  )}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    height: `${rowVirtualizer.getTotalSize()}px`,
+                    width: '100%',
+                    position: 'relative',
+                  }}
+                >
+                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const startIndex = virtualRow.index * columns;
+                    const rowItems = filteredChannels.slice(startIndex, startIndex + columns);
+
+                    return (
+                      <div
+                        key={virtualRow.key}
+                        ref={rowVirtualizer.measureElement}
+                        data-index={virtualRow.index}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                      >
+                        {/* No forced height: the row measures its own real
+                            content height via `measureElement` above, since a
+                            formula-only estimate drifts from the actual layout
+                            (padding, scrollbar). `pb-4` carries the 16px row
+                            gap inside the measured element, because rows are
+                            absolutely positioned and stacked by `translateY`
+                            rather than a normal-flow gap. */}
+                        <div className={`grid ${getGridClasses(columns)} gap-4 pb-4`}>
+                          {rowItems.map((channel) => {
+                            const isChannelBlocked = blockedMap.get(channel.id!) ?? false;
+
+                            return kind === 'poster' ? (
+                              <PosterCard
+                                key={channel.id}
+                                channel={channel}
+                                onOpen={handlePlayChannel}
+                                onToggleFavorite={toggleChannelFavorite}
+                                isBlocked={isChannelBlocked}
+                                parentalVisibility={parentalVisibility}
+                              />
+                            ) : (
+                              <ChannelCard
+                                key={channel.id}
+                                channel={channel}
+                                isPlaying={currentChannel?.id === channel.id && isPlaying}
+                                onPlay={handlePlayChannel}
+                                onToggleFavorite={toggleChannelFavorite}
+                                epg={channelEpgData.get(channel.id)}
+                                isBlocked={isChannelBlocked}
+                                parentalVisibility={parentalVisibility}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Now Playing Bar */}
+        {currentChannel && (
+          <NowPlayingBar
+            channel={currentChannel}
+            currentProgram={currentProgram}
+            nextProgram={nextProgram}
+            onStop={handleStop}
+          />
+        )}
+      </main>
 
       {/* Settings Modal */}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
