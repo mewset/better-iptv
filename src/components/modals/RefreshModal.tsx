@@ -75,19 +75,20 @@ export default function RefreshModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
         {/* Header */}
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+          <h3 className="text-xl font-bold text-text">
             {result ? 'Refresh Complete' : 'Refreshing Playlist'}
           </h3>
           {(result || error) && (
             <button
               onClick={onClose}
-              className="rounded-lg p-1 hover:bg-gray-100 dark:hover:bg-gray-700"
+              aria-label="Close"
+              className="rounded-lg p-1 hover:bg-surface-hover"
             >
-              <X className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+              <X className="h-5 w-5 text-text-faint" aria-hidden="true" />
             </button>
           )}
         </div>
@@ -97,13 +98,11 @@ export default function RefreshModal({
           {isRefreshing && (
             <>
               <div className="flex items-center gap-3">
-                <RefreshCw className="h-5 w-5 animate-spin text-blue-500" />
-                <span className="text-gray-700 dark:text-gray-300">
-                  Refreshing "{playlistName}"...
-                </span>
+                <RefreshCw className="h-5 w-5 animate-spin text-accent-text" aria-hidden="true" />
+                <span className="text-text-muted">Refreshing "{playlistName}"...</span>
               </div>
               {progress && (
-                <div className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
+                <div className="space-y-1 text-sm text-text-muted">
                   {progress.live_count > 0 && <p>Live channels: {progress.live_count}</p>}
                   {progress.vod_count > 0 && <p>VOD: {progress.vod_count}</p>}
                   {progress.series_count > 0 && <p>Series: {progress.series_count}</p>}
@@ -115,34 +114,28 @@ export default function RefreshModal({
           {result && (
             <>
               <div className="flex items-center gap-3">
-                <CheckCircle className="h-5 w-5 text-green-500" />
-                <span className="text-gray-700 dark:text-gray-300">Refresh complete</span>
+                <CheckCircle className="h-5 w-5 text-success" aria-hidden="true" />
+                <span className="text-text-muted">Refresh complete</span>
               </div>
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-600 dark:bg-gray-700/50">
+              <div className="rounded-lg border border-border bg-surface-2/50 p-4">
                 <div className="grid grid-cols-3 gap-4 text-center">
                   <div>
-                    <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                      {result.added}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">New</p>
+                    <p className="text-2xl font-bold text-success">{result.added}</p>
+                    <p className="text-xs text-text-muted">New</p>
                   </div>
                   <div>
-                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                      {result.updated}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Updated</p>
+                    <p className="text-2xl font-bold text-accent-text">{result.updated}</p>
+                    <p className="text-xs text-text-muted">Updated</p>
                   </div>
                   <div>
-                    <p className="text-2xl font-bold text-red-600 dark:text-red-400">
-                      {result.removed}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Removed</p>
+                    <p className="text-2xl font-bold text-danger">{result.removed}</p>
+                    <p className="text-xs text-text-muted">Removed</p>
                   </div>
                 </div>
               </div>
               <button
                 onClick={onClose}
-                className="w-full rounded-lg bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700"
+                className="w-full rounded-lg bg-accent px-4 py-2 text-on-accent transition-colors hover:bg-accent-hover"
               >
                 Done
               </button>
@@ -151,10 +144,12 @@ export default function RefreshModal({
 
           {error && (
             <>
-              <p className="text-red-500 dark:text-red-400">Failed to refresh playlist: {error}</p>
+              <div className="rounded-lg border border-danger/20 bg-danger/10 p-3 text-sm text-danger">
+                Failed to refresh playlist: {error}
+              </div>
               <button
                 onClick={onClose}
-                className="w-full rounded-lg bg-gray-500 px-4 py-2 text-white transition-colors hover:bg-gray-600"
+                className="w-full rounded-lg bg-surface-2 px-4 py-2 text-text transition-colors hover:bg-surface-hover"
               >
                 Close
               </button>
