@@ -375,6 +375,18 @@ pub async fn delete_playlist(state: State<'_, AppState>, id: i64) -> Result<(), 
     .await
 }
 
+/// Channel count per playlist, for the profile cards. A playlist with no
+/// channels is absent from the map rather than mapped to 0.
+#[tauri::command]
+pub async fn get_playlist_channel_counts(
+    state: State<'_, AppState>,
+) -> Result<std::collections::HashMap<i64, i64>, AppError> {
+    with_db(&state.pool, |conn| {
+        Ok(queries::get_playlist_channel_counts(conn)?)
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn rename_playlist(
     state: State<'_, AppState>,

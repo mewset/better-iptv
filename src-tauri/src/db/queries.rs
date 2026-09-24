@@ -301,6 +301,19 @@ pub fn get_channel_groups(
     }
 }
 
+// ========== Channel Count Queries ==========
+
+/// Channel count per playlist, for the profile cards. A playlist with no
+/// channels is simply absent from the map rather than mapped to 0.
+pub fn get_playlist_channel_counts(conn: &Connection) -> Result<HashMap<i64, i64>> {
+    let mut stmt =
+        conn.prepare("SELECT playlist_id, COUNT(*) FROM channels GROUP BY playlist_id")?;
+    let counts = stmt
+        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?
+        .collect::<Result<HashMap<_, _>>>()?;
+    Ok(counts)
+}
+
 // ========== Tests ==========
 
 #[cfg(test)]
@@ -427,6 +440,27 @@ mod tests {
         assert_eq!(result[0], "Sweden");
         assert_eq!(result[1], "Norway");
         assert_eq!(result[2], "Denmark");
+    }
+
+    // ========== Channel Count Tests ==========
+
+    #[test]
+    fn test_get_playlist_channel_counts() {
+        let conn = setup_test_db();
+        let playlist1 = create_test_playlist(&conn, "Playlist 1");
+        let playlist2 = create_test_playlist(&conn, "Playlist 2");
+        let playlist3 = create_test_playlist(&conn, "Empty Playlist");
+
+        create_test_channel(&conn, playlist1, "Channel 1");
+        create_test_channel(&conn, playlist1, "Channel 2");
+        create_test_channel(&conn, playlist1, "Channel 3");
+        create_test_channel(&conn, playlist2, "Channel 4");
+
+        let counts = get_playlist_channel_counts(&conn).unwrap();
+
+        assert_eq!(counts.get(&playlist1), Some(&3));
+        assert_eq!(counts.get(&playlist2), Some(&1));
+        assert_eq!(counts.get(&playlist3), None);
     }
 
     #[test]

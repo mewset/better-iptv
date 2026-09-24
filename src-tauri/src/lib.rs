@@ -153,6 +153,7 @@ pub fn run() {
             refresh_playlist,
             get_subscription_expiry,
             get_stale_playlist_ids,
+            get_playlist_channel_counts,
             // Channel commands
             get_channels,
             get_channel_groups,
