@@ -55,11 +55,11 @@ export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: Series
 
   if (isLoading) {
     return (
-      <div className="flex h-screen flex-col bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-screen flex-col bg-bg">
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
-            <div className="mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"></div>
-            <p className="font-medium text-gray-700 dark:text-gray-300">Loading series...</p>
+            <div className="mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4 border-accent border-t-transparent"></div>
+            <p className="font-medium text-text-muted">Loading series...</p>
           </div>
         </div>
       </div>
@@ -68,15 +68,13 @@ export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: Series
 
   if (error || !currentSeries) {
     return (
-      <div className="flex h-screen flex-col bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-screen flex-col bg-bg">
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
-            <p className="mb-4 font-medium text-red-600 dark:text-red-400">
-              {error || 'Failed to load series'}
-            </p>
+            <p className="mb-4 font-medium text-danger">{error || 'Failed to load series'}</p>
             <button
               onClick={onBack}
-              className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+              className="rounded-md bg-accent px-4 py-2 text-on-accent hover:bg-accent-hover"
             >
               Go Back
             </button>
@@ -89,13 +87,13 @@ export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: Series
   const selectedSeasonEpisodes = selectedSeason ? currentSeries.episodes[selectedSeason] || [] : [];
 
   return (
-    <div className="flex h-screen flex-col bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-screen flex-col bg-bg">
       {/* Header */}
-      <div className="border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+      <div className="border-b border-border bg-surface p-4">
         <div className="mx-auto max-w-7xl">
           <button
             onClick={onBack}
-            className="mb-4 flex items-center gap-2 text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+            className="mb-4 flex items-center gap-2 text-accent-text hover:text-accent-hover"
           >
             <ChevronLeft className="h-5 w-5" />
             Back to Series List
@@ -109,18 +107,12 @@ export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: Series
               />
             )}
             <div className="flex-1">
-              <h1 className="mb-2 text-3xl font-bold text-gray-900 dark:text-white">
-                {currentSeries.info.name}
-              </h1>
+              <h1 className="mb-2 text-3xl font-bold text-text">{currentSeries.info.name}</h1>
               {currentSeries.info.genre && (
-                <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">
-                  {currentSeries.info.genre}
-                </p>
+                <p className="mb-2 text-sm text-text-muted">{currentSeries.info.genre}</p>
               )}
               {currentSeries.info.plot && (
-                <p className="line-clamp-3 text-gray-700 dark:text-gray-300">
-                  {currentSeries.info.plot}
-                </p>
+                <p className="line-clamp-3 text-text-muted">{currentSeries.info.plot}</p>
               )}
             </div>
           </div>
@@ -128,7 +120,7 @@ export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: Series
       </div>
 
       {/* Season Selector */}
-      <div className="border-b border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+      <div className="border-b border-border bg-surface">
         <div className="mx-auto max-w-7xl px-4">
           <div className="flex gap-2 overflow-x-auto py-4">
             {currentSeries.seasons.map((season) => (
@@ -137,8 +129,8 @@ export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: Series
                 onClick={() => setSelectedSeason(season.season_number)}
                 className={`whitespace-nowrap rounded-md px-4 py-2 font-medium transition-colors ${
                   selectedSeason === season.season_number
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-200 text-gray-900 hover:bg-gray-300 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600'
+                    ? 'bg-accent text-on-accent'
+                    : 'bg-surface-2 text-text hover:bg-surface-hover'
                 }`}
               >
                 {season.name} ({season.episode_count})
@@ -153,9 +145,7 @@ export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: Series
         <div className="mx-auto max-w-7xl p-4">
           {selectedSeasonEpisodes.length === 0 ? (
             <div className="py-12 text-center">
-              <p className="text-gray-500 dark:text-gray-400">
-                No episodes available for this season
-              </p>
+              <p className="text-text-muted">No episodes available for this season</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -200,8 +190,8 @@ interface EpisodeCardProps {
 
 function EpisodeCard({ episode, onPlay }: EpisodeCardProps) {
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800">
-      <div className="relative bg-gray-900">
+    <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm transition-shadow hover:shadow-md">
+      <div className="relative bg-surface-2">
         {episode.info.movie_image ? (
           <img
             src={episode.info.movie_image}
@@ -209,26 +199,20 @@ function EpisodeCard({ episode, onPlay }: EpisodeCardProps) {
             className="h-48 w-full object-cover"
           />
         ) : (
-          <div className="flex h-48 w-full items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600">
-            <span className="text-4xl font-bold text-white">E{episode.episode_num}</span>
+          <div className="flex h-48 w-full items-center justify-center bg-surface-2">
+            <span className="text-4xl font-bold text-text-muted">E{episode.episode_num}</span>
           </div>
         )}
       </div>
       <div className="p-3">
-        <h3 className="mb-1 line-clamp-2 font-medium text-gray-900 dark:text-white">
-          Episode {episode.episode_num}
-        </h3>
-        <p className="mb-2 line-clamp-1 text-sm text-gray-700 dark:text-gray-300">
-          {episode.title}
-        </p>
+        <h3 className="mb-1 line-clamp-2 font-medium text-text">Episode {episode.episode_num}</h3>
+        <p className="mb-2 line-clamp-1 text-sm text-text-muted">{episode.title}</p>
         {episode.info.plot && (
-          <p className="mb-3 line-clamp-2 text-xs text-gray-600 dark:text-gray-400">
-            {episode.info.plot}
-          </p>
+          <p className="mb-3 line-clamp-2 text-xs text-text-muted">{episode.info.plot}</p>
         )}
         <button
           onClick={onPlay}
-          className="flex w-full items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 font-medium text-white transition-colors hover:bg-blue-700"
+          className="flex w-full items-center justify-center gap-2 rounded-md bg-accent px-4 py-2 font-medium text-on-accent transition-colors hover:bg-accent-hover"
         >
           <Play className="h-4 w-4" />
           Play
