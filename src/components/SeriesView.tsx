@@ -95,7 +95,7 @@ export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: Series
             onClick={onBack}
             className="mb-4 flex items-center gap-2 text-accent-text hover:text-accent-hover"
           >
-            <ChevronLeft className="h-5 w-5" />
+            <ChevronLeft className="h-5 w-5" aria-hidden="true" />
             Back to Series List
           </button>
           <div className="flex gap-6">
@@ -214,7 +214,7 @@ function EpisodeCard({ episode, onPlay }: EpisodeCardProps) {
           onClick={onPlay}
           className="flex w-full items-center justify-center gap-2 rounded-md bg-accent px-4 py-2 font-medium text-on-accent transition-colors hover:bg-accent-hover"
         >
-          <Play className="h-4 w-4" />
+          <Play className="h-4 w-4" aria-hidden="true" />
           Play
         </button>
       </div>
