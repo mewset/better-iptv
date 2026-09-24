@@ -2,6 +2,13 @@ import { create } from 'zustand';
 import type { Channel, Playlist, SeriesInfo } from '../types';
 import { getParentalSettings, getBlockedChannels, toggleFavorite } from '../lib/tauri';
 
+/**
+ * A section of the app the user is browsing: the destinations behind the
+ * icon rail (Live TV, Movies, Series, Favorites, TV Guide). There is no
+ * catch-all 'all' section.
+ */
+export type Section = 'live' | 'vod' | 'series' | 'favorites' | 'guide';
+
 /** Current/next programme for one channel, with optional start/end times. */
 export interface EpgEntry {
   current: string;
@@ -39,8 +46,8 @@ interface PlayerState {
   setSearchQuery: (query: string) => void;
 
   // Content Type Filter
-  contentTypeFilter: 'all' | 'live' | 'vod' | 'series' | 'favorites';
-  setContentTypeFilter: (filter: 'all' | 'live' | 'vod' | 'series' | 'favorites') => void;
+  contentTypeFilter: Section;
+  setContentTypeFilter: (filter: Section) => void;
 
   // Category Filter (provider categories like "Sweden", "Norway", etc.)
   categoryFilter: string | null;

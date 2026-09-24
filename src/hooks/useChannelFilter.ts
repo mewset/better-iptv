@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { usePlayerStore } from '../stores/player-store';
+import type { Section } from '../stores/player-store';
 import { shouldBlockChannel } from '../lib/parentalControls';
 import type { Channel } from '../types';
 
@@ -15,7 +16,6 @@ import type { Channel } from '../types';
  * Syncs result to store via setFilteredChannels.
  */
 export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
-  const channels = usePlayerStore((s) => s.channels);
   const filteredChannels = usePlayerStore((s) => s.filteredChannels);
   const liveChannels = usePlayerStore((s) => s.liveChannels);
   const vodChannels = usePlayerStore((s) => s.vodChannels);
@@ -42,10 +42,12 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
         return seriesChannels;
       case 'favorites':
         return favoriteChannels;
-      default:
-        return channels;
+      case 'guide': {
+        const hasLiveFavorite = favoriteChannels.some((c) => c.content_type === 'live');
+        return hasLiveFavorite ? favoriteChannels : liveChannels;
+      }
     }
-  }, [contentTypeFilter, liveChannels, vodChannels, seriesChannels, favoriteChannels, channels]);
+  }, [contentTypeFilter, liveChannels, vodChannels, seriesChannels, favoriteChannels]);
 
   // Step 2-4: Apply category, parental, and search filters
   useEffect(() => {
@@ -78,10 +80,17 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
       );
     }
 
+    // The guide only ever shows live channels, even when its base list came
+    // from favoriteChannels (which can hold favourited movies and series).
+    if (contentTypeFilter === 'guide') {
+      result = result.filter((c) => c.content_type === 'live');
+    }
+
     setFilteredChannels(result);
   }, [
     baseList,
     categoryFilter,
+    contentTypeFilter,
     debouncedSearchQuery,
     parentalEnabled,
     parentalUnlocked,
@@ -96,9 +105,10 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
 }
 
 /**
- * Content type filter options
+ * Content type filter options. Re-exports `Section` so the store stays the
+ * single source of truth for the type.
  */
-export type ContentTypeFilter = 'all' | 'live' | 'vod' | 'series' | 'favorites';
+export type ContentTypeFilter = Section;
 
 /**
  * Hook to manage content type filter state
@@ -108,7 +118,7 @@ export function useContentTypeFilter() {
   const setContentTypeFilter = usePlayerStore((s) => s.setContentTypeFilter);
 
   return {
-    activeFilter: contentTypeFilter as ContentTypeFilter,
+    activeFilter: contentTypeFilter,
     setFilter: setContentTypeFilter,
   };
 }

@@ -132,7 +132,7 @@ export default function MainScreen() {
       return;
     }
 
-    const contentType = contentTypeFilter === 'all' ? undefined : contentTypeFilter;
+    const contentType = contentTypeFilter === 'guide' ? 'live' : contentTypeFilter;
     getChannelGroups(currentPlaylist.id, contentType)
       .then(setCategories)
       .catch((err) => {

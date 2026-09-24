@@ -16,7 +16,6 @@ interface TabConfig {
 }
 
 const TABS: TabConfig[] = [
-  { value: 'all', label: 'All' },
   { value: 'live', label: 'Live TV', icon: <Tv className="h-4 w-4" aria-hidden="true" /> },
   { value: 'vod', label: 'Movies', icon: <Film className="h-4 w-4" aria-hidden="true" /> },
   {
