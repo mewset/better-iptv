@@ -18,34 +18,35 @@ export default function ErrorModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
         {/* Header */}
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="rounded-full bg-red-100 p-2 dark:bg-red-900/20">
-              <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+            <div className="rounded-full bg-danger/10 p-2">
+              <AlertCircle className="h-5 w-5 text-danger" aria-hidden="true" />
             </div>
-            <h3 className="text-xl font-bold text-gray-900 dark:text-white">{title}</h3>
+            <h3 className="text-xl font-bold text-text">{title}</h3>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1 hover:bg-gray-100 dark:hover:bg-gray-700"
+            aria-label="Close"
+            className="rounded-lg p-1 hover:bg-surface-hover"
           >
-            <X className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+            <X className="h-5 w-5 text-text-faint" aria-hidden="true" />
           </button>
         </div>
 
         {/* Error Message */}
         <div className="mb-6">
-          <p className="text-gray-700 dark:text-gray-300">{message}</p>
+          <p className="text-text-muted">{message}</p>
         </div>
 
         {/* Action */}
         <div className="flex justify-end">
           <button
             onClick={onClose}
-            className="rounded-lg bg-red-600 px-4 py-2 text-white hover:bg-red-700"
+            className="rounded-lg bg-danger px-4 py-2 text-on-danger hover:bg-danger/90"
           >
             {buttonText}
           </button>
