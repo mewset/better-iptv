@@ -88,7 +88,7 @@ export default function RefreshModal({
               aria-label="Close"
               className="rounded-lg p-1 hover:bg-surface-hover"
             >
-              <X className="h-5 w-5 text-text-faint" aria-hidden="true" />
+              <X className="h-5 w-5 text-text-muted" aria-hidden="true" />
             </button>
           )}
         </div>

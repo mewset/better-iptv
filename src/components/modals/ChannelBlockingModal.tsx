@@ -132,7 +132,7 @@ export default function ChannelBlockingModal({
             aria-label="Close"
             className="rounded-lg p-1 hover:bg-surface-hover"
           >
-            <X className="h-5 w-5 text-text-faint" aria-hidden="true" />
+            <X className="h-5 w-5 text-text-muted" aria-hidden="true" />
           </button>
         </div>
 
@@ -203,12 +203,12 @@ export default function ChannelBlockingModal({
                         type="checkbox"
                         checked={channel.id ? blockedIds.has(channel.id) : false}
                         onChange={() => toggleChannel(channel.id)}
-                        className="h-4 w-4 rounded border-border-strong accent-accent"
+                        className="h-4 w-4 rounded border-border-strong accent-accent focus:ring-2 focus:ring-accent"
                       />
                       <div className="flex-1">
                         <div className="font-medium text-text">{channel.name}</div>
                         {channel.group_name && (
-                          <div className="text-sm text-text-faint">{channel.group_name}</div>
+                          <div className="text-sm text-text-muted">{channel.group_name}</div>
                         )}
                       </div>
                       {channel.id && blockedIds.has(channel.id) && (
