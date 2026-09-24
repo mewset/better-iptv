@@ -6,20 +6,36 @@ import { logger } from '../lib/logger';
 /**
  * Global keyboard shortcuts for media control.
  *
- * | Key    | Action                        |
- * |--------|-------------------------------|
- * | Space  | Toggle play/stop              |
- * | F      | Toggle fullscreen (MPV)       |
- * | Escape | Close modals / stop playback  |
- * | /      | Focus search bar              |
- * | M      | Mute toggle (future)          |
+ * | Key    | Action                                         |
+ * |--------|------------------------------------------------|
+ * | Space  | Toggle play/stop                               |
+ * | F      | Toggle fullscreen (MPV)                        |
+ * | Escape | Close the open view, else stop playback        |
+ * | /      | Focus search bar                               |
+ * | G      | Toggle the TV guide (`onToggleGuide`)          |
+ * | M      | Mute toggle (future)                           |
  *
  * All shortcuts except Escape are suppressed when focus is inside an
- * input, textarea or select element.
+ * input, textarea, select or contenteditable element. G is also ignored
+ * with Ctrl/Meta/Alt held, so browser and Settings chords keep working.
+ *
+ * Escape: an owner that already handled it (Settings, TopBar's profile
+ * menu, the guide's detail panel) marks it with `preventDefault` in the
+ * capture phase and this handler does nothing. Otherwise `onEscapeView`
+ * gets the first go; when it returns true (it closed something) playback
+ * keeps going, and only when it returns false does Escape stop playback.
  */
+export interface KeyboardShortcutOptions {
+  onToggleGuide?: () => void;
+  /** Close the open view; true when something was closed. */
+  onEscapeView?: () => boolean;
+}
+
 export function useKeyboardShortcuts(
-  searchInputRef?: React.RefObject<globalThis.HTMLInputElement | null>
+  searchInputRef?: React.RefObject<globalThis.HTMLInputElement | null>,
+  options: KeyboardShortcutOptions = {}
 ) {
+  const { onToggleGuide, onEscapeView } = options;
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const currentChannel = usePlayerStore((s) => s.currentChannel);
   const setIsPlaying = usePlayerStore((s) => s.setIsPlaying);
@@ -40,6 +56,7 @@ export function useKeyboardShortcuts(
       // TopBar's profile menu) via preventDefault - it owns the key instead.
       if (e.key === 'Escape') {
         if (e.defaultPrevented) return;
+        if (onEscapeView?.()) return;
         if (isPlaying) {
           try {
             await stopPlayback();
@@ -87,6 +104,14 @@ export function useKeyboardShortcuts(
           break;
         }
 
+        case 'g':
+        case 'G': {
+          if (e.ctrlKey || e.metaKey || e.altKey || !onToggleGuide) break;
+          e.preventDefault();
+          onToggleGuide();
+          break;
+        }
+
         // F and M are reserved for future fullscreen / mute toggle via MPV IPC
       }
     },
@@ -98,6 +123,8 @@ export function useKeyboardShortcuts(
       setCurrentProgram,
       setNextProgram,
       searchInputRef,
+      onToggleGuide,
+      onEscapeView,
     ]
   );
 

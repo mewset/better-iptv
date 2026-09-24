@@ -38,6 +38,8 @@ import {
 
 interface SettingsProps {
   onClose: () => void;
+  /** Section shown when the view opens (the guide's empty state opens 'epg'). */
+  initialTab?: string;
 }
 
 /** The left nav's sections, in display order. Ctrl+1-6 below maps to these by index. */
@@ -50,12 +52,12 @@ const SECTIONS: Array<{ value: string; name: string; description: string }> = [
   { value: 'about', name: 'About', description: 'Version and licenses' },
 ];
 
-export default function Settings({ onClose }: SettingsProps) {
+export default function Settings({ onClose, initialTab = 'general' }: SettingsProps) {
   const { triggerEpgRefresh, channels, loadParentalSettings, currentPlaylist, setChannels } =
     usePlayerStore();
 
   // UI state
-  const [activeTab, setActiveTab] = useState('general');
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 

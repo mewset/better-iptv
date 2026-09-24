@@ -9,6 +9,7 @@ import {
   getLocalSeriesInfo,
 } from '../lib/tauri';
 import { CategoryBar } from './CategoryBar';
+import { GuideView } from './GuideView';
 import { ChannelCard } from './ChannelCard';
 import { PosterCard } from './PosterCard';
 import { MoviesHero } from './MoviesHero';
@@ -125,6 +126,10 @@ export default function MainScreen() {
   // provider: after a profile switch its id means nothing to the new one.
   const [seriesPlaylistId, setSeriesPlaylistId] = useState<number | null>(null);
   const [view, setView] = useState<'browse' | 'series' | 'settings'>('browse');
+  // Which Settings section opens with the view (the guide's empty state asks for 'epg').
+  const [settingsTab, setSettingsTab] = useState('general');
+  // The section G and Escape return to when leaving the guide.
+  const guideReturnRef = useRef<Exclude<Section, 'guide'>>('live');
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   // Which control opened the profile menu, so focus returns there on close.
   const [profileMenuFromRail, setProfileMenuFromRail] = useState(false);
@@ -138,9 +143,6 @@ export default function MainScreen() {
   const [showStalePrompt, setShowStalePrompt] = useState(false);
   const [stalePlaylistId, setStalePlaylistId] = useState<number | null>(null);
   const [showRefreshModal, setShowRefreshModal] = useState(false);
-
-  // Global keyboard shortcuts (Space=play/stop, /=focus search, Escape=stop)
-  useKeyboardShortcuts(searchInputRef);
 
   // Responsive grid configuration. Movies and series get the poster grid,
   // but only while browsing them unfiltered: a non-empty search spans every
@@ -394,11 +396,53 @@ export default function MainScreen() {
 
   const handleSection = useCallback(
     (section: Section) => {
+      const from = usePlayerStore.getState().contentTypeFilter;
+      if (section === 'guide' && from !== 'guide') guideReturnRef.current = from;
       setContentTypeFilter(section);
       closeSeries();
     },
     [setContentTypeFilter, closeSeries]
   );
+
+  const openSettings = useCallback((tab = 'general') => {
+    setSettingsTab(tab);
+    setView('settings');
+  }, []);
+
+  // G: guide <-> the section it was entered from. Settings keeps G to itself
+  // (its text fields and Ctrl+1-6), so the toggle does nothing there.
+  const handleToggleGuide = useCallback(() => {
+    if (view === 'settings') return;
+    if (contentTypeFilter === 'guide') {
+      handleSection(guideReturnRef.current);
+    } else {
+      handleSection('guide');
+    }
+  }, [view, contentTypeFilter, handleSection]);
+
+  // Escape, after Settings / the profile menu / the guide's detail panel had
+  // their chance (they preventDefault). True means "handled, keep playing".
+  // Settings closes itself (respecting its inner dialogs), so a 'settings'
+  // view only swallows the key here.
+  const handleEscapeView = useCallback((): boolean => {
+    if (view === 'settings') return true;
+    if (seriesOpen) {
+      closeSeries();
+      return true;
+    }
+    if (contentTypeFilter === 'guide') {
+      handleSection(guideReturnRef.current);
+      return true;
+    }
+    return false;
+  }, [view, seriesOpen, closeSeries, contentTypeFilter, handleSection]);
+
+  // Global keyboard shortcuts (Space=play/stop, /=focus search, G=guide,
+  // Escape=close view, else stop)
+  useKeyboardShortcuts(searchInputRef, {
+    onToggleGuide: handleToggleGuide,
+    onEscapeView: handleEscapeView,
+  });
 
   const handleOpenUpdate = useCallback(() => {
     if (!update) return;
@@ -431,7 +475,7 @@ export default function MainScreen() {
         section={contentTypeFilter}
         onSection={handleSection}
         view={view === 'settings' ? 'settings' : 'browse'}
-        onSettings={() => setView('settings')}
+        onSettings={() => openSettings()}
         profileInitial={profileInitial}
         onProfile={() => {
           setProfileMenuFromRail(true);
@@ -458,7 +502,7 @@ export default function MainScreen() {
         />
 
         {view === 'settings' ? (
-          <Settings onClose={() => setView('browse')} />
+          <Settings onClose={() => setView('browse')} initialTab={settingsTab} />
         ) : seriesOpen ? (
           // Its own error screen covers an unparsable Xtream URL.
           <SeriesView
@@ -466,8 +510,16 @@ export default function MainScreen() {
             onBack={closeSeries}
             onPlayEpisode={handlePlayEpisode}
           />
+        ) : contentTypeFilter === 'guide' ? (
+          <GuideView
+            channels={filteredChannels}
+            playingChannelId={isPlaying ? (currentChannel?.id ?? null) : null}
+            onPlay={handlePlayChannel}
+            onOpenEpgSettings={() => openSettings('epg')}
+            dockVisible={Boolean(currentChannel)}
+            blockedMap={blockedMap}
+          />
         ) : (
-          // 'guide' renders the live grid until the TV Guide view (Task 20).
           <>
             <div className="px-10 pt-6">
               <CategoryBar />
