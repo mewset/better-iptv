@@ -117,49 +117,53 @@ export default function ChannelBlockingModal({
   const allFilteredBlocked = filteredChannels.every((c) => c.id && blockedIds.has(c.id));
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="flex h-[80vh] w-full max-w-3xl flex-col rounded-lg bg-white shadow-xl dark:bg-gray-800">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 backdrop-blur-sm">
+      <div className="flex h-[80vh] w-full max-w-3xl flex-col rounded-lg bg-surface shadow-xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 p-6 dark:border-gray-700">
+        <div className="flex items-center justify-between border-b border-border p-6">
           <div>
-            <h3 className="text-xl font-bold text-gray-900 dark:text-white">Block Channels</h3>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <h3 className="text-xl font-bold text-text">Block Channels</h3>
+            <p className="mt-1 text-sm text-text-faint">
               {blockedIds.size} of {channels.length} channels blocked
             </p>
           </div>
           <button
             onClick={handleCancel}
-            className="rounded-lg p-1 hover:bg-gray-100 dark:hover:bg-gray-700"
+            aria-label="Close"
+            className="rounded-lg p-1 hover:bg-surface-hover"
           >
-            <X className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+            <X className="h-5 w-5 text-text-faint" aria-hidden="true" />
           </button>
         </div>
 
         {/* Search and controls */}
-        <div className="border-b border-gray-200 p-4 dark:border-gray-700">
+        <div className="border-b border-border p-4">
           <div className="flex gap-3">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Search
+                className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-faint"
+                aria-hidden="true"
+              />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search channels..."
-                className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                className="w-full rounded-lg border border-border-strong bg-surface py-2 pl-10 pr-4 text-text focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent"
               />
             </div>
             <button
               onClick={toggleAll}
-              className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
+              className="flex items-center gap-2 rounded-lg border border-border-strong px-4 py-2 hover:bg-surface-hover"
             >
               {allFilteredBlocked ? (
                 <>
-                  <Unlock className="h-4 w-4" />
+                  <Unlock className="h-4 w-4" aria-hidden="true" />
                   <span className="text-sm">Unblock All</span>
                 </>
               ) : (
                 <>
-                  <Lock className="h-4 w-4" />
+                  <Lock className="h-4 w-4" aria-hidden="true" />
                   <span className="text-sm">Block All</span>
                 </>
               )}
@@ -170,9 +174,7 @@ export default function ChannelBlockingModal({
         {/* Channel list - Virtualized for performance */}
         <div ref={parentRef} className="flex-1 overflow-y-auto p-4">
           {filteredChannels.length === 0 ? (
-            <div className="py-12 text-center text-gray-500 dark:text-gray-400">
-              No channels found
-            </div>
+            <div className="py-12 text-center text-text-faint">No channels found</div>
           ) : (
             <div
               style={{
@@ -196,25 +198,21 @@ export default function ChannelBlockingModal({
                       paddingBottom: '8px',
                     }}
                   >
-                    <label className="flex h-full cursor-pointer items-center gap-3 rounded-lg border border-gray-200 p-3 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
+                    <label className="flex h-full cursor-pointer items-center gap-3 rounded-lg border border-border p-3 hover:bg-surface-hover">
                       <input
                         type="checkbox"
                         checked={channel.id ? blockedIds.has(channel.id) : false}
                         onChange={() => toggleChannel(channel.id)}
-                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                        className="h-4 w-4 rounded border-border-strong accent-accent"
                       />
                       <div className="flex-1">
-                        <div className="font-medium text-gray-900 dark:text-white">
-                          {channel.name}
-                        </div>
+                        <div className="font-medium text-text">{channel.name}</div>
                         {channel.group_name && (
-                          <div className="text-sm text-gray-500 dark:text-gray-400">
-                            {channel.group_name}
-                          </div>
+                          <div className="text-sm text-text-faint">{channel.group_name}</div>
                         )}
                       </div>
                       {channel.id && blockedIds.has(channel.id) && (
-                        <Lock className="h-4 w-4 text-red-500" />
+                        <Lock className="h-4 w-4 text-danger" aria-hidden="true" />
                       )}
                     </label>
                   </div>
@@ -225,21 +223,19 @@ export default function ChannelBlockingModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between border-t border-gray-200 p-6 dark:border-gray-700">
-          <div className="text-sm text-gray-500 dark:text-gray-400">
-            {filteredChannels.length} channels shown
-          </div>
+        <div className="flex items-center justify-between border-t border-border p-6">
+          <div className="text-sm text-text-faint">{filteredChannels.length} channels shown</div>
           <div className="flex gap-3">
             <button
               onClick={handleCancel}
-              className="rounded-lg bg-gray-500 px-4 py-2 text-white hover:bg-gray-600 disabled:opacity-50"
+              className="rounded-lg bg-surface-2 px-4 py-2 text-text hover:bg-surface-hover disabled:opacity-50"
               disabled={isSaving}
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-lg bg-accent px-4 py-2 text-on-accent hover:bg-accent-hover disabled:opacity-50"
               disabled={isSaving}
             >
               {isSaving ? 'Saving...' : 'Save'}
