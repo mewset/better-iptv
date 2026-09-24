@@ -6,9 +6,24 @@ A simple overview of new features and improvements.
 
 ## Unreleased
 
+### New Features
+
+**A New Look**
+
+- Dark by default, with an amber accent, new fonts and a side rail for Live TV, Movies, Series, Favorites and the TV Guide
+- Movie and series posters are no longer cropped, and live channels show how far the current programme has come
+
+**TV Guide**
+
+- See what is on now and next across your channels, and press G to open it
+
 ### Improvements
 
 - Updated the app framework and several of the libraries Better IPTV is built on, including security fixes
+
+### Thanks
+
+- **@orcdev**, whose live review of the app's look prompted this redesign
 
 ## Version 2.9.0 (September 11, 2026)
 

@@ -5,6 +5,27 @@ This file is a developer-changelog, aimed towards development changes.
 
 ## Unreleased
 
+### Added
+
+- **3.0 UI: a dark-first redesign, live-programme progress and a TV Guide view** - the token layer started in an earlier release is now complete across `Setup`, `ProfileManager`, `Settings` and its tabs, every modal and `SeriesView`, so no component styles itself outside the palette
+  - The palette is dark by default with an amber accent, chosen with measured contrast rather than picked by eye: `--color-text` on `--color-bg` reads 9.98:1 in dark mode; the raw amber measures 1.85:1 on white and is unusable as text there, so light mode's `--color-accent-text` is a burnt amber (`138 90 0`) at 5.67:1 on gray-50 instead, while dark mode's background is dark enough for the raw amber to serve as `--color-accent-text` too (10.31:1 on `--color-bg`). `--color-on-accent` (dark text on the amber fill) measures 9.98:1
+  - Familjen Grotesk and Schibsted Grotesk ship via `@fontsource/familjen-grotesk` and `@fontsource/schibsted-grotesk`, imported by weight in `src/main.tsx`, so no runtime font fetch is added
+  - `ChannelEpg` gains `current_start`, `current_end` and `next_start` alongside the existing programme titles (`src-tauri/src/epg/xmltv.rs`), and the live channel card (`ChannelCard.tsx`) uses them to draw a progress line under the current programme
+  - A `ColorBars` placeholder (`src/components/ColorBars.tsx`) fills in for channels and titles with no artwork
+  - Movie and series posters render uncropped at their native 2:3 ratio (`PosterCard.tsx`), and the grid's virtualised rows measure themselves so a poster row and a live-channel row of different heights never overlap (`useResponsiveGrid.ts`, `MainScreen.tsx`)
+  - The store's content-type filter changes from `'all' | 'live' | 'vod' | 'series' | 'favorites'` to a `Section` type (`'live' | 'vod' | 'series' | 'favorites' | 'guide'`), dropping the catch-all `'all'` variant; search now spans every content type instead of only the active one (`useChannelFilter.ts`)
+  - `SearchBar.tsx` and `ContentTypeTabs.tsx` are removed. Navigation moves to an icon rail (`Rail.tsx`) plus a glass top bar (`TopBar.tsx`) carrying the profile switcher, now extracted into a `useProfileSwitch` hook
+  - A floating now-playing dock replaces the fixed bar, showing programme progress (`NowPlayingBar.tsx`)
+  - Settings opens as a view under the top bar instead of a modal overlay, with a vertical section list; it owns Escape via a capture-phase listener with `preventDefault`, closing itself without stopping playback, and its modals carry `role="dialog"` and `aria-modal`
+  - Profile cards show a channel count from the new `get_playlist_channel_counts` command (`src-tauri/src/db/queries.rs`, `src-tauri/src/commands/playlist.rs`), plus a relative refresh age and expiry emphasis
+  - The first-launch `Setup` screen is redesigned with live MPV detection status and an install link
+  - The Movies section gains a "Recently added" hero row (`MoviesHero.tsx`, `src/lib/newestTitle.ts`)
+  - A new `get_guide` command (`src-tauri/src/commands/epg.rs`, `src-tauri/src/epg/xmltv.rs`) returns programmes for a set of channels across a time window, validated by `epg_domain::validate_guide_window` (rejects an inverted or zero-width window before it reaches SQL). `GuideView.tsx` renders it, opened with the `G` key and closed through the same Escape ownership order as Settings
+
+### Credits
+
+- **@orcdev** ran a live review of the app on X on 2026-09-23 and questioned its "modern UI" claim against Netflix- and Vercel-style dark-and-glass interfaces; that review is what prompted this redesign
+
 ### Changed
 
 - **Dependency updates closing 17 of 18 Dependabot advisories** - Dependabot alerts were enabled on the repository, deliberately without `dependabot.yml` and with security updates left off, so it flags and never opens a pull request. The first scan reported 18 advisories against the Rust tree, none of which `npm audit` can see
