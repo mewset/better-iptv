@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
 import {
   getSetting,
   setSetting,
@@ -13,6 +12,7 @@ import type { EpgStatus } from '../lib/tauri';
 import { usePlayerStore } from '../stores/player-store';
 import { logger } from '../lib/logger';
 import { applyTheme } from '../lib/theme';
+import { cn } from '../lib/utils';
 import ProfileManager from './ProfileManager';
 import PinEntryModal from './modals/PinEntryModal';
 import ChannelBlockingModal from './modals/ChannelBlockingModal';
@@ -39,6 +39,16 @@ import {
 interface SettingsProps {
   onClose: () => void;
 }
+
+/** The left nav's sections, in display order. Ctrl+1-6 below maps to these by index. */
+const SECTIONS: Array<{ value: string; name: string; description: string }> = [
+  { value: 'general', name: 'General', description: 'Playlist, appearance, updates' },
+  { value: 'playback', name: 'Playback', description: 'MPV, video, audio, subtitles' },
+  { value: 'epg', name: 'EPG', description: 'Guide sources and refresh' },
+  { value: 'parental', name: 'Parental', description: 'PIN and blocked content' },
+  { value: 'profiles', name: 'Profiles', description: 'Playlists and providers' },
+  { value: 'about', name: 'About', description: 'Version and licenses' },
+];
 
 export default function Settings({ onClose }: SettingsProps) {
   const { triggerEpgRefresh, channels, loadParentalSettings, currentPlaylist, setChannels } =
@@ -196,6 +206,45 @@ export default function Settings({ onClose }: SettingsProps) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // Escape closes the view, unless one of Settings' own modals is open (the
+  // PIN, blocking, confirmation, refresh or error modal) - then it does
+  // nothing here so the modal handles it. Either way the event must not
+  // reach the global shortcut handler, which would stop playback: the
+  // listener runs in the capture phase on window, ahead of that bubble-phase
+  // handler, and `stopPropagation` keeps it from running at all. Same
+  // pattern as TopBar's profile menu.
+  useEffect(() => {
+    const modalOpen =
+      showSetPinModal ||
+      showChangePinModal ||
+      showResetPinModal ||
+      showDisablePinModal ||
+      showResetPinConfirmation ||
+      showChannelBlockingModal ||
+      showErrorModal ||
+      showRefreshModal;
+
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      e.preventDefault();
+      if (!modalOpen) onClose();
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [
+    onClose,
+    showSetPinModal,
+    showChangePinModal,
+    showResetPinModal,
+    showDisablePinModal,
+    showResetPinConfirmation,
+    showChannelBlockingModal,
+    showErrorModal,
+    showRefreshModal,
+  ]);
 
   // Error helper
   const showError = (title: string, message: string) => {
@@ -357,34 +406,43 @@ export default function Settings({ onClose }: SettingsProps) {
     }
   };
 
+  const activeSection = SECTIONS.find((s) => s.value === activeTab) ?? SECTIONS[0];
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-surface shadow-xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border p-6">
-          <h2 className="text-2xl font-bold text-text">Settings</h2>
-          <button
-            onClick={onClose}
-            aria-label="Close settings"
-            className="rounded-lg p-2 transition-colors hover:bg-surface-hover"
-          >
-            <X className="h-5 w-5 text-text-muted" aria-hidden="true" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-6">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList>
-              <TabsTrigger value="general">General</TabsTrigger>
-              <TabsTrigger value="playback">Playback</TabsTrigger>
-              <TabsTrigger value="epg">EPG</TabsTrigger>
-              <TabsTrigger value="parental">Parental</TabsTrigger>
-              <TabsTrigger value="profiles">Profiles</TabsTrigger>
-              <TabsTrigger value="about">About</TabsTrigger>
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <Tabs value={activeTab} onValueChange={setActiveTab} orientation="vertical">
+        <div className="flex gap-10 px-10 pt-7">
+          <nav aria-label="Settings sections" className="w-[240px] shrink-0">
+            <TabsList className="flex h-auto w-full flex-col items-stretch justify-start gap-1 border-b-0">
+              {SECTIONS.map(({ value, name, description }) => {
+                const active = activeTab === value;
+                return (
+                  <TabsTrigger
+                    key={value}
+                    value={value}
+                    aria-label={name}
+                    className={cn(
+                      'flex w-full flex-col items-start gap-0.5 rounded-lg border border-transparent px-4 py-3 text-left text-text-muted transition-colors hover:text-text',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                      'data-[state=active]:border-border-strong data-[state=active]:bg-text/5 data-[state=active]:text-text'
+                    )}
+                  >
+                    <span className="text-sm font-semibold">{name}</span>
+                    <span className={cn('text-xs', active ? 'text-text-muted' : 'text-text-faint')}>
+                      {description}
+                    </span>
+                  </TabsTrigger>
+                );
+              })}
             </TabsList>
+          </nav>
 
-            <TabsContent value="general">
+          <div className="min-w-0 flex-1 pb-10">
+            <h1 className="mb-6 font-display text-3xl font-semibold text-text">
+              {activeSection.name}
+            </h1>
+
+            <TabsContent value="general" className="mt-0 min-h-0">
               <GeneralTab
                 theme={theme}
                 onThemeChange={(t) => {
@@ -404,7 +462,7 @@ export default function Settings({ onClose }: SettingsProps) {
               />
             </TabsContent>
 
-            <TabsContent value="playback">
+            <TabsContent value="playback" className="mt-0 min-h-0">
               <PlaybackTab
                 hardwareAcceleration={hardwareAcceleration}
                 onHardwareAccelerationChange={setHardwareAcceleration}
@@ -425,7 +483,7 @@ export default function Settings({ onClose }: SettingsProps) {
               />
             </TabsContent>
 
-            <TabsContent value="epg">
+            <TabsContent value="epg" className="mt-0 min-h-0">
               <EpgTab
                 epgUrl={epgUrl}
                 onEpgUrlChange={setEpgUrl}
@@ -435,7 +493,7 @@ export default function Settings({ onClose }: SettingsProps) {
               />
             </TabsContent>
 
-            <TabsContent value="parental">
+            <TabsContent value="parental" className="mt-0 min-h-0">
               <ParentalTab
                 enabled={parentalEnabled}
                 onEnabledChange={setParentalEnabled}
@@ -453,32 +511,32 @@ export default function Settings({ onClose }: SettingsProps) {
               />
             </TabsContent>
 
-            <TabsContent value="profiles">
+            <TabsContent value="profiles" className="mt-0 min-h-0">
               <ProfileManager onClose={onClose} />
             </TabsContent>
 
-            <TabsContent value="about">
+            <TabsContent value="about" className="mt-0 min-h-0">
               <AboutTab />
             </TabsContent>
-          </Tabs>
+          </div>
         </div>
+      </Tabs>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 border-t border-border p-6">
-          <button
-            onClick={onClose}
-            className="rounded-lg px-4 py-2 text-text-muted transition-colors hover:bg-surface-hover"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={isSaving || isLoading}
-            className="rounded-lg bg-accent px-4 py-2 text-on-accent transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isSaving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
+      {/* Footer */}
+      <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-border bg-bg/90 px-10 py-6 backdrop-blur">
+        <button
+          onClick={onClose}
+          className="rounded-lg px-4 py-2 text-text-muted transition-colors hover:bg-surface-hover"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={isSaving || isLoading}
+          className="rounded-lg bg-accent px-4 py-2 text-on-accent transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isSaving ? 'Saving...' : 'Save Changes'}
+        </button>
       </div>
 
       {/* Modals */}

@@ -16,7 +16,7 @@ import { Rail } from './Rail';
 import { TopBar } from './TopBar';
 import { Search } from 'lucide-react';
 import SeriesView from './SeriesView';
-import SettingsModal from './Settings';
+import Settings from './Settings';
 import PinEntryModal from './modals/PinEntryModal';
 import ConfirmationModal from './modals/ConfirmationModal';
 import RefreshModal from './modals/RefreshModal';
@@ -120,10 +120,7 @@ export default function MainScreen() {
   // The profile the series was opened under. A series belongs to one
   // provider: after a profile switch its id means nothing to the new one.
   const [seriesPlaylistId, setSeriesPlaylistId] = useState<number | null>(null);
-  // Settings becomes a view in Task 15; until then 'settings' is never set
-  // and the Settings rail button opens the modal below.
   const [view, setView] = useState<'browse' | 'series' | 'settings'>('browse');
-  const [showSettings, setShowSettings] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   // Which control opened the profile menu, so focus returns there on close.
   const [profileMenuFromRail, setProfileMenuFromRail] = useState(false);
@@ -409,8 +406,8 @@ export default function MainScreen() {
       <Rail
         section={contentTypeFilter}
         onSection={handleSection}
-        view={view === 'settings' || showSettings ? 'settings' : 'browse'}
-        onSettings={() => setShowSettings(true)}
+        view={view === 'settings' ? 'settings' : 'browse'}
+        onSettings={() => setView('settings')}
         profileInitial={profileInitial}
         onProfile={() => {
           setProfileMenuFromRail(true);
@@ -436,7 +433,9 @@ export default function MainScreen() {
           profileMenuReturnFocus={profileMenuFromRail ? railProfileRef : undefined}
         />
 
-        {seriesOpen ? (
+        {view === 'settings' ? (
+          <Settings onClose={() => setView('browse')} />
+        ) : seriesOpen ? (
           // Its own error screen covers an unparsable Xtream URL.
           <SeriesView
             loadSeries={loadSeries}
@@ -548,9 +547,6 @@ export default function MainScreen() {
           />
         )}
       </main>
-
-      {/* Settings Modal */}
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
 
       {/* PIN Entry Modal for blocked channels */}
       <PinEntryModal
