@@ -118,7 +118,11 @@ export default function ChannelBlockingModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 backdrop-blur-sm">
-      <div className="flex h-[80vh] w-full max-w-3xl flex-col rounded-lg bg-surface shadow-xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="flex h-[80vh] w-full max-w-3xl flex-col rounded-lg bg-surface shadow-xl"
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border p-6">
           <div>

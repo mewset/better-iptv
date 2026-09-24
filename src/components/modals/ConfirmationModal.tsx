@@ -30,7 +30,11 @@ export default function ConfirmationModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl"
+      >
         {/* Header */}
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">

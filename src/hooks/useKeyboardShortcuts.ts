@@ -36,8 +36,10 @@ export function useKeyboardShortcuts(
         target instanceof globalThis.HTMLSelectElement ||
         target.isContentEditable;
 
-      // Escape always works
+      // Escape always works, unless something already claimed it (Settings,
+      // TopBar's profile menu) via preventDefault - it owns the key instead.
       if (e.key === 'Escape') {
+        if (e.defaultPrevented) return;
         if (isPlaying) {
           try {
             await stopPlayback();

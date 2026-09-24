@@ -11,7 +11,7 @@ import ErrorModal from './modals/ErrorModal';
 import type { Playlist } from '../types';
 
 interface ProfileManagerProps {
-  onClose: () => void; // For closing Settings modal if needed
+  onClose: () => void; // Closes the Settings view, e.g. after the last profile is deleted
 }
 
 export default function ProfileManager({ onClose }: ProfileManagerProps) {
@@ -132,7 +132,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
       // Reset to setup screen
       setIsSetupComplete(false);
       setShowDeleteWarning(null);
-      onClose(); // Close Settings modal
+      onClose(); // Back to browse - Settings has nothing left to manage
 
       logger.info('Last profile deleted, returning to setup');
     } catch (err) {
@@ -266,7 +266,11 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
 
       {/* Setup Modal for Creating New Profile */}
       {showSetupModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm">
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm"
+        >
           <Setup onComplete={handleProfileCreated} onCancel={() => setShowSetupModal(false)} />
         </div>
       )}
@@ -274,7 +278,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
       {/* Delete Last Profile Warning Modal */}
       {showDeleteWarning !== null && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm">
-          <div className="max-w-md rounded-lg bg-surface p-6">
+          <div role="dialog" aria-modal="true" className="max-w-md rounded-lg bg-surface p-6">
             <h3 className="mb-4 text-xl font-bold text-text">Delete Last Profile?</h3>
             <p className="mb-6 text-text-muted">
               This is your only profile. If you delete it, the onboarding process will start again

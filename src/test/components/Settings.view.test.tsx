@@ -4,8 +4,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import Settings from '../../components/Settings';
 import { usePlayerStore } from '../../stores/player-store';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
-import { setSetting, stopPlayback } from '../../lib/tauri';
-import type { Channel } from '../../types';
+import { setSetting, stopPlayback, deletePlaylist } from '../../lib/tauri';
+import type { Channel, Playlist } from '../../types';
 
 vi.mock('../../lib/tauri', () => ({
   getSetting: vi.fn(async () => null),
@@ -33,6 +33,10 @@ vi.mock('../../lib/tauri', () => ({
   setBlockedChannels: vi.fn(async () => {}),
   stopPlayback: vi.fn(async () => {}),
   playChannel: vi.fn(async () => {}),
+  renamePlaylist: vi.fn(async () => {}),
+  deletePlaylist: vi.fn(async () => {}),
+  setActiveProfileId: vi.fn(async () => {}),
+  getSubscriptionExpiry: vi.fn(async () => null),
 }));
 
 /** Settings next to the global shortcuts, as MainScreen mounts them. */
@@ -40,6 +44,16 @@ function WithShortcuts({ onClose }: { onClose: () => void }) {
   const searchRef = useRef<globalThis.HTMLInputElement>(null);
   useKeyboardShortcuts(searchRef);
   return <Settings onClose={onClose} />;
+}
+
+function playlist(id: number, name: string): Playlist {
+  return { id, name, url: 'http://provider.example', auto_refresh: false };
+}
+
+async function goToProfiles() {
+  // Radix's Tabs.Trigger switches on mousedown, not click.
+  fireEvent.mouseDown(screen.getByRole('tab', { name: /^profiles$/i }));
+  await screen.findByRole('heading', { level: 1, name: 'Profiles' });
 }
 
 async function renderSettings(onClose = vi.fn()) {
@@ -138,5 +152,39 @@ describe('Settings as a view', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(stopPlayback).not.toHaveBeenCalled();
     expect(usePlayerStore.getState().isPlaying).toBe(true);
+  });
+
+  it('Escape during a profile rename cancels the rename and leaves Settings open', async () => {
+    usePlayerStore.setState({ playlists: [playlist(1, 'Home')], activeProfileId: 1 });
+    const onClose = await renderSettings();
+
+    await goToProfiles();
+    await screen.findByText('Home');
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'Renamed' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    // The rename was cancelled: the input is gone, the old name is back.
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.getByText('Home')).toBeInTheDocument();
+    // Settings itself did not react to the same Escape.
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("Escape with ProfileManager's delete-last-profile warning open leaves Settings open", async () => {
+    usePlayerStore.setState({ playlists: [playlist(1, 'Home')], activeProfileId: 1 });
+    const onClose = await renderSettings();
+
+    await goToProfiles();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await screen.findByText('Delete Last Profile?');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText('Delete Last Profile?')).toBeInTheDocument();
+    expect(deletePlaylist).not.toHaveBeenCalled();
   });
 });

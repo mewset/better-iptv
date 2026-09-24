@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   getSetting,
   setSetting,
@@ -100,6 +100,25 @@ export default function Settings({ onClose }: SettingsProps) {
   const [errorTitle, setErrorTitle] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [showRefreshModal, setShowRefreshModal] = useState(false);
+
+  // Reserves room at the bottom of the scrolling content for the sticky
+  // footer below, so its own natural flow height never sits under it -
+  // sticky keeps the footer glued to the viewport bottom instead of
+  // pushing content up, so without this the last ~footer-height of a long
+  // section (e.g. Playback) renders behind it. Measured rather than
+  // hardcoded since the footer's height depends on its own padding/button
+  // sizing, not a value this component should have to know.
+  const footerRef = useRef<globalThis.HTMLDivElement>(null);
+  const [footerHeight, setFooterHeight] = useState(0);
+
+  useEffect(() => {
+    const measure = () => {
+      if (footerRef.current) setFooterHeight(footerRef.current.getBoundingClientRect().height);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
 
   // Load settings on mount
   useEffect(() => {
@@ -207,13 +226,20 @@ export default function Settings({ onClose }: SettingsProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Escape closes the view, unless one of Settings' own modals is open (the
-  // PIN, blocking, confirmation, refresh or error modal) - then it does
-  // nothing here so the modal handles it. Either way the event must not
-  // reach the global shortcut handler, which would stop playback: the
-  // listener runs in the capture phase on window, ahead of that bubble-phase
-  // handler, and `stopPropagation` keeps it from running at all. Same
-  // pattern as TopBar's profile menu.
+  // Escape closes the view - but only when nothing "inner" wants the key
+  // first. Unlike TopBar's profile menu (a self-contained popup), Settings
+  // hosts arbitrary descendants - an inline profile rename input, PIN/
+  // blocking/confirmation/refresh/error modals, ProfileManager's own Setup
+  // and delete-last-profile overlays - that must get to handle Escape
+  // themselves (cancel the rename, do nothing and let the open dialog's own
+  // Cancel button be used, etc). So this listener does NOT stopPropagation:
+  // it only marks the event via `preventDefault` (capture phase, ahead of
+  // useKeyboardShortcuts' bubble-phase handler, which treats a
+  // defaultPrevented Escape as already spoken for and never stops
+  // playback), then closes the view unless the target is a form field, one
+  // of Settings' own modal flags is set, or any `aria-modal="true"` dialog
+  // is open anywhere in the document (Settings' modals and ProfileManager's
+  // two inline overlays all carry that attribute on their panel).
   useEffect(() => {
     const modalOpen =
       showSetPinModal ||
@@ -227,9 +253,20 @@ export default function Settings({ onClose }: SettingsProps) {
 
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      e.stopPropagation();
       e.preventDefault();
-      if (!modalOpen) onClose();
+
+      const target = e.target as globalThis.HTMLElement | null;
+      const isFormField =
+        target instanceof globalThis.HTMLInputElement ||
+        target instanceof globalThis.HTMLTextAreaElement ||
+        target instanceof globalThis.HTMLSelectElement ||
+        target?.isContentEditable;
+      if (isFormField) return;
+
+      if (modalOpen) return;
+      if (document.querySelector('[aria-modal="true"]')) return;
+
+      onClose();
     };
 
     window.addEventListener('keydown', onKeyDown, true);
@@ -409,18 +446,20 @@ export default function Settings({ onClose }: SettingsProps) {
   const activeSection = SECTIONS.find((s) => s.value === activeTab) ?? SECTIONS[0];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <div id="settings-view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <Tabs value={activeTab} onValueChange={setActiveTab} orientation="vertical">
-        <div className="flex gap-10 px-10 pt-7">
+        <div className="flex gap-10 px-10 pt-7" style={{ paddingBottom: footerHeight }}>
           <nav aria-label="Settings sections" className="w-[240px] shrink-0">
             <TabsList className="flex h-auto w-full flex-col items-stretch justify-start gap-1 border-b-0">
               {SECTIONS.map(({ value, name, description }) => {
                 const active = activeTab === value;
+                const descriptionId = `settings-section-${value}-description`;
                 return (
                   <TabsTrigger
                     key={value}
                     value={value}
                     aria-label={name}
+                    aria-describedby={descriptionId}
                     className={cn(
                       'flex w-full flex-col items-start gap-0.5 rounded-lg border border-transparent px-4 py-3 text-left text-text-muted transition-colors hover:text-text',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
@@ -428,7 +467,10 @@ export default function Settings({ onClose }: SettingsProps) {
                     )}
                   >
                     <span className="text-sm font-semibold">{name}</span>
-                    <span className={cn('text-xs', active ? 'text-text-muted' : 'text-text-faint')}>
+                    <span
+                      id={descriptionId}
+                      className={cn('text-xs', active ? 'text-text-muted' : 'text-text-faint')}
+                    >
                       {description}
                     </span>
                   </TabsTrigger>
@@ -523,7 +565,10 @@ export default function Settings({ onClose }: SettingsProps) {
       </Tabs>
 
       {/* Footer */}
-      <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-border bg-bg/90 px-10 py-6 backdrop-blur">
+      <div
+        ref={footerRef}
+        className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-border bg-bg/90 px-10 py-6 backdrop-blur"
+      >
         <button
           onClick={onClose}
           className="rounded-lg px-4 py-2 text-text-muted transition-colors hover:bg-surface-hover"

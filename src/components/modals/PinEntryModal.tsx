@@ -111,7 +111,11 @@ export default function PinEntryModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl"
+      >
         {/* Header */}
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-xl font-bold text-text">
