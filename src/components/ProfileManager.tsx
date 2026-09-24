@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { KeyRound, Link, Plus } from 'lucide-react';
 import { usePlayerStore } from '../stores/player-store';
 import { setActiveProfileId, deletePlaylist, renamePlaylist, getChannels } from '../lib/tauri';
 import { logger } from '../lib/logger';
@@ -186,12 +187,12 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
     <>
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Profiles</h3>
+          <h3 className="text-lg font-semibold text-text">Profiles</h3>
           <button
             onClick={() => setShowSetupModal(true)}
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700"
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-on-accent transition-colors hover:bg-accent-hover"
           >
-            <span className="text-xl">+</span>
+            <Plus className="h-4 w-4" aria-hidden="true" />
             Create New Profile
           </button>
         </div>
@@ -201,28 +202,29 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
             const isActive = playlist.id === activeProfileId;
             const isEditing = editingId === playlist.id;
             const type = playlist.xtream_username ? 'Xtream Codes' : 'M3U URL';
-            const icon = type === 'Xtream Codes' ? '📡' : '📺';
             const expiryLine = formatSubscriptionExpiry(playlist.id ? expiries[playlist.id] : null);
 
             return (
               <div
                 key={playlist.id}
                 className={`rounded-lg border-2 p-4 transition-all ${
-                  isActive
-                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                    : 'border-gray-300 bg-white dark:border-gray-600 dark:bg-gray-800'
+                  isActive ? 'border-accent bg-accent/10' : 'border-border-strong bg-surface'
                 }`}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex flex-1 items-center gap-3">
-                    <div className="text-2xl">{icon}</div>
+                    {type === 'Xtream Codes' ? (
+                      <KeyRound className="h-6 w-6 text-text-muted" aria-hidden="true" />
+                    ) : (
+                      <Link className="h-6 w-6 text-text-muted" aria-hidden="true" />
+                    )}
                     <div className="flex-1">
                       {isEditing ? (
                         <input
                           type="text"
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
-                          className="w-full rounded-md border border-gray-300 px-3 py-1 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                          className="w-full rounded-md border border-border-strong bg-surface px-3 py-1 text-text"
                           autoFocus
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') handleSaveRename(playlist.id!);
@@ -230,26 +232,22 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
                           }}
                         />
                       ) : (
-                        <h3 className="font-semibold text-gray-900 dark:text-white">
-                          {playlist.name}
-                        </h3>
+                        <h3 className="font-semibold text-text">{playlist.name}</h3>
                       )}
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Type: {type}</p>
-                      {expiryLine && (
-                        <p className="text-sm text-gray-600 dark:text-gray-400">{expiryLine}</p>
-                      )}
+                      <p className="text-sm text-text-muted">Type: {type}</p>
+                      {expiryLine && <p className="text-sm text-text-muted">{expiryLine}</p>}
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2">
                     {isActive ? (
-                      <span className="rounded-full bg-blue-600 px-3 py-1 text-sm font-medium text-white">
+                      <span className="rounded-full bg-accent px-3 py-1 text-sm font-medium text-on-accent">
                         Active
                       </span>
                     ) : (
                       <button
                         onClick={() => handleActivateProfile(playlist)}
-                        className="rounded-md bg-green-600 px-3 py-1 text-sm font-medium text-white transition-colors hover:bg-green-700"
+                        className="rounded-md bg-accent px-3 py-1 text-sm font-medium text-on-accent transition-colors hover:bg-accent-hover"
                       >
                         Activate
                       </button>
@@ -259,13 +257,13 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
                       <>
                         <button
                           onClick={() => handleSaveRename(playlist.id!)}
-                          className="rounded-md bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700"
+                          className="rounded-md bg-accent px-3 py-1 text-sm text-on-accent hover:bg-accent-hover"
                         >
                           Save
                         </button>
                         <button
                           onClick={handleCancelRename}
-                          className="rounded-md bg-gray-500 px-3 py-1 text-sm text-white hover:bg-gray-600"
+                          className="rounded-md bg-surface-2 px-3 py-1 text-sm text-text hover:bg-surface-hover"
                         >
                           Cancel
                         </button>
@@ -274,13 +272,13 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
                       <>
                         <button
                           onClick={() => handleStartRename(playlist)}
-                          className="rounded-md bg-gray-600 px-3 py-1 text-sm text-white hover:bg-gray-700"
+                          className="rounded-md bg-surface-2 px-3 py-1 text-sm text-text hover:bg-surface-hover"
                         >
                           Rename
                         </button>
                         <button
                           onClick={() => handleDeleteProfile(playlist.id!)}
-                          className="rounded-md bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-700"
+                          className="rounded-md bg-danger px-3 py-1 text-sm text-on-danger hover:bg-danger/90"
                         >
                           Delete
                         </button>
@@ -296,32 +294,30 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
 
       {/* Setup Modal for Creating New Profile */}
       {showSetupModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm">
           <Setup onComplete={handleProfileCreated} onCancel={() => setShowSetupModal(false)} />
         </div>
       )}
 
       {/* Delete Last Profile Warning Modal */}
       {showDeleteWarning !== null && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="max-w-md rounded-lg bg-white p-6 dark:bg-gray-800">
-            <h3 className="mb-4 text-xl font-bold text-gray-900 dark:text-white">
-              Delete Last Profile?
-            </h3>
-            <p className="mb-6 text-gray-700 dark:text-gray-300">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm">
+          <div className="max-w-md rounded-lg bg-surface p-6">
+            <h3 className="mb-4 text-xl font-bold text-text">Delete Last Profile?</h3>
+            <p className="mb-6 text-text-muted">
               This is your only profile. If you delete it, the onboarding process will start again
               and you'll need to add a new playlist.
             </p>
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setShowDeleteWarning(null)}
-                className="rounded-lg bg-gray-500 px-4 py-2 text-white hover:bg-gray-600"
+                className="rounded-lg bg-surface-2 px-4 py-2 text-text hover:bg-surface-hover"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmDeleteLastProfile}
-                className="rounded-lg bg-red-600 px-4 py-2 text-white hover:bg-red-700"
+                className="rounded-lg bg-danger px-4 py-2 text-on-danger hover:bg-danger/90"
               >
                 Delete and Restart
               </button>
