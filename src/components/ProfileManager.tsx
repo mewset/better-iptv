@@ -88,7 +88,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
   // Save renamed profile
   const handleSaveRename = async (id: number) => {
     if (!editName.trim()) {
-      setErrorTitle('Invalid Profile Name');
+      setErrorTitle('Invalid profile name');
       setErrorMessage('Profile name cannot be empty');
       setShowErrorModal(true);
       return;

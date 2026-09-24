@@ -174,6 +174,22 @@ describe('Settings as a view', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it('labels the footer button "Save changes"', async () => {
+    await renderSettings();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+  });
+
+  it('an empty rename reports "Invalid profile name"', async () => {
+    usePlayerStore.setState({ playlists: [playlist(1, 'Home')], activeProfileId: 1 });
+    await renderSettings();
+    await goToProfiles();
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: '  ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(await screen.findByText('Invalid profile name')).toBeInTheDocument();
+  });
+
   it("Escape with ProfileManager's delete-last-profile warning open leaves Settings open", async () => {
     usePlayerStore.setState({ playlists: [playlist(1, 'Home')], activeProfileId: 1 });
     const onClose = await renderSettings();

@@ -47,6 +47,7 @@ describe('SeriesView', () => {
     expect(await screen.findByRole('heading', { name: 'Breaking Bad' })).toBeInTheDocument();
     expect(loadSeries).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'Season 1 (2)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Back to series' })).toBeInTheDocument();
     expect(screen.getByText('Pilot')).toBeInTheDocument();
     expect(screen.queryByText('Seven Thirty-Seven')).not.toBeInTheDocument();
   });
@@ -77,7 +78,7 @@ describe('SeriesView', () => {
     const { onBack } = renderView(vi.fn().mockRejectedValue(new Error('Series not found')));
 
     expect(await screen.findByText('Series not found')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /go back/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
     expect(onBack).toHaveBeenCalled();
   });
 });

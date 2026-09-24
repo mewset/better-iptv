@@ -76,7 +76,7 @@ export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: Series
               onClick={onBack}
               className="rounded-md bg-accent px-4 py-2 text-on-accent hover:bg-accent-hover"
             >
-              Go Back
+              Go back
             </button>
           </div>
         </div>
@@ -96,7 +96,7 @@ export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: Series
             className="mb-4 flex items-center gap-2 text-accent-text hover:underline"
           >
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
-            Back to Series List
+            Back to series
           </button>
           <div className="flex gap-6">
             {currentSeries.info.cover && (

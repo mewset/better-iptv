@@ -645,7 +645,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
           disabled={isSaving || isLoading}
           className="rounded-lg bg-accent px-4 py-2 text-on-accent transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {isSaving ? 'Saving...' : 'Save Changes'}
+          {isSaving ? 'Saving...' : 'Save changes'}
         </button>
       </div>
 

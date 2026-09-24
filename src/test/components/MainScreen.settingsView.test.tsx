@@ -189,4 +189,13 @@ describe('MainScreen: Settings view and navigation', () => {
     await waitFor(() => expect(usePlayerStore.getState().contentTypeFilter).toBe('guide'));
     expect(usePlayerStore.getState().searchQuery).toBe('');
   });
+
+  it('titles the stale-playlist prompt in sentence case', async () => {
+    const base = mockedInvoke.getMockImplementation()!;
+    mockedInvoke.mockImplementation(async (cmd: string, args?: unknown) =>
+      cmd === 'get_stale_playlist_ids' ? [1] : base(cmd, args as never)
+    );
+    render(<MainScreen />);
+    expect(await screen.findByText('Playlist update available')).toBeInTheDocument();
+  });
 });

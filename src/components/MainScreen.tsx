@@ -706,7 +706,7 @@ export default function MainScreen() {
           setShowStalePrompt(false);
           setShowRefreshModal(true);
         }}
-        title="Playlist Update Available"
+        title="Playlist update available"
         message="Your playlist hasn't been updated in over 7 days. Would you like to refresh it now?"
         confirmText="Refresh Now"
         cancelText="Later"
