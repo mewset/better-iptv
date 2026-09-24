@@ -140,8 +140,8 @@ export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: Series
         </div>
       </div>
 
-      {/* Episode List */}
-      <div className="flex-1 overflow-y-auto">
+      {/* Episode List. pb-32 keeps the last row clear of the now-playing dock. */}
+      <div className="flex-1 overflow-y-auto pb-32">
         <div className="mx-auto max-w-7xl p-4">
           {selectedSeasonEpisodes.length === 0 ? (
             <div className="py-12 text-center">
