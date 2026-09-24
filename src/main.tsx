@@ -1,6 +1,13 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import '@fontsource/familjen-grotesk/500.css';
+import '@fontsource/familjen-grotesk/600.css';
+import '@fontsource/familjen-grotesk/700.css';
+import '@fontsource/schibsted-grotesk/400.css';
+import '@fontsource/schibsted-grotesk/500.css';
+import '@fontsource/schibsted-grotesk/600.css';
+import '@fontsource/schibsted-grotesk/700.css';
 import './index.css';
 import { applyTheme, applyThemeFromCache } from './lib/theme';
 import { getSetting } from './lib/tauri';

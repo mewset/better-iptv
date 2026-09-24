@@ -35,6 +35,10 @@ export default {
       // Type that scales with the viewport. The app is used on a TV as well as
       // a desktop monitor, and clamp() covers both ends continuously - no
       // separate "TV mode" to maintain. Not yet applied to components.
+      fontFamily: {
+        sans: ['"Schibsted Grotesk"', 'system-ui', '"Segoe UI"', 'sans-serif'],
+        display: ['"Familjen Grotesk"', '"Schibsted Grotesk"', 'system-ui', 'sans-serif'],
+      },
       fontSize: {
         'fluid-xs': 'clamp(0.75rem, 0.65rem + 0.3vw, 0.9rem)',
         'fluid-sm': 'clamp(0.875rem, 0.75rem + 0.4vw, 1.125rem)',

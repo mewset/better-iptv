@@ -48,3 +48,24 @@ describe('design tokens', () => {
     expect(tw).toContain(`var(--color-${t})`);
   });
 });
+
+function value(selector: string, token: string): string {
+  const m = block(selector).match(new RegExp(`--color-${token}:\\s*([\\d ]+);`));
+  return m ? m[1].trim() : '';
+}
+
+describe('3.0 palette', () => {
+  it('uses the measured dark values', () => {
+    expect(value('.dark', 'bg')).toBe('15 16 19');
+    expect(value('.dark', 'text')).toBe('242 242 240');
+    expect(value('.dark', 'text-faint')).toBe('133 137 148');
+    expect(value('.dark', 'accent')).toBe('242 180 65');
+    expect(value('.dark', 'on-accent')).toBe('20 20 20');
+  });
+
+  it('keeps accent text readable in light mode', () => {
+    // Raw amber on white measures 1.85:1; this dark amber measures 5.67:1 on gray-50.
+    expect(value(':root', 'accent-text')).toBe('138 90 0');
+    expect(value(':root', 'on-accent')).toBe('20 20 20');
+  });
+});

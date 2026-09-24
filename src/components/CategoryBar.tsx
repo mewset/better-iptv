@@ -24,10 +24,10 @@ export const CategoryBar = memo(function CategoryBar() {
         onClick={() => setCategoryFilter(null)}
         role="tab"
         aria-selected={categoryFilter === null}
-        className={`shrink-0 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-bg ${
+        className={`inline-flex h-[34px] shrink-0 items-center justify-center rounded-full border px-3.5 text-[13px] transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-bg ${
           categoryFilter === null
-            ? 'border-accent bg-accent text-white'
-            : 'border-border bg-surface text-text hover:bg-surface-hover'
+            ? 'border-text bg-text font-semibold text-bg'
+            : 'border-border bg-text/5 font-medium text-text-muted hover:bg-text/10'
         } `}
       >
         All
@@ -40,10 +40,10 @@ export const CategoryBar = memo(function CategoryBar() {
           onClick={() => setCategoryFilter(category)}
           role="tab"
           aria-selected={categoryFilter === category}
-          className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-bg ${
+          className={`inline-flex h-[34px] shrink-0 items-center justify-center whitespace-nowrap rounded-full border px-3.5 text-[13px] transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-bg ${
             categoryFilter === category
-              ? 'border-accent bg-accent text-white'
-              : 'border-border bg-surface text-text hover:bg-surface-hover'
+              ? 'border-text bg-text font-semibold text-bg'
+              : 'border-border bg-text/5 font-medium text-text-muted hover:bg-text/10'
           } `}
         >
           {category}
