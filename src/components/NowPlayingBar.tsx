@@ -1,71 +1,109 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Square } from 'lucide-react';
 import type { Channel } from '../types';
+import type { EpgEntry } from '../stores/player-store';
+import { formatClock, progressPercent, minutesLeft } from '../lib/epgTime';
+import { ColorBars } from './ColorBars';
 
 interface NowPlayingBarProps {
   /** Currently playing channel */
   channel: Channel;
-  /** Current EPG program title */
+  /** Current/next EPG entry for this channel, if any */
+  epg?: EpgEntry;
+  /** Fallback current-programme string, used only when `epg` is absent */
   currentProgram?: string | null;
-  /** Next EPG program title */
+  /** Fallback next-programme string, used only when `epg` is absent */
   nextProgram?: string | null;
   /** Callback when stop button is clicked */
   onStop: () => void;
 }
 
 /**
- * Now Playing bar component
+ * Floating now-playing dock.
  *
- * Displays information about the currently playing channel including:
- * - Channel logo and name
- * - Group/category
- * - Current and next EPG program
- * - Stop button
+ * A pill fixed to the bottom of the viewport: a 52px logo tile, a middle
+ * column with the channel name, the current programme, a time range with
+ * minutes-left and a progress bar (only for the parts EPG data actually
+ * supplies), and a stop button on the right.
  */
 export const NowPlayingBar = memo(function NowPlayingBar({
   channel,
+  epg,
   currentProgram,
   nextProgram,
   onStop,
 }: NowPlayingBarProps) {
+  const [logoFailed, setLogoFailed] = useState(false);
+  const showLogo = Boolean(channel.logo) && !logoFailed;
+
+  const programme = epg?.current ?? currentProgram ?? null;
+  const next = epg?.next ?? nextProgram ?? null;
+
+  const hasRange = Boolean(epg?.currentStart && epg?.currentEnd);
+  const startTime = epg?.currentStart ? formatClock(epg.currentStart) : '';
+  const endTime = epg?.currentEnd ? formatClock(epg.currentEnd) : '';
+  const pct =
+    epg?.currentStart && epg?.currentEnd ? progressPercent(epg.currentStart, epg.currentEnd) : null;
+  const minsLeft = epg?.currentEnd ? minutesLeft(epg.currentEnd) : null;
+  const nextTime = epg?.nextStart ? formatClock(epg.nextStart) : '';
+
   return (
-    <div className="bg-blue-600 p-4 text-white">
-      <div className="mx-auto flex items-center justify-between px-2">
-        <div className="flex items-center gap-4">
-          {channel.logo && (
-            <div className="flex h-12 w-12 items-center justify-center rounded bg-gray-900 p-1">
-              <img
-                src={channel.logo}
-                alt={channel.name}
-                className="max-h-full max-w-full object-contain"
-                loading="lazy"
-              />
-            </div>
+    <aside
+      aria-label="Now playing"
+      className="absolute bottom-6 left-1/2 flex h-[76px] w-[min(880px,calc(100%-80px))] -translate-x-1/2 items-center gap-4 rounded-[18px] border border-border-strong bg-surface/85 px-3 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-2xl supports-[not(backdrop-filter:blur(1px))]:bg-surface"
+    >
+      <div className="relative h-[52px] w-[52px] shrink-0 overflow-hidden rounded-xl bg-surface-2">
+        {showLogo ? (
+          <img
+            src={channel.logo!}
+            alt={channel.name}
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+            onError={() => setLogoFailed(true)}
+            className="h-full w-full object-contain p-1"
+          />
+        ) : (
+          <ColorBars label={channel.name} />
+        )}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-1.5">
+          <span className="truncate text-sm font-semibold text-text">{channel.name}</span>
+          {programme && <span className="truncate text-sm text-text-muted">{programme}</span>}
+          {(hasRange || minsLeft !== null) && (
+            <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-text-muted">
+              {hasRange && `${startTime}–${endTime}`}
+              {minsLeft !== null && ` · ${minsLeft} min left`}
+            </span>
           )}
-          <div>
-            <p className="font-medium">{channel.name}</p>
-            <p className="text-sm text-blue-100">{channel.group_name || 'Live TV'}</p>
-            {currentProgram && (
-              <p className="mt-1 text-sm text-blue-200">
-                <span className="font-medium">Now showing:</span> {currentProgram}
-              </p>
+        </div>
+        {(pct !== null || next) && (
+          <div className="mt-1.5 flex items-center gap-3">
+            {pct !== null && (
+              <div data-progress className="h-1 w-[360px] max-w-full rounded-full bg-text/10">
+                <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+              </div>
             )}
-            {nextProgram && (
-              <p className="mt-0.5 text-xs text-blue-200">
-                <span className="font-medium">Next up:</span> {nextProgram}
+            {next && (
+              <p className="truncate text-xs text-text-muted">
+                Next{nextTime && ` · ${nextTime}`} {next}
               </p>
             )}
           </div>
-        </div>
-        <button
-          onClick={onStop}
-          className="rounded-lg bg-white/20 p-2 transition-colors hover:bg-white/30"
-          aria-label="Stop playback"
-        >
-          <Square className="h-5 w-5" />
-        </button>
+        )}
       </div>
-    </div>
+
+      <button
+        type="button"
+        aria-label="Stop playback"
+        onClick={onStop}
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent text-on-accent focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        <Square className="h-4 w-4 fill-current" aria-hidden="true" />
+      </button>
+    </aside>
   );
 });
 

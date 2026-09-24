@@ -541,6 +541,7 @@ export default function MainScreen() {
         {currentChannel && (
           <NowPlayingBar
             channel={currentChannel}
+            epg={channelEpgData.get(currentChannel.id)}
             currentProgram={currentProgram}
             nextProgram={nextProgram}
             onStop={handleStop}
