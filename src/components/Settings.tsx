@@ -358,16 +358,17 @@ export default function Settings({ onClose }: SettingsProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white shadow-xl dark:bg-gray-800">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-surface shadow-xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 p-6 dark:border-gray-700">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h2>
+        <div className="flex items-center justify-between border-b border-border p-6">
+          <h2 className="text-2xl font-bold text-text">Settings</h2>
           <button
             onClick={onClose}
-            className="rounded-lg p-2 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
+            aria-label="Close settings"
+            className="rounded-lg p-2 transition-colors hover:bg-surface-hover"
           >
-            <X className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+            <X className="h-5 w-5 text-text-muted" aria-hidden="true" />
           </button>
         </div>
 
@@ -463,17 +464,17 @@ export default function Settings({ onClose }: SettingsProps) {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 border-t border-gray-200 p-6 dark:border-gray-700">
+        <div className="flex items-center justify-end gap-3 border-t border-border p-6">
           <button
             onClick={onClose}
-            className="rounded-lg px-4 py-2 text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+            className="rounded-lg px-4 py-2 text-text-muted transition-colors hover:bg-surface-hover"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={isSaving || isLoading}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg bg-accent px-4 py-2 text-on-accent transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSaving ? 'Saving...' : 'Save Changes'}
           </button>
