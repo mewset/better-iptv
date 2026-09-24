@@ -417,9 +417,15 @@ export default function MainScreen() {
     [view]
   );
 
+  // A rail or G section change also clears the search: it spans every
+  // content type, so a leftover query would make the new section look empty.
   const handleRailSection = useCallback(
-    (section: Section) => leaveSettingsThen(() => handleSection(section)),
-    [leaveSettingsThen, handleSection]
+    (section: Section) =>
+      leaveSettingsThen(() => {
+        setSearchQuery('');
+        handleSection(section);
+      }),
+    [leaveSettingsThen, handleSection, setSearchQuery]
   );
 
   const openSettings = useCallback((tab = 'general') => {
@@ -431,12 +437,13 @@ export default function MainScreen() {
   // (its text fields and Ctrl+1-6), so the toggle does nothing there.
   const handleToggleGuide = useCallback(() => {
     if (view === 'settings') return;
+    setSearchQuery('');
     if (contentTypeFilter === 'guide') {
       handleSection(guideReturnRef.current);
     } else {
       handleSection('guide');
     }
-  }, [view, contentTypeFilter, handleSection]);
+  }, [view, contentTypeFilter, handleSection, setSearchQuery]);
 
   // Escape, after Settings / the profile menu / the guide's detail panel had
   // their chance (they preventDefault). True means "handled, keep playing".

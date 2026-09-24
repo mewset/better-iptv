@@ -168,4 +168,25 @@ describe('MainScreen: Settings view and navigation', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
     expect(settingsOpen()).not.toBeNull();
   });
+
+  it('changing section from the rail clears the search', async () => {
+    render(<MainScreen />);
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'svt' } });
+    expect(usePlayerStore.getState().searchQuery).toBe('svt');
+
+    fireEvent.click(railButton('Movies'));
+
+    expect(usePlayerStore.getState().searchQuery).toBe('');
+    expect(screen.getByRole('searchbox')).toHaveValue('');
+  });
+
+  it('G clears the search as it switches to the guide', async () => {
+    render(<MainScreen />);
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'svt' } });
+    document.body.dispatchEvent(
+      new globalThis.KeyboardEvent('keydown', { key: 'g', bubbles: true, cancelable: true })
+    );
+    await waitFor(() => expect(usePlayerStore.getState().contentTypeFilter).toBe('guide'));
+    expect(usePlayerStore.getState().searchQuery).toBe('');
+  });
 });
