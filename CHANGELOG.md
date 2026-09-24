@@ -7,8 +7,8 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Added
 
-- **3.0 UI: a dark-first redesign, live-programme progress and a TV Guide view** - the token layer started in an earlier release is now complete across `Setup`, `ProfileManager`, `Settings` and its tabs, every modal and `SeriesView`, so no component styles itself outside the palette
-  - The palette is dark by default with an amber accent, chosen with measured contrast rather than picked by eye: `--color-text` on `--color-bg` reads 9.98:1 in dark mode; the raw amber measures 1.85:1 on white and is unusable as text there, so light mode's `--color-accent-text` is a burnt amber (`138 90 0`) at 5.67:1 on gray-50 instead, while dark mode's background is dark enough for the raw amber to serve as `--color-accent-text` too (10.31:1 on `--color-bg`). `--color-on-accent` (dark text on the amber fill) measures 9.98:1
+- **3.0 UI: a dark-first redesign, live-programme progress and a TV Guide view** - the token layer started in an earlier release is now complete across `Setup`, `ProfileManager`, `Settings` and its tabs, every modal and `SeriesView`, so no component styles itself outside the palette, apart from the three donation buttons in `AboutTab` which keep their brand colours on purpose
+  - The palette is dark by default with an amber accent, chosen with measured contrast rather than picked by eye: `--color-text` on `--color-bg` reads 16.97:1 in dark mode; the raw amber measures 1.85:1 on white and is unusable as text there, so light mode's `--color-accent-text` is a burnt amber (`138 90 0`) at 5.67:1 on gray-50 instead, while dark mode's background is dark enough for the raw amber to serve as `--color-accent-text` too (10.31:1 on `--color-bg`). `--color-on-accent` (dark text on the amber fill) measures 9.98:1
   - Familjen Grotesk and Schibsted Grotesk ship via `@fontsource/familjen-grotesk` and `@fontsource/schibsted-grotesk`, imported by weight in `src/main.tsx`, so no runtime font fetch is added
   - `ChannelEpg` gains `current_start`, `current_end` and `next_start` alongside the existing programme titles (`src-tauri/src/epg/xmltv.rs`), and the live channel card (`ChannelCard.tsx`) uses them to draw a progress line under the current programme
   - A `ColorBars` placeholder (`src/components/ColorBars.tsx`) fills in for channels and titles with no artwork
@@ -24,7 +24,7 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Credits
 
-- **@orcdev** ran a live review of the app on X on 2026-09-23 and questioned its "modern UI" claim against Netflix- and Vercel-style dark-and-glass interfaces; that review is what prompted this redesign
+- **@orcdev** reviewed the app's UI in a live stream on 2026-09-23; that review prompted this redesign
 
 ### Changed
 
