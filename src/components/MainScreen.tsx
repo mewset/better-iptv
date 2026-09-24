@@ -18,7 +18,7 @@ import { Rail } from './Rail';
 import { TopBar } from './TopBar';
 import { Search } from 'lucide-react';
 import SeriesView from './SeriesView';
-import Settings from './Settings';
+import Settings, { type SettingsHandle } from './Settings';
 import PinEntryModal from './modals/PinEntryModal';
 import ConfirmationModal from './modals/ConfirmationModal';
 import RefreshModal from './modals/RefreshModal';
@@ -135,6 +135,8 @@ export default function MainScreen() {
   // Which control opened the profile menu, so focus returns there on close.
   const [profileMenuFromRail, setProfileMenuFromRail] = useState(false);
   const railProfileRef = useRef<globalThis.HTMLButtonElement>(null);
+  // Open Settings' unsaved-edits check; leaving the view goes through it.
+  const settingsRef = useRef<SettingsHandle>(null);
   const playlists = usePlayerStore((s) => s.playlists);
   const activeProfileId = usePlayerStore((s) => s.activeProfileId);
   const [showPinModal, setShowPinModal] = useState(false);
@@ -405,6 +407,21 @@ export default function MainScreen() {
     [setContentTypeFilter, closeSeries]
   );
 
+  // Navigating away from Settings asks it first: unsaved edits get a
+  // "Discard changes?" dialog, and `go` runs only on Discard.
+  const leaveSettingsThen = useCallback(
+    (go: () => void) => {
+      if (view === 'settings' && settingsRef.current) settingsRef.current.requestLeave(go);
+      else go();
+    },
+    [view]
+  );
+
+  const handleRailSection = useCallback(
+    (section: Section) => leaveSettingsThen(() => handleSection(section)),
+    [leaveSettingsThen, handleSection]
+  );
+
   const openSettings = useCallback((tab = 'general') => {
     setSettingsTab(tab);
     setView('settings');
@@ -474,7 +491,7 @@ export default function MainScreen() {
     <div className="flex h-screen bg-bg text-text">
       <Rail
         section={contentTypeFilter}
-        onSection={handleSection}
+        onSection={handleRailSection}
         view={view === 'settings' ? 'settings' : 'browse'}
         onSettings={() => openSettings()}
         profileInitial={profileInitial}
@@ -503,7 +520,11 @@ export default function MainScreen() {
         />
 
         {view === 'settings' ? (
-          <Settings onClose={() => setView('browse')} initialTab={settingsTab} />
+          <Settings
+            onClose={() => setView('browse')}
+            initialTab={settingsTab}
+            leaveRef={settingsRef}
+          />
         ) : seriesOpen ? (
           // Its own error screen covers an unparsable Xtream URL.
           <SeriesView

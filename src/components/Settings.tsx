@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useImperativeHandle } from 'react';
 import {
   getSetting,
   setSetting,
@@ -36,10 +36,21 @@ import {
   type ParentalVisibility,
 } from './settings/index';
 
+/** What MainScreen may ask of an open Settings view. */
+export interface SettingsHandle {
+  /**
+   * Run `leave` now when nothing is unsaved; otherwise ask first ("Discard
+   * changes?") and run it only on Discard.
+   */
+  requestLeave: (leave: () => void) => void;
+}
+
 interface SettingsProps {
   onClose: () => void;
   /** Section shown when the view opens (the guide's empty state opens 'epg'). */
   initialTab?: string;
+  /** Lets the host route navigation away from Settings through the unsaved-edits check. */
+  leaveRef?: React.Ref<SettingsHandle>;
 }
 
 /** The left nav's sections, in display order. Ctrl+1-6 below maps to these by index. */
@@ -52,7 +63,7 @@ const SECTIONS: Array<{ value: string; name: string; description: string }> = [
   { value: 'about', name: 'About', description: 'Version and licenses' },
 ];
 
-export default function Settings({ onClose, initialTab = 'general' }: SettingsProps) {
+export default function Settings({ onClose, initialTab = 'general', leaveRef }: SettingsProps) {
   const { triggerEpgRefresh, channels, loadParentalSettings, currentPlaylist, setChannels } =
     usePlayerStore();
 
@@ -102,6 +113,50 @@ export default function Settings({ onClose, initialTab = 'general' }: SettingsPr
   const [errorTitle, setErrorTitle] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [showRefreshModal, setShowRefreshModal] = useState(false);
+  // The navigation waiting on "Discard changes?"; null while no one asks.
+  const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
+
+  // Unsaved-edits tracking: every value Save writes, serialised, compared
+  // against the same snapshot taken once loading finished.
+  const savedValues = JSON.stringify({
+    theme,
+    playlistUserAgentMode,
+    playlistUserAgentCustom,
+    updateCheckEnabled,
+    epgUrl,
+    hardwareAcceleration,
+    videoOutput,
+    deinterlace,
+    startFullscreen,
+    cacheSecs,
+    startVolume,
+    audioLang,
+    subtitleLang,
+    parentalEnabled,
+    blockedChannelIds: Array.from(blockedChannelIds).sort((a, b) => a - b),
+    blockedCategories,
+    parentalAutoDetect,
+    parentalVisibility,
+  });
+  const [loadedValues, setLoadedValues] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isLoading && loadedValues === null) setLoadedValues(savedValues);
+  }, [isLoading, loadedValues, savedValues]);
+  const dirty = loadedValues !== null && savedValues !== loadedValues;
+
+  // Read through a ref so the Escape listener and the imperative handle
+  // always see the latest dirty state without re-subscribing.
+  const requestLeave = (leave: () => void) => {
+    if (dirty) setPendingLeave(() => leave);
+    else leave();
+  };
+  const requestLeaveRef = useRef(requestLeave);
+  requestLeaveRef.current = requestLeave;
+  useImperativeHandle(
+    leaveRef,
+    () => ({ requestLeave: (leave) => requestLeaveRef.current(leave) }),
+    []
+  );
 
   // Reserves room at the bottom of the scrolling content for the sticky
   // footer below, so its own natural flow height never sits under it -
@@ -251,7 +306,8 @@ export default function Settings({ onClose, initialTab = 'general' }: SettingsPr
       showResetPinConfirmation ||
       showChannelBlockingModal ||
       showErrorModal ||
-      showRefreshModal;
+      showRefreshModal ||
+      pendingLeave !== null;
 
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -268,7 +324,7 @@ export default function Settings({ onClose, initialTab = 'general' }: SettingsPr
       if (modalOpen) return;
       if (document.querySelector('[aria-modal="true"]')) return;
 
-      onClose();
+      requestLeaveRef.current(onClose);
     };
 
     window.addEventListener('keydown', onKeyDown, true);
@@ -283,6 +339,7 @@ export default function Settings({ onClose, initialTab = 'general' }: SettingsPr
     showChannelBlockingModal,
     showErrorModal,
     showRefreshModal,
+    pendingLeave,
   ]);
 
   // Error helper
@@ -331,6 +388,12 @@ export default function Settings({ onClose, initialTab = 'general' }: SettingsPr
       await resetParentalPin();
       setHasPin(false);
       setParentalEnabled(false);
+      // The reset already turned parental controls off in the backend, so
+      // that is not an unsaved edit.
+      setLoadedValues((prev) => {
+        if (prev === null) return prev;
+        return JSON.stringify({ ...JSON.parse(prev), parentalEnabled: false });
+      });
       logger.info('Parental PIN reset successfully');
     } catch (err) {
       logger.error('Failed to reset PIN:', err);
@@ -638,6 +701,17 @@ export default function Settings({ onClose, initialTab = 'general' }: SettingsPr
         channels={channels}
         initialBlockedIds={blockedChannelIds}
         onUpdate={handleBlockedChannelsUpdate}
+      />
+
+      <ConfirmationModal
+        isOpen={pendingLeave !== null}
+        onClose={() => setPendingLeave(null)}
+        onConfirm={() => pendingLeave?.()}
+        title="Discard changes?"
+        message="You have unsaved settings. Leave without saving?"
+        confirmText="Discard"
+        cancelText="Keep editing"
+        confirmVariant="danger"
       />
 
       <ErrorModal

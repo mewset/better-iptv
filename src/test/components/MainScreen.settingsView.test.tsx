@@ -105,4 +105,67 @@ describe('MainScreen: Settings view and navigation', () => {
     fireEvent.click(railButton('Live TV'));
     await waitFor(() => expect(dock()).not.toBeNull());
   });
+
+  async function openSettings() {
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+    await screen.findByRole('heading', { level: 1, name: 'General' });
+    // Let the load effect settle so the clean snapshot is taken.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /^save changes$/i })).not.toBeDisabled()
+    );
+  }
+  const settingsOpen = () => screen.queryByRole('heading', { level: 1, name: 'General' });
+  const discardDialog = () => screen.queryByRole('dialog');
+
+  it('leaves clean Settings straight away from the rail', async () => {
+    render(<MainScreen />);
+    await openSettings();
+    fireEvent.click(railButton('Movies'));
+    await waitFor(() => expect(settingsOpen()).toBeNull());
+    expect(discardDialog()).toBeNull();
+    expect(usePlayerStore.getState().contentTypeFilter).toBe('vod');
+  });
+
+  it('asks before leaving Settings with unsaved edits; Keep editing stays', async () => {
+    render(<MainScreen />);
+    await openSettings();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(railButton('Movies'));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Discard changes?')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('You have unsaved settings. Leave without saving?')
+    ).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Keep editing' }));
+
+    expect(discardDialog()).toBeNull();
+    expect(settingsOpen()).not.toBeNull();
+    expect(usePlayerStore.getState().contentTypeFilter).toBe('live');
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
+  });
+
+  it('Discard leaves Settings for the chosen section', async () => {
+    render(<MainScreen />);
+    await openSettings();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(railButton('Movies'));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Discard' }));
+
+    await waitFor(() => expect(settingsOpen()).toBeNull());
+    expect(usePlayerStore.getState().contentTypeFilter).toBe('vod');
+  });
+
+  it('Escape with unsaved edits asks too instead of closing', async () => {
+    render(<MainScreen />);
+    await openSettings();
+    fireEvent.click(screen.getByRole('checkbox'));
+    document.body.dispatchEvent(
+      new globalThis.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    );
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(settingsOpen()).not.toBeNull();
+  });
 });
