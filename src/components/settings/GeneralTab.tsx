@@ -82,7 +82,7 @@ export default function GeneralTab({
                 onClick={onRefreshPlaylist}
                 className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm text-on-accent transition-colors hover:bg-accent-hover"
               >
-                <RefreshCw className="h-4 w-4" />
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
                 Refresh
               </button>
             </div>
