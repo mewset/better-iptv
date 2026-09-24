@@ -93,7 +93,7 @@ export default function SeriesView({ loadSeries, onBack, onPlayEpisode }: Series
         <div className="mx-auto max-w-7xl">
           <button
             onClick={onBack}
-            className="mb-4 flex items-center gap-2 text-accent-text hover:text-accent-hover"
+            className="mb-4 flex items-center gap-2 text-accent-text hover:underline"
           >
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
             Back to Series List
