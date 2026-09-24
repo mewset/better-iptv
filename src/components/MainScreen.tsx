@@ -10,6 +10,7 @@ import {
 } from '../lib/tauri';
 import { CategoryBar } from './CategoryBar';
 import { ChannelCard } from './ChannelCard';
+import { PosterCard } from './PosterCard';
 import { SearchBar } from './SearchBar';
 import { ContentTypeTabs } from './ContentTypeTabs';
 import { NowPlayingBar } from './NowPlayingBar';
@@ -93,9 +94,12 @@ export default function MainScreen() {
   // Global keyboard shortcuts (Space=play/stop, /=focus search, Escape=stop)
   useKeyboardShortcuts(searchInputRef);
 
-  // Responsive grid configuration
+  // Responsive grid configuration. Movies and series get the poster grid;
+  // everything else (including Favorites, which mixes content types) keeps
+  // the live-shaped grid.
   const update = useUpdateCheck();
-  const { columns, estimatedRowHeight } = useResponsiveGrid();
+  const kind = contentTypeFilter === 'vod' || contentTypeFilter === 'series' ? 'poster' : 'live';
+  const { columns, estimatedRowHeight } = useResponsiveGrid(kind);
 
   // Load parental settings on mount
   useEffect(() => {
@@ -374,7 +378,16 @@ export default function MainScreen() {
                       {rowItems.map((channel) => {
                         const isChannelBlocked = blockedMap.get(channel.id!) ?? false;
 
-                        return (
+                        return kind === 'poster' ? (
+                          <PosterCard
+                            key={channel.id}
+                            channel={channel}
+                            onOpen={handlePlayChannel}
+                            onToggleFavorite={toggleChannelFavorite}
+                            isBlocked={isChannelBlocked}
+                            parentalVisibility={parentalVisibility}
+                          />
+                        ) : (
                           <ChannelCard
                             key={channel.id}
                             channel={channel}
