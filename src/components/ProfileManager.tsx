@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { KeyRound, Link, Plus } from 'lucide-react';
 import { usePlayerStore } from '../stores/player-store';
-import { setActiveProfileId, deletePlaylist, renamePlaylist, getChannels } from '../lib/tauri';
+import { deletePlaylist, renamePlaylist } from '../lib/tauri';
 import { logger } from '../lib/logger';
 import { useSubscriptionExpiries } from '../hooks/useSubscriptionExpiries';
+import { useProfileSwitch } from '../hooks/useProfileSwitch';
 import { formatSubscriptionExpiry } from '../lib/subscriptionExpiry';
 import Setup from './Setup';
 import ErrorModal from './modals/ErrorModal';
@@ -14,15 +15,8 @@ interface ProfileManagerProps {
 }
 
 export default function ProfileManager({ onClose }: ProfileManagerProps) {
-  const {
-    playlists,
-    activeProfileId,
-    currentPlaylist,
-    setActiveProfileId: setStoreActiveId,
-    setCurrentPlaylist,
-    setChannels,
-    setIsSetupComplete,
-  } = usePlayerStore();
+  const { playlists, activeProfileId, currentPlaylist, setCurrentPlaylist, setIsSetupComplete } =
+    usePlayerStore();
 
   // Only Xtream profiles have a subscription; an M3U profile is a plain file
   // or address and the backend has nothing to ask about.
@@ -40,30 +34,8 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
   const [errorTitle, setErrorTitle] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Switch to a different profile
-  const handleActivateProfile = async (playlist: Playlist) => {
-    try {
-      logger.info(`Switching to profile: ${playlist.name}`);
-
-      // Set active in backend
-      await setActiveProfileId(playlist.id!);
-
-      // Load channels for this playlist
-      const channels = await getChannels(playlist.id!);
-
-      // Update frontend state
-      setStoreActiveId(playlist.id!);
-      setCurrentPlaylist(playlist);
-      setChannels(channels);
-
-      logger.info(`Profile switched successfully: ${channels.length} channels loaded`);
-    } catch (err) {
-      logger.error('Failed to switch profile:', err);
-      setErrorTitle('Failed to Switch Profile');
-      setErrorMessage(`Failed to switch profile: ${err}`);
-      setShowErrorModal(true);
-    }
-  };
+  // Switch to a different profile (shared with the top bar's switcher)
+  const { switchTo: handleActivateProfile, error: switchError, clearError } = useProfileSwitch();
 
   // Start rename process
   const handleStartRename = (playlist: Playlist) => {
@@ -332,6 +304,14 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
         onClose={() => setShowErrorModal(false)}
         title={errorTitle}
         message={errorMessage}
+      />
+
+      {/* Profile switch failure, kept by useProfileSwitch */}
+      <ErrorModal
+        isOpen={switchError !== null}
+        onClose={clearError}
+        title="Failed to Switch Profile"
+        message={switchError ?? ''}
       />
     </>
   );

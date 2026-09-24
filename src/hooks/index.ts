@@ -30,3 +30,6 @@ export { useUpdateCheck } from './useUpdateCheck';
 
 // Xtream subscription expiry
 export { useSubscriptionExpiries } from './useSubscriptionExpiries';
+
+// Profile switching
+export { useProfileSwitch, type ProfileSwitch } from './useProfileSwitch';
