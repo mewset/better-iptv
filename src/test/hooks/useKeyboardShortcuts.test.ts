@@ -49,6 +49,23 @@ describe('useKeyboardShortcuts', () => {
     expect(onToggleGuide).toHaveBeenCalledTimes(1);
   });
 
+  it('Escape and G do nothing while an aria-modal dialog is open', async () => {
+    const { onToggleGuide, onEscapeView } = setup(vi.fn(() => true));
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    document.body.appendChild(dialog);
+
+    press('g');
+    press('G', document.body, { shiftKey: true });
+    press('Escape');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onToggleGuide).not.toHaveBeenCalled();
+    expect(onEscapeView).not.toHaveBeenCalled();
+    expect(stopPlayback).not.toHaveBeenCalled();
+  });
+
   it('g typed inside an input does not toggle the guide', () => {
     const { onToggleGuide } = setup();
     const input = document.createElement('input');

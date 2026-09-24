@@ -24,6 +24,9 @@ import { logger } from '../lib/logger';
  * capture phase and this handler does nothing. Otherwise `onEscapeView`
  * gets the first go; when it returns true (it closed something) playback
  * keeps going, and only when it returns false does Escape stop playback.
+ *
+ * Escape and G are both left alone while any `aria-modal="true"` dialog is
+ * open (a PIN prompt, a confirmation): the dialog owns the keyboard then.
  */
 export interface KeyboardShortcutOptions {
   onToggleGuide?: () => void;
@@ -51,6 +54,11 @@ export function useKeyboardShortcuts(
         target instanceof globalThis.HTMLTextAreaElement ||
         target instanceof globalThis.HTMLSelectElement ||
         target.isContentEditable;
+
+      const isGuideKey = e.key === 'g' || e.key === 'G';
+      if ((e.key === 'Escape' || isGuideKey) && document.querySelector('[aria-modal="true"]')) {
+        return;
+      }
 
       // Escape always works, unless something already claimed it (Settings,
       // TopBar's profile menu) via preventDefault - it owns the key instead.

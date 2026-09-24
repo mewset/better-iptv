@@ -239,6 +239,9 @@ describe('TopBar profile menu and the global Escape shortcut', () => {
   } as Channel;
 
   beforeEach(() => {
+    // The error-modal test above leaves this set; an open dialog here would
+    // (rightly) keep Escape from reaching playback.
+    switchError = null;
     vi.mocked(invoke).mockReset();
     vi.mocked(invoke).mockResolvedValue(undefined);
     usePlayerStore.setState({
