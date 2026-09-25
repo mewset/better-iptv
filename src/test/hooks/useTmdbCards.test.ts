@@ -113,6 +113,27 @@ describe('useTmdbCards', () => {
     expect(result.current.get(6)?.channel_id).toBe(6);
   });
 
+  it('asks again for the visible ids after the cache is cleared', async () => {
+    vi.mocked(getTmdbCards).mockResolvedValue([card(1), card(2)]);
+    const { result } = renderHook(() => useTmdbCards([1, 2]));
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    await waitFor(() => expect(result.current.size).toBe(2));
+    // Settings' Save (key or language change) and "Clear cached metadata"
+    // empty the store while MainScreen stays mounted.
+    act(() => {
+      usePlayerStore.getState().clearTmdbCards();
+    });
+    expect(usePlayerStore.getState().tmdbCards.size).toBe(0);
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    await waitFor(() => expect(getTmdbCards).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(getTmdbCards).mock.calls[1][0]).toEqual([1, 2]);
+    await waitFor(() => expect(result.current.size).toBe(2));
+  });
+
   it('forgets everything on a profile switch and asks again', async () => {
     vi.mocked(getTmdbCards).mockResolvedValue([card(1)]);
     const { result } = renderHook(() => useTmdbCards([1]));

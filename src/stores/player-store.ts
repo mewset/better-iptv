@@ -79,6 +79,8 @@ interface PlayerState {
 
   // TMDB cards for movies and series (channelId -> card)
   tmdbCards: Map<number, TmdbCard>;
+  /** Bumped by clearTmdbCards so consumers ask for the visible ids again. */
+  tmdbCardsEpoch: number;
   setTmdbCards: (cards: TmdbCard[]) => void;
   clearTmdbCards: () => void;
 
@@ -235,7 +237,9 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       for (const card of cards) next.set(card.channel_id, card);
       return { tmdbCards: next };
     }),
-  clearTmdbCards: () => set({ tmdbCards: new Map() }),
+  tmdbCardsEpoch: 0,
+  clearTmdbCards: () =>
+    set((state) => ({ tmdbCards: new Map(), tmdbCardsEpoch: state.tmdbCardsEpoch + 1 })),
 
   // Series Navigation
   currentSeries: null,
