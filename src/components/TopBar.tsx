@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef } from 'react';
-import { Check, ChevronDown, Search } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Check, ChevronDown, Plus, Search } from 'lucide-react';
 import { usePlayerStore } from '../stores/player-store';
 import { useProfileSwitch } from '../hooks/useProfileSwitch';
 import ErrorModal from './modals/ErrorModal';
+import Setup from './Setup';
 import type { Playlist, UpdateInfo } from '../types';
 
 interface TopBarProps {
@@ -50,6 +51,8 @@ export function TopBar({
   const playlists = usePlayerStore((s) => s.playlists);
   const activeProfileId = usePlayerStore((s) => s.activeProfileId);
   const { switchTo, error, clearError } = useProfileSwitch();
+  // The "Add profile" row opens the same Setup form Settings > Profiles uses.
+  const [showSetup, setShowSetup] = useState(false);
 
   const active = playlists.find((p) => p.id === activeProfileId);
   const switcherRef = useRef<globalThis.HTMLDivElement>(null);
@@ -104,8 +107,9 @@ export function TopBar({
     }
     e.preventDefault();
     const items = Array.from(
-      menuRef.current?.querySelectorAll<globalThis.HTMLButtonElement>('[role="menuitemradio"]') ??
-        []
+      menuRef.current?.querySelectorAll<globalThis.HTMLButtonElement>(
+        '[role="menuitemradio"], [role="menuitem"]'
+      ) ?? []
     );
     if (items.length === 0) return;
     const current = items.indexOf(document.activeElement as globalThis.HTMLButtonElement);
@@ -120,6 +124,24 @@ export function TopBar({
     close(false);
     returnFocus();
     if (playlist.id !== activeProfileId) void switchTo(playlist);
+  };
+
+  const openSetup = () => {
+    close(false);
+    setShowSetup(true);
+  };
+
+  const cancelSetup = () => {
+    setShowSetup(false);
+    returnFocus();
+  };
+
+  // Same steps as ProfileManager.handleProfileCreated: the new profile joins
+  // the list and becomes the active one (switchTo reloads its channels).
+  const profileCreated = (created: Playlist) => {
+    setShowSetup(false);
+    usePlayerStore.setState((state) => ({ playlists: [...state.playlists, created] }));
+    void switchTo(created);
   };
 
   // Focus leaving the switcher (Tab past the last item, say) closes the
@@ -217,10 +239,33 @@ export function TopBar({
                   </button>
                 );
               })}
+              <div role="separator" className="my-1 border-t border-border" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={openSetup}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-text-muted hover:bg-surface-hover hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                <span className="flex-1">Add profile</span>
+              </button>
             </div>
           )}
         </div>
       </header>
+
+      {/* Outside <header> for the same backdrop-filter reason as the error
+          modal: a fixed overlay inside it would be clipped to the bar. */}
+      {showSetup && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Add a profile"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm"
+        >
+          <Setup onComplete={profileCreated} onCancel={cancelSetup} />
+        </div>
+      )}
 
       <ErrorModal
         isOpen={error !== null}

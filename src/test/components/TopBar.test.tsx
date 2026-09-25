@@ -15,6 +15,33 @@ vi.mock('../../hooks/useProfileSwitch', () => ({
   useProfileSwitch: () => ({ switchTo, error: switchError, clearError }),
 }));
 
+// The real Setup form needs a provider import to complete; a stand-in with
+// the same contract (onComplete / onCancel) is enough to test the wiring.
+vi.mock('../../components/Setup', () => ({
+  default: ({
+    onComplete,
+    onCancel,
+  }: {
+    onComplete?: (p: Playlist) => void;
+    onCancel?: () => void;
+  }) => (
+    <div>
+      <h1>Add a profile</h1>
+      <button type="button" onClick={onCancel} aria-label="Cancel">
+        Cancel
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          onComplete?.({ id: 3, name: 'Boat', url: 'http://boat.example', auto_refresh: false })
+        }
+      >
+        Create test profile
+      </button>
+    </div>
+  ),
+}));
+
 const home: Playlist = { id: 1, name: 'Home', url: 'http://home.example', auto_refresh: false };
 const cabin: Playlist = { id: 2, name: 'Cabin', url: 'http://cabin.example', auto_refresh: false };
 
@@ -274,5 +301,58 @@ describe('TopBar profile menu and the global Escape shortcut', () => {
     fireEvent.keyDown(document.body, { key: 'Escape' });
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('stop_playback'));
     await waitFor(() => expect(usePlayerStore.getState().isPlaying).toBe(false));
+  });
+
+  it('offers "Add profile" as the last row of the menu and opens the setup dialog', () => {
+    render(<Controlled />);
+    fireEvent.click(screen.getByRole('button', { name: /Home/ }));
+    const rows = Array.from(screen.getByRole('menu').querySelectorAll('[role^="menuitem"]'));
+    expect(rows[rows.length - 1]).toHaveTextContent('Add profile');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add profile' }));
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: 'Add a profile' });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(screen.getByRole('heading', { name: 'Add a profile' })).toBeInTheDocument();
+  });
+
+  it('Cancel closes the setup dialog and returns focus to the profile button', async () => {
+    render(<Controlled />);
+    const trigger = screen.getByRole('button', { name: /Home/ });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add profile' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it('a created profile joins the list and becomes the active one', async () => {
+    render(<Controlled />);
+    fireEvent.click(screen.getByRole('button', { name: /Home/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add profile' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create test profile' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(usePlayerStore.getState().playlists.map((p) => p.name)).toEqual([
+      'Home',
+      'Cabin',
+      'Boat',
+    ]);
+    await waitFor(() =>
+      expect(switchTo).toHaveBeenCalledWith(expect.objectContaining({ id: 3, name: 'Boat' }))
+    );
+  });
+
+  it('arrow keys reach the "Add profile" row', () => {
+    render(<Controlled />);
+    fireEvent.click(screen.getByRole('button', { name: /Home/ }));
+    const menu = screen.getByRole('menu');
+    fireEvent.keyDown(menu, { key: 'End' });
+    expect(screen.getByRole('menuitem', { name: 'Add profile' })).toHaveFocus();
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(screen.getByRole('menuitemradio', { name: 'Home' })).toHaveFocus();
   });
 });
