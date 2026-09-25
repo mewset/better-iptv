@@ -1,3 +1,4 @@
+use crate::epg_domain::normalize_epg_id;
 use crate::http::get_http_client;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -272,7 +273,7 @@ fn store_programs(conn: &Connection, programs: &[EpgProgram]) -> Result<usize> {
 
         for program in programs {
             stmt.execute(rusqlite::params![
-                program.channel_id,
+                normalize_epg_id(&program.channel_id),
                 program.title,
                 program.description,
                 program.start_time.to_rfc3339(),
@@ -299,7 +300,7 @@ pub fn get_current_program(conn: &Connection, channel_epg_id: &str) -> Result<Op
              AND end_time > ?2
              ORDER BY start_time DESC
              LIMIT 1",
-            rusqlite::params![channel_epg_id, now.to_rfc3339()],
+            rusqlite::params![normalize_epg_id(channel_epg_id), now.to_rfc3339()],
             |row| row.get(0),
         )
         .optional()?;
@@ -318,7 +319,7 @@ pub fn get_next_program(conn: &Connection, channel_epg_id: &str) -> Result<Optio
              AND start_time > ?2
              ORDER BY start_time ASC
              LIMIT 1",
-            rusqlite::params![channel_epg_id, now.to_rfc3339()],
+            rusqlite::params![normalize_epg_id(channel_epg_id), now.to_rfc3339()],
             |row| row.get(0),
         )
         .optional()?;
@@ -367,13 +368,15 @@ pub fn get_programs_for_channels(
         if result.contains_key(id) {
             continue;
         }
+        // Stored ids are normalised; the result stays keyed by the id asked for.
+        let key = normalize_epg_id(id);
         let current: Option<(String, String, String)> = current_stmt
-            .query_row(rusqlite::params![id, now], |row| {
+            .query_row(rusqlite::params![key, now], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?))
             })
             .optional()?;
         let next: Option<(String, String)> = next_stmt
-            .query_row(rusqlite::params![id, now], |row| {
+            .query_row(rusqlite::params![key, now], |row| {
                 Ok((row.get(0)?, row.get(1)?))
             })
             .optional()?;
@@ -438,8 +441,10 @@ pub fn get_guide(
         if result.contains_key(id) {
             continue;
         }
+        // Stored ids are normalised; the result stays keyed by the id asked for.
+        let key = normalize_epg_id(id);
         let programmes = stmt
-            .query_map(rusqlite::params![id, from, to], |row| {
+            .query_map(rusqlite::params![key, from, to], |row| {
                 Ok(GuideProgram {
                     title: row.get(0)?,
                     description: row.get(1)?,
@@ -769,5 +774,96 @@ mod tests {
             result["unknown.se"].is_empty(),
             "an id without programmes still maps to an empty vec"
         );
+    }
+    #[test]
+    fn batch_lookup_matches_ids_regardless_of_case() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+        store_epg_programs(
+            &conn,
+            &[programme(
+                "svt1.se",
+                "Rapport",
+                now - Duration::minutes(10),
+                30,
+            )],
+        )
+        .unwrap();
+
+        let map = get_programs_for_channels(&conn, &["SVT1.se".to_string()]).unwrap();
+        // Keyed by the id the caller asked with, so the frontend finds it.
+        let epg = map
+            .get("SVT1.se")
+            .expect("upper-case id finds lower-case feed");
+        assert_eq!(epg.current.as_deref(), Some("Rapport"));
+    }
+
+    #[test]
+    fn stored_ids_are_normalised_so_a_mixed_case_feed_matches_lower_case_channels() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+        store_epg_programs(
+            &conn,
+            &[programme(
+                "SVT2.se",
+                "Babel",
+                now - Duration::minutes(5),
+                30,
+            )],
+        )
+        .unwrap();
+
+        let map = get_programs_for_channels(&conn, &["svt2.se".to_string()]).unwrap();
+        assert_eq!(
+            map.get("svt2.se").and_then(|e| e.current.as_deref()),
+            Some("Babel")
+        );
+        assert_eq!(
+            get_current_program(&conn, "Svt2.Se").unwrap().as_deref(),
+            Some("Babel")
+        );
+    }
+
+    #[test]
+    fn next_programme_lookup_ignores_case() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+        store_epg_programs(
+            &conn,
+            &[programme(
+                "tv4.se",
+                "Nyheterna",
+                now + Duration::minutes(20),
+                30,
+            )],
+        )
+        .unwrap();
+        assert_eq!(
+            get_next_program(&conn, "TV4.se").unwrap().as_deref(),
+            Some("Nyheterna")
+        );
+    }
+
+    #[test]
+    fn guide_lookup_ignores_case_and_keys_by_requested_id() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+        store_epg_programs(
+            &conn,
+            &[programme(
+                "svt1.se",
+                "Rapport",
+                now - Duration::minutes(10),
+                30,
+            )],
+        )
+        .unwrap();
+        let from = (now - Duration::hours(1)).to_rfc3339();
+        let to = (now + Duration::hours(1)).to_rfc3339();
+
+        let guide = get_guide(&conn, &["SVT1.se".to_string()], &from, &to).unwrap();
+        let rows = guide.get("SVT1.se").expect("keyed by the requested id");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "Rapport");
     }
 }

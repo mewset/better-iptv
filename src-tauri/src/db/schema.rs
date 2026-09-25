@@ -118,6 +118,20 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // Migration (3.0.0): EPG ids are stored normalised (`epg_domain::normalize_epg_id`,
+    // ASCII lower-case like SQLite's lower()) so `SVT1.se` channels match a feed
+    // that writes `svt1.se`. Lower-case older rows once; where both spellings exist
+    // for one slot, OR IGNORE keeps the lower-case row and the DELETE drops the rest.
+    conn.execute(
+        "UPDATE OR IGNORE epg_programs SET channel_epg_id = lower(channel_epg_id)
+         WHERE channel_epg_id <> lower(channel_epg_id)",
+        [],
+    )?;
+    conn.execute(
+        "DELETE FROM epg_programs WHERE channel_epg_id <> lower(channel_epg_id)",
+        [],
+    )?;
+
     // Create index for EPG lookups
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_channel_time
@@ -353,6 +367,74 @@ mod tests {
             )
             .unwrap();
         assert_eq!(index_exists, 1);
+    }
+
+    /// EPG ids used to be stored as the feed wrote them, so a feed with
+    /// `svt1.se` never matched a channel whose id is `SVT1.se`. Existing rows
+    /// are lower-cased once; when both spellings exist for the same slot, one
+    /// row survives.
+    #[test]
+    fn init_schema_lower_cases_stored_epg_ids() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        conn.execute_batch(
+            "INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
+              VALUES ('SVT1.se', 'Rapport', '2026-09-02T18:00:00+00:00', '2026-09-02T18:30:00+00:00');
+            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
+              VALUES ('svt1.se', 'Rapport', '2026-09-02T18:00:00+00:00', '2026-09-02T18:30:00+00:00');
+            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
+              VALUES ('TV4.se', 'Nyheterna', '2026-09-02T19:00:00+00:00', '2026-09-02T19:30:00+00:00');",
+        )
+        .unwrap();
+
+        init_schema(&conn).unwrap();
+
+        let mixed: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM epg_programs WHERE channel_epg_id <> lower(channel_epg_id)",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(mixed, 0);
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM epg_programs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            rows, 2,
+            "the two SVT1 spellings collapse to one row, TV4 stays"
+        );
+    }
+
+    /// A database from before 2.8.0 has no unique index yet. Both spellings of
+    /// one slot must still collapse before the index is created.
+    #[test]
+    fn init_schema_lower_cases_ids_in_databases_without_the_unique_index() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE epg_programs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_epg_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                start_time TIMESTAMP NOT NULL,
+                end_time TIMESTAMP NOT NULL,
+                category TEXT,
+                icon TEXT
+            );
+            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
+              VALUES ('SVT1.se', 'Rapport', '2026-09-02T18:00:00+00:00', '2026-09-02T18:30:00+00:00');
+            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
+              VALUES ('svt1.se', 'Rapport', '2026-09-02T18:00:00+00:00', '2026-09-02T18:30:00+00:00');",
+        )
+        .unwrap();
+
+        init_schema(&conn).unwrap();
+
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM epg_programs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 1);
     }
 
     #[test]

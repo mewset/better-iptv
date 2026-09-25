@@ -93,6 +93,16 @@ pub fn validate_channel_epg_id(epg_id: &str) -> Result<(), AppError> {
 /// Longest window a single guide request may span.
 pub const GUIDE_MAX_WINDOW_HOURS: i64 = 48;
 
+/// Canonical form of an EPG channel id: trimmed and ASCII lower-cased.
+///
+/// XMLTV feeds and playlists disagree on case (`SVT1.se` vs `svt1.se`), and an
+/// exact comparison made those channels show no guide data. ASCII-only so it
+/// agrees with SQLite's `lower()`, which the one-time migration in
+/// `db::schema` uses on rows stored before this existed.
+pub fn normalize_epg_id(id: &str) -> String {
+    id.trim().to_ascii_lowercase()
+}
+
 /// Validate and normalise a guide request's time window.
 ///
 /// Parses `from` and `to` as RFC 3339, requires `to` to be strictly after
@@ -165,6 +175,15 @@ pub fn epg_retry_allowed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn epg_ids_are_normalised_to_trimmed_ascii_lowercase() {
+        assert_eq!(normalize_epg_id("SVT1.se"), "svt1.se");
+        assert_eq!(normalize_epg_id("  TV4.SE "), "tv4.se");
+        assert_eq!(normalize_epg_id("svt1.se"), "svt1.se");
+        // Non-ASCII letters are left alone, matching SQLite's lower().
+        assert_eq!(normalize_epg_id("Ämne.se"), "Ämne.se");
+    }
 
     #[test]
     fn test_validate_epg_url_valid_https() {
