@@ -17,6 +17,14 @@ A simple overview of new features and improvements.
 
 - See what is on now and next across your channels, and press G to open it
 
+**Posters, ratings and details from TMDB**
+
+- Movies and series show their real poster, year and rating, and the Movies hero gets a proper backdrop
+- Opening a movie or a series shows a detail page with the plot, cast, a trailer link and, for series, seasons and episodes
+- Wrong match? "Wrong title?" on the detail page lets you pick the right one, or mark a title as not on TMDB
+- Works out of the box with a shared key; you can add your own TMDB key under Settings → Metadata, choose the language, or turn the feature off
+- When it is on, the titles of your movies and series are sent to TMDB to look them up. Nothing else leaves the app
+
 ### Improvements
 
 - Updated the app framework and several of the libraries Better IPTV is built on, including security fixes

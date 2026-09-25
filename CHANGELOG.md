@@ -21,6 +21,12 @@ This file is a developer-changelog, aimed towards development changes.
   - The first-launch `Setup` screen is redesigned with live MPV detection status and an install link
   - The Movies section gains a "Recently added" hero row (`MoviesHero.tsx`, `src/lib/newestTitle.ts`)
   - A new `get_guide` command (`src-tauri/src/commands/epg.rs`, `src-tauri/src/epg/xmltv.rs`) returns programmes for a set of channels across a time window, validated by `epg_domain::validate_guide_window` (rejects an inverted or zero-width window before it reaches SQL). `GuideView.tsx` renders it, opened with the `G` key and closed through the same Escape ownership order as Settings. Its rows are every live channel (`useChannelFilter.ts`), narrowed by the category chips and by a Favorites chip ahead of them that lasts while the guide stays open
+- **TMDB metadata for movies and series** - `src-tauri/src/tmdb_domain/` (title normalisation, match selection, key decision), `src-tauri/src/tmdb/` (client with a four-permit semaphore and one 429 retry, key resolution, background enrichment worker), two cache tables `tmdb_metadata` and `tmdb_episodes` keyed by normalised title rather than channel id, and eight commands (`get_tmdb_cards`, `get_tmdb_details`, `get_tmdb_season`, `search_tmdb`, `set_tmdb_match`, `check_tmdb_key`, `get_tmdb_status`, `delete_tmdb_cache`)
+  - The key comes from the user's `tmdb_api_key` setting, else the shared key fetched from `better-iptv.vercel.app/api/tmdb-key` and cached for 24 h; both v3 keys and v4 read tokens are accepted
+  - `PosterCard` and `MoviesHero` take a `tmdb` prop from the new `tmdbCards` store map, filled by `useTmdbCards` from the visible virtual rows and the `tmdb-card` event
+  - `DetailView.tsx` replaces `SeriesView.tsx` for both movies and series (backdrop, poster, cast, trailer via the opener plugin, seasons and episode rows with TMDB filling gaps), with trailers preferring English regardless of the metadata language (`include_video_language=en,<lang>,null`, an English official trailer first); `TmdbMatchModal.tsx` stores manual matches as `manual = 1`
+  - Settings gains a Metadata section (Ctrl+4; Parental, Profiles and About move to Ctrl+5-7) and both it and About carry the TMDB attribution
+  - Fixtures under `src-tauri/tests/fixtures/tmdb/` are real API responses; live tests are `#[ignore]` and need `TMDB_API_KEY`
 
 ### Credits
 
