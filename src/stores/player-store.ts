@@ -82,6 +82,11 @@ interface PlayerState {
   setCurrentSeries: (series: SeriesInfo | null) => void;
   setSelectedSeason: (seasonNumber: string | null) => void;
 
+  // A short-lived notice at the bottom of the screen (one at a time)
+  toast: { id: number; message: string } | null;
+  showToast: (message: string) => void;
+  dismissToast: () => void;
+
   // UI State
   isSetupComplete: boolean;
   setIsSetupComplete: (complete: boolean) => void;
@@ -221,6 +226,10 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   selectedSeason: null,
   setCurrentSeries: (series) => set({ currentSeries: series }),
   setSelectedSeason: (seasonNumber) => set({ selectedSeason: seasonNumber }),
+
+  toast: null,
+  showToast: (message) => set({ toast: { id: Date.now(), message } }),
+  dismissToast: () => set({ toast: null }),
 
   // UI State
   isSetupComplete: false,

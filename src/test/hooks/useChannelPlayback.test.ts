@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useChannelPlayback } from '../../hooks/useChannelPlayback';
 import { usePlayerStore } from '../../stores/player-store';
-import { playSeriesEpisodes, isPlaying as checkIsPlaying } from '../../lib/tauri';
+import { playSeriesEpisodes, playChannel, getPlaybackStatus } from '../../lib/tauri';
+import { resetPlaybackGuard } from '../../lib/playGuard';
+import type { Channel } from '../../types';
 
 vi.mock('../../lib/tauri', () => ({
   playChannel: vi.fn(),
   stopPlayback: vi.fn(),
-  isPlaying: vi.fn().mockResolvedValue(false),
+  getPlaybackStatus: vi.fn().mockResolvedValue({ playing: false, failed: false }),
   getChannelEpg: vi.fn(),
   playEpisodeWithSeason: vi.fn(),
   playSeriesEpisodes: vi.fn().mockResolvedValue(undefined),
@@ -16,7 +18,8 @@ vi.mock('../../lib/tauri', () => ({
 describe('useChannelPlayback.playLocalEpisodes', () => {
   beforeEach(() => {
     vi.mocked(playSeriesEpisodes).mockClear();
-    vi.mocked(checkIsPlaying).mockResolvedValue(false);
+    vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: false, failed: false });
+    resetPlaybackGuard();
     usePlayerStore.setState({
       currentChannel: null,
       isPlaying: false,
@@ -52,5 +55,74 @@ describe('useChannelPlayback.playLocalEpisodes', () => {
     ).rejects.toThrow('mpv missing');
 
     expect(usePlayerStore.getState().isPlaying).toBe(false);
+  });
+});
+
+const svt1: Channel = {
+  id: 1,
+  playlist_id: 1,
+  name: 'SVT1',
+  url: 'http://x',
+  content_type: 'live',
+  is_favorite: false,
+  sort_order: 0,
+};
+
+describe('useChannelPlayback start guard and failure toast', () => {
+  beforeEach(() => {
+    vi.mocked(playChannel).mockReset().mockResolvedValue(undefined);
+    vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: true, failed: false });
+    resetPlaybackGuard();
+    usePlayerStore.setState({ currentChannel: null, isPlaying: false, toast: null });
+  });
+
+  it('starts once when Play is pressed four times in the same second', async () => {
+    const { result } = renderHook(() => useChannelPlayback());
+    await act(async () => {
+      await Promise.all([
+        result.current.play(svt1),
+        result.current.play(svt1),
+        result.current.play(svt1),
+        result.current.play(svt1),
+      ]);
+    });
+    expect(playChannel).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a toast when MPV exits because the stream failed', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useChannelPlayback());
+      await act(async () => {
+        await result.current.play(svt1);
+      });
+      vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: false, failed: true });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      const toast = usePlayerStore.getState().toast;
+      expect(toast?.message).toMatch(/Couldn't play SVT1/);
+      expect(usePlayerStore.getState().isPlaying).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows no toast when MPV was simply closed', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useChannelPlayback());
+      await act(async () => {
+        await result.current.play(svt1);
+      });
+      vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: false, failed: false });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(usePlayerStore.getState().toast).toBeNull();
+      expect(usePlayerStore.getState().isPlaying).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

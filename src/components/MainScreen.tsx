@@ -14,6 +14,7 @@ import { ChannelCard } from './ChannelCard';
 import { PosterCard } from './PosterCard';
 import { MoviesHero } from './MoviesHero';
 import { NowPlayingBar } from './NowPlayingBar';
+import { Toast } from './Toast';
 import { Rail } from './Rail';
 import { TopBar } from './TopBar';
 import { Search } from 'lucide-react';
@@ -684,6 +685,7 @@ export default function MainScreen() {
             onStop={handleStop}
           />
         )}
+        <Toast aboveDock={Boolean(currentChannel) && view !== 'settings'} />
       </main>
 
       {/* PIN Entry Modal for blocked channels */}

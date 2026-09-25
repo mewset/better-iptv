@@ -15,8 +15,14 @@ export async function stopPlayback(): Promise<void> {
   await invoke('stop_playback');
 }
 
-export async function isPlaying(): Promise<boolean> {
-  return await invoke('is_playing');
+/** Whether MPV is still playing, and whether it stopped because the stream failed. */
+export interface PlaybackStatus {
+  playing: boolean;
+  failed: boolean;
+}
+
+export async function getPlaybackStatus(): Promise<PlaybackStatus> {
+  return await invoke('playback_status');
 }
 
 // ========== Playlist Commands ==========
