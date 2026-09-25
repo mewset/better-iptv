@@ -186,6 +186,16 @@ pub fn delete_setting(conn: &Connection, key: &str) -> Result<()> {
     Ok(())
 }
 
+/// Delete a setting only if it currently holds `value`. Returns whether a row
+/// was removed, so a caller can tell a match from a stale compare.
+pub fn delete_setting_if_value(conn: &Connection, key: &str, value: &str) -> Result<bool> {
+    let removed = conn.execute(
+        "DELETE FROM settings WHERE key = ?1 AND value = ?2",
+        params![key, value],
+    )?;
+    Ok(removed > 0)
+}
+
 // ========== Playlist Refresh Mutations ==========
 
 /// Update the last_updated timestamp of a playlist to now
@@ -965,6 +975,24 @@ mod tests {
 
         let value = get_setting(&conn, "theme").unwrap();
         assert_eq!(value, Some("dark".to_string()));
+    }
+
+    #[test]
+    fn delete_setting_if_value_only_removes_a_matching_row() {
+        let conn = setup_test_db();
+        set_setting(&conn, "tmdb_shared_key", "K").unwrap();
+
+        assert!(!delete_setting_if_value(&conn, "tmdb_shared_key", "L").unwrap());
+        assert_eq!(
+            get_setting(&conn, "tmdb_shared_key").unwrap().as_deref(),
+            Some("K")
+        );
+
+        assert!(delete_setting_if_value(&conn, "tmdb_shared_key", "K").unwrap());
+        assert_eq!(get_setting(&conn, "tmdb_shared_key").unwrap(), None);
+
+        // Nothing left to delete.
+        assert!(!delete_setting_if_value(&conn, "tmdb_shared_key", "K").unwrap());
     }
 
     // ========== Cascade Delete Tests ==========

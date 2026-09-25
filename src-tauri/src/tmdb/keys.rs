@@ -142,6 +142,17 @@ where
         return Ok(stale.map(stale_fallback));
     }
     match fetch().await {
+        Some(key) if session.is_shared_key_rejected(&key) => {
+            // The website still serves a key TMDB revoked. Storing it would
+            // cost one GET plus one 401 per job until the user touches the
+            // TMDB settings; go dormant now instead.
+            session.mark_shared_key_rejected();
+            info!(
+                "shared TMDB key from the website was already rejected this session; \
+                 TMDB lookups paused until settings change"
+            );
+            Ok(None)
+        }
         Some(key) => {
             let stored = key.clone();
             with_db(pool, move |conn| {
@@ -188,9 +199,7 @@ pub async fn handle_unauthorized(
             info!("TMDB rejected the shared key ({n})");
             let key = rejected.key.clone();
             with_db(pool, move |conn| {
-                let stored = queries::get_setting(conn, TMDB_SHARED_KEY_KEY)?;
-                if stored.as_deref() == Some(key.as_str()) {
-                    mutations::delete_setting(conn, TMDB_SHARED_KEY_KEY)?;
+                if mutations::delete_setting_if_value(conn, TMDB_SHARED_KEY_KEY, &key)? {
                     mutations::delete_setting(conn, TMDB_SHARED_KEY_FETCHED_AT_KEY)?;
                 }
                 Ok(())
@@ -339,6 +348,64 @@ mod tests {
         assert_eq!(
             resolve_key(&pool, &session).await.unwrap(),
             Some(shared("new"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_website_that_keeps_serving_a_rejected_key_goes_dormant() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let pool = pool_with_shared_key("K");
+        let session = TmdbSession::default();
+        let fetches = AtomicUsize::new(0);
+        let fetch = || {
+            fetches.fetch_add(1, Ordering::SeqCst);
+            async { Some("K".to_string()) }
+        };
+
+        let first = resolve_key_with(&pool, &session, &fetch).await.unwrap();
+        assert_eq!(first, Some(shared("K")));
+        handle_unauthorized(&pool, &session, &shared("K"))
+            .await
+            .unwrap();
+        assert_eq!(stored_shared_key(&pool), None);
+
+        // The website hands out the same key again: it must not be stored
+        // or handed to TMDB a second time.
+        let second = resolve_key_with(&pool, &session, &fetch).await.unwrap();
+        assert_eq!(second, None);
+        assert!(session.shared_key_rejected());
+        assert_eq!(stored_shared_key(&pool), None);
+        assert_eq!(fetches.load(Ordering::SeqCst), 1);
+
+        // Dormant: no further GETs until settings change.
+        let third = resolve_key_with(&pool, &session, &fetch).await.unwrap();
+        assert_eq!(third, None);
+        assert_eq!(fetches.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_shared_401_deletes_the_fetched_at_stamp_only_with_the_key() {
+        let pool = pool_with_shared_key("new");
+        let session = TmdbSession::default();
+        handle_unauthorized(&pool, &session, &shared("old"))
+            .await
+            .unwrap();
+        let conn = pool.get().unwrap();
+        assert!(
+            crate::db::queries::get_setting(&conn, TMDB_SHARED_KEY_FETCHED_AT_KEY)
+                .unwrap()
+                .is_some(),
+            "a late 401 for another key must not clear the stamp of the stored one"
+        );
+        drop(conn);
+        handle_unauthorized(&pool, &session, &shared("new"))
+            .await
+            .unwrap();
+        let conn = pool.get().unwrap();
+        assert_eq!(
+            crate::db::queries::get_setting(&conn, TMDB_SHARED_KEY_FETCHED_AT_KEY).unwrap(),
+            None
         );
     }
 

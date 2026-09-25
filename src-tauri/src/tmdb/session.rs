@@ -13,13 +13,14 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 /// title would GET it again while offline.
 pub const SHARED_FETCH_COOLDOWN: Duration = Duration::from_secs(300);
 
-/// Distinct shared keys TMDB has rejected this session. A stale key that is
+/// Every shared key TMDB has rejected this session. A stale key that is
 /// still in flight on several requests produces several 401s; only the first
-/// per key counts, so the second key is the refetched one.
+/// per key counts, so the second distinct key is the refetched one. The set
+/// also lets the resolver refuse a key the website keeps serving after TMDB
+/// revoked it, instead of storing it and paying another 401 per job.
 #[derive(Debug, Default)]
 struct SharedRejections {
-    count: u32,
-    last_key: Option<String>,
+    keys: HashSet<String>,
 }
 
 #[derive(Debug)]
@@ -67,21 +68,34 @@ impl TmdbSession {
 
     /// Count a 401 with the shared key `key`. The first distinct key is
     /// forgiven (it is refetched); the second marks the shared key rejected
-    /// for the session. A repeat 401 for the key counted last is a no-op.
+    /// for the session. A repeat 401 for an already counted key is a no-op.
     /// Returns the number of distinct keys counted so far.
     pub fn note_shared_unauthorized(&self, key: &str) -> u32 {
         let mut r = self
             .shared_rejections
             .lock()
             .expect("tmdb shared rejections poisoned");
-        if r.last_key.as_deref() != Some(key) {
-            r.count += 1;
-            r.last_key = Some(key.to_string());
-        }
-        if r.count >= 2 {
+        r.keys.insert(key.to_string());
+        let count = r.keys.len() as u32;
+        if count >= 2 {
             self.shared_key_rejected.store(true, Ordering::Relaxed);
         }
-        r.count
+        count
+    }
+
+    /// Whether TMDB already answered 401 for this shared key this session.
+    pub fn is_shared_key_rejected(&self, key: &str) -> bool {
+        self.shared_rejections
+            .lock()
+            .expect("tmdb shared rejections poisoned")
+            .keys
+            .contains(key)
+    }
+
+    /// Pause shared-key lookups for the session without counting a new 401,
+    /// e.g. when the website serves a key that was already rejected.
+    pub fn mark_shared_key_rejected(&self) {
+        self.shared_key_rejected.store(true, Ordering::Relaxed);
     }
 
     /// Remember that the website did not hand out a shared key just now.
@@ -173,6 +187,38 @@ mod tests {
         assert!(!s.shared_key_rejected());
         // After a reset the old key counts again.
         assert_eq!(s.note_shared_unauthorized("old"), 1);
+        assert!(!s.shared_key_rejected());
+    }
+
+    #[test]
+    fn rejected_shared_keys_are_remembered_until_reset() {
+        let s = TmdbSession::default();
+        assert!(!s.is_shared_key_rejected("K"));
+        s.note_shared_unauthorized("K");
+        assert!(s.is_shared_key_rejected("K"));
+        assert!(!s.is_shared_key_rejected("L"));
+        s.reset_shared();
+        assert!(!s.is_shared_key_rejected("K"));
+    }
+
+    #[test]
+    fn every_rejected_shared_key_stays_counted_not_just_the_last_one() {
+        let s = TmdbSession::default();
+        assert_eq!(s.note_shared_unauthorized("K"), 1);
+        assert_eq!(s.note_shared_unauthorized("L"), 2);
+        assert!(s.shared_key_rejected());
+        // A late 401 for the first key is still a no-op.
+        assert_eq!(s.note_shared_unauthorized("K"), 2);
+        assert!(s.is_shared_key_rejected("K"));
+        assert!(s.is_shared_key_rejected("L"));
+    }
+
+    #[test]
+    fn mark_shared_key_rejected_pauses_the_shared_key_until_reset() {
+        let s = TmdbSession::default();
+        s.mark_shared_key_rejected();
+        assert!(s.shared_key_rejected());
+        s.reset_shared();
         assert!(!s.shared_key_rejected());
     }
 
