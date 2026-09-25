@@ -115,7 +115,7 @@ describe('MainScreen: switching profile with a series open', () => {
     render(<MainScreen />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Open The Bear' }));
-    expect(await screen.findByRole('button', { name: 'Back to series' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Back' })).toBeInTheDocument();
     expect(calls('get_series_info')).toHaveLength(1);
 
     fireEvent.click(screen.getByRole('button', { name: 'Home' }));
@@ -123,7 +123,7 @@ describe('MainScreen: switching profile with a series open', () => {
 
     await waitFor(() => expect(usePlayerStore.getState().activeProfileId).toBe(2));
     await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Back to series' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument()
     );
     // Browse view is back: the Series section title and the empty grid.
     expect(screen.getByRole('region', { name: 'Channel list' })).toBeInTheDocument();

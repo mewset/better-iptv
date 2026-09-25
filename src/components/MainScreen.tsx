@@ -18,7 +18,7 @@ import { Toast } from './Toast';
 import { Rail } from './Rail';
 import { TopBar } from './TopBar';
 import { Search } from 'lucide-react';
-import SeriesView from './SeriesView';
+import DetailView from './DetailView';
 import Settings, { type SettingsHandle } from './Settings';
 import PinEntryModal from './modals/PinEntryModal';
 import ConfirmationModal from './modals/ConfirmationModal';
@@ -124,11 +124,12 @@ export default function MainScreen() {
   // caching). The playing channel always rides along so the dock stays fresh.
   const { channelEpgData } = useEpgData(filteredChannels, currentChannel);
 
-  const [selectedSeries, setSelectedSeries] = useState<Channel | null>(null);
-  // The profile the series was opened under. A series belongs to one
+  // The movie or series open in the detail view.
+  const [detailChannel, setDetailChannel] = useState<Channel | null>(null);
+  // The profile the title was opened under. A title belongs to one
   // provider: after a profile switch its id means nothing to the new one.
-  const [seriesPlaylistId, setSeriesPlaylistId] = useState<number | null>(null);
-  const [view, setView] = useState<'browse' | 'series' | 'settings'>('browse');
+  const [detailPlaylistId, setDetailPlaylistId] = useState<number | null>(null);
+  const [view, setView] = useState<'browse' | 'detail' | 'settings'>('browse');
   // Which Settings section opens with the view (the guide's empty state asks for 'epg').
   const [settingsTab, setSettingsTab] = useState('general');
   // The section G and Escape return to when leaving the guide.
@@ -143,6 +144,8 @@ export default function MainScreen() {
   const activeProfileId = usePlayerStore((s) => s.activeProfileId);
   const [showPinModal, setShowPinModal] = useState(false);
   const [pendingChannel, setPendingChannel] = useState<Channel | null>(null);
+  // True when the PIN was asked for opening the detail view, not for playing.
+  const [pendingOpen, setPendingOpen] = useState(false);
   const parentRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<globalThis.HTMLInputElement>(null);
   const [showStalePrompt, setShowStalePrompt] = useState(false);
@@ -294,6 +297,34 @@ export default function MainScreen() {
   }, [kind, heroChannel, virtualItems, showHero, columns, filteredChannels]);
   const tmdbCards = useTmdbCards(visibleCardIds);
 
+  const openDetail = useCallback((channel: Channel) => {
+    setDetailChannel(channel);
+    setDetailPlaylistId(usePlayerStore.getState().currentPlaylist?.id ?? null);
+    setView('detail');
+  }, []);
+
+  // Poster click: parental check, then the detail view (movies and series).
+  const handleOpenTitle = useCallback(
+    (channel: Channel) => {
+      const s = usePlayerStore.getState();
+      const isBlocked = shouldBlockChannel(channel, {
+        enabled: s.parentalEnabled,
+        autoDetect: s.parentalAutoDetect,
+        blockedIds: s.blockedChannelIds,
+        blockedCategories: s.blockedCategories,
+        unlocked: s.parentalUnlocked,
+      });
+      if (isBlocked) {
+        setPendingChannel(channel);
+        setPendingOpen(true);
+        setShowPinModal(true);
+        return;
+      }
+      openDetail(channel);
+    },
+    [openDetail]
+  );
+
   const handlePlayChannel = useCallback(
     async (channel: Channel) => {
       // Read parental state at call time (not render time) for callback stability
@@ -315,18 +346,15 @@ export default function MainScreen() {
 
       if (isBlocked) {
         setPendingChannel(channel);
+        setPendingOpen(false);
         setShowPinModal(true);
         return;
       }
 
       const result = await playChannelAction(channel);
-      if (result?.type === 'series') {
-        setSelectedSeries(result.channel);
-        setSeriesPlaylistId(usePlayerStore.getState().currentPlaylist?.id ?? null);
-        setView('series');
-      }
+      if (result?.type === 'series') openDetail(result.channel);
     },
-    [playChannelAction]
+    [playChannelAction, openDetail]
   );
 
   const handlePlayEpisode = useCallback(
@@ -360,30 +388,38 @@ export default function MainScreen() {
   );
 
   // Xtream profiles fetch the series from the provider; M3U profiles read
-  // the episodes grouped at import. Memoised: SeriesView re-loads when it changes.
+  // the episodes grouped at import. Memoised: DetailView re-loads when it changes.
   const loadSeries = useCallback(async (): Promise<SeriesInfo> => {
-    if (!selectedSeries) throw new Error('No series selected');
+    if (!detailChannel) throw new Error('No series selected');
+    if (detailChannel.content_type !== 'series') throw new Error('Not a series');
     // Never ask a different profile's provider about this series.
-    if (currentPlaylist?.id !== seriesPlaylistId) {
+    if (currentPlaylist?.id !== detailPlaylistId) {
       throw new Error('The series belongs to another profile');
     }
     const url = currentPlaylist?.url;
     const username = currentPlaylist?.xtream_username;
     const password = currentPlaylist?.xtream_password;
     if (url && username && password) {
-      const seriesId = parseXtreamSeriesId(selectedSeries.url);
+      const seriesId = parseXtreamSeriesId(detailChannel.url);
       if (seriesId === null) {
-        logger.error('Failed to parse series ID from URL:', selectedSeries.url);
+        logger.error('Failed to parse series ID from URL:', detailChannel.url);
         throw new Error('Failed to load series: Invalid URL format');
       }
       return getSeriesInfo(url, username, password, seriesId);
     }
-    return getLocalSeriesInfo(selectedSeries.id);
-  }, [selectedSeries, seriesPlaylistId, currentPlaylist]);
+    return getLocalSeriesInfo(detailChannel.id);
+  }, [detailChannel, detailPlaylistId, currentPlaylist]);
+  // Movies have nothing to load; DetailView skips the loader when it is absent.
+  const seriesLoader = detailChannel?.content_type === 'series' ? loadSeries : undefined;
 
   const handlePinSuccess = useCallback(() => {
     setShowPinModal(false);
     if (pendingChannel) {
+      if (pendingOpen) {
+        openDetail(pendingChannel);
+        setPendingChannel(null);
+        return;
+      }
       playChannelAction(pendingChannel)
         .then(() => {
           setPendingChannel(null);
@@ -392,37 +428,37 @@ export default function MainScreen() {
           logger.error('Failed to play channel after PIN:', err);
         });
     }
-  }, [pendingChannel, playChannelAction]);
+  }, [pendingChannel, pendingOpen, openDetail, playChannelAction]);
 
   const handleStop = useCallback(async () => {
     await stopPlaybackAction();
   }, [stopPlaybackAction]);
 
-  const closeSeries = useCallback(() => {
-    setSelectedSeries(null);
-    setSeriesPlaylistId(null);
+  const closeDetail = useCallback(() => {
+    setDetailChannel(null);
+    setDetailPlaylistId(null);
     setView('browse');
   }, []);
 
-  // A profile switch closes the series detail. The render below already
-  // hides SeriesView the moment the profiles differ, so it unmounts before
+  // A profile switch closes the detail view. The render below already
+  // hides DetailView the moment the profiles differ, so it unmounts before
   // its load effect could run with the new profile; this effect then resets
   // the state so the view is really back to browse.
   const currentPlaylistId = currentPlaylist?.id ?? null;
-  const seriesOpen =
-    view === 'series' && selectedSeries !== null && seriesPlaylistId === currentPlaylistId;
+  const detailOpen =
+    view === 'detail' && detailChannel !== null && detailPlaylistId === currentPlaylistId;
   useEffect(() => {
-    if (view === 'series' && seriesPlaylistId !== currentPlaylistId) closeSeries();
-  }, [view, seriesPlaylistId, currentPlaylistId, closeSeries]);
+    if (view === 'detail' && detailPlaylistId !== currentPlaylistId) closeDetail();
+  }, [view, detailPlaylistId, currentPlaylistId, closeDetail]);
 
   const handleSection = useCallback(
     (section: Section) => {
       const from = usePlayerStore.getState().contentTypeFilter;
       if (section === 'guide' && from !== 'guide') guideReturnRef.current = from;
       setContentTypeFilter(section);
-      closeSeries();
+      closeDetail();
     },
-    [setContentTypeFilter, closeSeries]
+    [setContentTypeFilter, closeDetail]
   );
 
   // Navigating away from Settings asks it first: unsaved edits get a
@@ -469,8 +505,8 @@ export default function MainScreen() {
   // view only swallows the key here.
   const handleEscapeView = useCallback((): boolean => {
     if (view === 'settings') return true;
-    if (seriesOpen) {
-      closeSeries();
+    if (detailOpen) {
+      closeDetail();
       return true;
     }
     if (contentTypeFilter === 'guide') {
@@ -478,7 +514,7 @@ export default function MainScreen() {
       return true;
     }
     return false;
-  }, [view, seriesOpen, closeSeries, contentTypeFilter, handleSection]);
+  }, [view, detailOpen, closeDetail, contentTypeFilter, handleSection]);
 
   // Global keyboard shortcuts (Space=play/stop, /=focus search, G=guide,
   // Escape=close view, else stop)
@@ -508,8 +544,8 @@ export default function MainScreen() {
   if (view === 'settings') {
     title = 'Settings';
     subtitle = 'Ctrl+1–6 switches sections';
-  } else if (seriesOpen && selectedSeries) {
-    subtitle = selectedSeries.name;
+  } else if (detailOpen && detailChannel) {
+    subtitle = detailChannel.name;
   }
 
   return (
@@ -550,12 +586,16 @@ export default function MainScreen() {
             initialTab={settingsTab}
             leaveRef={settingsRef}
           />
-        ) : seriesOpen ? (
+        ) : detailOpen && detailChannel ? (
           // Its own error screen covers an unparsable Xtream URL.
-          <SeriesView
-            loadSeries={loadSeries}
-            onBack={closeSeries}
+          <DetailView
+            channel={detailChannel}
+            loadSeries={seriesLoader}
+            onBack={closeDetail}
+            onPlay={handlePlayChannel}
             onPlayEpisode={handlePlayEpisode}
+            onToggleFavorite={toggleChannelFavorite}
+            isPlaying={isPlaying && currentChannel?.id === detailChannel.id}
           />
         ) : contentTypeFilter === 'guide' ? (
           <GuideView
@@ -664,7 +704,7 @@ export default function MainScreen() {
                               <PosterCard
                                 key={channel.id}
                                 channel={channel}
-                                onOpen={handlePlayChannel}
+                                onOpen={handleOpenTitle}
                                 onPlay={handlePlayChannel}
                                 tmdb={tmdbCards.get(channel.id)}
                                 onToggleFavorite={toggleChannelFavorite}
