@@ -8,9 +8,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
-/// After a failed shared-key fetch with no stale key to fall back on, the
-/// website is left alone for this long; otherwise every queued title would
-/// GET it again while offline.
+/// After any failed shared-key fetch the website is left alone for this
+/// long, whether or not a stale key covered the gap; otherwise every queued
+/// title would GET it again while offline.
 pub const SHARED_FETCH_COOLDOWN: Duration = Duration::from_secs(300);
 
 #[derive(Debug)]
@@ -19,6 +19,9 @@ pub struct TmdbSession {
     shared_key_rejected: AtomicBool,
     shared_unauthorized_count: AtomicU32,
     shared_fetch_failed_at: Mutex<Option<Instant>>,
+    /// Held while one caller fetches the shared key, so a burst of jobs
+    /// sends one GET and the rest read the stored key afterwards.
+    shared_fetch_lock: tokio::sync::Mutex<()>,
     in_flight: Mutex<HashSet<String>>,
     queue_tx: UnboundedSender<EnrichJob>,
     queue_rx: Mutex<Option<UnboundedReceiver<EnrichJob>>>,
@@ -32,6 +35,7 @@ impl Default for TmdbSession {
             shared_key_rejected: AtomicBool::new(false),
             shared_unauthorized_count: AtomicU32::new(0),
             shared_fetch_failed_at: Mutex::new(None),
+            shared_fetch_lock: tokio::sync::Mutex::new(()),
             in_flight: Mutex::new(HashSet::new()),
             queue_tx: tx,
             queue_rx: Mutex::new(Some(rx)),
@@ -71,6 +75,12 @@ impl TmdbSession {
             .shared_fetch_failed_at
             .lock()
             .expect("tmdb cooldown poisoned") = Some(Instant::now());
+    }
+
+    /// Serialise shared-key fetches; the guard is held across the GET and
+    /// the store.
+    pub async fn lock_shared_fetch(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.shared_fetch_lock.lock().await
     }
 
     /// Whether a failed shared-key fetch is still recent enough to skip.

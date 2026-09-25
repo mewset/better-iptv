@@ -85,68 +85,84 @@ pub async fn resolve_key(
     pool: &Pool<SqliteConnectionManager>,
     session: &TmdbSession,
 ) -> Result<Option<ResolvedKey>, AppError> {
+    resolve_key_with(pool, session, fetch_shared_key).await
+}
+
+async fn decide(pool: &Pool<SqliteConnectionManager>) -> Result<KeyDecision, AppError> {
     let settings = with_db(pool, |conn| Ok(read_key_settings(conn)?)).await?;
-    match decide_key(&settings, Utc::now()) {
-        KeyDecision::Disabled => Ok(None),
-        KeyDecision::Use {
-            key,
-            source: KeySource::User,
-        } => {
-            if session.user_key_rejected() {
-                return Ok(None);
-            }
-            Ok(Some(ResolvedKey {
-                key,
-                source: KeySource::User,
-            }))
-        }
-        KeyDecision::Use {
-            key,
-            source: KeySource::Shared,
-        } => {
-            if session.shared_key_rejected() {
-                return Ok(None);
-            }
+    Ok(decide_key(&settings, Utc::now()))
+}
+
+/// A stored key, unless this session already saw it rejected.
+fn usable(session: &TmdbSession, key: String, source: KeySource) -> Option<ResolvedKey> {
+    let rejected = match source {
+        KeySource::User => session.user_key_rejected(),
+        KeySource::Shared => session.shared_key_rejected(),
+    };
+    if rejected {
+        None
+    } else {
+        Some(ResolvedKey { key, source })
+    }
+}
+
+/// `resolve_key` with the website request injected, so tests can count it.
+///
+/// Only one caller fetches at a time. A burst of enrichment jobs all decide
+/// `FetchShared` before any of them has stored a key; the waiters re-read
+/// the settings under the lock and use what the first one stored.
+async fn resolve_key_with<F, Fut>(
+    pool: &Pool<SqliteConnectionManager>,
+    session: &TmdbSession,
+    fetch: F,
+) -> Result<Option<ResolvedKey>, AppError>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Option<String>>,
+{
+    match decide(pool).await? {
+        KeyDecision::Disabled => return Ok(None),
+        KeyDecision::Use { key, source } => return Ok(usable(session, key, source)),
+        KeyDecision::FetchShared { .. } => {}
+    }
+    if session.shared_key_rejected() {
+        return Ok(None);
+    }
+    let _guard = session.lock_shared_fetch().await;
+    let stale = match decide(pool).await? {
+        KeyDecision::Disabled => return Ok(None),
+        KeyDecision::Use { key, source } => return Ok(usable(session, key, source)),
+        KeyDecision::FetchShared { stale } => stale,
+    };
+    let stale_fallback = |key: String| ResolvedKey {
+        key,
+        source: KeySource::Shared,
+    };
+    if session.shared_fetch_on_cooldown() {
+        return Ok(stale.map(stale_fallback));
+    }
+    match fetch().await {
+        Some(key) => {
+            let stored = key.clone();
+            with_db(pool, move |conn| {
+                mutations::set_setting(conn, TMDB_SHARED_KEY_KEY, &stored)?;
+                mutations::set_setting(
+                    conn,
+                    TMDB_SHARED_KEY_FETCHED_AT_KEY,
+                    &Utc::now().to_rfc3339(),
+                )?;
+                Ok(())
+            })
+            .await?;
+            info!("shared TMDB key fetched");
             Ok(Some(ResolvedKey {
                 key,
                 source: KeySource::Shared,
             }))
         }
-        KeyDecision::FetchShared { stale } => {
-            if session.shared_key_rejected() {
-                return Ok(None);
-            }
-            let stale_fallback = |key: String| ResolvedKey {
-                key,
-                source: KeySource::Shared,
-            };
-            if session.shared_fetch_on_cooldown() {
-                return Ok(stale.map(stale_fallback));
-            }
-            match fetch_shared_key().await {
-                Some(key) => {
-                    let stored = key.clone();
-                    with_db(pool, move |conn| {
-                        mutations::set_setting(conn, TMDB_SHARED_KEY_KEY, &stored)?;
-                        mutations::set_setting(
-                            conn,
-                            TMDB_SHARED_KEY_FETCHED_AT_KEY,
-                            &Utc::now().to_rfc3339(),
-                        )?;
-                        Ok(())
-                    })
-                    .await?;
-                    info!("shared TMDB key fetched");
-                    Ok(Some(ResolvedKey {
-                        key,
-                        source: KeySource::Shared,
-                    }))
-                }
-                None => {
-                    session.note_shared_fetch_failed();
-                    Ok(stale.map(stale_fallback))
-                }
-            }
+        None => {
+            session.note_shared_fetch_failed();
+            Ok(stale.map(stale_fallback))
         }
     }
 }
@@ -284,6 +300,56 @@ mod tests {
             .unwrap();
         assert!(session.shared_key_rejected());
         assert!(resolve_key(&pool, &session).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn concurrent_resolves_fetch_the_shared_key_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let pool = r2d2::Pool::builder()
+            .max_size(2)
+            .build(r2d2_sqlite::SqliteConnectionManager::memory())
+            .unwrap();
+        {
+            let conn = pool.get().unwrap();
+            crate::db::schema::init_schema(&conn).unwrap();
+            set_setting(&conn, TMDB_SHARED_KEY_KEY, "s").unwrap();
+            let stale_at = chrono::Utc::now() - chrono::Duration::hours(25);
+            set_setting(
+                &conn,
+                TMDB_SHARED_KEY_FETCHED_AT_KEY,
+                &stale_at.to_rfc3339(),
+            )
+            .unwrap();
+        }
+        let session = TmdbSession::default();
+        let fetches = Arc::new(AtomicUsize::new(0));
+        let fetch = || {
+            let fetches = fetches.clone();
+            async move {
+                fetches.fetch_add(1, Ordering::SeqCst);
+                // Give the second caller time to reach the lock while the
+                // first one is still "on the network".
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                Some("new".to_string())
+            }
+        };
+        let (a, b) = tokio::join!(
+            resolve_key_with(&pool, &session, &fetch),
+            resolve_key_with(&pool, &session, &fetch)
+        );
+        let expected = Some(ResolvedKey {
+            key: "new".into(),
+            source: KeySource::Shared,
+        });
+        assert_eq!(a.unwrap(), expected);
+        assert_eq!(b.unwrap(), expected);
+        assert_eq!(
+            fetches.load(Ordering::SeqCst),
+            1,
+            "the second resolver must reuse the key the first one stored"
+        );
     }
 
     #[tokio::test]
