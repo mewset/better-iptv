@@ -114,7 +114,8 @@ describe('MainScreen: switching profile with a series open', () => {
   it('returns to browse and never loads the old series against the new profile', async () => {
     render(<MainScreen />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Open The Bear' }));
+    // Both the hero and the poster card offer "Open The Bear"; either opens the series.
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Open The Bear' }))[0]);
     expect(await screen.findByRole('button', { name: 'Back' })).toBeInTheDocument();
     expect(calls('get_series_info')).toHaveLength(1);
 

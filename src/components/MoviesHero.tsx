@@ -1,4 +1,4 @@
-import { Play } from 'lucide-react';
+import { Clapperboard, Play } from 'lucide-react';
 import type { Channel } from '../types';
 import { ColorBars } from './ColorBars';
 import { heroMetaLine } from '../lib/tmdb';
@@ -7,6 +7,8 @@ import type { TmdbCard } from '../lib/tauri';
 interface MoviesHeroProps {
   channel: Channel;
   onPlay: (channel: Channel) => void;
+  /** Series: the button reads "Open" and opens the title instead of playing it. */
+  onOpen?: (channel: Channel) => void;
   /** This title is the one playing: the button reads "Playing" and is inert (play would toggle it off). */
   isPlaying?: boolean;
   /** TMDB card data when known: backdrop and the year · genres · rating row. */
@@ -14,13 +16,14 @@ interface MoviesHeroProps {
 }
 
 /**
- * "Recently added" hero for the Movies section: the newest title, shown
+ * "Recently added" hero for the Movies and Series sections: the newest title, shown
  * full-width above the poster grid. Rendered as virtual row 0 of the grid's
  * virtualiser by the caller (`MainScreen`) — this component only renders the
  * row's content, it does not manage its own position or measurement.
  */
-export function MoviesHero({ channel, onPlay, isPlaying = false, tmdb }: MoviesHeroProps) {
+export function MoviesHero({ channel, onPlay, onOpen, isPlaying = false, tmdb }: MoviesHeroProps) {
   const art = tmdb?.backdrop_url ?? channel.logo;
+  const isSeries = channel.content_type === 'series';
   return (
     <section
       aria-label="Recently added"
@@ -53,19 +56,31 @@ export function MoviesHero({ channel, onPlay, isPlaying = false, tmdb }: MoviesH
         <p className="text-[13px] text-text-muted">
           {heroMetaLine(tmdb, channel.group_name ?? '')}
         </p>
-        <button
-          type="button"
-          aria-label={`${isPlaying ? 'Playing' : 'Play'} ${channel.name}`}
-          disabled={isPlaying}
-          aria-disabled={isPlaying}
-          onClick={() => {
-            if (!isPlaying) onPlay(channel);
-          }}
-          className="flex h-11 w-fit items-center gap-2 rounded-xl bg-accent px-5 font-bold text-on-accent focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default"
-        >
-          {!isPlaying && <Play className="h-4 w-4" aria-hidden="true" />}
-          <span>{isPlaying ? 'Playing' : 'Play'}</span>
-        </button>
+        {isSeries ? (
+          <button
+            type="button"
+            aria-label={`Open ${channel.name}`}
+            onClick={() => (onOpen ?? onPlay)(channel)}
+            className="flex h-11 w-fit items-center gap-2 rounded-xl bg-accent px-5 font-bold text-on-accent focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <Clapperboard className="h-4 w-4" aria-hidden="true" />
+            <span>Open</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            aria-label={`${isPlaying ? 'Playing' : 'Play'} ${channel.name}`}
+            disabled={isPlaying}
+            aria-disabled={isPlaying}
+            onClick={() => {
+              if (!isPlaying) onPlay(channel);
+            }}
+            className="flex h-11 w-fit items-center gap-2 rounded-xl bg-accent px-5 font-bold text-on-accent focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default"
+          >
+            {!isPlaying && <Play className="h-4 w-4" aria-hidden="true" />}
+            <span>{isPlaying ? 'Playing' : 'Play'}</span>
+          </button>
+        )}
       </div>
     </section>
   );

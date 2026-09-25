@@ -68,4 +68,15 @@ describe('MoviesHero with TMDB data', () => {
     expect(container.querySelector('img')?.getAttribute('src')).toBe(tmdb.backdrop_url);
     expect(screen.getByText('2023 · Action, Thriller · ★ 7.4')).toBeInTheDocument();
   });
+
+  it('offers "Open" instead of "Play" for a series and calls onOpen', () => {
+    const onPlay = vi.fn();
+    const onOpen = vi.fn();
+    const series = { ...movie, id: 42, name: 'Newest Show', content_type: 'series' as const };
+    render(<MoviesHero channel={series} onPlay={onPlay} onOpen={onOpen} />);
+    expect(screen.queryByRole('button', { name: /Play/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open Newest Show' }));
+    expect(onOpen).toHaveBeenCalledWith(series);
+    expect(onPlay).not.toHaveBeenCalled();
+  });
 });

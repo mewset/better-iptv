@@ -249,7 +249,13 @@ export default function MainScreen() {
   // `filteredChannels`, but lock/blur keep them in the list with `blockedMap`
   // flagging them, so this excludes those explicitly.
   const heroChannel = useMemo(() => {
-    if (contentTypeFilter !== 'vod' || categoryFilter || trimmedQuery !== '') return null;
+    if (
+      (contentTypeFilter !== 'vod' && contentTypeFilter !== 'series') ||
+      categoryFilter ||
+      trimmedQuery !== ''
+    ) {
+      return null;
+    }
     const eligible = filteredChannels.filter((c) => !blockedMap.get(c.id!));
     return newestTitle(eligible);
   }, [contentTypeFilter, categoryFilter, trimmedQuery, filteredChannels, blockedMap]);
@@ -703,6 +709,7 @@ export default function MainScreen() {
                             <MoviesHero
                               channel={heroChannel!}
                               onPlay={handlePlayChannel}
+                              onOpen={handleOpenTitle}
                               isPlaying={isPlaying && currentChannel?.id === heroChannel!.id}
                               tmdb={tmdbCards.get(heroChannel!.id)}
                             />

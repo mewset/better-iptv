@@ -93,6 +93,9 @@ function setupInvoke(parentalSettings: FixtureParentalSettings = defaultParental
         return parentalSettings;
       case 'play_channel':
         return undefined;
+      case 'get_series_info':
+      case 'get_local_series_info':
+        return { seasons: [], info: { name: 'Newest Show' }, episodes: {} };
       case 'get_tmdb_status':
         return {
           enabled: true,
@@ -190,5 +193,57 @@ describe('MainScreen: Movies hero', () => {
       expect(screen.getByRole('heading', { name: 'Newest Movie' })).toBeInTheDocument()
     );
     expect(screen.queryByRole('heading', { name: 'Blocked Newest' })).not.toBeInTheDocument();
+  });
+});
+
+describe('MainScreen: Series hero', () => {
+  const olderShow = movie(11, 'Older Show', '2026-01-01T00:00:00Z', { content_type: 'series' });
+  const newestShow = movie(12, 'Newest Show', '2026-06-01T00:00:00Z', { content_type: 'series' });
+
+  beforeEach(() => {
+    setupInvoke();
+    usePlayerStore.setState({
+      playlists: [home],
+      activeProfileId: 1,
+      currentPlaylist: home,
+      contentTypeFilter: 'series',
+      categoryFilter: null,
+      searchQuery: '',
+      isPlaying: false,
+      currentChannel: null,
+      currentSeries: null,
+      selectedSeason: null,
+      parentalEnabled: false,
+      parentalUnlocked: false,
+      blockedChannelIds: new Set(),
+      blockedCategories: [],
+      parentalVisibility: 'hide',
+      parentalAutoDetect: false,
+    });
+    usePlayerStore.getState().setChannels([olderShow, newestShow]);
+  });
+
+  it('shows the hero for the newest series with an Open button', async () => {
+    render(<MainScreen />);
+    const hero = await screen.findByRole('region', { name: 'Recently added' });
+    expect(within(hero).getByRole('heading', { name: 'Newest Show' })).toBeInTheDocument();
+    expect(within(hero).getByRole('button', { name: 'Open Newest Show' })).toBeInTheDocument();
+  });
+
+  it("the hero's Open button opens the detail view instead of playing", async () => {
+    render(<MainScreen />);
+    const hero = await screen.findByRole('region', { name: 'Recently added' });
+    fireEvent.click(within(hero).getByRole('button', { name: 'Open Newest Show' }));
+    expect(await screen.findByRole('button', { name: 'Back' })).toBeInTheDocument();
+    expect(calls('play_channel')).toHaveLength(0);
+  });
+
+  it('hides the hero when a search query is active', async () => {
+    render(<MainScreen />);
+    await screen.findByRole('region', { name: 'Recently added' });
+    usePlayerStore.getState().setSearchQuery('Older');
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: 'Recently added' })).not.toBeInTheDocument()
+    );
   });
 });

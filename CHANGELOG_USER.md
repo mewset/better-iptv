@@ -27,6 +27,7 @@ A simple overview of new features and improvements.
 
 ### Improvements
 
+- The Series section starts with a "Recently added" banner for the newest series, like Movies already does
 - The profile menu in the top right now has an "Add profile" row, so you can add a playlist or provider without going into Settings
 - Updated the app framework and several of the libraries Better IPTV is built on, including security fixes
 
