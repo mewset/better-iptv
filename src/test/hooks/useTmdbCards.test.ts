@@ -46,22 +46,56 @@ describe('useTmdbCards', () => {
   });
 
   it('requests the missing ids once after the debounce and stores the reply', async () => {
+    // Plain fake timers: real-time ticking would make the 299 ms step flaky.
+    vi.useFakeTimers();
     vi.mocked(getTmdbCards).mockResolvedValue([card(1)]);
     const { result, rerender } = renderHook(({ ids }) => useTmdbCards(ids), {
       initialProps: { ids: [1, 2] },
     });
+    await act(async () => {
+      vi.advanceTimersByTime(299);
+    });
     expect(getTmdbCards).not.toHaveBeenCalled();
     await act(async () => {
-      vi.advanceTimersByTime(300);
+      vi.advanceTimersByTime(1);
     });
-    await waitFor(() => expect(getTmdbCards).toHaveBeenCalledWith([1, 2]));
-    await waitFor(() => expect(result.current.get(1)?.title).toBe('T1'));
+    expect(getTmdbCards).toHaveBeenCalledWith([1, 2]);
+    expect(result.current.get(1)?.title).toBe('T1');
     // Same ids again (a scroll back): nothing new to ask for.
     rerender({ ids: [2, 1] });
     await act(async () => {
       vi.advanceTimersByTime(300);
     });
     expect(getTmdbCards).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps cards already in the store when it mounts', async () => {
+    usePlayerStore.setState({ tmdbCards: new Map([[7, card(7)]]) });
+    vi.mocked(getTmdbCards).mockResolvedValue([]);
+    const { result } = renderHook(() => useTmdbCards([7]));
+    await act(async () => {});
+    expect(result.current.get(7)).toBeDefined();
+    expect(usePlayerStore.getState().tmdbCards.get(7)).toBeDefined();
+  });
+
+  it('asks again for ids whose lookup failed', async () => {
+    vi.mocked(getTmdbCards)
+      .mockRejectedValueOnce(new Error('ipc'))
+      .mockResolvedValue([card(3)]);
+    const { result, rerender } = renderHook(({ ids }) => useTmdbCards(ids), {
+      initialProps: { ids: [3, 4] },
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    await waitFor(() => expect(getTmdbCards).toHaveBeenCalledTimes(1));
+    rerender({ ids: [4, 3] });
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    await waitFor(() => expect(getTmdbCards).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(getTmdbCards).mock.calls[1][0]).toEqual([4, 3]);
+    await waitFor(() => expect(result.current.get(3)?.title).toBe('T3'));
   });
 
   it('merges tmdb-card events for every channel id in the payload', async () => {

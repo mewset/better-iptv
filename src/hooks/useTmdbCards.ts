@@ -26,7 +26,12 @@ export function useTmdbCards(channelIds: number[]): Map<number, TmdbCard> {
   const idsKey = channelIds.join(',');
   const ids = useMemo(() => channelIds, [idsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Clear only on an actual profile switch. Clearing on mount would wipe the
+  // cards of another mounted consumer, whose requested set still lists them.
+  const lastPlaylistRef = useRef(playlistId);
   useEffect(() => {
+    if (lastPlaylistRef.current === playlistId) return;
+    lastPlaylistRef.current = playlistId;
     requestedRef.current = new Set();
     clearTmdbCards();
   }, [playlistId, clearTmdbCards]);
@@ -38,7 +43,11 @@ export function useTmdbCards(channelIds: number[]): Map<number, TmdbCard> {
       for (const id of missing) requestedRef.current.add(id);
       getTmdbCards(missing)
         .then(setTmdbCards)
-        .catch((err) => logger.debug('TMDB card lookup failed:', err));
+        .catch((err) => {
+          // Let the next visibility change ask for this batch again.
+          for (const id of missing) requestedRef.current.delete(id);
+          logger.debug('TMDB card lookup failed:', err);
+        });
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // playlistId: a profile switch clears the requested set above and must ask again.
