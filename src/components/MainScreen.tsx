@@ -289,6 +289,15 @@ export default function MainScreen() {
     rowVirtualizer.measure();
   }, [kind, columns, showHero, rowVirtualizer]);
 
+  // A new list starts at the top: switching section, picking a category
+  // chip, or starting/clearing a search all replace `filteredChannels`, and
+  // a scroll offset left over from the previous list would land the user
+  // somewhere arbitrary in the new one. Returning from the detail view is
+  // not a new list, so it keeps its place (nothing here changes then).
+  useEffect(() => {
+    if (parentRef.current) parentRef.current.scrollTop = 0;
+  }, [contentTypeFilter, categoryFilter, trimmedQuery]);
+
   // Visible poster rows feed the TMDB lookup. Live rows never do.
   const virtualItems = rowVirtualizer.getVirtualItems();
   const visibleCardIds = useMemo(() => {

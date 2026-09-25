@@ -54,6 +54,7 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Fixed
 
+- Switching section, choosing a category chip, or starting/clearing a search now scrolls the grid back to the top instead of keeping the previous list's scroll offset (`MainScreen.tsx`); returning from the detail view keeps its place
 - **EPG channel ids match regardless of case** - channels whose ids the Swedish name heuristic in `playlist/xtream.rs` writes as `SVT1.se`, `SVT2.se` or `TV4.se` showed no guide data against a feed that writes `svt1.se`, which is what an Xtream provider's `xmltv.php` does, because `epg_programs` lookups compared `channel_epg_id` exactly. Measured on one Xtream profile: 703 channel ids matched exactly, 744 without regard to case, and the 41 missing were largely the Swedish channels
   - `epg_domain::normalize_epg_id` trims and ASCII lower-cases an id; ASCII-only so it agrees with SQLite's `lower()`
   - `store_epg_programs` stores the normalised id, and `get_current_program`, `get_next_program`, `get_programs_for_channels` and `get_guide` look it up normalised while keying their results by the id the caller asked with, so the frontend is unchanged and `idx_channel_time` still serves every lookup
