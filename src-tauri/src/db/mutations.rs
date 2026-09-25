@@ -512,6 +512,8 @@ pub fn update_channel_epg_ids(conn: &Connection) -> Result<usize> {
 
 /// Write the search-level columns. A `manual` row is left exactly as it is:
 /// the user's choice outranks any automatic match.
+/// Detail columns survive a re-search that finds the same id; a different id
+/// clears them, so the details of the old match are never shown as fresh.
 #[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
 pub fn upsert_tmdb_search(conn: &Connection, row: &TmdbRow) -> Result<()> {
     conn.execute(
@@ -524,7 +526,17 @@ pub fn upsert_tmdb_search(conn: &Connection, row: &TmdbRow) -> Result<()> {
              original_title = excluded.original_title, release_year = excluded.release_year,
              rating = excluded.rating, poster_path = excluded.poster_path,
              backdrop_path = excluded.backdrop_path, overview = excluded.overview,
-             genre_ids = excluded.genre_ids, searched_at = excluded.searched_at
+             genre_ids = excluded.genre_ids, searched_at = excluded.searched_at,
+             runtime_minutes = CASE WHEN excluded.tmdb_id IS tmdb_metadata.tmdb_id
+                 THEN tmdb_metadata.runtime_minutes ELSE NULL END,
+             genres = CASE WHEN excluded.tmdb_id IS tmdb_metadata.tmdb_id
+                 THEN tmdb_metadata.genres ELSE NULL END,
+             cast_json = CASE WHEN excluded.tmdb_id IS tmdb_metadata.tmdb_id
+                 THEN tmdb_metadata.cast_json ELSE NULL END,
+             trailer_youtube_key = CASE WHEN excluded.tmdb_id IS tmdb_metadata.tmdb_id
+                 THEN tmdb_metadata.trailer_youtube_key ELSE NULL END,
+             details_fetched_at = CASE WHEN excluded.tmdb_id IS tmdb_metadata.tmdb_id
+                 THEN tmdb_metadata.details_fetched_at ELSE NULL END
          WHERE tmdb_metadata.manual = 0",
         params![
             row.key.title,
@@ -1539,6 +1551,46 @@ mod tmdb_tests {
             Some("2026-09-25T13:00:00+00:00")
         );
         assert_eq!(got.trailer_youtube_key.as_deref(), Some("qdPw9x9h5CY"));
+    }
+
+    #[test]
+    fn re_search_keeps_details_for_the_same_id_and_clears_them_for_a_new_one() {
+        let conn = setup_test_db();
+        upsert_tmdb_search(&conn, &row(Some(11324))).unwrap();
+        let mut full = row(Some(11324));
+        full.runtime_minutes = Some(138);
+        full.genres = Some("[\"Drama\"]".into());
+        full.cast_json = Some("[{\"name\":\"Leonardo DiCaprio\"}]".into());
+        full.trailer_youtube_key = Some("qdPw9x9h5CY".into());
+        full.details_fetched_at = Some("2026-09-25T13:00:00+00:00".into());
+        upsert_tmdb_details(&conn, &full).unwrap();
+
+        let mut same = row(Some(11324));
+        same.searched_at = "2026-10-25T12:00:00+00:00".into();
+        upsert_tmdb_search(&conn, &same).unwrap();
+        let kept = queries::get_tmdb_row(&conn, &key()).unwrap().unwrap();
+        assert_eq!(kept.runtime_minutes, Some(138));
+        assert_eq!(kept.genres.as_deref(), Some("[\"Drama\"]"));
+        assert!(kept.cast_json.is_some());
+        assert_eq!(kept.trailer_youtube_key.as_deref(), Some("qdPw9x9h5CY"));
+        assert_eq!(
+            kept.details_fetched_at.as_deref(),
+            Some("2026-09-25T13:00:00+00:00")
+        );
+
+        let mut other = row(Some(999));
+        other.title = Some("Other Film".into());
+        other.rating = Some(5.5);
+        upsert_tmdb_search(&conn, &other).unwrap();
+        let got = queries::get_tmdb_row(&conn, &key()).unwrap().unwrap();
+        assert_eq!(got.tmdb_id, Some(999));
+        assert_eq!(got.title.as_deref(), Some("Other Film"));
+        assert_eq!(got.rating, Some(5.5));
+        assert_eq!(got.runtime_minutes, None);
+        assert_eq!(got.genres, None);
+        assert_eq!(got.cast_json, None);
+        assert_eq!(got.trailer_youtube_key, None);
+        assert_eq!(got.details_fetched_at, None);
     }
 
     #[test]
