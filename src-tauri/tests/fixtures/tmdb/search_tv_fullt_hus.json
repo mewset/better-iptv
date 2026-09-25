@@ -1,0 +1,94 @@
+{
+    "page": 1,
+    "results": [
+        {
+            "adult": false,
+            "backdrop_path": "/5Fm8b5cp643l4qhlTyoympGTl8w.jpg",
+            "genre_ids": [
+                35
+            ],
+            "id": 120487,
+            "origin_country": [
+                "SE"
+            ],
+            "original_language": "sv",
+            "original_name": "Fullt Hus",
+            "overview": "Karin har aldrig hittat sitt kall i livet till skillnad fr\u00e5n sambon Henke, vars dr\u00f6m \u00e4r att driva sin restaurang till toppklass. N\u00e4r dr\u00f6mmen g\u00e5r i kras m\u00e5ste de flytta till Karins f\u00f6r\u00e4ldrar.",
+            "popularity": 3.4035,
+            "poster_path": "/lpKDb9dTV4WIfzA12EMve3OnSLy.jpg",
+            "first_air_date": "2020-08-02",
+            "softcore": false,
+            "name": "Fullt Hus",
+            "vote_average": 8.0,
+            "vote_count": 1
+        },
+        {
+            "adult": false,
+            "backdrop_path": "/btUwsz9ttVBVyqtEyZvFBQFyJgv.jpg",
+            "genre_ids": [
+                35,
+                10751
+            ],
+            "id": 4313,
+            "origin_country": [
+                "US"
+            ],
+            "original_language": "en",
+            "original_name": "Full House",
+            "overview": "N\u00e4r Danny Tanners fru d\u00f6r s\u00f6ker han support fr\u00e5n sina tv\u00e5 nya rumskamrater. Hans sv\u00e5ger och partypolare Jesse tillsammans med v\u00e4nnen och st\u00e5-upp-komikern Joey. Duon hj\u00e4lper Danny att uppfostra och ta hand om hans tre d\u00f6ttrar D.J, Stephanie och Michelle.",
+            "popularity": 62.0058,
+            "poster_path": "/7g0EyKsIaYjYw3gCIBKMHHE0Kcu.jpg",
+            "first_air_date": "1987-09-22",
+            "softcore": false,
+            "name": "Huset fullt",
+            "vote_average": 7.5,
+            "vote_count": 1174
+        },
+        {
+            "adult": false,
+            "backdrop_path": "/aiXDRO3jglLdpkBjTJTJ1o8yQbL.jpg",
+            "genre_ids": [
+                10751,
+                35
+            ],
+            "id": 63623,
+            "origin_country": [
+                "US"
+            ],
+            "original_language": "en",
+            "original_name": "Fuller House",
+            "overview": "Familjen Tanners \u00e4ventyr forts\u00e4tter n\u00e4r DJ Tanner-Fuller delar hus med sin syster Stephanie och b\u00e4sta v\u00e4nnen Kimmy, som hj\u00e4lper henne att ta hand om hennes tre s\u00f6ner.",
+            "popularity": 34.5445,
+            "poster_path": "/n4ZZB471d2UueUFEaOWnKetCxnY.jpg",
+            "first_air_date": "2016-02-26",
+            "softcore": false,
+            "name": "Huset fullt \u2013 igen",
+            "vote_average": 7.375,
+            "vote_count": 600
+        },
+        {
+            "adult": false,
+            "backdrop_path": "/zofidA4U0LAlpiFy4ZTHTqACTdx.jpg",
+            "genre_ids": [
+                16,
+                10762
+            ],
+            "id": 72486,
+            "origin_country": [
+                "US"
+            ],
+            "original_language": "en",
+            "original_name": "VeggieTales in the House",
+            "overview": "Bob Tomat, Larry Gurka och deras gr\u00f6na v\u00e4nner v\u00e5gar sig ut ur k\u00f6ket och ger sig av p\u00e5 roliga \u00e4ventyr med kristna teman.",
+            "popularity": 16.2268,
+            "poster_path": "/dMb6q71jX6PbR9x6WKPwdJKdjzN.jpg",
+            "first_air_date": "2014-11-26",
+            "softcore": false,
+            "name": "Gr\u00f6na skr\u00f6nor: Huset fullt",
+            "vote_average": 5.6,
+            "vote_count": 18
+        }
+    ],
+    "total_pages": 1,
+    "total_results": 4
+}

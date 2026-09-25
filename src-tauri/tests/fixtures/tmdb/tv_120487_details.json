@@ -1,0 +1,310 @@
+{
+    "adult": false,
+    "backdrop_path": "/5Fm8b5cp643l4qhlTyoympGTl8w.jpg",
+    "created_by": [
+        {
+            "id": 222478,
+            "credit_id": "6048c53f6cf3d5004619ceda",
+            "name": "Leif Lindblom",
+            "original_name": "Leif Lindblom",
+            "gender": 2,
+            "profile_path": "/pdMPFBEdnY0qUFUpAv7EgiL0ZmA.jpg"
+        }
+    ],
+    "episode_run_time": [
+        22
+    ],
+    "first_air_date": "2020-08-02",
+    "genres": [
+        {
+            "id": 35,
+            "name": "Komedi"
+        }
+    ],
+    "homepage": "https://www.discoveryplus.se/program/fullt-hus",
+    "id": 120487,
+    "in_production": false,
+    "languages": [
+        "sv"
+    ],
+    "last_air_date": "2020-10-04",
+    "last_episode_to_air": {
+        "id": 2784583,
+        "name": "Svartsjuka och f\u00f6rbjuden k\u00e4rlek",
+        "overview": "Det \u00e4r Karins f\u00f6delsedag och Henke har fixat en \u00f6verraskningsfest. Jossan f\u00f6resl\u00e5r att hon och Max ska g\u00e5 i parterapi men Max tycker att hon kan g\u00e5 sj\u00e4lv. Lars och Monika beh\u00f6ver tid f\u00f6r varandra och \u00e5ker iv\u00e4g p\u00e5 ett romantiskt spa.",
+        "vote_average": 0.0,
+        "vote_count": 0,
+        "air_date": "2020-10-04",
+        "episode_number": 10,
+        "episode_type": "finale",
+        "production_code": "",
+        "runtime": 22,
+        "season_number": 1,
+        "show_id": 120487,
+        "still_path": null
+    },
+    "name": "Fullt Hus",
+    "next_episode_to_air": null,
+    "networks": [
+        {
+            "id": 437,
+            "logo_path": "/dbiDOAbAszBQmXqewxwI0NYOvwM.png",
+            "name": "Kanal 5",
+            "origin_country": "SE"
+        }
+    ],
+    "number_of_episodes": 10,
+    "number_of_seasons": 1,
+    "origin_country": [
+        "SE"
+    ],
+    "original_language": "sv",
+    "original_name": "Fullt Hus",
+    "overview": "Karin har aldrig hittat sitt kall i livet till skillnad fr\u00e5n sambon Henke, vars dr\u00f6m \u00e4r att driva sin restaurang till toppklass. N\u00e4r dr\u00f6mmen g\u00e5r i kras m\u00e5ste de flytta till Karins f\u00f6r\u00e4ldrar.",
+    "popularity": 3.4035,
+    "poster_path": "/lpKDb9dTV4WIfzA12EMve3OnSLy.jpg",
+    "production_companies": [
+        {
+            "id": 111749,
+            "logo_path": "/zueyXlRJUuBOQvTkXUrEiISRn6W.png",
+            "name": "Art & Bob",
+            "origin_country": "SE"
+        }
+    ],
+    "production_countries": [
+        {
+            "iso_3166_1": "SE",
+            "name": "Sweden"
+        }
+    ],
+    "seasons": [
+        {
+            "air_date": "2020-08-02",
+            "episode_count": 10,
+            "id": 185329,
+            "name": "S\u00e4song 1",
+            "overview": "",
+            "poster_path": null,
+            "season_number": 1,
+            "vote_average": 0.0
+        }
+    ],
+    "softcore": false,
+    "spoken_languages": [
+        {
+            "english_name": "Swedish",
+            "iso_639_1": "sv",
+            "name": "svenska"
+        }
+    ],
+    "status": "Ended",
+    "tagline": "",
+    "type": "Miniseries",
+    "vote_average": 8.0,
+    "vote_count": 1,
+    "credits": {
+        "cast": [
+            {
+                "adult": false,
+                "gender": 1,
+                "id": 47072,
+                "known_for_department": "Acting",
+                "name": "Liv Mj\u00f6nes",
+                "original_name": "Liv Mj\u00f6nes",
+                "popularity": 0.9823,
+                "profile_path": "/gbU6SnajV9Z1qVazgCJSAl5SP5w.jpg",
+                "character": "Karin",
+                "credit_id": "6048c18b90dde0002bd92aac",
+                "order": 0
+            },
+            {
+                "adult": false,
+                "gender": 2,
+                "id": 1252593,
+                "known_for_department": "Acting",
+                "name": "Fredde Granberg",
+                "original_name": "Fredde Granberg",
+                "popularity": 0.6285,
+                "profile_path": "/oWP2CHdznaNpKjO0TDS0lOhCnJH.jpg",
+                "character": "Henke",
+                "credit_id": "6048c19e90dde0006fa35300",
+                "order": 1
+            },
+            {
+                "adult": false,
+                "gender": 1,
+                "id": 213487,
+                "known_for_department": "Acting",
+                "name": "Cecilia Forss",
+                "original_name": "Cecilia Forss",
+                "popularity": 1.2655,
+                "profile_path": "/mutGaRS2YbySqxyUvGQNYWLeJKX.jpg",
+                "character": "Josefin",
+                "credit_id": "6048c1d315c636004624da22",
+                "order": 2
+            },
+            {
+                "adult": false,
+                "gender": 2,
+                "id": 79058,
+                "known_for_department": "Acting",
+                "name": "Sven Melander",
+                "original_name": "Sven Melander",
+                "popularity": 0.8581,
+                "profile_path": "/yCppWZXXtYrI2tj4qwKBGNPwkEN.jpg",
+                "character": "Lars",
+                "credit_id": "6048c1e0c4ad59002a4d48dc",
+                "order": 3
+            },
+            {
+                "adult": false,
+                "gender": 2,
+                "id": 1259793,
+                "known_for_department": "Acting",
+                "name": "Fredrik Hallgren",
+                "original_name": "Fredrik Hallgren",
+                "popularity": 0.7263,
+                "profile_path": "/1rw0WYsyDH96VY9Jn4sIQOhsIcg.jpg",
+                "character": "M\u00e5rten",
+                "credit_id": "6048c21366a0d3005a7f4e16",
+                "order": 4
+            },
+            {
+                "adult": false,
+                "gender": 1,
+                "id": 104975,
+                "known_for_department": "Acting",
+                "name": "Katarina Ewerl\u00f6f",
+                "original_name": "Katarina Ewerl\u00f6f",
+                "popularity": 0.5292,
+                "profile_path": "/uVHkRifNzaBtckk7BZWGXJkGdU4.jpg",
+                "character": "Monika",
+                "credit_id": "6048c1f290fca3005a893cbf",
+                "order": 5
+            },
+            {
+                "adult": false,
+                "gender": 2,
+                "id": 106661,
+                "known_for_department": "Acting",
+                "name": "Niklas Engdahl",
+                "original_name": "Niklas Engdahl",
+                "popularity": 0.5747,
+                "profile_path": "/kdfVIZaQUiMo2DkAHIYKrfZ3gPB.jpg",
+                "character": "Max",
+                "credit_id": "6048c201ea37e00045415da4",
+                "order": 6
+            },
+            {
+                "adult": false,
+                "gender": 0,
+                "id": 3005135,
+                "known_for_department": "Acting",
+                "name": "Minna Schlosser",
+                "original_name": "Minna Schlosser",
+                "popularity": 0.3479,
+                "profile_path": null,
+                "character": "Maja",
+                "credit_id": "6048c2275f622b006da8c02c",
+                "order": 7
+            },
+            {
+                "adult": false,
+                "gender": 2,
+                "id": 1594253,
+                "known_for_department": "Acting",
+                "name": "Edward Blom",
+                "original_name": "Edward Blom",
+                "popularity": 0.4548,
+                "profile_path": "/8DwxBMjfk0RAeGJozw39SuSjnOJ.jpg",
+                "character": "Edward Blom",
+                "credit_id": "6a929bbeb128d1c4539b8430",
+                "order": 8
+            }
+        ],
+        "crew": [
+            {
+                "adult": false,
+                "gender": 0,
+                "id": 3005137,
+                "known_for_department": "Writing",
+                "name": "Marja Nyberg",
+                "original_name": "Marja Nyberg",
+                "popularity": 0.3226,
+                "profile_path": null,
+                "credit_id": "6048c30e66a0d3005a7f4eb0",
+                "department": "Writing",
+                "job": "Writer"
+            },
+            {
+                "adult": false,
+                "gender": 0,
+                "id": 3005138,
+                "known_for_department": "Writing",
+                "name": "Christoffer Sandler",
+                "original_name": "Christoffer Sandler",
+                "popularity": 0.2541,
+                "profile_path": null,
+                "credit_id": "6048c3194284ea005ae38ee3",
+                "department": "Writing",
+                "job": "Writer"
+            },
+            {
+                "adult": false,
+                "gender": 2,
+                "id": 1016590,
+                "known_for_department": "Production",
+                "name": "Jan Blomgren",
+                "original_name": "Jan Blomgren",
+                "popularity": 0.4776,
+                "profile_path": null,
+                "credit_id": "6048c366c8a5ac005a016dd0",
+                "department": "Production",
+                "job": "Executive Producer"
+            },
+            {
+                "adult": false,
+                "gender": 1,
+                "id": 3005139,
+                "known_for_department": "Writing",
+                "name": "Lina \u00c5str\u00f6m",
+                "original_name": "Lina \u00c5str\u00f6m",
+                "popularity": 0.3999,
+                "profile_path": null,
+                "credit_id": "6048c3294284ea0045d9f67f",
+                "department": "Writing",
+                "job": "Writer"
+            },
+            {
+                "adult": false,
+                "gender": 2,
+                "id": 222478,
+                "known_for_department": "Directing",
+                "name": "Leif Lindblom",
+                "original_name": "Leif Lindblom",
+                "popularity": 0.6187,
+                "profile_path": "/pdMPFBEdnY0qUFUpAv7EgiL0ZmA.jpg",
+                "credit_id": "6048c34a0102c90023efd866",
+                "department": "Directing",
+                "job": "Director"
+            }
+        ]
+    },
+    "videos": {
+        "id": 120487,
+        "results": [
+            {
+                "iso_639_1": "sv",
+                "iso_3166_1": "SE",
+                "name": "Fullt hus",
+                "key": "nc_eIzSxe44",
+                "site": "YouTube",
+                "size": 1080,
+                "type": "Trailer",
+                "official": true,
+                "id": "6048c4835f622b005989f124",
+                "published_at": "2020-07-02T06:47:48.000Z"
+            }
+        ]
+    }
+}

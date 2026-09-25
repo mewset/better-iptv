@@ -1,0 +1,28 @@
+{
+    "page": 1,
+    "results": [
+        {
+            "adult": false,
+            "backdrop_path": "/rbZvGN1A1QyZuoKzhCw8QPmf2q0.jpg",
+            "genre_ids": [
+                18,
+                53,
+                9648
+            ],
+            "id": 11324,
+            "title": "Shutter Island",
+            "original_language": "en",
+            "original_title": "Shutter Island",
+            "overview": "Kriminalkommissarie Teddy Daniels f\u00e5r i uppdrag att unders\u00f6ka en patients f\u00f6rsvinnande fr\u00e5n det h\u00e5rdbevakade mentalsjukhuset Ashecliffe p\u00e5 \u00f6n Shutter Island. Vid sin sida har han partnern Chuck Aule och det dr\u00f6jer inte l\u00e4nge f\u00f6rr\u00e4n det st\u00e5r klart f\u00f6r dem att sjukhuschefen Cawley verkar ha en hel del att d\u00f6lja. Vem \u00e4r t.ex den mystiske patient 67 som f\u00f6rekommer i den kod den f\u00f6rsvunna kvinnan l\u00e4mnat bakom sig? Vad \u00e4r det f\u00f6r fruktansv\u00e4rda aktiviteter som f\u00f6rsig\u00e5r i fyrtornet? Ju mer information de samlar, desto mer uppenbart blir det att ingen vill att de ska l\u00e4mna \u00f6n - n\u00e5gonsin.",
+            "popularity": 30.6139,
+            "poster_path": "/nrmXQ0zcZUL8jFLrakWc90IR8z9.jpg",
+            "release_date": "2010-02-14",
+            "softcore": false,
+            "video": false,
+            "vote_average": 8.197,
+            "vote_count": 26467
+        }
+    ],
+    "total_pages": 1,
+    "total_results": 1
+}

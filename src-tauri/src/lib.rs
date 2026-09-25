@@ -11,6 +11,7 @@ mod playlist;
 mod playlist_domain;
 mod series_domain;
 mod state;
+mod tmdb;
 mod tmdb_domain;
 mod update_domain;
 mod utils;
