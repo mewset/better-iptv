@@ -35,6 +35,9 @@ pub async fn set_setting(
     let normalized_value = match key.as_str() {
         "playlist_user_agent_mode" => validate_playlist_user_agent_mode(&value)?,
         "playlist_user_agent_custom" => validate_playlist_user_agent_custom(&value)?,
+        "tmdb_api_key" => validate_tmdb_api_key(&value)?,
+        "tmdb_language" => validate_tmdb_language(&value)?,
+        "tmdb_enabled" => validate_tmdb_enabled(&value)?,
         _ => value,
     };
 
@@ -48,8 +51,46 @@ pub async fn set_setting(
         Ok(mutations::set_setting(conn, &key, &final_value)?)
     })
     .await?;
+    if key_for_log == "tmdb_api_key" || key_for_log == "tmdb_enabled" {
+        state.tmdb.reset_shared();
+    }
     debug!("Setting '{}' updated", key_for_log);
     Ok(())
+}
+
+fn validate_tmdb_api_key(value: &str) -> Result<String, AppError> {
+    let trimmed = value.trim();
+    if trimmed.chars().any(char::is_whitespace) {
+        return Err(AppError::InvalidInput(
+            "The TMDB key cannot contain spaces".to_string(),
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn validate_tmdb_language(value: &str) -> Result<String, AppError> {
+    let v = value.trim();
+    let bytes = v.as_bytes();
+    let ok = bytes.len() == 5
+        && bytes[0..2].iter().all(|b| b.is_ascii_lowercase())
+        && bytes[2] == b'-'
+        && bytes[3..5].iter().all(|b| b.is_ascii_uppercase());
+    if !ok {
+        return Err(AppError::InvalidInput(
+            "Language must look like en-US".to_string(),
+        ));
+    }
+    Ok(v.to_string())
+}
+
+fn validate_tmdb_enabled(value: &str) -> Result<String, AppError> {
+    match value.trim() {
+        "0" => Ok("0".to_string()),
+        "1" => Ok("1".to_string()),
+        _ => Err(AppError::InvalidInput(
+            "tmdb_enabled must be 0 or 1".to_string(),
+        )),
+    }
 }
 
 fn validate_playlist_user_agent_mode(mode: &str) -> Result<String, AppError> {
@@ -147,4 +188,32 @@ pub async fn set_active_profile_id(
     info!("Active profile changed to ID: {}", profile_id);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tmdb_validation {
+    use super::*;
+
+    #[test]
+    fn api_key_is_trimmed_and_rejects_inner_whitespace() {
+        assert_eq!(validate_tmdb_api_key("  abc  ").unwrap(), "abc");
+        assert_eq!(validate_tmdb_api_key("").unwrap(), "");
+        assert!(validate_tmdb_api_key("a b").is_err());
+        assert!(validate_tmdb_api_key("a\nb").is_err());
+    }
+
+    #[test]
+    fn language_must_be_a_tmdb_locale_tag() {
+        assert_eq!(validate_tmdb_language("sv-SE").unwrap(), "sv-SE");
+        assert!(validate_tmdb_language("sv").is_err());
+        assert!(validate_tmdb_language("SV-se").is_err());
+        assert!(validate_tmdb_language("en-US; DROP").is_err());
+    }
+
+    #[test]
+    fn enabled_is_zero_or_one() {
+        assert_eq!(validate_tmdb_enabled("1").unwrap(), "1");
+        assert_eq!(validate_tmdb_enabled("0").unwrap(), "0");
+        assert!(validate_tmdb_enabled("true").is_err());
+    }
 }

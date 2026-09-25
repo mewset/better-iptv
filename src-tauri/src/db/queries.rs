@@ -373,7 +373,6 @@ pub fn get_tmdb_row(conn: &Connection, key: &TmdbKey) -> Result<Option<TmdbRow>>
     rows.next().transpose()
 }
 
-#[allow(dead_code)] // Consumed by the TMDB commands in Task 8
 pub fn get_tmdb_episodes(
     conn: &Connection,
     tmdb_id: i64,

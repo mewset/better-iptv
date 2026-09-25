@@ -92,7 +92,6 @@ impl TmdbSession {
     }
 
     /// Called when the user changes the key or the enabled flag in Settings.
-    #[allow(dead_code)] // Called by the TMDB commands in Task 8
     pub fn reset_shared(&self) {
         self.shared_unauthorized_count.store(0, Ordering::Relaxed);
         self.shared_key_rejected.store(false, Ordering::Relaxed);

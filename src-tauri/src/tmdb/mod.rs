@@ -184,7 +184,6 @@ impl TmdbClient {
 
     /// Details with credits and videos. An empty localised overview is
     /// filled from `en-US` with a second request.
-    #[allow(dead_code)] // Called by the TMDB commands in Task 8
     pub async fn details(&self, kind: Kind, id: i64, lang: &str) -> Result<Details, TmdbError> {
         let mut d = self.details_in(kind, id, lang).await?;
         if d.overview.is_none() && lang != FALLBACK_LANGUAGE {
@@ -212,7 +211,6 @@ impl TmdbClient {
         parse(&body).map_err(|e| TmdbError::Decode(e.to_string()))
     }
 
-    #[allow(dead_code)] // Called by the TMDB commands in Task 8
     pub async fn season(
         &self,
         tv_id: i64,

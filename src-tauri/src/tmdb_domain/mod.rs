@@ -304,7 +304,6 @@ pub fn search_is_stale(searched_at: &str, now: DateTime<Utc>, matched: bool, man
 }
 
 /// Whether details (credits, runtime, trailer) should be fetched again.
-#[allow(dead_code)] // Consumed by the TMDB commands in Task 8
 pub fn details_are_stale(details_fetched_at: Option<&str>, now: DateTime<Utc>) -> bool {
     match details_fetched_at {
         Some(stamp) => older_than(stamp, now, MATCH_TTL_DAYS),
@@ -353,7 +352,6 @@ pub fn genre_name(id: i32) -> Option<&'static str> {
 pub const IMAGE_BASE: &str = "https://image.tmdb.org/t/p/";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // `DetailPoster` and `Small` are used by the TMDB detail commands in Task 8
 pub enum ImageSize {
     CardPoster,
     DetailPoster,

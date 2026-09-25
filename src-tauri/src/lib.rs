@@ -196,6 +196,11 @@ pub fn run() {
             get_tmdb_cards,
             get_tmdb_status,
             check_tmdb_key,
+            get_tmdb_details,
+            get_tmdb_season,
+            search_tmdb,
+            set_tmdb_match,
+            delete_tmdb_cache,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
