@@ -6,6 +6,7 @@ import { Copy, Check, FolderOpen } from 'lucide-react';
 import { truncateAddress } from '../../lib/truncateAddress';
 import { logger } from '../../lib/logger';
 import logoImage from '../../assets/logo/logo-256.webp';
+import { TmdbAttribution } from './MetadataTab';
 
 const CRYPTO_ADDRESSES = [
   { currency: 'BTC', address: 'bc1qth40h9t8r7hvp4czqvf20f3w72jdg4epd5mjq8' },
@@ -63,6 +64,9 @@ export default function AboutTab() {
           </div>
         </div>
       </div>
+
+      {/* TMDB attribution, required by their terms */}
+      <TmdbAttribution />
 
       {/* Support copy */}
       <p className="text-pretty text-sm leading-relaxed text-text-muted">

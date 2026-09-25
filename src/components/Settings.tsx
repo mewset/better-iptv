@@ -7,8 +7,10 @@ import {
   getEpgStatus,
   forceRefreshEpg,
   getChannels,
+  getTmdbStatus,
+  deleteTmdbCache,
 } from '../lib/tauri';
-import type { EpgStatus } from '../lib/tauri';
+import type { EpgStatus, TmdbStatus } from '../lib/tauri';
 import { usePlayerStore } from '../stores/player-store';
 import { logger } from '../lib/logger';
 import { applyTheme } from '../lib/theme';
@@ -25,9 +27,12 @@ import {
   PlaybackTab,
   EpgTab,
   ParentalTab,
+  MetadataTab,
   AboutTab,
   LANGUAGE_OPTIONS,
   USER_AGENT_OPTIONS,
+  TMDB_LANGUAGE_OPTIONS,
+  type TmdbLanguage,
   type Theme,
   type LanguageCode,
   type UserAgentMode,
@@ -53,19 +58,26 @@ interface SettingsProps {
   leaveRef?: React.Ref<SettingsHandle>;
 }
 
-/** The left nav's sections, in display order. Ctrl+1-6 below maps to these by index. */
+/** The left nav's sections, in display order. Ctrl+1-7 below maps to these by index. */
 const SECTIONS: Array<{ value: string; name: string; description: string }> = [
   { value: 'general', name: 'General', description: 'Playlist, appearance, updates' },
   { value: 'playback', name: 'Playback', description: 'MPV, video, audio, subtitles' },
   { value: 'epg', name: 'EPG', description: 'Guide sources and refresh' },
+  { value: 'metadata', name: 'Metadata', description: 'Posters and details from TMDB' },
   { value: 'parental', name: 'Parental', description: 'PIN and blocked content' },
   { value: 'profiles', name: 'Profiles', description: 'Playlists and providers' },
   { value: 'about', name: 'About', description: 'Version and licenses' },
 ];
 
 export default function Settings({ onClose, initialTab = 'general', leaveRef }: SettingsProps) {
-  const { triggerEpgRefresh, channels, loadParentalSettings, currentPlaylist, setChannels } =
-    usePlayerStore();
+  const {
+    triggerEpgRefresh,
+    channels,
+    loadParentalSettings,
+    currentPlaylist,
+    setChannels,
+    clearTmdbCards,
+  } = usePlayerStore();
 
   // UI state
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -93,6 +105,15 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   const [startVolume, setStartVolume] = useState(100);
   const [audioLang, setAudioLang] = useState<LanguageCode>('none');
   const [subtitleLang, setSubtitleLang] = useState<LanguageCode>('none');
+
+  // Metadata tab state; the originals decide what Save has to invalidate.
+  const [tmdbEnabled, setTmdbEnabled] = useState(true);
+  const [tmdbApiKey, setTmdbApiKey] = useState('');
+  const [tmdbLanguage, setTmdbLanguage] = useState<TmdbLanguage>('en-US');
+  const [tmdbStatus, setTmdbStatus] = useState<TmdbStatus | null>(null);
+  const [originalTmdbLanguage, setOriginalTmdbLanguage] = useState('');
+  const [originalTmdbKey, setOriginalTmdbKey] = useState('');
+  const [originalTmdbEnabled, setOriginalTmdbEnabled] = useState(true);
 
   // Parental tab state
   const [parentalEnabled, setParentalEnabled] = useState(false);
@@ -132,6 +153,9 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
     startVolume,
     audioLang,
     subtitleLang,
+    tmdbEnabled,
+    tmdbApiKey,
+    tmdbLanguage,
     parentalEnabled,
     blockedChannelIds: Array.from(blockedChannelIds).sort((a, b) => a - b),
     blockedCategories,
@@ -235,6 +259,28 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
           setHardwareAcceleration(savedHwAccel !== 'false');
         }
 
+        // Metadata (TMDB): absent enabled means on, absent language means en-US.
+        const savedTmdbEnabled = await getSetting('tmdb_enabled');
+        const savedTmdbKey = await getSetting('tmdb_api_key');
+        const savedTmdbLanguage = await getSetting('tmdb_language');
+        const enabledValue = savedTmdbEnabled !== '0';
+        setTmdbEnabled(enabledValue);
+        setOriginalTmdbEnabled(enabledValue);
+        setTmdbApiKey(savedTmdbKey ?? '');
+        setOriginalTmdbKey(savedTmdbKey ?? '');
+        const lang = TMDB_LANGUAGE_OPTIONS.some((l) => l.tag === savedTmdbLanguage)
+          ? (savedTmdbLanguage as TmdbLanguage)
+          : 'en-US';
+        setTmdbLanguage(lang);
+        setOriginalTmdbLanguage(lang);
+        // Only feeds the status line; a failure must not skip the loads below.
+        setTmdbStatus(
+          await getTmdbStatus().catch((err) => {
+            logger.warn('Failed to load TMDB status:', err);
+            return null;
+          })
+        );
+
         // Load EPG status
         const status = await getEpgStatus();
         setEpgStatus(status);
@@ -260,7 +306,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
     loadSettings();
   }, []);
 
-  // Keyboard navigation (Ctrl+1-6 for tab switching)
+  // Keyboard navigation (Ctrl+1-7 for tab switching)
   useEffect(() => {
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey) {
@@ -268,9 +314,10 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
           '1': 'general',
           '2': 'playback',
           '3': 'epg',
-          '4': 'parental',
-          '5': 'profiles',
-          '6': 'about',
+          '4': 'metadata',
+          '5': 'parental',
+          '6': 'profiles',
+          '7': 'about',
         };
         if (tabMap[e.key]) {
           e.preventDefault();
@@ -445,6 +492,20 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       await setSetting('playlist_user_agent_custom', sanitizedCustomUserAgent);
       await setSetting('update_check_enabled', updateCheckEnabled.toString());
 
+      // Metadata (TMDB): a new language invalidates every cached record; any
+      // change invalidates the cards already shown.
+      await setSetting('tmdb_enabled', tmdbEnabled ? '1' : '0');
+      await setSetting('tmdb_api_key', tmdbApiKey.trim());
+      await setSetting('tmdb_language', tmdbLanguage);
+      if (tmdbLanguage !== originalTmdbLanguage) await deleteTmdbCache();
+      if (
+        tmdbLanguage !== originalTmdbLanguage ||
+        tmdbApiKey.trim() !== originalTmdbKey ||
+        tmdbEnabled !== originalTmdbEnabled
+      ) {
+        clearTmdbCards();
+      }
+
       // Save MPV playback settings
       await setSetting('mpv_hardware_acceleration', hardwareAcceleration.toString());
       await setSetting('mpv_video_output', videoOutput);
@@ -597,6 +658,22 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
                 epgStatus={epgStatus}
                 isUpdatingEpg={isUpdatingEpg}
                 onForceEpgUpdate={handleForceEpgUpdate}
+              />
+            </TabsContent>
+
+            <TabsContent value="metadata" className="mt-0 min-h-0">
+              <MetadataTab
+                enabled={tmdbEnabled}
+                onEnabledChange={setTmdbEnabled}
+                apiKey={tmdbApiKey}
+                onApiKeyChange={setTmdbApiKey}
+                language={tmdbLanguage}
+                onLanguageChange={setTmdbLanguage}
+                status={tmdbStatus}
+                onClearCache={async () => {
+                  await deleteTmdbCache();
+                  clearTmdbCards();
+                }}
               />
             </TabsContent>
 

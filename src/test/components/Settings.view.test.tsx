@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import Settings from '../../components/Settings';
 import { usePlayerStore } from '../../stores/player-store';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
-import { setSetting, stopPlayback, deletePlaylist } from '../../lib/tauri';
+import { setSetting, stopPlayback, deletePlaylist, deleteTmdbCache } from '../../lib/tauri';
 import type { Channel, Playlist } from '../../types';
 
 vi.mock('../../lib/tauri', () => ({
@@ -38,6 +38,16 @@ vi.mock('../../lib/tauri', () => ({
   setActiveProfileId: vi.fn(async () => {}),
   getSubscriptionExpiry: vi.fn(async () => null),
   getPlaylistChannelCounts: vi.fn(async () => ({})),
+  getTmdbStatus: vi.fn(async () => ({
+    enabled: true,
+    has_user_key: false,
+    has_shared_key: false,
+    user_key_rejected: false,
+    shared_key_rejected: false,
+    language: 'en-US',
+  })),
+  checkTmdbKey: vi.fn(async () => {}),
+  deleteTmdbCache: vi.fn(async () => 0),
 }));
 
 /** Settings next to the global shortcuts, as MainScreen mounts them. */
@@ -76,13 +86,14 @@ describe('Settings as a view', () => {
     });
   });
 
-  it('renders six section triggers with their descriptions', async () => {
+  it('renders seven section triggers with their descriptions', async () => {
     await renderSettings();
 
     const expected: Array<[string, string]> = [
       ['General', 'Playlist, appearance, updates'],
       ['Playback', 'MPV, video, audio, subtitles'],
       ['EPG', 'Guide sources and refresh'],
+      ['Metadata', 'Posters and details from TMDB'],
       ['Parental', 'PIN and blocked content'],
       ['Profiles', 'Playlists and providers'],
       ['About', 'Version and licenses'],
@@ -93,7 +104,27 @@ describe('Settings as a view', () => {
       expect(screen.getByText(description)).toBeInTheDocument();
     }
 
+    expect(screen.getAllByRole('tab')).toHaveLength(expected.length);
     expect(screen.getByRole('navigation', { name: 'Settings sections' })).toBeInTheDocument();
+  });
+
+  it('Save writes the TMDB keys and clears the cache when the language changed', async () => {
+    await renderSettings();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /^metadata$/i }));
+    await screen.findByRole('heading', { level: 1, name: 'Metadata' });
+    fireEvent.change(screen.getByLabelText('Metadata language'), { target: { value: 'sv-SE' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(setSetting).toHaveBeenCalledWith('tmdb_language', 'sv-SE'));
+    expect(setSetting).toHaveBeenCalledWith('tmdb_enabled', '1');
+    expect(setSetting).toHaveBeenCalledWith('tmdb_api_key', '');
+    expect(deleteTmdbCache).toHaveBeenCalled();
+  });
+
+  it('Save with an unchanged language leaves the cache alone', async () => {
+    await renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(setSetting).toHaveBeenCalledWith('tmdb_enabled', '1'));
+    expect(deleteTmdbCache).not.toHaveBeenCalled();
   });
 
   it('Ctrl+3 selects EPG', async () => {

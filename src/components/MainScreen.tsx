@@ -514,7 +514,7 @@ export default function MainScreen() {
   }, []);
 
   // G: guide <-> the section it was entered from. Settings keeps G to itself
-  // (its text fields and Ctrl+1-6), so the toggle does nothing there.
+  // (its text fields and Ctrl+1-7), so the toggle does nothing there.
   const handleToggleGuide = useCallback(() => {
     if (view === 'settings') return;
     setSearchQuery('');
@@ -569,7 +569,7 @@ export default function MainScreen() {
         );
   if (view === 'settings') {
     title = 'Settings';
-    subtitle = 'Ctrl+1–6 switches sections';
+    subtitle = 'Ctrl+1–7 switches sections';
   } else if (detailOpen && detailChannel) {
     subtitle = detailChannel.name;
   }
