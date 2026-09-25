@@ -1,12 +1,16 @@
 import { Play } from 'lucide-react';
 import type { Channel } from '../types';
 import { ColorBars } from './ColorBars';
+import { heroMetaLine } from '../lib/tmdb';
+import type { TmdbCard } from '../lib/tauri';
 
 interface MoviesHeroProps {
   channel: Channel;
   onPlay: (channel: Channel) => void;
   /** This title is the one playing: the button reads "Playing" and is inert (play would toggle it off). */
   isPlaying?: boolean;
+  /** TMDB card data when known: backdrop and the year · genres · rating row. */
+  tmdb?: TmdbCard;
 }
 
 /**
@@ -15,15 +19,16 @@ interface MoviesHeroProps {
  * virtualiser by the caller (`MainScreen`) — this component only renders the
  * row's content, it does not manage its own position or measurement.
  */
-export function MoviesHero({ channel, onPlay, isPlaying = false }: MoviesHeroProps) {
+export function MoviesHero({ channel, onPlay, isPlaying = false, tmdb }: MoviesHeroProps) {
+  const art = tmdb?.backdrop_url ?? channel.logo;
   return (
     <section
       aria-label="Recently added"
       className="relative h-[272px] overflow-hidden rounded-[18px] border border-border bg-surface-2"
     >
-      {channel.logo ? (
+      {art ? (
         <img
-          src={channel.logo}
+          src={art}
           alt=""
           aria-hidden="true"
           draggable={false}
@@ -45,7 +50,9 @@ export function MoviesHero({ channel, onPlay, isPlaying = false }: MoviesHeroPro
       <div className="relative flex h-full max-w-[640px] flex-col justify-center gap-3 px-10">
         <span className="text-xs font-bold tracking-[0.12em] text-accent-text">RECENTLY ADDED</span>
         <h2 className="font-display text-[44px] font-bold leading-none">{channel.name}</h2>
-        <p className="text-[13px] text-text-muted">{channel.group_name ?? ''}</p>
+        <p className="text-[13px] text-text-muted">
+          {heroMetaLine(tmdb, channel.group_name ?? '')}
+        </p>
         <button
           type="button"
           aria-label={`${isPlaying ? 'Playing' : 'Play'} ${channel.name}`}

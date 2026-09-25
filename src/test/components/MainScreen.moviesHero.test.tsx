@@ -85,6 +85,7 @@ function setupInvoke(parentalSettings: FixtureParentalSettings = defaultParental
       case 'get_channel_groups':
       case 'get_stale_playlist_ids':
       case 'get_blocked_channels':
+      case 'get_tmdb_cards':
         return [];
       case 'get_channels_epg':
         return {};
@@ -92,6 +93,15 @@ function setupInvoke(parentalSettings: FixtureParentalSettings = defaultParental
         return parentalSettings;
       case 'play_channel':
         return undefined;
+      case 'get_tmdb_status':
+        return {
+          enabled: true,
+          has_user_key: false,
+          has_shared_key: false,
+          user_key_rejected: false,
+          shared_key_rejected: false,
+          language: 'en-US',
+        };
       default:
         return null;
     }

@@ -46,6 +46,7 @@ function setupInvoke() {
       case 'get_channel_groups':
       case 'get_stale_playlist_ids':
       case 'get_blocked_channels':
+      case 'get_tmdb_cards':
         return [];
       case 'get_channels_epg':
       case 'get_guide':
@@ -59,6 +60,15 @@ function setupInvoke() {
           blocked_categories: [],
           visibility: 'hide',
           auto_detect: false,
+        };
+      case 'get_tmdb_status':
+        return {
+          enabled: true,
+          has_user_key: false,
+          has_shared_key: false,
+          user_key_rejected: false,
+          shared_key_rejected: false,
+          language: 'en-US',
         };
       default:
         return null;

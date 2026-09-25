@@ -33,6 +33,7 @@ import { shouldBlockChannel } from '../lib/parentalControls';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useChannelFilter } from '../hooks/useChannelFilter';
 import { useUpdateCheck } from '../hooks/useUpdateCheck';
+import { useTmdbCards } from '../hooks/useTmdbCards';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { newestTitle } from '../lib/newestTitle';
 
@@ -276,6 +277,22 @@ export default function MainScreen() {
   useEffect(() => {
     rowVirtualizer.measure();
   }, [kind, columns, showHero, rowVirtualizer]);
+
+  // Visible poster rows feed the TMDB lookup. Live rows never do.
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const visibleCardIds = useMemo(() => {
+    if (kind !== 'poster') return heroChannel ? [heroChannel.id] : [];
+    const ids: number[] = [];
+    if (heroChannel) ids.push(heroChannel.id);
+    for (const row of virtualItems) {
+      if (showHero && row.index === 0) continue;
+      const cardRowIndex = showHero ? row.index - 1 : row.index;
+      const start = cardRowIndex * columns;
+      for (const c of filteredChannels.slice(start, start + columns)) ids.push(c.id);
+    }
+    return ids;
+  }, [kind, heroChannel, virtualItems, showHero, columns, filteredChannels]);
+  const tmdbCards = useTmdbCards(visibleCardIds);
 
   const handlePlayChannel = useCallback(
     async (channel: Channel) => {
@@ -582,7 +599,7 @@ export default function MainScreen() {
                     position: 'relative',
                   }}
                 >
-                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  {virtualItems.map((virtualRow) => {
                     const isHeroRow = showHero && virtualRow.index === 0;
 
                     if (isHeroRow) {
@@ -608,6 +625,7 @@ export default function MainScreen() {
                               channel={heroChannel!}
                               onPlay={handlePlayChannel}
                               isPlaying={isPlaying && currentChannel?.id === heroChannel!.id}
+                              tmdb={tmdbCards.get(heroChannel!.id)}
                             />
                           </div>
                         </div>
@@ -647,6 +665,8 @@ export default function MainScreen() {
                                 key={channel.id}
                                 channel={channel}
                                 onOpen={handlePlayChannel}
+                                onPlay={handlePlayChannel}
+                                tmdb={tmdbCards.get(channel.id)}
                                 onToggleFavorite={toggleChannelFavorite}
                                 isBlocked={isChannelBlocked}
                                 parentalVisibility={parentalVisibility}

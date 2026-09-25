@@ -43,3 +43,42 @@ describe('PosterCard', () => {
     expect(container.querySelector('img')?.className).toMatch(/blur/);
   });
 });
+
+const tmdb = {
+  channel_id: 9,
+  tmdb_id: 11324,
+  title: 'Past Lives',
+  year: 2023,
+  rating: 7.9,
+  poster_url: 'https://image.tmdb.org/t/p/w342/p.jpg',
+  backdrop_url: null,
+  genres: ['Drama'],
+};
+
+describe('PosterCard with TMDB data', () => {
+  it('prefers the TMDB poster and shows year and rating instead of the group', () => {
+    const { container } = render(<PosterCard channel={movie} onOpen={vi.fn()} tmdb={tmdb} />);
+    expect(container.querySelector('img')?.getAttribute('src')).toBe(tmdb.poster_url);
+    expect(screen.getByText('2023 · ★ 7.9')).toBeInTheDocument();
+    expect(screen.queryByText('Drama')).not.toBeInTheDocument();
+  });
+  it('falls back to the provider logo when the TMDB poster fails to load', () => {
+    const { container } = render(<PosterCard channel={movie} onOpen={vi.fn()} tmdb={tmdb} />);
+    fireEvent.error(container.querySelector('img')!);
+    expect(container.querySelector('img')?.getAttribute('src')).toBe(movie.logo);
+  });
+  it('keeps the group line without TMDB data', () => {
+    render(<PosterCard channel={movie} onOpen={vi.fn()} />);
+    expect(screen.getByText('Drama')).toBeInTheDocument();
+  });
+  it('plays a movie from the overlay button when onPlay is given, and opens otherwise', () => {
+    const onOpen = vi.fn();
+    const onPlay = vi.fn();
+    render(<PosterCard channel={movie} onOpen={onOpen} onPlay={onPlay} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Play Past Lives' }));
+    expect(onPlay).toHaveBeenCalledWith(movie);
+    expect(onOpen).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('article'));
+    expect(onOpen).toHaveBeenCalledWith(movie);
+  });
+});

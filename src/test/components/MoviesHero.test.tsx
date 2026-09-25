@@ -51,3 +51,21 @@ describe('MoviesHero', () => {
     expect(screen.getByText('Movies')).toBeInTheDocument();
   });
 });
+
+describe('MoviesHero with TMDB data', () => {
+  const tmdb = {
+    channel_id: 1,
+    tmdb_id: 1,
+    title: 'X',
+    year: 2023,
+    rating: 7.4,
+    poster_url: null,
+    backdrop_url: 'https://image.tmdb.org/t/p/w1280/b.jpg',
+    genres: ['Action', 'Thriller'],
+  };
+  it('uses the TMDB backdrop and the year · genres · rating meta row', () => {
+    const { container } = render(<MoviesHero channel={movie} onPlay={vi.fn()} tmdb={tmdb} />);
+    expect(container.querySelector('img')?.getAttribute('src')).toBe(tmdb.backdrop_url);
+    expect(screen.getByText('2023 · Action, Thriller · ★ 7.4')).toBeInTheDocument();
+  });
+});

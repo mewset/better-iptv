@@ -2,11 +2,17 @@ import { memo, useState } from 'react';
 import { Play, Clapperboard, Star, Lock } from 'lucide-react';
 import type { Channel } from '../types';
 import { ColorBars } from './ColorBars';
+import { metaLine } from '../lib/tmdb';
+import type { TmdbCard } from '../lib/tauri';
 
 interface PosterCardProps {
   channel: Channel;
-  /** Callback when the card is opened: plays a movie, opens a series. */
+  /** Frame click: opens the title (detail view for movies and series). */
   onOpen: (channel: Channel) => void;
+  /** Overlay Play for movies: plays directly. Falls back to `onOpen`. */
+  onPlay?: (channel: Channel) => void;
+  /** TMDB card data when known. */
+  tmdb?: TmdbCard;
   /** Whether this channel is blocked by parental controls */
   isBlocked?: boolean;
   /** Visibility mode for blocked channels */
@@ -27,11 +33,14 @@ const TARGET_RATIO = 2 / 3;
 export const PosterCard = memo(function PosterCard({
   channel,
   onOpen,
+  onPlay,
+  tmdb,
   isBlocked = false,
   parentalVisibility = 'hide',
   onToggleFavorite,
 }: PosterCardProps) {
-  const [artFailed, setArtFailed] = useState(false);
+  const [tmdbArtFailed, setTmdbArtFailed] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(false);
   const [fit, setFit] = useState<'cover' | 'contain'>('cover');
   const isSeries = channel.content_type === 'series';
   const blocked = isBlocked && parentalVisibility !== 'hide';
@@ -40,7 +49,11 @@ export const PosterCard = memo(function PosterCard({
   // Artwork is not rendered at all in lock mode (nothing to reveal via
   // inspecting the DOM); in blur mode it renders blurred underneath the
   // overlay, same as the live card.
-  const showArt = Boolean(channel.logo) && !artFailed && !lockMode;
+  // A TMDB poster wins over the provider logo; if it fails to load, the
+  // provider logo gets its turn before the ColorBars placeholder.
+  const tmdbArt = tmdb?.poster_url && !tmdbArtFailed ? tmdb.poster_url : null;
+  const artSrc = tmdbArt ?? (channel.logo && !logoFailed ? channel.logo : null);
+  const showArt = Boolean(artSrc) && !lockMode;
 
   const handleLoad = (e: React.SyntheticEvent<globalThis.HTMLImageElement>) => {
     const img = e.currentTarget;
@@ -64,7 +77,7 @@ export const PosterCard = memo(function PosterCard({
       >
         {showArt ? (
           <img
-            src={channel.logo!}
+            src={artSrc!}
             alt={channel.name}
             loading="lazy"
             decoding="async"
@@ -72,7 +85,7 @@ export const PosterCard = memo(function PosterCard({
             // few pixels of drag becomes a drag gesture that never fires a
             // click - on the poster, the largest target on the card.
             draggable={false}
-            onError={() => setArtFailed(true)}
+            onError={() => (tmdbArt ? setTmdbArtFailed(true) : setLogoFailed(true))}
             onLoad={handleLoad}
             className={`h-full w-full ${fit === 'cover' ? 'object-cover' : 'object-contain'} ${
               blurMode ? 'blur-xl' : ''
@@ -117,7 +130,7 @@ export const PosterCard = memo(function PosterCard({
                 aria-label={`${isSeries ? 'Open' : 'Play'} ${channel.name}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onOpen(channel);
+                  (isSeries ? onOpen : (onPlay ?? onOpen))(channel);
                 }}
                 className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-[10px] bg-accent px-2 text-sm font-semibold text-on-accent focus-visible:ring-2 focus-visible:ring-accent"
               >
@@ -169,7 +182,7 @@ export const PosterCard = memo(function PosterCard({
       </div>
 
       <div className="flex items-center justify-between gap-2 text-xs">
-        <span className="truncate text-text-faint">{channel.group_name ?? ''}</span>
+        <span className="truncate text-text-faint">{metaLine(tmdb, channel.group_name ?? '')}</span>
       </div>
     </article>
   );
