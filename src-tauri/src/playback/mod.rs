@@ -1,7 +1,7 @@
 pub mod mpv;
 
 use crate::error::AppError;
-use mpv::{MpvPlaybackOptions, MpvPlayer};
+use mpv::{MpvPlaybackOptions, MpvPlayer, PlaybackStatus};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// The MPV controller shared between commands.
@@ -81,11 +81,11 @@ pub async fn stop(player: SharedPlayer) -> Result<(), AppError> {
     .await?
 }
 
-/// Poll whether the MPV process is still alive.
-pub async fn is_playing(player: SharedPlayer) -> Result<bool, AppError> {
+/// Poll the MPV process: still playing, or exited, and if so whether it failed.
+pub async fn status(player: SharedPlayer) -> Result<PlaybackStatus, AppError> {
     tokio::task::spawn_blocking(move || {
         let mut mpv = lock_player(&player)?;
-        Ok(mpv.is_playing())
+        Ok(mpv.status())
     })
     .await?
 }

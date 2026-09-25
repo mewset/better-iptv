@@ -89,6 +89,8 @@ fn get_mpv_path() -> PathBuf {
 /// MPV player controller using external process approach
 pub struct MpvPlayer {
     process: Option<Child>,
+    /// Set when the last process exited with a failure code, until `status()` reports it.
+    last_exit_failed: bool,
 }
 
 /// MPV playback options
@@ -107,7 +109,10 @@ pub struct MpvPlaybackOptions<'a> {
 impl MpvPlayer {
     /// Create a new MPV player instance
     pub fn new() -> Self {
-        Self { process: None }
+        Self {
+            process: None,
+            last_exit_failed: false,
+        }
     }
 
     /// Check if MPV is installed on the system
@@ -214,6 +219,7 @@ impl MpvPlayer {
             .context("Failed to spawn MPV process. Is MPV installed?")?;
 
         self.process = Some(child);
+        self.last_exit_failed = false;
         Ok(())
     }
 
@@ -287,25 +293,48 @@ impl MpvPlayer {
         Ok(())
     }
 
-    /// Check if currently playing
-    pub fn is_playing(&mut self) -> bool {
+    /// Poll the process and report whether it is still playing and, if it has
+    /// exited, whether it exited because the stream could not be played. A
+    /// failure is reported once: the next call after it reads `failed: false`.
+    pub fn status(&mut self) -> PlaybackStatus {
         if let Some(child) = &mut self.process {
             match child.try_wait() {
-                Ok(Some(_)) => {
-                    // Process has exited
-                    self.process = None;
-                    false
+                Ok(None) => {
+                    return PlaybackStatus {
+                        playing: true,
+                        failed: false,
+                    }
                 }
-                Ok(None) => true, // Still running
-                Err(_) => {
+                Ok(Some(exit)) => {
+                    self.last_exit_failed = exit_code_is_failure(exit.code());
                     self.process = None;
-                    false
                 }
+                Err(_) => self.process = None,
             }
-        } else {
-            false
+        }
+        PlaybackStatus {
+            playing: false,
+            failed: std::mem::take(&mut self.last_exit_failed),
         }
     }
+}
+
+/// What the frontend's playback poll learns about MPV.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct PlaybackStatus {
+    pub playing: bool,
+    /// MPV exited on its own because the stream could not be played.
+    pub failed: bool,
+}
+
+/// Whether an MPV exit code means playback failed rather than ended normally.
+///
+/// mpv exits 1 when it fails to initialise, 2 when the file could not be
+/// played (a provider answering 503, a dead link), and 3 when only some files
+/// of a playlist played. Closing the window exits 0, and `stop()` kills the
+/// process with a signal, which has no exit code at all; neither is a failure.
+pub fn exit_code_is_failure(code: Option<i32>) -> bool {
+    matches!(code, Some(1) | Some(2) | Some(3))
 }
 
 impl Drop for MpvPlayer {
@@ -317,6 +346,57 @@ impl Drop for MpvPlayer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exit_codes_1_to_3_are_failures_and_normal_quit_or_a_signal_is_not() {
+        assert!(exit_code_is_failure(Some(1)));
+        assert!(exit_code_is_failure(Some(2)));
+        assert!(exit_code_is_failure(Some(3)));
+        assert!(!exit_code_is_failure(Some(0)));
+        assert!(!exit_code_is_failure(Some(4)));
+        assert!(!exit_code_is_failure(None));
+    }
+
+    #[cfg(unix)]
+    fn exited_player(code: i32) -> MpvPlayer {
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg(format!("exit {code}"))
+            .spawn()
+            .unwrap();
+        child.wait().unwrap();
+        MpvPlayer {
+            process: Some(child),
+            last_exit_failed: false,
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn status_reports_a_failed_exit_once() {
+        let mut player = exited_player(2);
+        assert_eq!(
+            player.status(),
+            PlaybackStatus {
+                playing: false,
+                failed: true
+            }
+        );
+        assert_eq!(
+            player.status(),
+            PlaybackStatus {
+                playing: false,
+                failed: false
+            }
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn status_does_not_report_a_normal_quit_as_a_failure() {
+        let mut player = exited_player(0);
+        assert!(!player.status().failed);
+    }
 
     #[test]
     fn test_check_installed() {

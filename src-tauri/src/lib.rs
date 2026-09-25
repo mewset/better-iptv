@@ -144,7 +144,7 @@ pub fn run() {
             check_mpv_installed,
             play_channel,
             stop_playback,
-            is_playing,
+            playback_status,
             // Playlist commands
             import_playlist,
             import_xtream_playlist,
