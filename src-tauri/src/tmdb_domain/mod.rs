@@ -68,9 +68,11 @@ const NOISE_TOKENS: &[&str] = &[
 
 lazy_static! {
     static ref DOTS: Regex = Regex::new(r"[._]+").unwrap();
-    /// "SE|", "SE -", "EN:", "4K|", "[MULTI]" at the very start.
+    /// "SE|", "SE -", "EN:", "NORD|", "4K|", "[MULTI]" at the very start.
+    /// Before `:` or `-` only a two-letter code counts, so "NCIS: Los
+    /// Angeles" and "CSI: Miami" keep their names.
     static ref LEADING_TAG: Regex =
-        Regex::new(r"^(?:\[[^\]]*\]|[A-Z]{2,4}\s*[|:\-]|\d[Kk]\s*\|)\s*").unwrap();
+        Regex::new(r"^(?:\[[^\]]*\]|[A-Z]{2}\s*[:\-]|[A-Z]{2,4}\s*\||\d[Kk]\s*\|)\s*").unwrap();
     static ref BRACKET_GROUP: Regex = Regex::new(r"\[[^\]]*\]").unwrap();
     static ref PAREN_GROUP: Regex = Regex::new(r"\(([^)]*)\)").unwrap();
     static ref SEASON_TAG: Regex = Regex::new(r"(?i)\bS\d{1,2}(?:E\d{1,3})?\b").unwrap();
@@ -91,9 +93,10 @@ fn plausible_year(year: i32, current_year: i32) -> bool {
 
 /// Strip provider tags, release-name noise and a year from a channel name.
 ///
-/// Known trade-off: an all-caps word of 2-4 letters followed by `|`, `:` or
-/// `-` is read as a provider tag, so "MTV - Unplugged" becomes "Unplugged".
-/// The manual re-match in the detail view covers such cases.
+/// Known trade-off: two upper-case letters followed by `:` or `-` are read
+/// as a country or language tag, so a title such as "SE - Something" would
+/// lose its "SE". Before `|` the tag may be 2-4 letters. The manual
+/// re-match in the detail view covers such cases.
 pub fn normalize_title(raw: &str, current_year: i32) -> Normalized {
     let mut s = DOTS.replace_all(raw.trim(), " ").into_owned();
 
@@ -484,6 +487,11 @@ mod normalize_tests {
         ("EN: The.Office.US.S01", "The Office US", None),
         ("4K| Avatar (2009) HEVC", "Avatar", Some(2009)),
         ("NO - Fritt Vilt III", "Fritt Vilt III", None),
+        ("NCIS: Los Angeles", "NCIS: Los Angeles", None),
+        ("CSI: Miami", "CSI: Miami", None),
+        ("FBI: Most Wanted", "FBI: Most Wanted", None),
+        ("NORD| Dune (2021)", "Dune", Some(2021)),
+        ("MTV - Unplugged", "MTV - Unplugged", None),
         (
             "The.Matrix.1999.REMASTERED.1080p.BluRay.x264",
             "The Matrix",
