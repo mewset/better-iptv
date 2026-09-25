@@ -53,6 +53,10 @@ This file is a developer-changelog, aimed towards development changes.
   - `store_epg_programs` stores the normalised id, and `get_current_program`, `get_next_program`, `get_programs_for_channels` and `get_guide` look it up normalised while keying their results by the id the caller asked with, so the frontend is unchanged and `idx_channel_time` still serves every lookup
   - `init_schema` lower-cases rows stored before this, after `idx_epg_programs_unique` exists: `UPDATE OR IGNORE` keeps one row where both spellings share a slot and a `DELETE` drops the rest. A test covers a pre-2.8.0 database without the unique index
 
+- **Off-air channels show their next programme** - a channel between broadcasts, such as SVT2 before its midday start, has no current programme, and `useEpgData` dropped the whole entry, so the card said "No guide data" although `get_channels_epg` had returned the next programme
+  - `EpgEntry.current` is optional; entries with only a `next` are stored, and `ChannelCard` and `NowPlayingBar` show "Off air" followed by the next programme and its start time
+  - `epgTime.isEpgEntryStale` replaces the hook-local `hasEnded`: an entry is stale when its current programme has ended or, for an off-air entry, when its next programme has begun. It gates both the playing channel's refetch and the dock's fallback to the playback strings
+
 ## [2.9.0] - 2026-09-11
 
 ### Added

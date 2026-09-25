@@ -24,6 +24,7 @@ A simple overview of new features and improvements.
 ### Fixes
 
 - Channels such as SVT1, SVT2 and TV4 now show their program guide when the guide comes from your Xtream provider
+- A channel that is off air between broadcasts now says so and shows its next program, instead of "No guide data"
 
 ### Thanks
 
