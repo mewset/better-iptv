@@ -314,6 +314,95 @@ pub fn get_playlist_channel_counts(conn: &Connection) -> Result<HashMap<i64, i64
     Ok(counts)
 }
 
+// ========== TMDB cache ==========
+
+/// Channels for a set of ids, in no particular order; unknown ids are skipped.
+#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
+pub fn get_channels_by_ids(conn: &Connection, ids: &[i64]) -> Result<Vec<Channel>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT {} FROM channels WHERE id IN ({})",
+        CHANNEL_SELECT_COLUMNS, placeholders
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(ids), map_channel_row)?
+        .collect::<Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+const TMDB_SELECT_COLUMNS: &str = "normalized_title, year, content_type, tmdb_id, manual, title, \
+    original_title, release_year, rating, poster_path, backdrop_path, overview, genre_ids, \
+    runtime_minutes, genres, cast_json, trailer_youtube_key, searched_at, details_fetched_at";
+
+fn map_tmdb_row(row: &rusqlite::Row) -> Result<TmdbRow> {
+    Ok(TmdbRow {
+        key: TmdbKey {
+            title: row.get(0)?,
+            year: row.get(1)?,
+            content_type: row.get(2)?,
+        },
+        tmdb_id: row.get(3)?,
+        manual: row.get::<_, i64>(4)? != 0,
+        title: row.get(5)?,
+        original_title: row.get(6)?,
+        release_year: row.get(7)?,
+        rating: row.get(8)?,
+        poster_path: row.get(9)?,
+        backdrop_path: row.get(10)?,
+        overview: row.get(11)?,
+        genre_ids: row.get(12)?,
+        runtime_minutes: row.get(13)?,
+        genres: row.get(14)?,
+        cast_json: row.get(15)?,
+        trailer_youtube_key: row.get(16)?,
+        searched_at: row.get(17)?,
+        details_fetched_at: row.get(18)?,
+    })
+}
+
+#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
+pub fn get_tmdb_row(conn: &Connection, key: &TmdbKey) -> Result<Option<TmdbRow>> {
+    let sql = format!(
+        "SELECT {} FROM tmdb_metadata WHERE normalized_title = ?1 AND year = ?2 AND content_type = ?3",
+        TMDB_SELECT_COLUMNS
+    );
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let mut rows = stmt.query_map(params![key.title, key.year, key.content_type], map_tmdb_row)?;
+    rows.next().transpose()
+}
+
+#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
+pub fn get_tmdb_episodes(
+    conn: &Connection,
+    tmdb_id: i64,
+    season: i32,
+) -> Result<Vec<TmdbEpisodeRow>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT tmdb_id, season, episode, title, overview, still_path, runtime_minutes, air_date, fetched_at
+         FROM tmdb_episodes WHERE tmdb_id = ?1 AND season = ?2 ORDER BY episode",
+    )?;
+    let rows = stmt
+        .query_map(params![tmdb_id, season], |row| {
+            Ok(TmdbEpisodeRow {
+                tmdb_id: row.get(0)?,
+                season: row.get(1)?,
+                episode: row.get(2)?,
+                title: row.get(3)?,
+                overview: row.get(4)?,
+                still_path: row.get(5)?,
+                runtime_minutes: row.get(6)?,
+                air_date: row.get(7)?,
+                fetched_at: row.get(8)?,
+            })
+        })?
+        .collect::<Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 // ========== Tests ==========
 
 #[cfg(test)]

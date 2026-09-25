@@ -227,6 +227,56 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // TMDB metadata cache, keyed by normalised title, not channel id, so one
+    // row serves every playlist and survives a playlist refresh. year = 0
+    // when unknown (UNIQUE cannot compare NULLs). tmdb_id NULL = no match.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS tmdb_metadata (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            normalized_title TEXT NOT NULL,
+            year INTEGER NOT NULL,
+            content_type TEXT NOT NULL,
+            tmdb_id INTEGER,
+            manual INTEGER NOT NULL DEFAULT 0,
+            title TEXT,
+            original_title TEXT,
+            release_year INTEGER,
+            rating REAL,
+            poster_path TEXT,
+            backdrop_path TEXT,
+            overview TEXT,
+            genre_ids TEXT,
+            runtime_minutes INTEGER,
+            genres TEXT,
+            cast_json TEXT,
+            trailer_youtube_key TEXT,
+            searched_at TEXT NOT NULL,
+            details_fetched_at TEXT,
+            UNIQUE(normalized_title, year, content_type)
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tmdb_metadata_key
+         ON tmdb_metadata(content_type, normalized_title, year)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS tmdb_episodes (
+            tmdb_id INTEGER NOT NULL,
+            season INTEGER NOT NULL,
+            episode INTEGER NOT NULL,
+            title TEXT,
+            overview TEXT,
+            still_path TEXT,
+            runtime_minutes INTEGER,
+            air_date TEXT,
+            fetched_at TEXT NOT NULL,
+            PRIMARY KEY (tmdb_id, season, episode)
+        )",
+        [],
+    )?;
+
     if let Err(e) = migrate_m3u_series(conn) {
         log::error!("M3U series migration failed, will retry next start: {}", e);
     }

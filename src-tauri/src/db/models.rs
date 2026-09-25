@@ -62,3 +62,53 @@ pub struct SeriesEpisode {
     pub url: String,
     pub logo: Option<String>,
 }
+
+/// Cache key of a TMDB row: normalised, lower-cased title; 0 for an unknown year.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
+pub struct TmdbKey {
+    pub title: String,
+    pub year: i32,
+    pub content_type: String,
+}
+
+/// One `tmdb_metadata` row. `tmdb_id == None` means "searched, no match".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
+pub struct TmdbRow {
+    pub key: TmdbKey,
+    pub tmdb_id: Option<i64>,
+    pub manual: bool,
+    pub title: Option<String>,
+    pub original_title: Option<String>,
+    pub release_year: Option<i32>,
+    pub rating: Option<f64>,
+    pub poster_path: Option<String>,
+    pub backdrop_path: Option<String>,
+    pub overview: Option<String>,
+    /// JSON int array from the search hit.
+    pub genre_ids: Option<String>,
+    pub runtime_minutes: Option<i32>,
+    /// JSON string array, details only.
+    pub genres: Option<String>,
+    /// JSON `[{name, character, profile_path}]`, details only.
+    pub cast_json: Option<String>,
+    pub trailer_youtube_key: Option<String>,
+    pub searched_at: String,
+    pub details_fetched_at: Option<String>,
+}
+
+/// One `tmdb_episodes` row.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
+pub struct TmdbEpisodeRow {
+    pub tmdb_id: i64,
+    pub season: i32,
+    pub episode: i32,
+    pub title: Option<String>,
+    pub overview: Option<String>,
+    pub still_path: Option<String>,
+    pub runtime_minutes: Option<i32>,
+    pub air_date: Option<String>,
+    pub fetched_at: String,
+}
