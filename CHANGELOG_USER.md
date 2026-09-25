@@ -25,6 +25,8 @@ A simple overview of new features and improvements.
 
 - More channels now show their program guide when the guide comes from your Xtream provider
 - A channel that is off air between broadcasts now says so and shows its next program, instead of "No guide data"
+- If a stream can't be played, the app now tells you instead of silently doing nothing
+- Pressing Play several times in a row no longer starts the stream again and again
 
 ### Thanks
 

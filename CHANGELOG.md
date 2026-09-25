@@ -57,6 +57,11 @@ This file is a developer-changelog, aimed towards development changes.
   - `EpgEntry.current` is optional; entries with only a `next` are stored, and `ChannelCard` and `NowPlayingBar` show "Off air" followed by the next programme and its start time
   - `epgTime.isEpgEntryStale` replaces the hook-local `hasEnded`: an entry is stale when its current programme has ended or, for an off-air entry, when its next programme has begun. It gates both the playing channel's refetch and the dock's fallback to the playback strings
 
+- **Playback failures are shown instead of swallowed, and Play presses are debounced** - MPV opens the stream after the app has already reported success, so when a provider answered HTTP 503 the only trace was MPV exiting and the dock vanishing, which the poll could not tell apart from the user closing the window. Four presses in one second also spawned MPV four times, each opening a provider connection
+  - `playback_status` replaces `is_playing` and returns `{ playing, failed }`. `MpvPlayer::status` records the exit code when it sees the process gone; `exit_code_is_failure` treats mpv's 1, 2 and 3 (init error, file could not be played, some playlist entries failed) as failures and a normal quit (0) or `stop()`'s signal (no code) as not. A failure is reported once
+  - `useChannelPlayback` shows a toast from the new store `toast` slot when the poll reports `failed`, and when a start rejects outright. `Toast` is a glass notice above the dock position, `role="status"`, dismissable, gone after six seconds
+  - `lib/playGuard` gates `play`, `playEpisode` and `playLocalEpisodes`: no start while one is in flight or within 2 s of the previous one. Stop is never gated
+
 ## [2.9.0] - 2026-09-11
 
 ### Added
