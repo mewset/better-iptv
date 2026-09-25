@@ -86,6 +86,22 @@ fn video_languages(lang: &str) -> String {
 /// One of the two fixture-tested detail parsers in `types`.
 type DetailsParser = fn(&str) -> Result<Details, serde_json::Error>;
 
+/// The text for a non-2xx reply: TMDB's own message when the body carries
+/// one, else the status and the path. Neither includes the query string,
+/// which for a v3 key holds `api_key=`.
+fn http_error_message(status: u16, path: &str, body: &str) -> String {
+    match types::parse_error_body(body) {
+        Some((_, message)) => format!("HTTP {status}: {message}"),
+        None => format!("HTTP {status} on {path}"),
+    }
+}
+
+/// A reqwest error's `Display` ends with ` for url (...)`, query string
+/// included; strip the URL so a v3 key never reaches an error message.
+fn transport_error(e: reqwest::Error) -> TmdbError {
+    TmdbError::Http(e.without_url().to_string())
+}
+
 #[derive(Debug, Clone)]
 pub struct TmdbClient {
     key: String,
@@ -116,10 +132,7 @@ impl TmdbClient {
                 KeyKind::V3 => req.query(&[("api_key", self.key.as_str())]),
                 KeyKind::V4 => req.bearer_auth(&self.key),
             };
-            let resp = req
-                .send()
-                .await
-                .map_err(|e| TmdbError::Http(e.to_string()))?;
+            let resp = req.send().await.map_err(transport_error)?;
             let status = resp.status();
             if status.as_u16() == 429 {
                 if attempt >= 2 {
@@ -139,13 +152,15 @@ impl TmdbClient {
             if status.as_u16() == 401 {
                 return Err(TmdbError::Unauthorized);
             }
+            let body = resp.text().await;
             if !status.is_success() {
-                return Err(TmdbError::Http(format!("HTTP {status} on {path}")));
+                return Err(TmdbError::Http(http_error_message(
+                    status.as_u16(),
+                    path,
+                    body.as_deref().unwrap_or_default(),
+                )));
             }
-            return resp
-                .text()
-                .await
-                .map_err(|e| TmdbError::Http(e.to_string()));
+            return body.map_err(transport_error);
         }
     }
 
@@ -249,6 +264,22 @@ mod tests {
         assert_eq!(video_languages("en-US"), "en,null");
         assert_eq!(video_languages("en-GB"), "en,null");
         assert_eq!(video_languages(""), "en,null");
+    }
+
+    const AUTH_ERR: &str = include_str!("../../tests/fixtures/tmdb/auth_invalid_key.json");
+
+    #[test]
+    fn http_error_message_uses_the_tmdb_message_when_the_body_has_one() {
+        let msg = http_error_message(403, "/search/movie", AUTH_ERR);
+        assert!(msg.contains("HTTP 403"), "{msg}");
+        assert!(msg.contains("Invalid API key"), "{msg}");
+    }
+
+    #[test]
+    fn http_error_message_falls_back_to_status_and_path_without_the_query() {
+        let msg = http_error_message(500, "/x", "<html>gateway</html>");
+        assert!(msg.contains("HTTP 500 on /x"), "{msg}");
+        assert!(!msg.contains("api_key"), "{msg}");
     }
 }
 
