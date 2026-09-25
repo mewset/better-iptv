@@ -37,6 +37,7 @@ A simple overview of new features and improvements.
 - If a stream can't be played, the app now tells you instead of silently doing nothing
 - Pressing Play several times in a row no longer starts the stream again and again
 - The app no longer flashes white when it starts
+- Settings → EPG no longer shows your provider username and password in the guide address
 - Switching between Live TV, Movies and Series, picking a category, or clearing a search now starts at the top of the list instead of where you last scrolled
 
 ### Thanks

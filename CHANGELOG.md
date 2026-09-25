@@ -55,6 +55,7 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Fixed
 
+- **Provider credentials no longer shown in Settings > EPG** - the `epg_url` setting stores an Xtream provider's guide address with the account's username and password in the query string, and the EPG tab printed it verbatim in the URL field. The field now shows it masked and read-only (`src/lib/epgUrl.ts`, `EpgTab.tsx`), with "Use a different URL" to switch to a custom address; an empty field still falls back to the provider's guide on save
 - Switching section, choosing a category chip, or starting/clearing a search now scrolls the grid back to the top instead of keeping the previous list's scroll offset (`MainScreen.tsx`); returning from the detail view keeps its place
 - **EPG channel ids match regardless of case** - channels whose ids the Swedish name heuristic in `playlist/xtream.rs` writes as `SVT1.se`, `SVT2.se` or `TV4.se` showed no guide data against a feed that writes `svt1.se`, which is what an Xtream provider's `xmltv.php` does, because `epg_programs` lookups compared `channel_epg_id` exactly. Measured on one Xtream profile: 703 channel ids matched exactly, 744 without regard to case, and the 41 missing were largely the Swedish channels
   - `epg_domain::normalize_epg_id` trims and ASCII lower-cases an id; ASCII-only so it agrees with SQLite's `lower()`

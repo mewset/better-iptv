@@ -1,4 +1,5 @@
 import { RefreshCw } from 'lucide-react';
+import { hasEpgCredentials, maskEpgCredentials } from '../../lib/epgUrl';
 import type { EpgStatus } from '../../lib/tauri';
 
 interface EpgTabProps {
@@ -16,22 +17,45 @@ export default function EpgTab({
   isUpdatingEpg,
   onForceEpgUpdate,
 }: EpgTabProps) {
+  // A provider's guide URL carries the account's username and password; it
+  // is shown masked and read-only, and "Use a different URL" empties the
+  // field for a custom address (an empty field saved falls back to the
+  // provider's guide again in the backend).
+  const providerUrl = hasEpgCredentials(epgUrl);
   return (
     <div className="space-y-6">
       <section>
         <h3 className="mb-4 text-lg font-semibold text-text">Electronic Program Guide (EPG)</h3>
         <div className="space-y-4">
           <div>
-            <label className="mb-2 block text-sm font-medium text-text-muted">
+            <label htmlFor="epg-url" className="mb-2 block text-sm font-medium text-text-muted">
               EPG URL (XMLTV format)
             </label>
             <input
+              id="epg-url"
               type="url"
-              value={epgUrl}
+              value={providerUrl ? maskEpgCredentials(epgUrl) : epgUrl}
+              readOnly={providerUrl}
               onChange={(e) => onEpgUrlChange(e.target.value)}
               placeholder="http://example.com/epg.xml"
-              className="w-full rounded-lg border border-border-strong bg-surface px-4 py-2 text-text focus:border-transparent focus:ring-2 focus:ring-accent"
+              className={`w-full rounded-lg border border-border-strong bg-surface px-4 py-2 text-text focus:border-transparent focus:ring-2 focus:ring-accent ${
+                providerUrl ? 'text-text-muted' : ''
+              }`}
             />
+            {providerUrl && (
+              <div className="mt-2 flex items-center gap-3">
+                <span className="text-xs text-text-faint">
+                  Your provider's guide, signed in with your account
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onEpgUrlChange('')}
+                  className="text-xs text-accent-text hover:underline"
+                >
+                  Use a different URL
+                </button>
+              </div>
+            )}
             <p className="mt-1 text-xs text-text-faint">
               If EPG data is not provided with Xtream, we recommend using:{' '}
               <a
