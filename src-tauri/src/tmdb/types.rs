@@ -149,6 +149,9 @@ struct Video {
     key: String,
     #[serde(default)]
     official: bool,
+    /// TMDB's per-video language tag (`"en"`, `"sv"`, ...).
+    #[serde(default)]
+    iso_639_1: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -244,15 +247,25 @@ fn cast_of(mut credits: Credits) -> Vec<CastEntry> {
         .collect()
 }
 
-/// The first official YouTube trailer, else any YouTube trailer.
+/// The YouTube trailer to show. Trailers default to English regardless of
+/// the metadata language, so among YouTube videos of type `Trailer` the
+/// preference order is:
+///
+/// 1. English and official
+/// 2. English
+/// 3. official, any language
+/// 4. any
 fn trailer_of(videos: &Videos) -> Option<String> {
     let trailers = videos
         .results
         .iter()
         .filter(|v| v.site == "YouTube" && v.kind == "Trailer");
+    let is_english = |v: &&Video| v.iso_639_1.as_deref() == Some("en");
     trailers
         .clone()
-        .find(|v| v.official)
+        .find(|v| is_english(v) && v.official)
+        .or_else(|| trailers.clone().find(is_english))
+        .or_else(|| trailers.clone().find(|v| v.official))
         .or_else(|| trailers.clone().next())
         .map(|v| v.key.clone())
 }
@@ -439,6 +452,55 @@ mod tests {
         let hits = parse_movie_search(json).unwrap();
         assert_eq!(hits[0].rating, None);
         assert_eq!(hits[0].year, None);
+    }
+
+    fn videos(json: &str) -> Videos {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn trailer_prefers_english_over_an_earlier_official_one_in_another_language() {
+        let v = videos(
+            r#"{"results":[
+                {"site":"YouTube","type":"Trailer","key":"sv-official","official":true,"iso_639_1":"sv"},
+                {"site":"YouTube","type":"Trailer","key":"en-fan","official":false,"iso_639_1":"en"}
+            ]}"#,
+        );
+        assert_eq!(trailer_of(&v).as_deref(), Some("en-fan"));
+    }
+
+    #[test]
+    fn trailer_prefers_the_official_one_among_english_trailers() {
+        let v = videos(
+            r#"{"results":[
+                {"site":"YouTube","type":"Trailer","key":"en-fan","official":false,"iso_639_1":"en"},
+                {"site":"YouTube","type":"Trailer","key":"en-official","official":true,"iso_639_1":"en"}
+            ]}"#,
+        );
+        assert_eq!(trailer_of(&v).as_deref(), Some("en-official"));
+    }
+
+    #[test]
+    fn trailer_falls_back_to_an_official_one_in_another_language() {
+        let v = videos(
+            r#"{"results":[
+                {"site":"YouTube","type":"Teaser","key":"en-teaser","official":true,"iso_639_1":"en"},
+                {"site":"YouTube","type":"Trailer","key":"de-official","official":true,"iso_639_1":"de"}
+            ]}"#,
+        );
+        assert_eq!(trailer_of(&v).as_deref(), Some("de-official"));
+    }
+
+    #[test]
+    fn no_trailer_is_none() {
+        let v = videos(
+            r#"{"results":[
+                {"site":"YouTube","type":"Clip","key":"clip","official":true,"iso_639_1":"en"},
+                {"site":"Vimeo","type":"Trailer","key":"vimeo","official":true,"iso_639_1":"en"}
+            ]}"#,
+        );
+        assert_eq!(trailer_of(&v), None);
+        assert_eq!(trailer_of(&videos(r#"{"results":[]}"#)), None);
     }
 
     #[test]

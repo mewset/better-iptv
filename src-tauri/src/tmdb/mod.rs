@@ -64,9 +64,11 @@ impl std::fmt::Display for TmdbError {
     }
 }
 
-/// `include_video_language` for a details request: the UI language's
-/// two-letter code, then English, then untagged videos. Without it TMDB
-/// returns only videos tagged with `language`, which for most locales is none.
+/// `include_video_language` for a details request: English first, then the
+/// UI language's two-letter code, then untagged videos. English leads because
+/// trailers default to English regardless of the metadata language. Without
+/// it TMDB returns only videos tagged with `language`, which for most locales
+/// is none.
 fn video_languages(lang: &str) -> String {
     let primary = lang
         .split('-')
@@ -77,7 +79,7 @@ fn video_languages(lang: &str) -> String {
     if primary.is_empty() || primary == "en" {
         "en,null".to_string()
     } else {
-        format!("{primary},en,null")
+        format!("en,{primary},null")
     }
 }
 
@@ -237,9 +239,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn video_languages_put_the_ui_language_first_then_english_then_untagged() {
-        assert_eq!(video_languages("sv-SE"), "sv,en,null");
-        assert_eq!(video_languages("de"), "de,en,null");
+    fn video_languages_put_english_first_then_the_ui_language_then_untagged() {
+        assert_eq!(video_languages("sv-SE"), "en,sv,null");
+        assert_eq!(video_languages("de"), "en,de,null");
     }
 
     #[test]
