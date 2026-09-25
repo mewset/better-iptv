@@ -62,6 +62,8 @@ This file is a developer-changelog, aimed towards development changes.
   - `useChannelPlayback` shows a toast from the new store `toast` slot when the poll reports `failed`, and when a start rejects outright. `Toast` is a glass notice above the dock position, `role="status"`, dismissable, gone after six seconds
   - `lib/playGuard` gates `play`, `playEpisode` and `playLocalEpisodes`: no start while one is in flight or within 2 s of the previous one. Stop is never gated
 
+- **No white flash at startup** - the window and webview painted white until the stylesheet loaded. `tauri.conf.json` sets the window's `backgroundColor` to `#0F1013` (the dark `--color-bg`), and `index.html` paints the same colour in an inline `<style>` before any CSS arrives. Light-theme users see a brief dark frame instead, since the CSP (`script-src 'self'`) rules out an inline script that could read the cached theme first
+
 ## [2.9.0] - 2026-09-11
 
 ### Added

@@ -27,6 +27,7 @@ A simple overview of new features and improvements.
 - A channel that is off air between broadcasts now says so and shows its next program, instead of "No guide data"
 - If a stream can't be played, the app now tells you instead of silently doing nothing
 - Pressing Play several times in a row no longer starts the stream again and again
+- The app no longer flashes white when it starts
 
 ### Thanks
 
