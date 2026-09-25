@@ -44,6 +44,20 @@ describe('live ChannelCard', () => {
     expect(screen.getByText('No guide data')).toBeInTheDocument();
   });
 
+  it('shows "Off air" and the next programme when nothing is on now', () => {
+    render(
+      <ChannelCard
+        channel={ch}
+        isPlaying={false}
+        onPlay={vi.fn()}
+        epg={{ next: 'Spårlöst försvunnen', nextStart: iso(240) }}
+      />
+    );
+    expect(screen.getByText('Off air')).toBeInTheDocument();
+    expect(screen.getByText('Spårlöst försvunnen')).toBeInTheDocument();
+    expect(screen.queryByText('No guide data')).toBeNull();
+  });
+
   it('shows the colour-bar placeholder when there is no logo', () => {
     const { container } = render(<ChannelCard channel={ch} isPlaying={false} onPlay={vi.fn()} />);
     expect(container.querySelectorAll('[data-bar]')).toHaveLength(7);

@@ -9,9 +9,13 @@ import { getParentalSettings, getBlockedChannels, toggleFavorite } from '../lib/
  */
 export type Section = 'live' | 'vod' | 'series' | 'favorites' | 'guide';
 
-/** Current/next programme for one channel, with optional start/end times. */
+/**
+ * Current/next programme for one channel, with optional start/end times.
+ * `current` is absent while the channel is off air between broadcasts; the
+ * entry is then kept for its `next` programme.
+ */
 export interface EpgEntry {
-  current: string;
+  current?: string;
   currentStart?: string;
   currentEnd?: string;
   next?: string;

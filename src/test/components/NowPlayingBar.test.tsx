@@ -58,6 +58,31 @@ describe('NowPlayingBar', () => {
     expect(container.textContent).not.toMatch(/–/);
   });
 
+  it('shows "Off air" with the next programme when the channel is between broadcasts', () => {
+    render(
+      <NowPlayingBar
+        channel={ch}
+        epg={{ next: 'Spårlöst försvunnen', nextStart: iso(240) }}
+        onStop={vi.fn()}
+      />
+    );
+    expect(screen.getByText('Off air')).toBeInTheDocument();
+    expect(screen.getByText(/Spårlöst försvunnen/)).toBeInTheDocument();
+  });
+
+  it('treats an off-air entry whose next programme has started as stale', () => {
+    render(
+      <NowPlayingBar
+        channel={ch}
+        epg={{ next: 'Old next', nextStart: iso(-5) }}
+        currentProgram="Fresh from playback"
+        onStop={vi.fn()}
+      />
+    );
+    expect(screen.queryByText('Off air')).toBeNull();
+    expect(screen.getByText('Fresh from playback')).toBeInTheDocument();
+  });
+
   it('does not show a time range without both start and end', () => {
     const { container } = render(
       <NowPlayingBar

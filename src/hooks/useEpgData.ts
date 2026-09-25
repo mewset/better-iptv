@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { usePlayerStore } from '../stores/player-store';
 import type { EpgEntry } from '../stores/player-store';
 import { getChannelsEpg } from '../lib/tauri';
+import { isEpgEntryStale } from '../lib/epgTime';
 import { logger } from '../lib/logger';
 import type { Channel } from '../types';
 
@@ -17,12 +18,6 @@ const EPG_CONFIG = {
   /** Maximum channels to fetch EPG for at once (backend caps at 500) */
   MAX_CHANNELS: 100,
 };
-
-function hasEnded(endIso: string | null | undefined, now: number = Date.now()): boolean {
-  if (!endIso) return false;
-  const end = Date.parse(endIso);
-  return !Number.isNaN(end) && end <= now;
-}
 
 /**
  * Hook result for EPG data
@@ -92,7 +87,7 @@ export function useEpgData(
         channelsWithEpg = channelsWithEpg.filter((c) => {
           const cached = channelEpgData.get(c.id);
           if (!cached) return true;
-          return c.id === playingId && hasEnded(cached.currentEnd, now);
+          return c.id === playingId && isEpgEntryStale(cached, now);
         });
       }
 
@@ -113,20 +108,22 @@ export function useEpgData(
         if (abortControllerRef.current?.signal.aborted) return;
 
         for (const channel of channelsWithEpg) {
-          const entry = epgById[channel.epg_id!];
-          // Storing an already-ended programme for the playing channel would
-          // only re-trigger the refetch above in a loop; the dock falls back
-          // to the playback strings until the next refresh brings a current one.
-          if (channel.id === playingId && hasEnded(entry?.current_end)) continue;
-          if (entry?.current && channel.id) {
-            setChannelEpg(channel.id, {
-              current: entry.current,
-              currentStart: entry.current_start ?? undefined,
-              currentEnd: entry.current_end ?? undefined,
-              next: entry.next ?? undefined,
-              nextStart: entry.next_start ?? undefined,
-            });
-          }
+          const raw = epgById[channel.epg_id!];
+          // A channel between broadcasts has no current programme but still a
+          // next one, and the card shows it as off air instead of "No guide data".
+          if (!channel.id || (!raw?.current && !raw?.next)) continue;
+          const entry: EpgEntry = {
+            current: raw.current ?? undefined,
+            currentStart: raw.current_start ?? undefined,
+            currentEnd: raw.current_end ?? undefined,
+            next: raw.next ?? undefined,
+            nextStart: raw.next_start ?? undefined,
+          };
+          // Storing an already-stale entry for the playing channel would only
+          // re-trigger the refetch above in a loop; the dock falls back to the
+          // playback strings until the next refresh brings a fresh one.
+          if (channel.id === playingId && isEpgEntryStale(entry)) continue;
+          setChannelEpg(channel.id, entry);
         }
       } catch (err) {
         logger.debug('Failed to fetch EPG batch:', err);

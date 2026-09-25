@@ -170,6 +170,14 @@ export const ChannelCard = memo(function ChannelCard({
               </div>
             )}
           </>
+        ) : epg?.next ? (
+          <>
+            <p className="text-[13px] text-text-muted">Off air</p>
+            <div className="flex items-baseline gap-1.5 text-xs">
+              {nextTime && <span className="tabular-nums text-text-faint">{nextTime}</span>}
+              <span className="truncate text-text-faint">{epg.next}</span>
+            </div>
+          </>
         ) : (
           <p className="text-xs text-text-faint">No guide data</p>
         )}

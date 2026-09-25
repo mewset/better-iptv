@@ -28,3 +28,17 @@ export function minutesLeft(endIso: string, now: number = Date.now()): number | 
   if (Number.isNaN(end)) return null;
   return Math.max(0, Math.ceil((end - now) / 60000));
 }
+
+/**
+ * Whether a cached EPG entry no longer describes the present: its current
+ * programme has ended, or, for an off-air entry, its next programme has begun.
+ */
+export function isEpgEntryStale(
+  entry: { current?: string; currentEnd?: string; next?: string; nextStart?: string },
+  now: number = Date.now()
+): boolean {
+  const boundary = entry.current ? entry.currentEnd : entry.nextStart;
+  if (!boundary) return false;
+  const t = Date.parse(boundary);
+  return !Number.isNaN(t) && t <= now;
+}

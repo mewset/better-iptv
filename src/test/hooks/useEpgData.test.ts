@@ -129,6 +129,27 @@ describe('useEpgData', () => {
     );
   });
 
+  it('keeps a channel that is off air but has a next programme', async () => {
+    vi.mocked(getChannelsEpg).mockResolvedValue({
+      'svt2.se': {
+        current: null,
+        current_start: null,
+        current_end: null,
+        next: 'Spårlöst försvunnen',
+        next_start: '2099-09-25T11:50:00Z',
+      },
+    });
+
+    renderHook(() => useEpgData([makeChannel({ id: 7, name: 'SVT2', epg_id: 'svt2.se' })]));
+
+    await waitFor(() => {
+      expect(usePlayerStore.getState().channelEpgData.get(7)).toEqual({
+        next: 'Spårlöst försvunnen',
+        nextStart: '2099-09-25T11:50:00Z',
+      });
+    });
+  });
+
   it('does not call the backend when no channel has an epg_id', async () => {
     renderHook(() => useEpgData([makeChannel({ id: 1 })]));
 

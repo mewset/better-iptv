@@ -2,7 +2,7 @@ import { memo, useEffect, useState } from 'react';
 import { Square } from 'lucide-react';
 import type { Channel } from '../types';
 import type { EpgEntry } from '../stores/player-store';
-import { formatClock, progressPercent, minutesLeft } from '../lib/epgTime';
+import { formatClock, progressPercent, minutesLeft, isEpgEntryStale } from '../lib/epgTime';
 import { ColorBars } from './ColorBars';
 
 interface NowPlayingBarProps {
@@ -42,12 +42,14 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   }, [channel.id, channel.logo]);
   const showLogo = Boolean(channel.logo) && !logoFailed;
 
-  // A cached entry whose programme already ended is stale (the refetch has
-  // not landed yet): drop it and use the playback strings instead.
-  const endMs = cachedEpg?.currentEnd ? Date.parse(cachedEpg.currentEnd) : NaN;
-  const epg = !Number.isNaN(endMs) && endMs <= Date.now() ? undefined : cachedEpg;
+  // A cached entry that no longer describes the present (its programme ended,
+  // or an off-air entry's next programme began) is stale until the refetch
+  // lands: drop it and use the playback strings instead.
+  const epg = cachedEpg && isEpgEntryStale(cachedEpg) ? undefined : cachedEpg;
 
   const programme = epg?.current ?? currentProgram ?? null;
+  // Between broadcasts: nothing on now, but the guide knows what comes next.
+  const offAir = !programme && Boolean(epg?.next);
   const next = epg?.next ?? nextProgram ?? null;
 
   const hasRange = Boolean(epg?.currentStart && epg?.currentEnd);
@@ -84,6 +86,9 @@ export const NowPlayingBar = memo(function NowPlayingBar({
           <span className="max-w-[40%] shrink-0 truncate text-sm font-semibold text-text">
             {channel.name}
           </span>
+          {offAir && (
+            <span className="min-w-0 flex-1 truncate text-sm text-text-muted">Off air</span>
+          )}
           {programme && (
             <span className="min-w-0 flex-1 truncate text-sm text-text-muted">{programme}</span>
           )}
