@@ -23,6 +23,9 @@ import Settings, { type SettingsHandle } from './Settings';
 import PinEntryModal from './modals/PinEntryModal';
 import ConfirmationModal from './modals/ConfirmationModal';
 import RefreshModal from './modals/RefreshModal';
+import TmdbMatchModal from './modals/TmdbMatchModal';
+import { cardFromDetails } from '../lib/tmdb';
+import type { TmdbDetails } from '../lib/tauri';
 import type { Channel, SeriesInfo } from '../types';
 import { logger } from '../lib/logger';
 import { useResponsiveGrid, getGridClasses } from '../hooks/useResponsiveGrid';
@@ -130,6 +133,11 @@ export default function MainScreen() {
   // provider: after a profile switch its id means nothing to the new one.
   const [detailPlaylistId, setDetailPlaylistId] = useState<number | null>(null);
   const [view, setView] = useState<'browse' | 'detail' | 'settings'>('browse');
+  // Manual TMDB re-match: the title being matched, and the details the
+  // dialog stored, handed to DetailView so it shows them without a reload.
+  const [matchTarget, setMatchTarget] = useState<{ channel: Channel; query: string } | null>(null);
+  const [matchOverride, setMatchOverride] = useState<TmdbDetails | null>(null);
+  const setTmdbCards = usePlayerStore((s) => s.setTmdbCards);
   // Which Settings section opens with the view (the guide's empty state asks for 'epg').
   const [settingsTab, setSettingsTab] = useState('general');
   // The section G and Escape return to when leaving the guide.
@@ -300,6 +308,7 @@ export default function MainScreen() {
   const openDetail = useCallback((channel: Channel) => {
     setDetailChannel(channel);
     setDetailPlaylistId(usePlayerStore.getState().currentPlaylist?.id ?? null);
+    setMatchOverride(null);
     setView('detail');
   }, []);
 
@@ -437,8 +446,25 @@ export default function MainScreen() {
   const closeDetail = useCallback(() => {
     setDetailChannel(null);
     setDetailPlaylistId(null);
+    setMatchOverride(null);
     setView('browse');
   }, []);
+
+  const handleFixMatch = useCallback((channel: Channel, details: TmdbDetails) => {
+    setMatchTarget({ channel, query: details.title ?? channel.name });
+  }, []);
+
+  // Fresh details (the load or a re-match) update the grid card too. A manual
+  // no-match yields no card, so the grid keeps the old one until the next
+  // profile switch; the detail view already shows the provider data.
+  const handleDetails = useCallback(
+    (details: TmdbDetails) => {
+      if (!detailChannel) return;
+      const card = cardFromDetails(detailChannel.id, details);
+      if (card) setTmdbCards([card]);
+    },
+    [detailChannel, setTmdbCards]
+  );
 
   // A profile switch closes the detail view. The render below already
   // hides DetailView the moment the profiles differ, so it unmounts before
@@ -589,6 +615,7 @@ export default function MainScreen() {
         ) : detailOpen && detailChannel ? (
           // Its own error screen covers an unparsable Xtream URL.
           <DetailView
+            key={detailChannel.id}
             channel={detailChannel}
             loadSeries={seriesLoader}
             onBack={closeDetail}
@@ -596,6 +623,9 @@ export default function MainScreen() {
             onPlayEpisode={handlePlayEpisode}
             onToggleFavorite={toggleChannelFavorite}
             isPlaying={isPlaying && currentChannel?.id === detailChannel.id}
+            onFixMatch={handleFixMatch}
+            onDetails={handleDetails}
+            detailsOverride={matchOverride}
           />
         ) : contentTypeFilter === 'guide' ? (
           <GuideView
@@ -758,6 +788,14 @@ export default function MainScreen() {
         onSuccess={handlePinSuccess}
         mode="verify"
         title="Enter PIN to access this channel"
+      />
+
+      <TmdbMatchModal
+        isOpen={matchTarget !== null}
+        channel={matchTarget?.channel ?? null}
+        initialQuery={matchTarget?.query ?? ''}
+        onClose={() => setMatchTarget(null)}
+        onMatched={(details) => setMatchOverride(details)}
       />
 
       {/* Stale playlist prompt */}

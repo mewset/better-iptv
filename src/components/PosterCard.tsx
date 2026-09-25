@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Play, Clapperboard, Star, Lock } from 'lucide-react';
 import type { Channel } from '../types';
 import { ColorBars } from './ColorBars';
@@ -40,6 +40,10 @@ export const PosterCard = memo(function PosterCard({
   onToggleFavorite,
 }: PosterCardProps) {
   const [tmdbArtFailed, setTmdbArtFailed] = useState(false);
+  // A re-match brings a new poster URL; give it a chance even if the old one failed.
+  useEffect(() => {
+    setTmdbArtFailed(false);
+  }, [tmdb?.poster_url]);
   const [logoFailed, setLogoFailed] = useState(false);
   const [fit, setFit] = useState<'cover' | 'contain'>('cover');
   const isSeries = channel.content_type === 'series';

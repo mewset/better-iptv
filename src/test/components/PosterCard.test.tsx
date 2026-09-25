@@ -67,6 +67,15 @@ describe('PosterCard with TMDB data', () => {
     fireEvent.error(container.querySelector('img')!);
     expect(container.querySelector('img')?.getAttribute('src')).toBe(movie.logo);
   });
+  it('shows a new TMDB poster after a re-match even though the old one failed', () => {
+    const { container, rerender } = render(
+      <PosterCard channel={movie} onOpen={vi.fn()} tmdb={tmdb} />
+    );
+    fireEvent.error(container.querySelector('img')!);
+    const rematched = { ...tmdb, poster_url: 'https://image.tmdb.org/t/p/w342/new.jpg' };
+    rerender(<PosterCard channel={movie} onOpen={vi.fn()} tmdb={rematched} />);
+    expect(container.querySelector('img')?.getAttribute('src')).toBe(rematched.poster_url);
+  });
   it('keeps the group line without TMDB data', () => {
     render(<PosterCard channel={movie} onOpen={vi.fn()} />);
     expect(screen.getByText('Drama')).toBeInTheDocument();

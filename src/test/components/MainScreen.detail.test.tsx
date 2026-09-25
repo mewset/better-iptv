@@ -72,7 +72,7 @@ function calls(cmd: string) {
   return mockedInvoke.mock.calls.filter((c) => c[0] === cmd);
 }
 
-function setupInvoke() {
+function setupInvoke(tmdbAvailable = false) {
   mockedInvoke.mockReset();
   mockedInvoke.mockImplementation(async (cmd: string) => {
     switch (cmd) {
@@ -105,6 +105,10 @@ function setupInvoke() {
           language: 'en-US',
         };
       case 'get_tmdb_details':
+        return tmdbAvailable ? { ...off, available: true } : off;
+      case 'search_tmdb':
+        return [];
+      case 'set_tmdb_match':
         return off;
       default:
         return null;
@@ -161,5 +165,13 @@ describe('MainScreen opens the detail view', () => {
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument()
     );
+  });
+  it('"Find on TMDB" in the detail view opens the re-match dialog', async () => {
+    setupInvoke(true);
+    render(<MainScreen />);
+    fireEvent.click((await screen.findAllByRole('article'))[0]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Find on TMDB' }));
+    expect(await screen.findByRole('dialog', { name: 'Find the right title' })).toBeInTheDocument();
+    await waitFor(() => expect(calls('search_tmdb')).toHaveLength(1));
   });
 });
