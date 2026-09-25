@@ -57,7 +57,7 @@ pub async fn search_and_store(
     let hits = match client.search(kind, &query.title, query.year, &lang).await {
         Ok(hits) => hits,
         Err(TmdbError::Unauthorized) => {
-            handle_unauthorized(pool, session, resolved.source).await?;
+            handle_unauthorized(pool, session, &resolved).await?;
             return Ok(None);
         }
         Err(e) => {

@@ -412,7 +412,7 @@ async fn fetch_and_store_details(
             Ok(Some(row))
         }
         Err(TmdbError::Unauthorized) => {
-            handle_unauthorized(&state.pool, &state.tmdb, resolved.source).await?;
+            handle_unauthorized(&state.pool, &state.tmdb, &resolved).await?;
             Ok(None)
         }
         Err(e) => {
@@ -540,7 +540,7 @@ pub async fn get_tmdb_season(
                 rows
             }
             Err(TmdbError::Unauthorized) => {
-                handle_unauthorized(&state.pool, &state.tmdb, resolved.source).await?;
+                handle_unauthorized(&state.pool, &state.tmdb, &resolved).await?;
                 cached
             }
             Err(e) => {
@@ -592,7 +592,7 @@ pub async fn search_tmdb(
     {
         Ok(h) => h,
         Err(TmdbError::Unauthorized) => {
-            handle_unauthorized(&state.pool, &state.tmdb, resolved.source).await?;
+            handle_unauthorized(&state.pool, &state.tmdb, &resolved).await?;
             return Ok(Vec::new());
         }
         Err(e) => return Err(AppError::Http(e.to_string())),

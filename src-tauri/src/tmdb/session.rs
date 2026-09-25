@@ -3,7 +3,7 @@
 
 use crate::tmdb::enrich::EnrichJob;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
@@ -13,11 +13,20 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 /// title would GET it again while offline.
 pub const SHARED_FETCH_COOLDOWN: Duration = Duration::from_secs(300);
 
+/// Distinct shared keys TMDB has rejected this session. A stale key that is
+/// still in flight on several requests produces several 401s; only the first
+/// per key counts, so the second key is the refetched one.
+#[derive(Debug, Default)]
+struct SharedRejections {
+    count: u32,
+    last_key: Option<String>,
+}
+
 #[derive(Debug)]
 pub struct TmdbSession {
     user_key_rejected: AtomicBool,
     shared_key_rejected: AtomicBool,
-    shared_unauthorized_count: AtomicU32,
+    shared_rejections: Mutex<SharedRejections>,
     shared_fetch_failed_at: Mutex<Option<Instant>>,
     /// Held while one caller fetches the shared key, so a burst of jobs
     /// sends one GET and the rest read the stored key afterwards.
@@ -33,7 +42,7 @@ impl Default for TmdbSession {
         Self {
             user_key_rejected: AtomicBool::new(false),
             shared_key_rejected: AtomicBool::new(false),
-            shared_unauthorized_count: AtomicU32::new(0),
+            shared_rejections: Mutex::new(SharedRejections::default()),
             shared_fetch_failed_at: Mutex::new(None),
             shared_fetch_lock: tokio::sync::Mutex::new(()),
             in_flight: Mutex::new(HashSet::new()),
@@ -56,17 +65,23 @@ impl TmdbSession {
         self.shared_key_rejected.load(Ordering::Relaxed)
     }
 
-    /// Count a 401 with the shared key. The first one is forgiven (the key
-    /// is refetched); the second marks the shared key rejected for the session.
-    pub fn note_shared_unauthorized(&self) -> u32 {
-        let n = self
-            .shared_unauthorized_count
-            .fetch_add(1, Ordering::Relaxed)
-            + 1;
-        if n >= 2 {
+    /// Count a 401 with the shared key `key`. The first distinct key is
+    /// forgiven (it is refetched); the second marks the shared key rejected
+    /// for the session. A repeat 401 for the key counted last is a no-op.
+    /// Returns the number of distinct keys counted so far.
+    pub fn note_shared_unauthorized(&self, key: &str) -> u32 {
+        let mut r = self
+            .shared_rejections
+            .lock()
+            .expect("tmdb shared rejections poisoned");
+        if r.last_key.as_deref() != Some(key) {
+            r.count += 1;
+            r.last_key = Some(key.to_string());
+        }
+        if r.count >= 2 {
             self.shared_key_rejected.store(true, Ordering::Relaxed);
         }
-        n
+        r.count
     }
 
     /// Remember that the website did not hand out a shared key just now.
@@ -93,7 +108,10 @@ impl TmdbSession {
 
     /// Called when the user changes the key or the enabled flag in Settings.
     pub fn reset_shared(&self) {
-        self.shared_unauthorized_count.store(0, Ordering::Relaxed);
+        *self
+            .shared_rejections
+            .lock()
+            .expect("tmdb shared rejections poisoned") = SharedRejections::default();
         self.shared_key_rejected.store(false, Ordering::Relaxed);
         self.user_key_rejected.store(false, Ordering::Relaxed);
         *self
@@ -142,13 +160,19 @@ mod tests {
     }
 
     #[test]
-    fn second_shared_unauthorized_marks_the_shared_key_rejected() {
+    fn a_second_distinct_shared_key_rejection_marks_the_shared_key_rejected() {
         let s = TmdbSession::default();
-        assert_eq!(s.note_shared_unauthorized(), 1);
+        assert_eq!(s.note_shared_unauthorized("old"), 1);
         assert!(!s.shared_key_rejected());
-        assert_eq!(s.note_shared_unauthorized(), 2);
+        // The same stale key, still in flight elsewhere: already counted.
+        assert_eq!(s.note_shared_unauthorized("old"), 1);
+        assert!(!s.shared_key_rejected());
+        assert_eq!(s.note_shared_unauthorized("new"), 2);
         assert!(s.shared_key_rejected());
         s.reset_shared();
+        assert!(!s.shared_key_rejected());
+        // After a reset the old key counts again.
+        assert_eq!(s.note_shared_unauthorized("old"), 1);
         assert!(!s.shared_key_rejected());
     }
 

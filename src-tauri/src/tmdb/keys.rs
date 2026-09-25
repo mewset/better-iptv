@@ -168,22 +168,31 @@ where
 }
 
 /// Spec §1 step 5: what a 401 means for each key source.
+///
+/// Several requests can be in flight on the same stale shared key, and a
+/// late 401 can arrive after another job has already stored a refetched key.
+/// So the stored shared key is only deleted when it is the rejected one, and
+/// the session counts distinct rejected keys, not 401s.
 pub async fn handle_unauthorized(
     pool: &Pool<SqliteConnectionManager>,
     session: &TmdbSession,
-    source: KeySource,
+    rejected: &ResolvedKey,
 ) -> Result<(), AppError> {
-    match source {
+    match rejected.source {
         KeySource::User => {
             info!("TMDB rejected the user's API key");
             session.set_user_key_rejected(true);
         }
         KeySource::Shared => {
-            let n = session.note_shared_unauthorized();
+            let n = session.note_shared_unauthorized(&rejected.key);
             info!("TMDB rejected the shared key ({n})");
-            with_db(pool, |conn| {
-                mutations::delete_setting(conn, TMDB_SHARED_KEY_KEY)?;
-                mutations::delete_setting(conn, TMDB_SHARED_KEY_FETCHED_AT_KEY)?;
+            let key = rejected.key.clone();
+            with_db(pool, move |conn| {
+                let stored = queries::get_setting(conn, TMDB_SHARED_KEY_KEY)?;
+                if stored.as_deref() == Some(key.as_str()) {
+                    mutations::delete_setting(conn, TMDB_SHARED_KEY_KEY)?;
+                    mutations::delete_setting(conn, TMDB_SHARED_KEY_FETCHED_AT_KEY)?;
+                }
                 Ok(())
             })
             .await?;
@@ -256,50 +265,81 @@ mod tests {
         let r = resolve_key(&pool, &session).await.unwrap().unwrap();
         assert_eq!(r.key, "user-key");
         assert_eq!(r.source, KeySource::User);
-        handle_unauthorized(&pool, &session, KeySource::User)
-            .await
-            .unwrap();
+        handle_unauthorized(&pool, &session, &r).await.unwrap();
         assert!(session.user_key_rejected());
         assert!(resolve_key(&pool, &session).await.unwrap().is_none());
     }
 
-    #[tokio::test]
-    async fn shared_unauthorized_drops_the_cached_key_and_the_second_time_goes_dormant() {
+    fn pool_with_shared_key(key: &str) -> r2d2::Pool<r2d2_sqlite::SqliteConnectionManager> {
         let pool = r2d2::Pool::builder()
             .max_size(1)
             .build(r2d2_sqlite::SqliteConnectionManager::memory())
             .unwrap();
-        {
-            let conn = pool.get().unwrap();
-            crate::db::schema::init_schema(&conn).unwrap();
-            set_setting(&conn, TMDB_SHARED_KEY_KEY, "shared").unwrap();
-            set_setting(
-                &conn,
-                TMDB_SHARED_KEY_FETCHED_AT_KEY,
-                &chrono::Utc::now().to_rfc3339(),
-            )
-            .unwrap();
+        let conn = pool.get().unwrap();
+        crate::db::schema::init_schema(&conn).unwrap();
+        set_setting(&conn, TMDB_SHARED_KEY_KEY, key).unwrap();
+        set_setting(
+            &conn,
+            TMDB_SHARED_KEY_FETCHED_AT_KEY,
+            &chrono::Utc::now().to_rfc3339(),
+        )
+        .unwrap();
+        drop(conn);
+        pool
+    }
+
+    fn stored_shared_key(
+        pool: &r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>,
+    ) -> Option<String> {
+        let conn = pool.get().unwrap();
+        crate::db::queries::get_setting(&conn, TMDB_SHARED_KEY_KEY).unwrap()
+    }
+
+    fn shared(key: &str) -> ResolvedKey {
+        ResolvedKey {
+            key: key.into(),
+            source: KeySource::Shared,
         }
+    }
+
+    #[tokio::test]
+    async fn shared_unauthorized_drops_the_cached_key_and_a_second_distinct_key_goes_dormant() {
+        let pool = pool_with_shared_key("shared");
         let session = TmdbSession::default();
-        assert_eq!(
-            resolve_key(&pool, &session).await.unwrap().unwrap().source,
-            KeySource::Shared
-        );
-        handle_unauthorized(&pool, &session, KeySource::Shared)
+        let resolved = resolve_key(&pool, &session).await.unwrap().unwrap();
+        assert_eq!(resolved, shared("shared"));
+        handle_unauthorized(&pool, &session, &resolved)
             .await
             .unwrap();
-        let conn = pool.get().unwrap();
-        assert_eq!(
-            crate::db::queries::get_setting(&conn, TMDB_SHARED_KEY_KEY).unwrap(),
-            None
-        );
-        drop(conn);
+        assert_eq!(stored_shared_key(&pool), None);
         assert!(!session.shared_key_rejected());
-        handle_unauthorized(&pool, &session, KeySource::Shared)
+        // A second in-flight request on the same stale key: still forgiven.
+        handle_unauthorized(&pool, &session, &resolved)
+            .await
+            .unwrap();
+        assert!(!session.shared_key_rejected());
+        assert!(!session.shared_fetch_on_cooldown());
+        // The refetched key is rejected too: now dormant.
+        handle_unauthorized(&pool, &session, &shared("refetched"))
             .await
             .unwrap();
         assert!(session.shared_key_rejected());
         assert!(resolve_key(&pool, &session).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_late_401_for_the_old_shared_key_keeps_the_new_one() {
+        let pool = pool_with_shared_key("new");
+        let session = TmdbSession::default();
+        handle_unauthorized(&pool, &session, &shared("old"))
+            .await
+            .unwrap();
+        assert_eq!(stored_shared_key(&pool).as_deref(), Some("new"));
+        assert!(!session.shared_key_rejected());
+        assert_eq!(
+            resolve_key(&pool, &session).await.unwrap(),
+            Some(shared("new"))
+        );
     }
 
     #[tokio::test]
