@@ -21,6 +21,10 @@ A simple overview of new features and improvements.
 
 - Updated the app framework and several of the libraries Better IPTV is built on, including security fixes
 
+### Fixes
+
+- Channels such as SVT1, SVT2 and TV4 now show their program guide when the guide comes from your Xtream provider
+
 ### Thanks
 
 - **@orcdev**, whose live review of the app's look prompted this redesign

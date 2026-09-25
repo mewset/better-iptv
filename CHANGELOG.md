@@ -46,6 +46,13 @@ This file is a developer-changelog, aimed towards development changes.
 
 - **`libdbus-1-dev` added to the Ubuntu package list in the test and release workflows** - Tauri 2.11 routes through `tao` 0.35, which pulls in `dbus` and `libdbus-sys`. That crate's build script resolves `dbus-1` through pkg-config, and neither workflow installed the headers. It builds locally because the development machine has them, which is exactly the kind of gap that only ever appears on a runner
 
+### Fixed
+
+- **EPG channel ids match regardless of case** - channels whose ids the Swedish name heuristic in `playlist/xtream.rs` writes as `SVT1.se`, `SVT2.se` or `TV4.se` showed no guide data against a feed that writes `svt1.se`, which is what an Xtream provider's `xmltv.php` does, because `epg_programs` lookups compared `channel_epg_id` exactly. Measured on one Xtream profile: 703 channel ids matched exactly, 744 without regard to case, and the 41 missing were largely the Swedish channels
+  - `epg_domain::normalize_epg_id` trims and ASCII lower-cases an id; ASCII-only so it agrees with SQLite's `lower()`
+  - `store_epg_programs` stores the normalised id, and `get_current_program`, `get_next_program`, `get_programs_for_channels` and `get_guide` look it up normalised while keying their results by the id the caller asked with, so the frontend is unchanged and `idx_channel_time` still serves every lookup
+  - `init_schema` lower-cases rows stored before this, after `idx_epg_programs_unique` exists: `UPDATE OR IGNORE` keeps one row where both spellings share a slot and a `DELETE` drops the rest. A test covers a pre-2.8.0 database without the unique index
+
 ## [2.9.0] - 2026-09-11
 
 ### Added
