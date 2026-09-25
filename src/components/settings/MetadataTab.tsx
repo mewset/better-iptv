@@ -106,7 +106,7 @@ export default function MetadataTab({
                 type="text"
                 value={apiKey}
                 onChange={(e) => onApiKeyChange(e.target.value)}
-                placeholder="Optional. Uses the project's shared key when empty."
+                placeholder="Optional. Uses Better IPTV's shared key when empty."
                 autoComplete="off"
                 spellCheck={false}
                 className="flex-1 rounded-lg border border-border-strong bg-surface px-4 py-2 font-mono text-sm text-text focus:border-transparent focus:ring-2 focus:ring-accent"

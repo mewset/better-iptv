@@ -66,7 +66,6 @@ export default function AboutTab() {
       </div>
 
       {/* TMDB attribution, required by their terms */}
-      <TmdbAttribution />
 
       {/* Support copy */}
       <p className="text-pretty text-sm leading-relaxed text-text-muted">
@@ -178,6 +177,14 @@ export default function AboutTab() {
           Open logs folder
         </button>
       </div>
+
+      {/* TMDB attribution: its own segment, required by TMDB's terms */}
+      <section aria-labelledby="about-tmdb-heading" className="border-t border-border pt-4">
+        <h3 id="about-tmdb-heading" className="mb-3 text-sm font-semibold text-text">
+          TMDB
+        </h3>
+        <TmdbAttribution />
+      </section>
     </div>
   );
 }
