@@ -1,10 +1,8 @@
 //! TMDB HTTP client. Four requests in flight at most across the whole app,
 //! one retry on 429, both key formats. Pure logic lives in `tmdb_domain`.
 
-// Nothing outside this module (including `types`) calls it until the TMDB
-// commands land in Task 6; remove the allow then.
-#![allow(dead_code)]
-
+pub mod keys;
+pub mod session;
 pub mod types;
 
 use crate::http;
@@ -17,8 +15,11 @@ use types::{Details, SearchHit, SeasonEpisode};
 
 pub const API_BASE: &str = "https://api.themoviedb.org/3";
 pub const FALLBACK_LANGUAGE: &str = "en-US";
+#[allow(dead_code)] // Read inside the lazy_static initialiser, which the lint does not see
 const MAX_IN_FLIGHT: usize = 4;
 const DEFAULT_RETRY_AFTER_SECS: u64 = 2;
+/// The sleep holds one of the four permits, so a huge Retry-After is capped.
+const MAX_RETRY_AFTER_SECS: u64 = 30;
 
 lazy_static! {
     static ref PERMITS: Semaphore = Semaphore::new(MAX_IN_FLIGHT);
@@ -31,6 +32,7 @@ pub enum Kind {
 }
 
 impl Kind {
+    #[allow(dead_code)] // Called by the enrichment queue in Task 7
     pub fn from_content_type(content_type: &str) -> Option<Kind> {
         match content_type {
             "vod" => Some(Kind::Movie),
@@ -89,6 +91,7 @@ pub struct TmdbClient {
 }
 
 impl TmdbClient {
+    #[allow(dead_code)] // Called by the enrichment queue in Task 7
     pub fn new(key: &str) -> Self {
         let key = key.trim().to_string();
         Self {
@@ -126,7 +129,8 @@ impl TmdbClient {
                     .get("retry-after")
                     .and_then(|v| v.to_str().ok())
                     .and_then(|v| v.parse::<u64>().ok())
-                    .unwrap_or(DEFAULT_RETRY_AFTER_SECS);
+                    .unwrap_or(DEFAULT_RETRY_AFTER_SECS)
+                    .min(MAX_RETRY_AFTER_SECS);
                 debug!("TMDB 429 on {path}, retrying after {wait}s");
                 tokio::time::sleep(Duration::from_secs(wait)).await;
                 continue;
@@ -144,6 +148,7 @@ impl TmdbClient {
         }
     }
 
+    #[allow(dead_code)] // Called by the enrichment queue in Task 7
     pub async fn search(
         &self,
         kind: Kind,
@@ -181,6 +186,7 @@ impl TmdbClient {
 
     /// Details with credits and videos. An empty localised overview is
     /// filled from `en-US` with a second request.
+    #[allow(dead_code)] // Called by the enrichment queue in Task 7
     pub async fn details(&self, kind: Kind, id: i64, lang: &str) -> Result<Details, TmdbError> {
         let mut d = self.details_in(kind, id, lang).await?;
         if d.overview.is_none() && lang != FALLBACK_LANGUAGE {
@@ -208,6 +214,7 @@ impl TmdbClient {
         parse(&body).map_err(|e| TmdbError::Decode(e.to_string()))
     }
 
+    #[allow(dead_code)] // Called by the TMDB commands in Task 8
     pub async fn season(
         &self,
         tv_id: i64,
@@ -224,6 +231,7 @@ impl TmdbClient {
     }
 
     /// Validate the key. `Err(Unauthorized)` for a rejected key.
+    #[allow(dead_code)] // Called by the TMDB commands in Task 8
     pub async fn check(&self) -> Result<(), TmdbError> {
         self.get_text("/authentication", &[]).await.map(|_| ())
     }
