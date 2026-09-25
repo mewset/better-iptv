@@ -317,7 +317,6 @@ pub fn get_playlist_channel_counts(conn: &Connection) -> Result<HashMap<i64, i64
 // ========== TMDB cache ==========
 
 /// Channels for a set of ids, in no particular order; unknown ids are skipped.
-#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
 pub fn get_channels_by_ids(conn: &Connection, ids: &[i64]) -> Result<Vec<Channel>> {
     if ids.is_empty() {
         return Ok(Vec::new());
@@ -364,7 +363,6 @@ fn map_tmdb_row(row: &rusqlite::Row) -> Result<TmdbRow> {
     })
 }
 
-#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
 pub fn get_tmdb_row(conn: &Connection, key: &TmdbKey) -> Result<Option<TmdbRow>> {
     let sql = format!(
         "SELECT {} FROM tmdb_metadata WHERE normalized_title = ?1 AND year = ?2 AND content_type = ?3",
@@ -375,7 +373,7 @@ pub fn get_tmdb_row(conn: &Connection, key: &TmdbKey) -> Result<Option<TmdbRow>>
     rows.next().transpose()
 }
 
-#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
+#[allow(dead_code)] // Consumed by the TMDB commands in Task 8
 pub fn get_tmdb_episodes(
     conn: &Connection,
     tmdb_id: i64,

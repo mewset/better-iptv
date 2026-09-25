@@ -12,7 +12,6 @@ pub struct Normalized {
     pub year: Option<i32>,
 }
 
-#[allow(dead_code)] // Consumed by the TMDB matcher and cache in later tasks
 impl Normalized {
     /// Case-folded title: the first part of the cache key.
     pub fn cache_title(&self) -> String {
@@ -95,7 +94,6 @@ fn plausible_year(year: i32, current_year: i32) -> bool {
 /// Known trade-off: an all-caps word of 2-4 letters followed by `|`, `:` or
 /// `-` is read as a provider tag, so "MTV - Unplugged" becomes "Unplugged".
 /// The manual re-match in the detail view covers such cases.
-#[allow(dead_code)] // Consumed by the TMDB matcher and cache in later tasks
 pub fn normalize_title(raw: &str, current_year: i32) -> Normalized {
     let mut s = DOTS.replace_all(raw.trim(), " ").into_owned();
 
@@ -226,7 +224,6 @@ fn years_close(a: i32, b: i32) -> bool {
 /// Order: exact title (or original title) with the same year; exact title
 /// with the year off by one; exact title when the query has no year; then the
 /// first candidate above `MATCH_THRESHOLD` whose year is compatible.
-#[allow(dead_code)] // Consumed by the TMDB matcher and cache in later tasks
 pub fn pick_match<'a>(query: &Normalized, candidates: &'a [Candidate]) -> Option<&'a Candidate> {
     let q = fold(&query.title);
     let exact = |c: &Candidate| fold(&c.title) == q || fold(&c.original_title) == q;
@@ -272,7 +269,6 @@ pub enum KeyKind {
     V4,
 }
 
-#[allow(dead_code)] // Consumed by the TMDB matcher and cache in later tasks
 pub fn key_kind(key: &str) -> KeyKind {
     let k = key.trim();
     if k.len() == 32 && k.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -295,7 +291,6 @@ fn older_than(stamp: &str, now: DateTime<Utc>, days: i64) -> bool {
 }
 
 /// Whether a cache row should be searched again.
-#[allow(dead_code)] // Consumed by the TMDB matcher and cache in later tasks
 pub fn search_is_stale(searched_at: &str, now: DateTime<Utc>, matched: bool, manual: bool) -> bool {
     if manual {
         return false;
@@ -309,7 +304,7 @@ pub fn search_is_stale(searched_at: &str, now: DateTime<Utc>, matched: bool, man
 }
 
 /// Whether details (credits, runtime, trailer) should be fetched again.
-#[allow(dead_code)] // Consumed by the TMDB matcher and cache in later tasks
+#[allow(dead_code)] // Consumed by the TMDB commands in Task 8
 pub fn details_are_stale(details_fetched_at: Option<&str>, now: DateTime<Utc>) -> bool {
     match details_fetched_at {
         Some(stamp) => older_than(stamp, now, MATCH_TTL_DAYS),
@@ -320,7 +315,6 @@ pub fn details_are_stale(details_fetched_at: Option<&str>, now: DateTime<Utc>) -
 // ---------- genres ----------
 
 /// TMDB's fixed genre ids (movie and TV lists, unchanged for years).
-#[allow(dead_code)] // Consumed by the TMDB matcher and cache in later tasks
 pub fn genre_name(id: i32) -> Option<&'static str> {
     Some(match id {
         28 => "Action",
@@ -359,7 +353,7 @@ pub fn genre_name(id: i32) -> Option<&'static str> {
 pub const IMAGE_BASE: &str = "https://image.tmdb.org/t/p/";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // Consumed by the TMDB matcher and cache in later tasks
+#[allow(dead_code)] // `DetailPoster` and `Small` are used by the TMDB detail commands in Task 8
 pub enum ImageSize {
     CardPoster,
     DetailPoster,
@@ -379,7 +373,6 @@ impl ImageSize {
     }
 }
 
-#[allow(dead_code)] // Consumed by the TMDB matcher and cache in later tasks
 pub fn image_url(path: Option<&str>, size: ImageSize) -> Option<String> {
     let p = path?.trim();
     if p.is_empty() {
@@ -422,7 +415,6 @@ pub enum KeyDecision {
 }
 
 /// Spec §1 steps 1-4, without the I/O.
-#[allow(dead_code)] // Consumed by the TMDB matcher and cache in later tasks
 pub fn decide_key(s: &KeySettings, now: DateTime<Utc>) -> KeyDecision {
     if !s.enabled {
         return KeyDecision::Disabled;

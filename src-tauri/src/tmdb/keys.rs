@@ -45,7 +45,6 @@ pub fn read_key_settings(conn: &Connection) -> rusqlite::Result<KeySettings> {
     })
 }
 
-#[allow(dead_code)] // Called by the enrichment queue in Task 7
 pub fn read_language(conn: &Connection) -> rusqlite::Result<String> {
     Ok(queries::get_setting(conn, TMDB_LANGUAGE_KEY)?
         .filter(|l| !l.trim().is_empty())
@@ -82,7 +81,6 @@ pub async fn fetch_shared_key() -> Option<String> {
 }
 
 /// Spec §1 steps 1-4. `None` means enrichment is dormant right now.
-#[allow(dead_code)] // Called by the enrichment queue in Task 7
 pub async fn resolve_key(
     pool: &Pool<SqliteConnectionManager>,
     session: &TmdbSession,
@@ -118,6 +116,13 @@ pub async fn resolve_key(
             if session.shared_key_rejected() {
                 return Ok(None);
             }
+            let stale_fallback = |key: String| ResolvedKey {
+                key,
+                source: KeySource::Shared,
+            };
+            if session.shared_fetch_on_cooldown() {
+                return Ok(stale.map(stale_fallback));
+            }
             match fetch_shared_key().await {
                 Some(key) => {
                     let stored = key.clone();
@@ -137,17 +142,16 @@ pub async fn resolve_key(
                         source: KeySource::Shared,
                     }))
                 }
-                None => Ok(stale.map(|key| ResolvedKey {
-                    key,
-                    source: KeySource::Shared,
-                })),
+                None => {
+                    session.note_shared_fetch_failed();
+                    Ok(stale.map(stale_fallback))
+                }
             }
         }
     }
 }
 
 /// Spec §1 step 5: what a 401 means for each key source.
-#[allow(dead_code)] // Called by the enrichment queue in Task 7
 pub async fn handle_unauthorized(
     pool: &Pool<SqliteConnectionManager>,
     session: &TmdbSession,

@@ -127,6 +127,9 @@ pub fn run() {
             let state = AppState::new(pool);
             app.manage(state);
 
+            // Background TMDB enrichment: one search per visible title.
+            tmdb::enrich::spawn_worker(app.handle().clone());
+
             // Background EPG refresh. Runs on Tauri's tokio runtime; the
             // heavy parts (download, parse, store) already go through
             // spawn_blocking / async HTTP inside run_epg_refresh.
@@ -189,6 +192,10 @@ pub fn run() {
             get_parental_settings,
             // Update check
             check_for_update,
+            // TMDB
+            get_tmdb_cards,
+            get_tmdb_status,
+            check_tmdb_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

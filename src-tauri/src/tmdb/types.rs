@@ -30,7 +30,6 @@ pub struct SearchHit {
 }
 
 impl SearchHit {
-    #[allow(dead_code)] // Called by the enrichment queue in Task 7
     pub fn to_candidate(&self) -> Candidate {
         Candidate {
             id: self.id,

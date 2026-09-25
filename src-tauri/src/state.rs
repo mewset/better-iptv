@@ -44,7 +44,6 @@ pub struct AppState {
     pub epg_refresh_lock: Arc<tokio::sync::Mutex<()>>,
 
     /// TMDB session flags and the in-flight enrichment set.
-    #[allow(dead_code)] // Read by the TMDB commands in Task 8
     pub tmdb: Arc<crate::tmdb::session::TmdbSession>,
 }
 

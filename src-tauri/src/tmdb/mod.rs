@@ -1,6 +1,7 @@
 //! TMDB HTTP client. Four requests in flight at most across the whole app,
 //! one retry on 429, both key formats. Pure logic lives in `tmdb_domain`.
 
+pub mod enrich;
 pub mod keys;
 pub mod session;
 pub mod types;
@@ -32,7 +33,6 @@ pub enum Kind {
 }
 
 impl Kind {
-    #[allow(dead_code)] // Called by the enrichment queue in Task 7
     pub fn from_content_type(content_type: &str) -> Option<Kind> {
         match content_type {
             "vod" => Some(Kind::Movie),
@@ -91,7 +91,6 @@ pub struct TmdbClient {
 }
 
 impl TmdbClient {
-    #[allow(dead_code)] // Called by the enrichment queue in Task 7
     pub fn new(key: &str) -> Self {
         let key = key.trim().to_string();
         Self {
@@ -148,7 +147,6 @@ impl TmdbClient {
         }
     }
 
-    #[allow(dead_code)] // Called by the enrichment queue in Task 7
     pub async fn search(
         &self,
         kind: Kind,
@@ -186,7 +184,7 @@ impl TmdbClient {
 
     /// Details with credits and videos. An empty localised overview is
     /// filled from `en-US` with a second request.
-    #[allow(dead_code)] // Called by the enrichment queue in Task 7
+    #[allow(dead_code)] // Called by the TMDB commands in Task 8
     pub async fn details(&self, kind: Kind, id: i64, lang: &str) -> Result<Details, TmdbError> {
         let mut d = self.details_in(kind, id, lang).await?;
         if d.overview.is_none() && lang != FALLBACK_LANGUAGE {
@@ -231,7 +229,6 @@ impl TmdbClient {
     }
 
     /// Validate the key. `Err(Unauthorized)` for a rejected key.
-    #[allow(dead_code)] // Called by the TMDB commands in Task 8
     pub async fn check(&self) -> Result<(), TmdbError> {
         self.get_text("/authentication", &[]).await.map(|_| ())
     }

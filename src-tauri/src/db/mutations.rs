@@ -514,7 +514,6 @@ pub fn update_channel_epg_ids(conn: &Connection) -> Result<usize> {
 /// the user's choice outranks any automatic match.
 /// Detail columns survive a re-search that finds the same id; a different id
 /// clears them, so the details of the old match are never shown as fresh.
-#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
 pub fn upsert_tmdb_search(conn: &Connection, row: &TmdbRow) -> Result<()> {
     conn.execute(
         "INSERT INTO tmdb_metadata (normalized_title, year, content_type, tmdb_id, manual, title,
@@ -559,7 +558,7 @@ pub fn upsert_tmdb_search(conn: &Connection, row: &TmdbRow) -> Result<()> {
 
 /// Write every column. Keeps `manual` as stored (details are fetched for
 /// manual picks too).
-#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
+#[allow(dead_code)] // Consumed by the TMDB commands in Task 8
 pub fn upsert_tmdb_details(conn: &Connection, row: &TmdbRow) -> Result<()> {
     conn.execute(
         "INSERT INTO tmdb_metadata (normalized_title, year, content_type, tmdb_id, manual, title,
@@ -587,7 +586,7 @@ pub fn upsert_tmdb_details(conn: &Connection, row: &TmdbRow) -> Result<()> {
 
 /// Record the user's choice: a TMDB id, or `None` for "not on TMDB". Detail
 /// columns are cleared so the next open fetches them for the new id.
-#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
+#[allow(dead_code)] // Consumed by the TMDB commands in Task 8
 pub fn set_tmdb_manual(
     conn: &Connection,
     key: &TmdbKey,
@@ -608,7 +607,7 @@ pub fn set_tmdb_manual(
     Ok(())
 }
 
-#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
+#[allow(dead_code)] // Consumed by the TMDB commands in Task 8
 pub fn upsert_tmdb_episodes(conn: &Connection, episodes: &[TmdbEpisodeRow]) -> Result<()> {
     let mut stmt = conn.prepare_cached(
         "INSERT INTO tmdb_episodes (tmdb_id, season, episode, title, overview, still_path,
@@ -636,7 +635,7 @@ pub fn upsert_tmdb_episodes(conn: &Connection, episodes: &[TmdbEpisodeRow]) -> R
 }
 
 /// Empty both cache tables; returns the number of rows removed.
-#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
+#[allow(dead_code)] // Consumed by the TMDB commands in Task 8
 pub fn delete_tmdb_cache(conn: &Connection) -> Result<usize> {
     let a = conn.execute("DELETE FROM tmdb_metadata", [])?;
     let b = conn.execute("DELETE FROM tmdb_episodes", [])?;

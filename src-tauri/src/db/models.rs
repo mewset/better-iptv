@@ -65,7 +65,6 @@ pub struct SeriesEpisode {
 
 /// Cache key of a TMDB row: normalised, lower-cased title; 0 for an unknown year.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
 pub struct TmdbKey {
     pub title: String,
     pub year: i32,
@@ -74,7 +73,6 @@ pub struct TmdbKey {
 
 /// One `tmdb_metadata` row. `tmdb_id == None` means "searched, no match".
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
 pub struct TmdbRow {
     pub key: TmdbKey,
     pub tmdb_id: Option<i64>,
@@ -100,7 +98,6 @@ pub struct TmdbRow {
 
 /// One `tmdb_episodes` row.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)] // Consumed by the TMDB commands in Tasks 7 and 8
 pub struct TmdbEpisodeRow {
     pub tmdb_id: i64,
     pub season: i32,
