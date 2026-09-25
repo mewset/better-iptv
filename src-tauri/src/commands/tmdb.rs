@@ -16,6 +16,7 @@ use crate::tmdb_domain::{
 };
 use chrono::{Datelike, Utc};
 use log::debug;
+use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::HashMap;
 use tauri::State;
@@ -141,52 +142,60 @@ pub async fn get_tmdb_cards(
     if channel_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let (enabled, jobs, cards) = with_db(&state.pool, move |conn| {
-        let enabled = read_key_settings(conn)?.enabled;
-        let channels = queries::get_channels_by_ids(conn, &channel_ids)?;
-        let now = Utc::now();
-        let mut cards = Vec::new();
-        let mut pending = Vec::new();
-        for job in group_jobs(&channels) {
-            match queries::get_tmdb_row(conn, &job.key)? {
-                Some(row)
-                    if !search_is_stale(
-                        &row.searched_at,
-                        now,
-                        row.tmdb_id.is_some(),
-                        row.manual,
-                    ) =>
-                {
-                    if row.tmdb_id.is_some() {
-                        cards.extend(
-                            job.channel_ids
-                                .iter()
-                                .filter_map(|id| card_from_row(*id, &row)),
-                        );
-                    }
-                }
-                _ => pending.push(job),
-            }
-        }
-        Ok((enabled, pending, cards))
-    })
-    .await?;
+    let (jobs, cards) = with_db(&state.pool, move |conn| cached_cards(conn, &channel_ids)).await?;
 
-    if enabled {
-        let mut queued = 0;
-        for job in jobs {
-            if state.tmdb.try_claim(&claim_key(&job.key)) {
-                state.tmdb.enqueue(job);
-                queued += 1;
-            }
+    let mut queued = 0;
+    for job in jobs {
+        if state.tmdb.try_claim(&claim_key(&job.key)) {
+            state.tmdb.enqueue(job);
+            queued += 1;
         }
-        debug!(
-            "get_tmdb_cards -> {} cached, {} queued",
-            cards.len(),
-            queued
-        );
     }
+    debug!(
+        "get_tmdb_cards -> {} cached, {} queued",
+        cards.len(),
+        queued
+    );
     Ok(cards)
+}
+
+/// The database half of `get_tmdb_cards`: fresh cached cards plus the jobs
+/// still to search. Both are empty while the feature is off, so the grid
+/// shows provider data only and nothing is queued.
+pub fn cached_cards(
+    conn: &Connection,
+    channel_ids: &[i64],
+) -> Result<(Vec<EnrichJob>, Vec<TmdbCard>), AppError> {
+    if !read_key_settings(conn)?.enabled {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let channels = queries::get_channels_by_ids(conn, channel_ids)?;
+    let now = Utc::now();
+    let mut cards = Vec::new();
+    let mut pending = Vec::new();
+    for job in group_jobs(&channels) {
+        match queries::get_tmdb_row(conn, &job.key)? {
+            Some(row)
+                if !search_is_stale(&row.searched_at, now, row.tmdb_id.is_some(), row.manual) =>
+            {
+                if row.tmdb_id.is_some() {
+                    cards.extend(
+                        job.channel_ids
+                            .iter()
+                            .filter_map(|id| card_from_row(*id, &row)),
+                    );
+                }
+            }
+            _ => pending.push(job),
+        }
+    }
+    Ok((pending, cards))
+}
+
+/// The `tmdb_enabled` setting. Off means every command answers as if no
+/// TMDB data existed, cached rows included.
+async fn feature_enabled(state: &State<'_, AppState>) -> Result<bool, AppError> {
+    with_db(&state.pool, |conn| Ok(read_key_settings(conn)?.enabled)).await
 }
 
 #[tauri::command]
@@ -418,6 +427,9 @@ pub async fn get_tmdb_details(
     state: State<'_, AppState>,
     channel_id: i64,
 ) -> Result<TmdbDetails, AppError> {
+    if !feature_enabled(&state).await? {
+        return Ok(provider_only_details(false, false));
+    }
     let channel = load_channel(&state, channel_id).await?;
     let Some((key, query, kind)) = cache_key_for(&channel) else {
         return Ok(provider_only_details(false, false));
@@ -470,14 +482,17 @@ pub async fn get_tmdb_season(
     season: i32,
 ) -> Result<Vec<TmdbEpisode>, AppError> {
     let channel = load_channel(&state, channel_id).await?;
-    let Some((key, _, kind)) = cache_key_for(&channel) else {
-        return Ok(Vec::new());
-    };
-    if kind != Kind::Tv {
+    if Kind::from_content_type(&channel.content_type) != Some(Kind::Tv) {
         return Err(AppError::InvalidInput(format!(
             "Channel {channel_id} is not a series"
         )));
     }
+    if !feature_enabled(&state).await? {
+        return Ok(Vec::new());
+    }
+    let Some((key, _, _)) = cache_key_for(&channel) else {
+        return Ok(Vec::new());
+    };
     let key_for_read = key.clone();
     let tmdb_id = with_db(&state.pool, move |conn| {
         Ok(queries::get_tmdb_row(conn, &key_for_read)?.and_then(|r| r.tmdb_id))
@@ -747,6 +762,59 @@ mod tests {
         assert_eq!(jobs.len(), 2);
         let dune = jobs.iter().find(|j| j.key.title == "dune").unwrap();
         assert_eq!(dune.channel_ids, vec![1, 2]);
+    }
+
+    #[test]
+    fn cached_cards_are_withheld_while_the_feature_is_off() {
+        let pool = r2d2::Pool::builder()
+            .max_size(1)
+            .build(r2d2_sqlite::SqliteConnectionManager::memory())
+            .unwrap();
+        let conn = pool.get().unwrap();
+        crate::db::schema::init_schema(&conn).unwrap();
+        let playlist_id = crate::db::test_helpers::create_test_playlist(&conn, "p");
+        let mut movie = channel(0, "Shutter Island (2010)", "vod");
+        movie.id = None;
+        movie.playlist_id = playlist_id;
+        let id = mutations::create_channel(&conn, &movie).unwrap();
+        movie.id = Some(id);
+        let (key, _, _) = cache_key_for(&movie).unwrap();
+        mutations::upsert_tmdb_search(
+            &conn,
+            &TmdbRow {
+                key,
+                tmdb_id: Some(11324),
+                manual: false,
+                title: Some("Shutter Island".into()),
+                original_title: None,
+                release_year: Some(2010),
+                rating: Some(8.2),
+                poster_path: Some("/p.jpg".into()),
+                backdrop_path: None,
+                overview: None,
+                genre_ids: Some("[18]".into()),
+                runtime_minutes: None,
+                genres: None,
+                cast_json: None,
+                trailer_youtube_key: None,
+                searched_at: Utc::now().to_rfc3339(),
+                details_fetched_at: None,
+            },
+        )
+        .unwrap();
+
+        mutations::set_setting(&conn, "tmdb_enabled", "0").unwrap();
+        let (jobs, cards) = cached_cards(&conn, &[id]).unwrap();
+        assert!(jobs.is_empty(), "nothing is queued while off");
+        assert!(cards.is_empty(), "cached matches are withheld while off");
+
+        mutations::set_setting(&conn, "tmdb_enabled", "1").unwrap();
+        let (jobs, cards) = cached_cards(&conn, &[id]).unwrap();
+        assert!(jobs.is_empty(), "a fresh row needs no search");
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].channel_id, id);
+        assert_eq!(cards[0].tmdb_id, 11324);
+        assert_eq!(cards[0].genres, vec!["Drama"]);
     }
 
     #[test]
