@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Channel, Playlist, SeriesInfo } from '../types';
 import { getParentalSettings, getBlockedChannels, toggleFavorite } from '../lib/tauri';
+import type { TmdbCard } from '../lib/tauri';
 
 /**
  * A section of the app the user is browsing: the destinations behind the
@@ -75,6 +76,11 @@ interface PlayerState {
   clearAllEpg: () => void;
   epgRefreshTrigger: number;
   triggerEpgRefresh: () => void;
+
+  // TMDB cards for movies and series (channelId -> card)
+  tmdbCards: Map<number, TmdbCard>;
+  setTmdbCards: (cards: TmdbCard[]) => void;
+  clearTmdbCards: () => void;
 
   // Series Navigation
   currentSeries: SeriesInfo | null;
@@ -220,6 +226,16 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   clearAllEpg: () => set({ channelEpgData: new Map() }),
   epgRefreshTrigger: 0,
   triggerEpgRefresh: () => set((state) => ({ epgRefreshTrigger: state.epgRefreshTrigger + 1 })),
+
+  tmdbCards: new Map(),
+  setTmdbCards: (cards) =>
+    set((state) => {
+      if (cards.length === 0) return {};
+      const next = new Map(state.tmdbCards);
+      for (const card of cards) next.set(card.channel_id, card);
+      return { tmdbCards: next };
+    }),
+  clearTmdbCards: () => set({ tmdbCards: new Map() }),
 
   // Series Navigation
   currentSeries: null,

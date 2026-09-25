@@ -280,3 +280,107 @@ export async function getParentalSettings(): Promise<ParentalSettings> {
 export async function checkForUpdate(): Promise<UpdateInfo | null> {
   return await invoke('check_for_update');
 }
+
+// ========== TMDB Commands ==========
+
+export interface TmdbCard {
+  channel_id: number;
+  tmdb_id: number;
+  title: string;
+  year: number | null;
+  rating: number | null;
+  poster_url: string | null;
+  backdrop_url: string | null;
+  genres: string[];
+}
+
+export interface TmdbCastMember {
+  name: string;
+  character: string | null;
+  photo_url: string | null;
+}
+
+export interface TmdbDetails {
+  /** A key resolved and the feature is on. False: provider data only, no "Wrong title?". */
+  available: boolean;
+  matched: boolean;
+  manual: boolean;
+  tmdb_id: number | null;
+  title: string | null;
+  original_title: string | null;
+  year: number | null;
+  rating: number | null;
+  poster_url: string | null;
+  backdrop_url: string | null;
+  overview: string | null;
+  runtime_minutes: number | null;
+  genres: string[];
+  cast: TmdbCastMember[];
+  trailer_url: string | null;
+}
+
+export interface TmdbEpisode {
+  season: number;
+  episode: number;
+  title: string | null;
+  overview: string | null;
+  still_url: string | null;
+  runtime_minutes: number | null;
+  air_date: string | null;
+}
+
+export interface TmdbCandidate {
+  tmdb_id: number;
+  title: string;
+  original_title: string;
+  year: number | null;
+  poster_url: string | null;
+  overview: string | null;
+}
+
+export interface TmdbStatus {
+  enabled: boolean;
+  has_user_key: boolean;
+  has_shared_key: boolean;
+  user_key_rejected: boolean;
+  shared_key_rejected: boolean;
+  language: string;
+}
+
+/** Cached cards for these channels (max 120); misses arrive later as `tmdb-card` events. */
+export async function getTmdbCards(channelIds: number[]): Promise<TmdbCard[]> {
+  return await invoke('get_tmdb_cards', { channelIds });
+}
+
+export async function getTmdbStatus(): Promise<TmdbStatus> {
+  return await invoke('get_tmdb_status');
+}
+
+/** Resolves when TMDB accepts the key; rejects with TMDB's message otherwise. */
+export async function checkTmdbKey(key: string): Promise<void> {
+  await invoke('check_tmdb_key', { key });
+}
+
+export async function getTmdbDetails(channelId: number): Promise<TmdbDetails> {
+  return await invoke('get_tmdb_details', { channelId });
+}
+
+export async function getTmdbSeason(channelId: number, season: number): Promise<TmdbEpisode[]> {
+  return await invoke('get_tmdb_season', { channelId, season });
+}
+
+export async function searchTmdb(
+  query: string,
+  contentType: 'vod' | 'series'
+): Promise<TmdbCandidate[]> {
+  return await invoke('search_tmdb', { query, contentType });
+}
+
+/** `null` records "not on TMDB". */
+export async function setTmdbMatch(channelId: number, tmdbId: number | null): Promise<TmdbDetails> {
+  return await invoke('set_tmdb_match', { channelId, tmdbId });
+}
+
+export async function deleteTmdbCache(): Promise<number> {
+  return await invoke('delete_tmdb_cache');
+}
