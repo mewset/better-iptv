@@ -24,6 +24,7 @@ A simple overview of new features and improvements.
 - Wrong match? "Wrong title?" on the detail page lets you pick the right one, or mark a title as not on TMDB
 - Works out of the box with a shared key; you can add your own TMDB key under Settings → Metadata, choose the language, or turn the feature off
 - When it is on, the titles of your movies and series are sent to TMDB to look them up. Nothing else leaves the app
+- With your own TMDB key you can let the app fetch posters and details for your whole library in the background, at a gentle pace
 
 ### Improvements
 
