@@ -77,16 +77,36 @@ function defaultParentalSettings(): FixtureParentalSettings {
   };
 }
 
-function setupInvoke(parentalSettings: FixtureParentalSettings = defaultParentalSettings()) {
+/** TMDB card the backend returns for a channel id in `tmdbCardsFor`. */
+function tmdbCard(channel_id: number) {
+  return {
+    channel_id,
+    tmdb_id: 1000 + channel_id,
+    title: `Title ${channel_id}`,
+    year: 2024,
+    rating: 7.5,
+    poster_url: null,
+    backdrop_url: null,
+    genres: [],
+  };
+}
+
+function setupInvoke(
+  parentalSettings: FixtureParentalSettings = defaultParentalSettings(),
+  tmdbCardsFor: number[] = []
+) {
   mockedInvoke.mockReset();
-  mockedInvoke.mockImplementation(async (cmd: string) => {
+  mockedInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
     switch (cmd) {
       case 'get_channels':
       case 'get_channel_groups':
       case 'get_stale_playlist_ids':
       case 'get_blocked_channels':
-      case 'get_tmdb_cards':
         return [];
+      case 'get_tmdb_cards':
+        return (args as { channelIds: number[] }).channelIds
+          .filter((id) => tmdbCardsFor.includes(id))
+          .map(tmdbCard);
       case 'get_channels_epg':
         return {};
       case 'get_parental_settings':
@@ -113,7 +133,7 @@ function setupInvoke(parentalSettings: FixtureParentalSettings = defaultParental
 
 describe('MainScreen: Movies hero', () => {
   beforeEach(() => {
-    setupInvoke();
+    setupInvoke(defaultParentalSettings(), [1, 2]);
     usePlayerStore.setState({
       playlists: [home],
       activeProfileId: 1,
@@ -125,6 +145,7 @@ describe('MainScreen: Movies hero', () => {
       currentChannel: null,
       currentSeries: null,
       selectedSeason: null,
+      tmdbCards: new Map(),
       parentalEnabled: false,
       parentalUnlocked: false,
       blockedChannelIds: new Set(),
@@ -174,13 +195,16 @@ describe('MainScreen: Movies hero', () => {
   });
 
   it('skips a blocked newest title and shows the next one instead', async () => {
-    setupInvoke({
-      enabled: true,
-      has_pin: true,
-      blocked_categories: ['Adult'],
-      visibility: 'blur',
-      auto_detect: false,
-    });
+    setupInvoke(
+      {
+        enabled: true,
+        has_pin: true,
+        blocked_categories: ['Adult'],
+        visibility: 'blur',
+        auto_detect: false,
+      },
+      [1, 2, 3]
+    );
     const blockedNewest = movie(3, 'Blocked Newest', '2026-09-01T00:00:00Z', {
       group_name: 'Adult',
     });
@@ -194,6 +218,40 @@ describe('MainScreen: Movies hero', () => {
     );
     expect(screen.queryByRole('heading', { name: 'Blocked Newest' })).not.toBeInTheDocument();
   });
+
+  it('shows no hero until the newest title has a TMDB match', async () => {
+    setupInvoke(defaultParentalSettings(), []);
+    render(<MainScreen />);
+    await waitFor(() => expect(calls('get_tmdb_cards').length).toBeGreaterThan(0));
+    expect(screen.queryByRole('region', { name: 'Recently added' })).not.toBeInTheDocument();
+  });
+
+  it('falls back to the newest matched title when the newest has no match', async () => {
+    setupInvoke(defaultParentalSettings(), [1]);
+    render(<MainScreen />);
+    const hero = await screen.findByRole('region', { name: 'Recently added' });
+    expect(within(hero).getByRole('heading', { name: 'Older Movie' })).toBeInTheDocument();
+  });
+
+  it('never features an adult-labelled title, even with parental controls off', async () => {
+    const adult = movie(3, 'Hot Night', '2026-09-01T00:00:00Z', { group_name: 'Adult XXX' });
+    setupInvoke(defaultParentalSettings(), [1, 2, 3]);
+    usePlayerStore.getState().setChannels([older, newest, adult]);
+    render(<MainScreen />);
+    const hero = await screen.findByRole('region', { name: 'Recently added' });
+    expect(within(hero).getByRole('heading', { name: 'Newest Movie' })).toBeInTheDocument();
+  });
+
+  it('asks for the newest titles right away so the hero is warm before the section opens', async () => {
+    setupInvoke(defaultParentalSettings(), [1, 2]);
+    usePlayerStore.setState({ contentTypeFilter: 'live' });
+    render(<MainScreen />);
+    await waitFor(() => expect(calls('get_tmdb_cards').length).toBeGreaterThan(0));
+    const requested = calls('get_tmdb_cards').flatMap(
+      (c) => (c[1] as { channelIds: number[] }).channelIds
+    );
+    expect(requested).toEqual(expect.arrayContaining([2, 1]));
+  });
 });
 
 describe('MainScreen: Series hero', () => {
@@ -201,7 +259,7 @@ describe('MainScreen: Series hero', () => {
   const newestShow = movie(12, 'Newest Show', '2026-06-01T00:00:00Z', { content_type: 'series' });
 
   beforeEach(() => {
-    setupInvoke();
+    setupInvoke(defaultParentalSettings(), [11, 12]);
     usePlayerStore.setState({
       playlists: [home],
       activeProfileId: 1,
@@ -213,6 +271,7 @@ describe('MainScreen: Series hero', () => {
       currentChannel: null,
       currentSeries: null,
       selectedSeason: null,
+      tmdbCards: new Map(),
       parentalEnabled: false,
       parentalUnlocked: false,
       blockedChannelIds: new Set(),

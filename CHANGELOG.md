@@ -7,6 +7,7 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Added
 
+- **Hero is TMDB-verified and never adult-labelled** - the "Recently added" banner picks the newest title among the ten newest that pass `isAdultContent` (now applied regardless of parental settings) and have a TMDB match; TMDB searches run with `include_adult=false`, so anything the name heuristic misses never gets a card and never becomes the hero. The ten newest movies and series are requested as soon as channels load so the banner is warm before its section opens (`newestTitles` in `src/lib/newestTitle.ts`, `MainScreen.tsx`)
 - **"Recently added" hero on the Series section** - the same `MoviesHero` row now shows the newest series too; its button reads "Open" and opens the detail view through `handleOpenTitle` instead of playing (`MoviesHero.tsx` gains `onOpen`, `MainScreen.tsx` allows the hero for `series`)
 - **"Add profile" in the top-bar profile menu** - the switcher's last row opens the same `Setup` form Settings > Profiles uses, in an overlay rendered outside the glass header; the created profile joins the list and becomes active through `useProfileSwitch` (`TopBar.tsx`)
 - **3.0 UI: a dark-first redesign, live-programme progress and a TV Guide view** - the token layer started in an earlier release is now complete across `Setup`, `ProfileManager`, `Settings` and its tabs, every modal and `SeriesView`, so no component styles itself outside the palette, apart from the three donation buttons in `AboutTab` which keep their brand colours on purpose

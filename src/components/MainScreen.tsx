@@ -32,13 +32,13 @@ import { useResponsiveGrid, getGridClasses } from '../hooks/useResponsiveGrid';
 import { useEpgData } from '../hooks/useEpgData';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useChannelPlayback } from '../hooks/useChannelPlayback';
-import { shouldBlockChannel } from '../lib/parentalControls';
+import { isAdultContent, shouldBlockChannel } from '../lib/parentalControls';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useChannelFilter } from '../hooks/useChannelFilter';
 import { useUpdateCheck } from '../hooks/useUpdateCheck';
 import { useTmdbCards } from '../hooks/useTmdbCards';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { newestTitle } from '../lib/newestTitle';
+import { newestTitles } from '../lib/newestTitle';
 
 /** Xtream series URLs end in `/SERIES_ID.ext`; returns null when that is not the case. */
 function parseXtreamSeriesId(url: string): number | null {
@@ -241,13 +241,31 @@ export default function MainScreen() {
     blockedCategories,
   ]);
 
-  // The "Recently added" hero: the newest Movies title, shown only while
-  // browsing Movies unfiltered (no category, no search) - the same
-  // conditions that give `kind === 'poster'` for this section, plus "a
-  // newest title exists". A blocked title (parental hide/lock/blur) is never
-  // the hero; hide mode already removes blocked channels from
-  // `filteredChannels`, but lock/blur keep them in the list with `blockedMap`
-  // flagging them, so this excludes those explicitly.
+  // The "Recently added" hero: the newest title of the Movies or Series
+  // section, shown only while browsing it unfiltered (no category, no
+  // search). Two guards keep it from ever featuring the wrong thing:
+  // 1. `isAdultContent` runs regardless of the parental settings (the hero
+  //    is a full-width showcase, not a list entry), on top of the parental
+  //    block map for lock/blur mode (hide already removed those).
+  // 2. Only a title with a TMDB match is shown. TMDB searches run with
+  //    `include_adult=false`, so anything the name heuristic misses never
+  //    gets a card. Until the newest candidate's card has arrived the hero
+  //    stays hidden rather than showing provider art; `heroWarmupIds` below
+  //    asks for the candidates as soon as channels load, so this is a one-off
+  //    per profile.
+  const HERO_CANDIDATES = 10;
+  const tmdbCards = usePlayerStore((s) => s.tmdbCards);
+  const vodChannels = usePlayerStore((s) => s.vodChannels);
+  const seriesChannels = usePlayerStore((s) => s.seriesChannels);
+  const heroSafe = (c: Channel) => !isAdultContent(c.name, c.group_name);
+  const heroWarmupIds = useMemo(
+    () =>
+      [
+        ...newestTitles(vodChannels.filter(heroSafe), HERO_CANDIDATES),
+        ...newestTitles(seriesChannels.filter(heroSafe), HERO_CANDIDATES),
+      ].map((c) => c.id),
+    [vodChannels, seriesChannels]
+  );
   const heroChannel = useMemo(() => {
     if (
       (contentTypeFilter !== 'vod' && contentTypeFilter !== 'series') ||
@@ -256,9 +274,9 @@ export default function MainScreen() {
     ) {
       return null;
     }
-    const eligible = filteredChannels.filter((c) => !blockedMap.get(c.id!));
-    return newestTitle(eligible);
-  }, [contentTypeFilter, categoryFilter, trimmedQuery, filteredChannels, blockedMap]);
+    const eligible = filteredChannels.filter((c) => !blockedMap.get(c.id!) && heroSafe(c));
+    return newestTitles(eligible, HERO_CANDIDATES).find((c) => tmdbCards.has(c.id)) ?? null;
+  }, [contentTypeFilter, categoryFilter, trimmedQuery, filteredChannels, blockedMap, tmdbCards]);
   const showHero = heroChannel !== null;
 
   // Virtual scrolling setup - virtualize by rows (dynamic items per row).
@@ -304,12 +322,13 @@ export default function MainScreen() {
     if (parentRef.current) parentRef.current.scrollTop = 0;
   }, [contentTypeFilter, categoryFilter, trimmedQuery]);
 
-  // Visible poster rows feed the TMDB lookup. Live rows never do.
+  // Visible poster rows feed the TMDB lookup, after the hero candidates of
+  // both sections so the banner is warm before its section opens. Live rows
+  // never do.
   const virtualItems = rowVirtualizer.getVirtualItems();
   const visibleCardIds = useMemo(() => {
-    if (kind !== 'poster') return heroChannel ? [heroChannel.id] : [];
-    const ids: number[] = [];
-    if (heroChannel) ids.push(heroChannel.id);
+    const ids: number[] = [...heroWarmupIds];
+    if (kind !== 'poster') return ids;
     for (const row of virtualItems) {
       if (showHero && row.index === 0) continue;
       const cardRowIndex = showHero ? row.index - 1 : row.index;
@@ -317,8 +336,8 @@ export default function MainScreen() {
       for (const c of filteredChannels.slice(start, start + columns)) ids.push(c.id);
     }
     return ids;
-  }, [kind, heroChannel, virtualItems, showHero, columns, filteredChannels]);
-  const tmdbCards = useTmdbCards(visibleCardIds);
+  }, [kind, heroWarmupIds, virtualItems, showHero, columns, filteredChannels]);
+  useTmdbCards(visibleCardIds);
 
   const openDetail = useCallback((channel: Channel) => {
     setDetailChannel(channel);

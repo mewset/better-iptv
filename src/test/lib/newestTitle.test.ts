@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { newestTitle } from '../../lib/newestTitle';
+import { newestTitle, newestTitles } from '../../lib/newestTitle';
 import type { Channel } from '../../types';
 
 function movie(id: number, created_at?: string): Channel {
@@ -40,5 +40,15 @@ describe('newestTitle', () => {
     const first = movie(1, '2026-01-01T00:00:00Z');
     const second = movie(2, '2026-01-01T00:00:00Z');
     expect(newestTitle([first, second])).toBe(first);
+  });
+
+  it('newestTitles lists the n newest, newest first, undated last', () => {
+    const a = movie(1, '2026-01-01T00:00:00Z');
+    const b = movie(2, '2026-06-01T00:00:00Z');
+    const c = movie(3, '2026-03-01T00:00:00Z');
+    const undated = movie(4);
+    expect(newestTitles([a, undated, b, c], 3).map((m) => m.id)).toEqual([2, 3, 1]);
+    expect(newestTitles([a, undated], 5).map((m) => m.id)).toEqual([1, 4]);
+    expect(newestTitles([], 3)).toEqual([]);
   });
 });
