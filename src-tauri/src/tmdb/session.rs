@@ -6,14 +6,21 @@ use crate::tmdb::enrich::EnrichJob;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 /// After any failed shared-key fetch the website is left alone for this
 /// long, whether or not a stale key covered the gap; otherwise every queued
 /// title would GET it again while offline.
 pub const SHARED_FETCH_COOLDOWN: Duration = Duration::from_secs(300);
+
+/// Background searches in flight at once. The client's four permits are
+/// shared FIFO with the foreground, and a permit is held across the 429
+/// retry sleep, so without this bound slow TMDB replies would let paced
+/// background jobs pile up ahead of visible rows.
+pub const BACKGROUND_MAX_IN_FLIGHT: usize = 2;
 
 /// Every shared key TMDB has rejected this session. A stale key that is
 /// still in flight on several requests produces several 401s; only the first
@@ -73,6 +80,9 @@ pub struct TmdbSession {
     bg_total: AtomicU64,
     bg_done: AtomicU64,
     bg_running: AtomicBool,
+    /// Background-only permits; the worker takes one before it spawns a
+    /// scan job and the job holds it until the search is written.
+    bg_permits: Arc<Semaphore>,
 }
 
 impl Default for TmdbSession {
@@ -96,6 +106,7 @@ impl Default for TmdbSession {
             bg_total: AtomicU64::new(0),
             bg_done: AtomicU64::new(0),
             bg_running: AtomicBool::new(false),
+            bg_permits: Arc::new(Semaphore::new(BACKGROUND_MAX_IN_FLIGHT)),
         }
     }
 }
@@ -274,6 +285,21 @@ impl TmdbSession {
             self.bg_scan_lock.store(false, Ordering::SeqCst);
         }
         (done, total)
+    }
+
+    /// Wait for one of the `BACKGROUND_MAX_IN_FLIGHT` permits. Cancel-safe;
+    /// the permit is released when it is dropped.
+    pub async fn acquire_background_permit(&self) -> OwnedSemaphorePermit {
+        self.bg_permits
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("tmdb background semaphore is never closed")
+    }
+
+    #[cfg(test)]
+    pub fn background_permits_available(&self) -> usize {
+        self.bg_permits.available_permits()
     }
 
     /// `None` until the first scan of the session starts (or after a cancel).
@@ -468,6 +494,20 @@ mod tests {
         s.cancel_background();
         assert_eq!(s.background_progress(), None);
         assert_eq!(s.note_background_done(), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn background_permits_bound_in_flight_scan_jobs_to_two() {
+        let s = TmdbSession::default();
+        assert_eq!(BACKGROUND_MAX_IN_FLIGHT, 2);
+        assert_eq!(s.background_permits_available(), 2);
+        let a = s.acquire_background_permit().await;
+        let b = s.acquire_background_permit().await;
+        assert_eq!(s.background_permits_available(), 0);
+        drop(a);
+        assert_eq!(s.background_permits_available(), 1);
+        drop(b);
+        assert_eq!(s.background_permits_available(), 2);
     }
 
     #[test]

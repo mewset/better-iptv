@@ -24,6 +24,7 @@ use serde::Serialize;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
+use tokio::sync::OwnedSemaphorePermit;
 use tokio::time::Instant;
 
 #[derive(Debug, Clone)]
@@ -148,8 +149,18 @@ async fn run_job(
     }
 }
 
+/// Whether the cache row for `key` is fresh under the `get_tmdb_cards`
+/// rule, i.e. needs no search.
+pub fn row_is_fresh(conn: &Connection, key: &TmdbKey) -> Result<bool, AppError> {
+    let now = Utc::now();
+    Ok(queries::get_tmdb_row(conn, key)?.is_some_and(|row| {
+        !search_is_stale(&row.searched_at, now, row.tmdb_id.is_some(), row.manual)
+    }))
+}
+
 /// A background job: the search, then exactly one progress event, unless
-/// the scan was cancelled while the search ran.
+/// the scan was cancelled while the search ran. A title a visible row
+/// searched (and released) since planning is skipped, not searched twice.
 async fn run_background_job(
     app: &AppHandle,
     pool: &Pool<SqliteConnectionManager>,
@@ -157,7 +168,15 @@ async fn run_background_job(
     job: EnrichJob,
 ) {
     let generation = job.generation;
-    run_job(app, pool, session, job).await;
+    let key = job.key.clone();
+    let fresh = with_db(pool, move |conn| row_is_fresh(conn, &key))
+        .await
+        .unwrap_or(false);
+    if fresh {
+        session.release(&claim_key(&job.key));
+    } else {
+        run_job(app, pool, session, job).await;
+    }
     if generation_is_stale(generation, session.current_generation()) {
         return;
     }
@@ -172,11 +191,37 @@ async fn run_background_job(
     );
 }
 
+/// What the worker does with a background job it pulled from the queue.
+#[derive(Debug)]
+pub enum BackgroundStep {
+    /// From a cancelled scan: dropped, nothing counted.
+    Stale,
+    /// A visible row (or an earlier job) already holds the claim; it will
+    /// write the row, so the title counts as done without a search.
+    AlreadyClaimed { done: u64, total: u64 },
+    /// The worker now holds the claim and runs the search.
+    Run(EnrichJob),
+}
+
+/// Decide at dispatch time, not at planning time, so the planner never
+/// holds a claim that would keep a visible row from searching its title.
+pub fn background_step(session: &TmdbSession, job: EnrichJob) -> BackgroundStep {
+    if is_stale_job(&job, session.current_generation()) {
+        return BackgroundStep::Stale;
+    }
+    if !session.try_claim(&claim_key(&job.key)) {
+        let (done, total) = session.note_background_done();
+        return BackgroundStep::AlreadyClaimed { done, total };
+    }
+    BackgroundStep::Run(job)
+}
+
 /// Start the worker on Tauri's runtime. Called once from `lib.rs` setup.
 ///
 /// The loop is biased to the foreground queue: a background job is only
-/// taken while the foreground queue is empty and `BACKGROUND_MIN_INTERVAL`
-/// has passed since the previous background job started. Both kinds run on
+/// taken while the foreground queue is empty, `BACKGROUND_MIN_INTERVAL` has
+/// passed since the previous background job started, and one of the
+/// `BACKGROUND_MAX_IN_FLIGHT` background permits is free. Both kinds run on
 /// their own task, so the loop keeps dispatching; the client's semaphore
 /// bounds real concurrency at four.
 pub fn spawn_worker(app: AppHandle) {
@@ -202,20 +247,24 @@ pub fn spawn_worker(app: AppHandle) {
                         run_job(&app, &pool, &session, job).await;
                     });
                 }
-                job = async {
+                taken = async {
                     tokio::time::sleep_until(next_background_at).await;
-                    bg_rx.recv().await
+                    let permit = session.acquire_background_permit().await;
+                    bg_rx.recv().await.map(|job| (job, permit))
                 } => {
-                    let Some(job) = job else { break };
-                    if is_stale_job(&job, session.current_generation()) {
-                        // Cancelled scan: free the claim so a visible row can
-                        // search it right away; no pacing cost for a drop.
-                        session.release(&claim_key(&job.key));
-                        continue;
-                    }
+                    let Some((job, permit)) = taken else { break };
+                    let job = match background_step(&session, job) {
+                        BackgroundStep::Stale => continue,
+                        BackgroundStep::AlreadyClaimed { done, total } => {
+                            emit_progress(&app, BackgroundProgress { done, total, running: done < total });
+                            continue;
+                        }
+                        BackgroundStep::Run(job) => job,
+                    };
                     next_background_at = Instant::now() + BACKGROUND_MIN_INTERVAL;
                     let (app, pool, session) = (app.clone(), pool.clone(), session.clone());
                     tauri::async_runtime::spawn(async move {
+                        let _permit: OwnedSemaphorePermit = permit;
                         run_background_job(&app, &pool, &session, job).await;
                     });
                 }
@@ -238,45 +287,53 @@ pub fn background_scan_allowed(conn: &Connection) -> rusqlite::Result<bool> {
             .is_some_and(|k| !k.trim().is_empty()))
 }
 
-/// The active profile, or the oldest playlist until one has been chosen
-/// (the first launch imports before `active_profile_id` exists).
+/// The active profile. `ensure_active_profile` sets it at startup whenever
+/// a playlist exists, so `None` means there is nothing to scan.
 pub fn active_playlist_id(conn: &Connection) -> rusqlite::Result<Option<i64>> {
-    if let Some(id) = queries::get_setting(conn, "active_profile_id")?.and_then(|s| s.parse().ok())
-    {
-        return Ok(Some(id));
-    }
-    Ok(queries::get_playlists(conn)?.first().and_then(|p| p.id))
+    Ok(queries::get_setting(conn, "active_profile_id")?.and_then(|s| s.parse().ok()))
 }
 
 /// One job per movie or series title without a fresh cache row, every
-/// channel sharing a title grouped into it. Live channels are skipped.
+/// channel sharing a title grouped into it. Live channels are skipped. A
+/// freshness read error stops the plan; guessing "not fresh" would queue
+/// the whole library.
 pub fn plan_background_jobs(
     channels: &[Channel],
-    is_fresh: &dyn Fn(&TmdbKey) -> bool,
-) -> Vec<EnrichJob> {
-    group_jobs(channels)
-        .into_iter()
-        .filter(|job| !is_fresh(&job.key))
-        .collect()
+    is_fresh: &dyn Fn(&TmdbKey) -> Result<bool, AppError>,
+) -> Result<Vec<EnrichJob>, AppError> {
+    let mut jobs = Vec::new();
+    for job in group_jobs(channels) {
+        if !is_fresh(&job.key)? {
+            jobs.push(job);
+        }
+    }
+    Ok(jobs)
 }
 
 /// The database half of a scan: the active profile's channels, filtered
-/// by the same freshness rule `get_tmdb_cards` uses.
-fn plan_library_scan(conn: &Connection) -> Result<Vec<EnrichJob>, AppError> {
+/// by the same freshness rule `get_tmdb_cards` uses. `None` without an
+/// active profile.
+fn plan_library_scan(conn: &Connection) -> Result<Option<Vec<EnrichJob>>, AppError> {
     let Some(playlist_id) = active_playlist_id(conn)? else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
     let channels = queries::get_channels(conn, Some(playlist_id))?;
-    let now = Utc::now();
-    let is_fresh = |key: &TmdbKey| {
-        queries::get_tmdb_row(conn, key)
-            .ok()
-            .flatten()
-            .is_some_and(|row| {
-                !search_is_stale(&row.searched_at, now, row.tmdb_id.is_some(), row.manual)
-            })
-    };
-    Ok(plan_background_jobs(&channels, &is_fresh))
+    plan_background_jobs(&channels, &|key| row_is_fresh(conn, key)).map(Some)
+}
+
+/// Hand the planned jobs to the background queue, stamped with the current
+/// generation. No claims are taken here: the worker claims each title when
+/// it dispatches it, so a visible row can still search a queued title.
+/// Returns the number queued.
+pub fn queue_scan(session: &TmdbSession, jobs: Vec<EnrichJob>) -> u64 {
+    let generation = session.current_generation();
+    let total = jobs.len() as u64;
+    session.start_background(total);
+    for mut job in jobs {
+        job.generation = generation;
+        session.enqueue_background(job);
+    }
+    total
 }
 
 /// Queue every unsearched movie and series of the active profile behind the
@@ -304,10 +361,16 @@ async fn run_library_scan(app: &AppHandle) -> Result<(), AppError> {
     }
     let started = std::time::Instant::now();
     let jobs = match with_db(&pool, plan_library_scan).await {
-        Ok(jobs) => jobs,
+        Ok(Some(jobs)) => jobs,
+        Ok(None) => {
+            session.end_scan();
+            debug!("TMDB library scan skipped: no active profile");
+            return Ok(());
+        }
         Err(e) => {
             session.end_scan();
-            return Err(e);
+            warn!("TMDB library scan skipped: planning failed: {e}");
+            return Ok(());
         }
     };
     debug!(
@@ -315,21 +378,8 @@ async fn run_library_scan(app: &AppHandle) -> Result<(), AppError> {
         jobs.len(),
         started.elapsed()
     );
-    let generation = session.current_generation();
-    let total = jobs.len() as u64;
-    session.start_background(total);
-    let mut queued = 0u64;
-    for mut job in jobs {
-        if session.try_claim(&claim_key(&job.key)) {
-            job.generation = generation;
-            session.enqueue_background(job);
-            queued += 1;
-        } else {
-            // A visible row is searching it right now; that counts.
-            session.note_background_done();
-        }
-    }
-    info!("TMDB library scan: {queued} of {total} titles queued");
+    let queued = queue_scan(&session, jobs);
+    info!("TMDB library scan: {queued} titles queued");
     if let Some(progress) = session.background_progress() {
         emit_progress(app, progress);
     }
@@ -371,8 +421,8 @@ mod tests {
             channel(4, "Shutter Island (2010)", "vod"),
             channel(5, "Fullt Hus", "series"),
         ];
-        let is_fresh = |key: &TmdbKey| key.title == "shutter island";
-        let jobs = plan_background_jobs(&channels, &is_fresh);
+        let is_fresh = |key: &TmdbKey| Ok(key.title == "shutter island");
+        let jobs = plan_background_jobs(&channels, &is_fresh).unwrap();
         assert_eq!(
             jobs.len(),
             2,
@@ -409,13 +459,131 @@ mod tests {
     }
 
     #[test]
-    fn the_scan_covers_the_active_profile_or_the_oldest_playlist_before_one_is_set() {
+    fn a_row_is_fresh_once_searched_and_a_missing_row_is_not() {
         let conn = setup_test_db();
+        let key = TmdbKey {
+            title: "dune".into(),
+            year: 2021,
+            content_type: "vod".into(),
+        };
+        assert!(!row_is_fresh(&conn, &key).unwrap());
+        crate::db::mutations::upsert_tmdb_search(
+            &conn,
+            &TmdbRow {
+                key: key.clone(),
+                tmdb_id: Some(438631),
+                manual: false,
+                title: Some("Dune".into()),
+                original_title: None,
+                release_year: Some(2021),
+                rating: None,
+                poster_path: None,
+                backdrop_path: None,
+                overview: None,
+                genre_ids: None,
+                runtime_minutes: None,
+                genres: None,
+                cast_json: None,
+                trailer_youtube_key: None,
+                searched_at: Utc::now().to_rfc3339(),
+                details_fetched_at: None,
+            },
+        )
+        .unwrap();
+        assert!(row_is_fresh(&conn, &key).unwrap());
+    }
+
+    #[test]
+    fn a_freshness_read_error_stops_the_plan_instead_of_queueing_everything() {
+        let channels = vec![channel(2, "Dune (2021)", "vod")];
+        let failing = |_: &TmdbKey| Err(AppError::Database("disk gone".into()));
+        assert!(matches!(
+            plan_background_jobs(&channels, &failing),
+            Err(AppError::Database(_))
+        ));
+    }
+
+    #[test]
+    fn the_scan_needs_an_active_profile_and_there_is_no_fallback() {
+        let conn = setup_test_db();
+        create_test_playlist(&conn, "first");
         assert_eq!(active_playlist_id(&conn).unwrap(), None);
-        let first = create_test_playlist(&conn, "first");
-        let second = create_test_playlist(&conn, "second");
-        assert_eq!(active_playlist_id(&conn).unwrap(), Some(first));
-        set_setting(&conn, "active_profile_id", &second.to_string()).unwrap();
-        assert_eq!(active_playlist_id(&conn).unwrap(), Some(second));
+        assert!(
+            plan_library_scan(&conn).unwrap().is_none(),
+            "no active profile: no scan"
+        );
+        set_setting(&conn, "active_profile_id", "not a number").unwrap();
+        assert_eq!(active_playlist_id(&conn).unwrap(), None);
+        set_setting(&conn, "active_profile_id", "7").unwrap();
+        assert_eq!(active_playlist_id(&conn).unwrap(), Some(7));
+    }
+
+    fn job(title: &str, generation: u64) -> EnrichJob {
+        EnrichJob {
+            key: TmdbKey {
+                title: title.into(),
+                year: 2021,
+                content_type: "vod".into(),
+            },
+            query: Normalized {
+                title: title.into(),
+                year: Some(2021),
+            },
+            kind: Kind::Movie,
+            channel_ids: vec![1],
+            generation,
+        }
+    }
+
+    #[test]
+    fn the_planner_queues_without_claiming_so_visible_rows_can_still_search() {
+        let session = TmdbSession::default();
+        let mut rx = session.take_background_receiver().unwrap();
+        assert!(session.try_begin_scan());
+        let queued = queue_scan(&session, vec![job("dune", 0), job("skin", 0)]);
+        assert_eq!(queued, 2);
+        assert_eq!(session.background_progress().map(|p| p.total), Some(2));
+        let first = rx.try_recv().unwrap();
+        assert_eq!(first.generation, session.current_generation());
+        assert!(
+            session.try_claim(&claim_key(&first.key)),
+            "the planner must not hold the claim"
+        );
+    }
+
+    #[test]
+    fn the_worker_claims_at_dispatch_and_counts_an_already_claimed_title_done() {
+        let session = TmdbSession::default();
+        assert!(session.try_begin_scan());
+        session.start_background(3);
+        let generation = session.current_generation();
+
+        // A visible row is already searching "dune": counted, not searched.
+        assert!(session.try_claim(&claim_key(&job("dune", generation).key)));
+        match background_step(&session, job("dune", generation)) {
+            BackgroundStep::AlreadyClaimed { done, total } => assert_eq!((done, total), (1, 3)),
+            other => panic!("expected AlreadyClaimed, got {other:?}"),
+        }
+        assert!(
+            !session.try_claim(&claim_key(&job("dune", generation).key)),
+            "the foreground's claim is left alone"
+        );
+
+        // A free title: the worker takes the claim and runs it.
+        match background_step(&session, job("skin", generation)) {
+            BackgroundStep::Run(j) => assert_eq!(j.key.title, "skin"),
+            other => panic!("expected Run, got {other:?}"),
+        }
+        assert!(!session.try_claim(&claim_key(&job("skin", generation).key)));
+        assert_eq!(session.background_progress().map(|p| p.done), Some(1));
+
+        // A job from a cancelled scan: dropped, nothing counted or claimed.
+        session.cancel_background();
+        assert!(matches!(
+            background_step(&session, job("blue", generation)),
+            BackgroundStep::Stale
+        ));
+        assert!(session.try_claim(&claim_key(&job("blue", generation).key)));
+        assert_eq!(session.background_progress(), None);
     }
 }

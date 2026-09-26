@@ -48,14 +48,14 @@ pub async fn set_setting(
 
     let key_for_log = key.clone();
     let value_for_log = normalized_value.clone();
-    let background_turned_off = with_db(&state.pool, move |conn| {
+    let stops_scan = with_db(&state.pool, move |conn| {
         write_setting(conn, &key, normalized_value)
     })
     .await?;
     if key_for_log == TMDB_API_KEY_KEY || key_for_log == TMDB_ENABLED_KEY {
         state.tmdb.reset_shared();
     }
-    if background_turned_off {
+    if stops_scan {
         state.tmdb.cancel_background();
     } else if key_for_log == TMDB_BACKGROUND_ENRICH_KEY && value_for_log == "1" {
         schedule_library_scan(app);
@@ -64,10 +64,11 @@ pub async fn set_setting(
     Ok(())
 }
 
-/// The database half of `set_setting`. Returns whether the write turned
-/// background enrichment off: the flag itself set to "0", or the own key
-/// cleared while the flag was on (the scan must not fall back to the shared
-/// key, so the flag goes in the same write).
+/// The database half of `set_setting`. Returns whether the write must stop
+/// a running library scan: the flag set to "0", the feature turned off
+/// (the stored flag is left alone), or the own key cleared while the flag
+/// was on (the scan must not fall back to the shared key, so the flag goes
+/// in the same write).
 fn write_setting(conn: &Connection, key: &str, value: String) -> Result<bool, AppError> {
     let final_value = match key {
         "epg_url" if value.trim().is_empty() => get_default_xtream_epg_url(conn).unwrap_or(value),
@@ -75,8 +76,8 @@ fn write_setting(conn: &Connection, key: &str, value: String) -> Result<bool, Ap
         _ => value,
     };
     mutations::set_setting(conn, key, &final_value)?;
-    let turned_off = match key {
-        TMDB_BACKGROUND_ENRICH_KEY => final_value == "0",
+    let stops_scan = match key {
+        TMDB_BACKGROUND_ENRICH_KEY | TMDB_ENABLED_KEY => final_value == "0",
         TMDB_API_KEY_KEY if final_value.is_empty() => {
             let was_on =
                 queries::get_setting(conn, TMDB_BACKGROUND_ENRICH_KEY)?.is_some_and(|v| v == "1");
@@ -87,7 +88,7 @@ fn write_setting(conn: &Connection, key: &str, value: String) -> Result<bool, Ap
         }
         _ => false,
     };
-    Ok(turned_off)
+    Ok(stops_scan)
 }
 
 /// Turning the scan on needs the user's own key; the shared key must never
@@ -309,6 +310,20 @@ mod tmdb_validation {
         assert_eq!(validate_background_enrich_write(&conn, "0").unwrap(), "0");
         mutations::set_setting(&conn, TMDB_API_KEY_KEY, "own-key").unwrap();
         assert_eq!(validate_background_enrich_write(&conn, "1").unwrap(), "1");
+    }
+
+    #[test]
+    fn turning_the_feature_off_stops_the_scan_but_keeps_the_flag_stored() {
+        let conn = crate::db::test_helpers::setup_test_db();
+        mutations::set_setting(&conn, TMDB_API_KEY_KEY, "own-key").unwrap();
+        mutations::set_setting(&conn, TMDB_BACKGROUND_ENRICH_KEY, "1").unwrap();
+        assert!(!write_setting(&conn, TMDB_ENABLED_KEY, "1".into()).unwrap());
+        assert!(write_setting(&conn, TMDB_ENABLED_KEY, "0".into()).unwrap());
+        assert_eq!(
+            queries::get_setting(&conn, TMDB_BACKGROUND_ENRICH_KEY).unwrap(),
+            Some("1".into()),
+            "the flag itself is not rewritten"
+        );
     }
 
     #[test]
