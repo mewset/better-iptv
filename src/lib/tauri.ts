@@ -373,6 +373,31 @@ export async function getTmdbSeason(channelId: number, season: number): Promise<
   return await invoke('get_tmdb_season', { channelId, season });
 }
 
+/** One slide of a Home slideshow; a superset of TmdbCard plus the plot. */
+export interface HomeItem {
+  channel_id: number;
+  tmdb_id: number;
+  title: string;
+  year: number | null;
+  rating: number | null;
+  poster_url: string | null;
+  backdrop_url: string | null;
+  genres: string[];
+  overview: string | null;
+}
+
+/** One Home slideshow: a genre of movies or of series. */
+export interface HomeRow {
+  genre: string;
+  content_type: 'vod' | 'series';
+  items: HomeItem[];
+}
+
+/** The day's Home rows for a profile; empty when the gate is closed. */
+export async function getHomeRows(playlistId: number): Promise<HomeRow[]> {
+  return await invoke('get_home_rows', { playlistId });
+}
+
 export async function searchTmdb(
   query: string,
   contentType: 'vod' | 'series'

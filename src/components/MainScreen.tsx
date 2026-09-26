@@ -48,6 +48,7 @@ function parseXtreamSeriesId(url: string): number | null {
 }
 
 const SECTION_TITLES: Record<Section, string> = {
+  home: 'Home',
   live: 'Live TV',
   vod: 'Movies',
   series: 'Series',
@@ -57,7 +58,7 @@ const SECTION_TITLES: Record<Section, string> = {
 
 // [singular, plural] count nouns per section. While a search spans every
 // content type the list is no longer one kind, so it counts "results".
-const SECTION_COUNT_NOUNS: Record<Exclude<Section, 'guide'>, [string, string]> = {
+const SECTION_COUNT_NOUNS: Record<Exclude<Section, 'guide' | 'home'>, [string, string]> = {
   live: ['channel', 'channels'],
   vod: ['title', 'titles'],
   series: ['series', 'series'],
@@ -601,7 +602,9 @@ export default function MainScreen() {
       ? guideSubtitle(new Date())
       : countLabel(
           filteredChannels.length,
-          trimmedQuery ? RESULT_NOUNS : SECTION_COUNT_NOUNS[contentTypeFilter]
+          trimmedQuery
+            ? RESULT_NOUNS
+            : SECTION_COUNT_NOUNS[contentTypeFilter as Exclude<Section, 'guide' | 'home'>]
         );
   if (view === 'settings') {
     title = 'Settings';

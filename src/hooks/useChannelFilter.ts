@@ -44,6 +44,9 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
       return channels;
     }
     switch (contentTypeFilter) {
+      case 'home':
+        // Home lists nothing of its own; its rows come from get_home_rows.
+        return [];
       case 'live':
         return liveChannels;
       case 'vod':

@@ -66,4 +66,18 @@ describe('Rail', () => {
       'Switch profile',
     ]);
   });
+
+  it('hides Home unless the gate is open', () => {
+    render(<Rail {...base} />);
+    expect(screen.queryByRole('button', { name: 'Home' })).not.toBeInTheDocument();
+  });
+
+  it('shows Home first when available and selects it', () => {
+    const onSection = vi.fn();
+    render(<Rail {...base} homeAvailable onSection={onSection} />);
+    const buttons = screen.getAllByRole('button');
+    expect(buttons[0]).toHaveAccessibleName('Home');
+    fireEvent.click(buttons[0]);
+    expect(onSection).toHaveBeenCalledWith('home');
+  });
 });

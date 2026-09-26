@@ -5,10 +5,11 @@ import type { TmdbCard } from '../lib/tauri';
 
 /**
  * A section of the app the user is browsing: the destinations behind the
- * icon rail (Live TV, Movies, Series, Favorites, TV Guide). There is no
- * catch-all 'all' section.
+ * icon rail (Home, Live TV, Movies, Series, Favorites, TV Guide). There is
+ * no catch-all 'all' section. Home exists only while the TMDB background
+ * scan runs with the user's own key.
  */
-export type Section = 'live' | 'vod' | 'series' | 'favorites' | 'guide';
+export type Section = 'home' | 'live' | 'vod' | 'series' | 'favorites' | 'guide';
 
 /**
  * Current/next programme for one channel, with optional start/end times.

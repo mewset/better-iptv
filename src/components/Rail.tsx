@@ -3,6 +3,7 @@ import {
   CalendarRange,
   Clapperboard,
   Film,
+  House,
   Settings as SettingsIcon,
   Star,
   Tv,
@@ -18,11 +19,14 @@ interface RailProps {
   onSettings: () => void;
   profileInitial: string;
   onProfile: () => void;
+  /** Home is listed only while the TMDB background scan runs with the user's own key. */
+  homeAvailable?: boolean;
   /** Lets MainScreen return focus to the avatar when the menu it opened closes. */
   profileButtonRef?: React.Ref<globalThis.HTMLButtonElement>;
 }
 
 const SECTIONS: Array<{ value: Section; label: string; Icon: LucideIcon }> = [
+  { value: 'home', label: 'Home', Icon: House },
   { value: 'live', label: 'Live TV', Icon: Tv },
   { value: 'vod', label: 'Movies', Icon: Film },
   { value: 'series', label: 'Series', Icon: Clapperboard },
@@ -65,7 +69,7 @@ function RailButton({ label, Icon, active, onClick }: RailButtonProps) {
 }
 
 /**
- * The left icon rail: the five sections, Settings and the profile avatar.
+ * The left icon rail: the sections, Settings and the profile avatar.
  * Sections are plain buttons with `aria-current="page"` on the active one;
  * number keys are deliberately not bound (kept free for a later TV mode).
  */
@@ -76,6 +80,7 @@ export const Rail = memo(function Rail({
   onSettings,
   profileInitial,
   onProfile,
+  homeAvailable = false,
   profileButtonRef,
 }: RailProps) {
   return (
@@ -90,15 +95,17 @@ export const Rail = memo(function Rail({
         height={36}
         className="mb-4 h-9 w-9 rounded-[10px]"
       />
-      {SECTIONS.map(({ value, label, Icon }) => (
-        <RailButton
-          key={value}
-          label={label}
-          Icon={Icon}
-          active={view === 'browse' && section === value}
-          onClick={() => onSection(value)}
-        />
-      ))}
+      {SECTIONS.filter(({ value }) => value !== 'home' || homeAvailable).map(
+        ({ value, label, Icon }) => (
+          <RailButton
+            key={value}
+            label={label}
+            Icon={Icon}
+            active={view === 'browse' && section === value}
+            onClick={() => onSection(value)}
+          />
+        )
+      )}
       <div className="flex-1" />
       <RailButton
         label="Settings"
