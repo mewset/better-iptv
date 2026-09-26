@@ -1,9 +1,11 @@
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Play, Square, Star, Lock } from 'lucide-react';
 import type { Channel } from '../types';
 import type { EpgEntry } from '../stores/player-store';
 import { formatClock, progressPercent } from '../lib/epgTime';
 import { ColorBars } from './ColorBars';
+import { metaLine } from '../lib/tmdb';
+import type { TmdbCard } from '../lib/tauri';
 
 interface ChannelCardProps {
   channel: Channel;
@@ -19,6 +21,8 @@ interface ChannelCardProps {
   parentalVisibility?: 'hide' | 'lock' | 'blur';
   /** Callback when favorite star is toggled */
   onToggleFavorite?: (channelId: number) => void;
+  /** TMDB card for a movie or series shown in this live-shaped grid (search, Favorites). */
+  tmdb?: TmdbCard;
 }
 
 /**
@@ -38,9 +42,17 @@ export const ChannelCard = memo(function ChannelCard({
   isBlocked = false,
   parentalVisibility = 'hide',
   onToggleFavorite,
+  tmdb,
 }: ChannelCardProps) {
   const [logoFailed, setLogoFailed] = useState(false);
-  const showLogo = Boolean(channel.logo) && !logoFailed;
+  const [tmdbArtFailed, setTmdbArtFailed] = useState(false);
+  useEffect(() => setTmdbArtFailed(false), [tmdb?.poster_url]);
+  const tmdbArt = tmdb?.poster_url && !tmdbArtFailed ? tmdb.poster_url : null;
+  const artSrc = tmdbArt ?? (channel.logo && !logoFailed ? channel.logo : null);
+  const showLogo = Boolean(artSrc);
+  // A movie or series in this grid has no programme; say what it is instead.
+  const kindLabel =
+    channel.content_type === 'vod' ? 'Movie' : channel.content_type === 'series' ? 'Series' : null;
   const blocked = isBlocked && parentalVisibility !== 'hide';
 
   const pct =
@@ -65,7 +77,7 @@ export const ChannelCard = memo(function ChannelCard({
       <div className="relative flex h-[124px] items-center justify-center bg-surface-2">
         {showLogo ? (
           <img
-            src={channel.logo!}
+            src={artSrc!}
             alt={channel.name}
             loading="lazy"
             decoding="async"
@@ -73,7 +85,7 @@ export const ChannelCard = memo(function ChannelCard({
             // few pixels of drag becomes a drag gesture that never fires a
             // click - on the logo, the largest target on the card.
             draggable={false}
-            onError={() => setLogoFailed(true)}
+            onError={() => (tmdbArt ? setTmdbArtFailed(true) : setLogoFailed(true))}
             className="max-h-full max-w-full object-contain p-3"
           />
         ) : (
@@ -178,6 +190,10 @@ export const ChannelCard = memo(function ChannelCard({
               <span className="truncate text-text-faint">{epg.next}</span>
             </div>
           </>
+        ) : kindLabel ? (
+          <p className="truncate text-xs text-text-faint">
+            {`${kindLabel} · ${metaLine(tmdb, channel.group_name ?? '')}`}
+          </p>
         ) : (
           <p className="text-xs text-text-faint">No guide data</p>
         )}

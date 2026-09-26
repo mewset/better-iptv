@@ -79,4 +79,26 @@ describe('MoviesHero with TMDB data', () => {
     expect(onOpen).toHaveBeenCalledWith(series);
     expect(onPlay).not.toHaveBeenCalled();
   });
+
+  it('uses the TMDB title instead of the provider name when matched', () => {
+    const tmdb = {
+      channel_id: 16,
+      tmdb_id: 1,
+      title: 'Dune: Part Two',
+      year: 2024,
+      rating: 8.2,
+      poster_url: null,
+      backdrop_url: null,
+      genres: [],
+    };
+    render(
+      <MoviesHero
+        channel={{ ...movie, name: 'Dune.Part.Two.2024.1080p' }}
+        onPlay={vi.fn()}
+        tmdb={tmdb}
+      />
+    );
+    expect(screen.getByRole('heading', { name: 'Dune: Part Two' })).toBeInTheDocument();
+    expect(screen.queryByText('Dune.Part.Two.2024.1080p')).not.toBeInTheDocument();
+  });
 });

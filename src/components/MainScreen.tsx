@@ -328,12 +328,14 @@ export default function MainScreen() {
   const virtualItems = rowVirtualizer.getVirtualItems();
   const visibleCardIds = useMemo(() => {
     const ids: number[] = [...heroWarmupIds];
-    if (kind !== 'poster') return ids;
     for (const row of virtualItems) {
       if (showHero && row.index === 0) continue;
       const cardRowIndex = showHero ? row.index - 1 : row.index;
       const start = cardRowIndex * columns;
-      for (const c of filteredChannels.slice(start, start + columns)) ids.push(c.id);
+      for (const c of filteredChannels.slice(start, start + columns)) {
+        // Live rows (search results, Favorites) still hold movies and series.
+        if (kind === 'poster' || c.content_type !== 'live') ids.push(c.id);
+      }
     }
     return ids;
   }, [kind, heroWarmupIds, virtualItems, showHero, columns, filteredChannels]);
@@ -784,6 +786,7 @@ export default function MainScreen() {
                                 onPlay={handlePlayChannel}
                                 onToggleFavorite={toggleChannelFavorite}
                                 epg={channelEpgData.get(channel.id)}
+                                tmdb={tmdbCards.get(channel.id)}
                                 isBlocked={isChannelBlocked}
                                 parentalVisibility={parentalVisibility}
                               />

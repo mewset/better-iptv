@@ -78,11 +78,20 @@ function defaultParentalSettings(): FixtureParentalSettings {
 }
 
 /** TMDB card the backend returns for a channel id in `tmdbCardsFor`. */
+/** TMDB titles for the fixture channels: the hero shows the TMDB title once matched. */
+const TMDB_TITLES: Record<number, string> = {
+  1: 'Older Movie',
+  2: 'Newest Movie',
+  3: 'Blocked Newest',
+  11: 'Older Show',
+  12: 'Newest Show',
+};
+
 function tmdbCard(channel_id: number) {
   return {
     channel_id,
     tmdb_id: 1000 + channel_id,
-    title: `Title ${channel_id}`,
+    title: TMDB_TITLES[channel_id] ?? `Title ${channel_id}`,
     year: 2024,
     rating: 7.5,
     poster_url: null,
@@ -304,5 +313,17 @@ describe('MainScreen: Series hero', () => {
     await waitFor(() =>
       expect(screen.queryByRole('region', { name: 'Recently added' })).not.toBeInTheDocument()
     );
+  });
+
+  it('shows a movie in cross-type search results with its TMDB year and rating, not "No guide data"', async () => {
+    setupInvoke(defaultParentalSettings(), [11, 12, 2]);
+    usePlayerStore.setState({ contentTypeFilter: 'live', searchQuery: 'Newest' });
+    usePlayerStore
+      .getState()
+      .setChannels([olderShow, newestShow, movie(2, 'Newest Movie', '2026-06-01T00:00:00Z')]);
+    render(<MainScreen />);
+    expect(await screen.findByText('Movie · 2024 · ★ 7.5')).toBeInTheDocument();
+    expect(screen.getByText('Series · 2024 · ★ 7.5')).toBeInTheDocument();
+    expect(screen.queryByText('No guide data')).not.toBeInTheDocument();
   });
 });

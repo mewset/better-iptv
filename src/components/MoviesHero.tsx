@@ -24,6 +24,8 @@ interface MoviesHeroProps {
 export function MoviesHero({ channel, onPlay, onOpen, isPlaying = false, tmdb }: MoviesHeroProps) {
   const art = tmdb?.backdrop_url ?? channel.logo;
   const isSeries = channel.content_type === 'series';
+  // TMDB's title over the provider's ("The.Great.Flood.2025.1080p") once matched.
+  const title = tmdb?.title || channel.name;
   return (
     <section
       aria-label="Recently added"
@@ -52,7 +54,7 @@ export function MoviesHero({ channel, onPlay, onOpen, isPlaying = false, tmdb }:
 
       <div className="relative flex h-full max-w-[640px] flex-col justify-center gap-3 px-10">
         <span className="text-xs font-bold tracking-[0.12em] text-accent-text">RECENTLY ADDED</span>
-        <h2 className="font-display text-[44px] font-bold leading-none">{channel.name}</h2>
+        <h2 className="font-display text-[44px] font-bold leading-none">{title}</h2>
         <p className="text-[13px] text-text-muted">
           {heroMetaLine(tmdb, channel.group_name ?? '')}
         </p>

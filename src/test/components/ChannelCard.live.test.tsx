@@ -114,4 +114,42 @@ describe('live ChannelCard', () => {
       expect(screen.getByRole('button', { name: 'Unlock SVT1 with PIN' })).toBeInTheDocument();
     }
   );
+
+  it('describes a movie or series by kind and group instead of "No guide data"', () => {
+    const movie: Channel = {
+      ...ch,
+      id: 7,
+      name: 'Past Lives',
+      group_name: 'Drama',
+      content_type: 'vod',
+    };
+    render(<ChannelCard channel={movie} isPlaying={false} onPlay={vi.fn()} />);
+    expect(screen.getByText('Movie · Drama')).toBeInTheDocument();
+    expect(screen.queryByText('No guide data')).not.toBeInTheDocument();
+  });
+
+  it('shows TMDB year and rating for a movie or series when a card is known', () => {
+    const tmdb = {
+      channel_id: 8,
+      tmdb_id: 1,
+      title: 'X',
+      year: 2011,
+      rating: 5.8,
+      poster_url: 'https://image.tmdb.org/t/p/w342/p.jpg',
+      backdrop_url: null,
+      genres: [],
+    };
+    const series: Channel = {
+      ...ch,
+      id: 8,
+      name: 'The Bear',
+      group_name: 'Comedy',
+      content_type: 'series',
+    };
+    const { container } = render(
+      <ChannelCard channel={series} isPlaying={false} onPlay={vi.fn()} tmdb={tmdb} />
+    );
+    expect(screen.getByText('Series · 2011 · ★ 5.8')).toBeInTheDocument();
+    expect(container.querySelector('img')?.getAttribute('src')).toBe(tmdb.poster_url);
+  });
 });
