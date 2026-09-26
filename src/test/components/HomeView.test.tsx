@@ -31,7 +31,7 @@ describe('HomeView', () => {
 
   it('greets by the clock and lists one slideshow per row', () => {
     render(<HomeView rows={rows} loading={false} progress={null} onOpen={vi.fn()} />);
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Good morning');
+    expect(screen.getByRole('heading', { level: 2, name: 'Good morning' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Comedy Movies' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Drama Series' })).toBeInTheDocument();
   });

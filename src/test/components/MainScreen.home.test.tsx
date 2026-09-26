@@ -152,9 +152,9 @@ describe('MainScreen: Home', () => {
       'page'
     );
     expect(await screen.findByRole('region', { name: 'Action Movies' })).toBeInTheDocument();
-    // The TopBar keeps its own h1 ("Home"); the greeting is HomeView's.
+    // TopBar owns the page's h1 ("Home"); the greeting is an h2.
     expect(
-      screen.getByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening)$/ })
+      screen.getByRole('heading', { level: 2, name: /^Good (morning|afternoon|evening)$/ })
     ).toBeInTheDocument();
     expect(screen.queryByRole('searchbox')).toBeNull();
   });

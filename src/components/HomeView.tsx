@@ -33,7 +33,7 @@ export function HomeView({ rows, loading, progress, onOpen }: HomeViewProps) {
   return (
     <div className="flex-1 overflow-y-auto px-10 pb-32 pt-6" role="region" aria-label="Home">
       <header className="mb-8">
-        <h1 className="font-display text-[44px] font-bold leading-none">{greeting(now)}</h1>
+        <h2 className="font-display text-[44px] font-bold leading-none">{greeting(now)}</h2>
         <p className="mt-2 text-sm text-text-faint">{dateFormat.format(now)}</p>
       </header>
 
@@ -57,7 +57,9 @@ export function HomeView({ rows, loading, progress, onOpen }: HomeViewProps) {
               <p>Home fills in as the scan completes.</p>
             </>
           ) : (
-            <p>Nothing to show yet. Home needs a few well-rated movies or series in your library.</p>
+            <p>
+              Nothing to show yet. Home needs a few well-rated movies or series in your library.
+            </p>
           )}
         </div>
       ) : (
