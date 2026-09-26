@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Better IPTV app icon: play triangle cut into five channel stripes, on the on-air amber plate -->
+  <rect width="100" height="100" rx="22" fill="#F2B441"/>
+  <g fill="#141414" transform="translate(14 14) scale(0.72)">
+    <path d="M20,14 L30,19.8 L30,80.2 L20,86 Z"/>
+    <path d="M33,21.55 L43,27.35 L43,72.65 L33,78.45 Z"/>
+    <path d="M46,29.1 L56,34.9 L56,65.1 L46,70.9 Z"/>
+    <path d="M59,36.65 L69,42.45 L69,57.55 L59,63.35 Z"/>
+    <path d="M72,44.2 L82,50 L72,55.8 Z"/>
+  </g>
+</svg>

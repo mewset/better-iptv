@@ -11,6 +11,7 @@ A simple overview of new features and improvements.
 **A New Look**
 
 - Dark by default, with an amber accent and new fonts
+- A new logo: a play triangle cut into channel stripes, in amber, used for the app icon, the side rail and the first-run screen
 - A side rail takes you to Live TV, Movies, Series, Favorites and the TV Guide; the search and profile switcher sit in a bar at the top
 - Movie and series posters are no longer cropped, and live channels show how far the current programme has come
 - What's playing now floats in a small dock over the grid instead of a bar below it
