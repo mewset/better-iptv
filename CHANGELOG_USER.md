@@ -33,6 +33,7 @@ A simple overview of new features and improvements.
 **Home**
 
 - A new Home page greets you and shows a handful of genre slideshows, movies and series separately, picked fresh every day from the well-rated titles in your own playlist
+- "Our pick of the day" at the top: a title from your playlist that is trending on TMDB today, or the best-rated one when nothing trending is in your library
 - Click a slide to open the title's detail page
 - Home appears when you use your own TMDB key with "Fetch details for the whole library in the background" turned on under Settings → Metadata, because it needs your whole library rated
 
