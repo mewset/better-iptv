@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getHomeRows, type HomeRow } from '../lib/tauri';
 import { TMDB_BACKGROUND_PROGRESS_EVENT, type TmdbBackgroundProgress } from '../lib/tmdb';
@@ -23,6 +23,10 @@ export function useHomeRows(playlistId: number | null, enabled: boolean): HomeRo
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<TmdbBackgroundProgress | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // The playlist id of the last successful load, so a scan-finish reload of
+  // the same profile does not flash a skeleton over already-rendered rows,
+  // while a profile switch (or re-entering Home) still shows one.
+  const loadedForRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -48,13 +52,18 @@ export function useHomeRows(playlistId: number | null, enabled: boolean): HomeRo
     if (!enabled || playlistId == null) {
       setRows([]);
       setLoading(false);
+      setProgress(null);
+      loadedForRef.current = null;
       return;
     }
     let cancelled = false;
-    setLoading(true);
+    setLoading(loadedForRef.current !== playlistId);
     getHomeRows(playlistId)
       .then((r) => {
-        if (!cancelled) setRows(r);
+        if (!cancelled) {
+          setRows(r);
+          loadedForRef.current = playlistId;
+        }
       })
       .catch((err) => {
         logger.error('Failed to load Home rows:', err);

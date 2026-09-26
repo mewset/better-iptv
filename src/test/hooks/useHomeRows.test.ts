@@ -60,4 +60,37 @@ describe('useHomeRows', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.rows).toEqual([]);
   });
+
+  it('clears the progress when disabled', async () => {
+    const { result, rerender } = renderHook(({ enabled }) => useHomeRows(1, enabled), {
+      initialProps: { enabled: true },
+    });
+    await waitFor(() => expect(result.current.rows).toEqual(rows));
+    const handler = mockedListen.mock.calls[0][1] as (e: { payload: unknown }) => void;
+    act(() => handler({ payload: { done: 3, total: 10, running: true } }));
+    expect(result.current.progress).toEqual({ done: 3, total: 10, running: true });
+    rerender({ enabled: false });
+    expect(result.current.progress).toBeNull();
+    expect(result.current.rows).toEqual([]);
+  });
+
+  it('a scan-finish reload keeps the rows on screen without a skeleton', async () => {
+    const { result } = renderHook(() => useHomeRows(1, true));
+    await waitFor(() => expect(result.current.rows).toEqual(rows));
+    const handler = mockedListen.mock.calls[0][1] as (e: { payload: unknown }) => void;
+    act(() => handler({ payload: { done: 10, total: 10, running: false } }));
+    expect(result.current.loading).toBe(false);
+    expect(result.current.rows).toEqual(rows);
+    await waitFor(() => expect(mockedInvoke).toHaveBeenCalledTimes(2));
+  });
+
+  it('a profile switch shows the skeleton', async () => {
+    const { result, rerender } = renderHook(({ id }) => useHomeRows(id, true), {
+      initialProps: { id: 1 },
+    });
+    await waitFor(() => expect(result.current.rows).toEqual(rows));
+    rerender({ id: 2 });
+    expect(result.current.loading).toBe(true);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+  });
 });
