@@ -368,7 +368,7 @@ path in that message is what made the linuxdeploy rewrite traceable.
 
 - **Xtream Series Parsing** - Tolerate mixed string/number types from provider panels
   - Xtream panels are inconsistent about JSON scalar types: the same field arrives as `3` from one provider and `"3"` from another, IDs flip between quoted and bare, and optional numbers arrive as `""` instead of `null`
-  - serde is strict by default, so a single mistyped field rejected the *entire* response — one odd `episode_num` lost the whole series listing
+  - serde is strict by default, so a single mistyped field rejected the _entire_ response — one odd `episode_num` lost the whole series listing
   - New `LooseScalar` untagged enum plus `de_lenient_*` helpers widen what is accepted for `Season`, `Episode`, `EpisodeInfo`, `SeriesMetadata` and `XtreamStream`; anything that parsed before parses identically
   - Out-of-range integers now error instead of silently truncating through `as i32`
   - Also covers two fields beyond the reported ones: `SeriesMetadata.rating` (declared `String`, sent as a number) and `XtreamStream.stream_id`/`num` (declared `i64`, sent quoted)
@@ -967,6 +967,7 @@ the logo, and contrast measured rather than assumed.
   - `NowPlayingBar`: Current playback status display
 
 - **Database Performance Indexes**
+
   ```sql
   CREATE INDEX idx_channels_playlist_id ON channels(playlist_id);
   CREATE INDEX idx_channels_epg_id ON channels(epg_id);

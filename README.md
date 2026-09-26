@@ -1,17 +1,17 @@
 <div align="center">
   <img src="src/assets/logo/logo-256.png" alt="Better IPTV Logo" width="200"/>
 
-  # Better IPTV
+# Better IPTV
 
-  **A dark, content-first IPTV player for Linux, Windows and macOS**
+**A dark, content-first IPTV player for Linux, Windows and macOS**
 
-  [![Test Build](https://github.com/mewset/better-iptv/workflows/Test%20Build/badge.svg)](https://github.com/mewset/better-iptv/actions)
-  [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-blue.svg)](#-installation)
-  [![AUR](https://img.shields.io/aur/version/better-iptv?logo=archlinux&label=AUR)](https://aur.archlinux.org/packages/better-iptv)
-  [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
-  [![Website](https://img.shields.io/badge/website-better--iptv.vercel.app-informational)](https://better-iptv.vercel.app)
+[![Test Build](https://github.com/mewset/better-iptv/workflows/Test%20Build/badge.svg)](https://github.com/mewset/better-iptv/actions)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-blue.svg)](#-installation)
+[![AUR](https://img.shields.io/aur/version/better-iptv?logo=archlinux&label=AUR)](https://aur.archlinux.org/packages/better-iptv)
+[![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
+[![Website](https://img.shields.io/badge/website-better--iptv.vercel.app-informational)](https://better-iptv.vercel.app)
 
-  [Website](https://better-iptv.vercel.app) • [What you get](#-what-you-get) • [Installation](#-installation) • [Getting started](#-getting-started) • [FAQ](#-faq) • [Contributing](#-contributing)
+[Website](https://better-iptv.vercel.app) • [What you get](#-what-you-get) • [Installation](#-installation) • [Getting started](#-getting-started) • [FAQ](#-faq) • [Contributing](#-contributing)
 </div>
 
 > **Note:** Better IPTV is a player, not a provider. It plays the playlists you bring. You are responsible for following your provider's terms and your local laws.
@@ -35,6 +35,7 @@ Better IPTV is a desktop app for watching IPTV: live channels, movies and series
 ## ✨ What you get
 
 ### Live TV
+
 - Channels grouped the way your provider groups them, with a category bar for quick filtering and a Favorites section for the ones you actually watch
 - The current and next programme on every channel card, with a progress line showing how far the programme has come
 - A **TV Guide** (press `G`): what is on now and next across your channels, with a "Watch now" button on any programme
@@ -42,6 +43,7 @@ Better IPTV is a desktop app for watching IPTV: live channels, movies and series
 <img src="resources/screenshots/live-tv.webp" alt="Live TV grid with programme names and progress lines" width="720"/>&nbsp;<img src="resources/screenshots/guide.webp" alt="TV Guide with a now line" width="720"/>
 
 ### Movies and series
+
 - Real posters, year and rating on every card, fetched from [TMDB](https://www.themoviedb.org/)
 - A **Home page** with "Our pick of the day" and daily genre slideshows of the best-rated movies and series in your playlist (needs your own TMDB key with the background scan on, see the FAQ)
 - A **detail page** for each title: backdrop, plot, cast, a trailer link, and for series the seasons and episodes
@@ -54,6 +56,7 @@ Better IPTV is a desktop app for watching IPTV: live channels, movies and series
 <img src="resources/screenshots/home.webp" alt="Home page with a greeting, the pick of the day and a genre slideshow" width="960"/>
 
 ### Search and navigation
+
 - Search across everything (press `/`), instant even on huge playlists
 - A side rail for Home (when you use your own TMDB key with the background scan on), Live TV, Movies, Series, Favorites and the TV Guide; search and the profile switcher at the top
 - Keyboard shortcuts for the things you do all the time (see below)
@@ -61,15 +64,18 @@ Better IPTV is a desktop app for watching IPTV: live channels, movies and series
 <img src="resources/screenshots/search.webp" alt="Search results mixing series and movies, each with its poster, year and rating" width="720"/>
 
 ### Profiles
+
 - One profile per playlist or provider; switch between them from the top-right menu, and add a new one from the same place
 - Each profile keeps its own favorites, language preferences and playlist refresh
 
 ### Parental controls
+
 - A 4–6 digit PIN, hashed with Argon2, that locks the controls
 - Block channels by hand, block whole categories, or let the app pick out adult content by its labels
 - Blocked channels can be hidden, shown with a lock, or blurred; unlocking lasts until you close the app
 
 ### Playback
+
 - MPV does the playing: hardware acceleration, every codec, HLS, RTSP and RTMP streams
 - Choose the video renderer, deinterlacing, start volume, fullscreen at start and how many seconds to buffer
 - Preferred audio and subtitle languages (18 languages), passed to MPV for every stream
@@ -77,6 +83,7 @@ Better IPTV is a desktop app for watching IPTV: live channels, movies and series
 - If a stream cannot be played, the app tells you instead of doing nothing
 
 ### Looks
+
 - Dark by default, with a light theme in Settings → General
 - New fonts, a floating now-playing dock, and a colour-bar placeholder for channels without a logo
 
@@ -103,15 +110,16 @@ brew install mpv          # macOS
 
 Download from [Releases](https://github.com/mewset/better-iptv/releases/latest):
 
-| Platform | File |
-|----------|------|
-| Windows | `Better.IPTV_<version>_x64-setup.exe` (or the `.msi`) |
-| Ubuntu/Debian | `Better.IPTV_<version>_amd64.deb` or `Better.IPTV_<version>_amd64.AppImage` |
-| Fedora/RHEL | `Better.IPTV-<version>-1.x86_64.rpm` |
-| Arch/Manjaro | AUR (below), or `Better.IPTV_<version>_amd64-arch.AppImage` |
-| macOS (Apple Silicon) | `Better.IPTV_<version>_aarch64.dmg` |
+| Platform              | File                                                                        |
+| --------------------- | --------------------------------------------------------------------------- |
+| Windows               | `Better.IPTV_<version>_x64-setup.exe` (or the `.msi`)                       |
+| Ubuntu/Debian         | `Better.IPTV_<version>_amd64.deb` or `Better.IPTV_<version>_amd64.AppImage` |
+| Fedora/RHEL           | `Better.IPTV-<version>-1.x86_64.rpm`                                        |
+| Arch/Manjaro          | AUR (below), or `Better.IPTV_<version>_amd64-arch.AppImage`                 |
+| macOS (Apple Silicon) | `Better.IPTV_<version>_aarch64.dmg`                                         |
 
 **Arch/Manjaro via the AUR:**
+
 ```bash
 yay -S better-iptv-bin   # prebuilt
 yay -S better-iptv       # meta-package, pulls in better-iptv-bin
@@ -131,6 +139,7 @@ sudo dnf install webkit2gtk4.1 gtk3 mpv     # Fedora
 chmod +x Better.IPTV_*_amd64-arch.AppImage
 ./Better.IPTV_*_amd64-arch.AppImage
 ```
+
 </details>
 
 ---
@@ -173,13 +182,13 @@ When metadata is on, the app sends the names of your movies and series to TMDB t
 
 ## ⌨️ Keyboard shortcuts
 
-| Key | Action |
-|-----|--------|
-| `Space` | Play or stop the selected channel |
-| `/` | Focus the search box |
-| `G` | Open or close the TV Guide |
-| `Escape` | Close the guide, a detail page or Settings; otherwise stop playback |
-| `Ctrl+1` … `Ctrl+7` | Jump between Settings sections |
+| Key                 | Action                                                              |
+| ------------------- | ------------------------------------------------------------------- |
+| `Space`             | Play or stop the selected channel                                   |
+| `/`                 | Focus the search box                                                |
+| `G`                 | Open or close the TV Guide                                          |
+| `Escape`            | Close the guide, a detail page or Settings; otherwise stop playback |
+| `Ctrl+1` … `Ctrl+7` | Jump between Settings sections                                      |
 
 For controls inside the video window (fullscreen, volume, seeking), see the [MPV keyboard reference](https://mpv.io/manual/stable/#keyboard-control).
 
@@ -191,11 +200,11 @@ Everything Better IPTV knows about you is in one SQLite file on your computer (l
 
 The app makes three kinds of network requests:
 
-| To | What | When |
-|----|------|------|
-| Your provider | Playlist, guide, streams | Always |
-| TMDB | The names of your movies and series | While metadata is on (default), never for live channels |
-| GitHub | A version check | Once a day, can be turned off in Settings → General |
+| To            | What                                | When                                                    |
+| ------------- | ----------------------------------- | ------------------------------------------------------- |
+| Your provider | Playlist, guide, streams            | Always                                                  |
+| TMDB          | The names of your movies and series | While metadata is on (default), never for live channels |
+| GitHub        | A version check                     | Once a day, can be turned off in Settings → General     |
 
 Your provider credentials are stored locally and masked in the log file, so a log is safe to attach to a bug report.
 
@@ -248,7 +257,7 @@ Playlists of 150,000+ channels have been used during development without trouble
 <details>
 <summary><strong>I stop a channel, start another and get "The provider refused the stream"</strong></summary>
 
-The full message is *Couldn't play …. The provider refused the stream, maybe because your line is already in use.* Many providers allow one stream per line and count the previous one as open for a little while after you stop it, so quick zapping trips the limit. Some of them are more generous with players they recognise. Go to **Settings → General → User-Agent** and pick **TiviMate** or **VLC**; the app then identifies itself as that player for playlist downloads, the guide and every stream. If that does not help, wait half a minute between channels or ask your provider how many connections your line allows.
+The full message is _Couldn't play …. The provider refused the stream, maybe because your line is already in use._ Many providers allow one stream per line and count the previous one as open for a little while after you stop it, so quick zapping trips the limit. Some of them are more generous with players they recognise. Go to **Settings → General → User-Agent** and pick **TiviMate** or **VLC**; the app then identifies itself as that player for playlist downloads, the guide and every stream. If that does not help, wait half a minute between channels or ask your provider how many connections your line allows.
 </details>
 
 <details>
@@ -278,17 +287,18 @@ Delete `better-ip-tv.db` from the data folder below and add your playlist again.
 **Series missing after an Xtream import.** Not every provider offers series through the API. Check your credentials and refresh the playlist from Settings → Profiles.
 
 **The app does not start.**
+
 - Linux: `chmod +x` the AppImage. A white window or an `EGL_BAD_PARAMETER` crash means you want the `-arch` AppImage (see Installation)
 - Windows: check that Windows Defender did not quarantine it
 - macOS: allow the app under System Settings → Privacy & Security
 
 **Where your files are**
 
-| | Data (`better-ip-tv.db`) | Log (`better-ip-tv.log`) |
-|---|---|---|
-| Linux | `~/.local/share/com.m0s.better-ip-tv/` | `~/.local/share/com.m0s.better-ip-tv/logs/` |
-| Windows | `%APPDATA%\com.m0s.better-ip-tv\` | `%LOCALAPPDATA%\com.m0s.better-ip-tv\logs\` |
-| macOS | `~/Library/Application Support/com.m0s.better-ip-tv/` | `~/Library/Logs/com.m0s.better-ip-tv/` |
+|         | Data (`better-ip-tv.db`)                              | Log (`better-ip-tv.log`)                    |
+| ------- | ----------------------------------------------------- | ------------------------------------------- |
+| Linux   | `~/.local/share/com.m0s.better-ip-tv/`                | `~/.local/share/com.m0s.better-ip-tv/logs/` |
+| Windows | `%APPDATA%\com.m0s.better-ip-tv\`                     | `%LOCALAPPDATA%\com.m0s.better-ip-tv\logs\` |
+| macOS   | `~/Library/Application Support/com.m0s.better-ip-tv/` | `~/Library/Logs/com.m0s.better-ip-tv/`      |
 
 Settings → About has an **Open logs folder** button.
 
@@ -337,8 +347,8 @@ Better IPTV is built by one person in their spare time. If it is useful to you:
 - **Ko-fi**: [ko-fi.com/R6R21I53PD](https://ko-fi.com/R6R21I53PD)
 - **GitHub Sponsors**: [github.com/sponsors/mewset](https://github.com/sponsors/mewset)
 
-| Crypto | Address |
-|--------|---------|
-| ETH | `0x47183F4e4FEAeE4BF52d95E68893e950125b1B44` |
-| BTC | `bc1qth40h9t8r7hvp4czqvf20f3w72jdg4epd5mjq8` |
-| SOL | `3waxf6r2tmaaADuBGYoVD5qz4z8VnFNEGGafbXZ6Jf2j` |
+| Crypto | Address                                        |
+| ------ | ---------------------------------------------- |
+| ETH    | `0x47183F4e4FEAeE4BF52d95E68893e950125b1B44`   |
+| BTC    | `bc1qth40h9t8r7hvp4czqvf20f3w72jdg4epd5mjq8`   |
+| SOL    | `3waxf6r2tmaaADuBGYoVD5qz4z8VnFNEGGafbXZ6Jf2j` |
