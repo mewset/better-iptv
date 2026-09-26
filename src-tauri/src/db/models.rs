@@ -81,6 +81,8 @@ pub struct TmdbRow {
     pub original_title: Option<String>,
     pub release_year: Option<i32>,
     pub rating: Option<f64>,
+    /// TMDB vote count; `None` for rows searched before 3.0.0 or no-match rows.
+    pub vote_count: Option<i64>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
     pub overview: Option<String>,

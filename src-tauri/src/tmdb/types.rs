@@ -27,6 +27,8 @@ pub struct SearchHit {
     pub backdrop_path: Option<String>,
     pub overview: Option<String>,
     pub genre_ids: Vec<i32>,
+    /// Raw TMDB vote count; 0 for an unrated title.
+    pub vote_count: i64,
 }
 
 impl SearchHit {
@@ -62,6 +64,8 @@ pub struct Details {
     pub genre_ids: Vec<i32>,
     pub cast: Vec<CastEntry>,
     pub trailer_youtube_key: Option<String>,
+    /// Raw TMDB vote count; 0 for an unrated title.
+    pub vote_count: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -284,6 +288,7 @@ pub fn parse_movie_search(json: &str) -> Result<Vec<SearchHit>, serde_json::Erro
             backdrop_path: h.backdrop_path,
             overview: non_empty(h.overview),
             genre_ids: h.genre_ids,
+            vote_count: h.vote_count,
         })
         .collect())
 }
@@ -302,6 +307,7 @@ pub fn parse_tv_search(json: &str) -> Result<Vec<SearchHit>, serde_json::Error> 
             backdrop_path: h.backdrop_path,
             overview: non_empty(h.overview),
             genre_ids: h.genre_ids,
+            vote_count: h.vote_count,
         })
         .collect())
 }
@@ -322,6 +328,7 @@ pub fn parse_movie_details(json: &str) -> Result<Details, serde_json::Error> {
         genres: d.genres.into_iter().map(|g| g.name).collect(),
         trailer_youtube_key: trailer_of(&d.videos),
         cast: cast_of(d.credits),
+        vote_count: d.vote_count,
     })
 }
 
@@ -341,6 +348,7 @@ pub fn parse_tv_details(json: &str) -> Result<Details, serde_json::Error> {
         genres: d.genres.into_iter().map(|g| g.name).collect(),
         trailer_youtube_key: trailer_of(&d.videos),
         cast: cast_of(d.credits),
+        vote_count: d.vote_count,
     })
 }
 
@@ -396,6 +404,10 @@ mod tests {
         assert!(hit.backdrop_path.is_some());
         assert_eq!(hit.genre_ids, vec![18, 53, 9648]);
         assert_eq!(hit.to_candidate().year, Some(2010));
+        assert_eq!(
+            hit.vote_count, 26467,
+            "the search hit's vote_count is stored for Home's filter"
+        );
     }
 
     #[test]
@@ -424,6 +436,10 @@ mod tests {
         // The fixture's first YouTube videos are Clips; the trailer must be a Trailer.
         assert_eq!(d.trailer_youtube_key.as_deref(), Some("qdPw9x9h5CY"));
         assert_eq!(d.year, Some(2010));
+        assert_eq!(
+            d.vote_count, 26466,
+            "details carry vote_count so a manual match gets one too"
+        );
     }
 
     #[test]

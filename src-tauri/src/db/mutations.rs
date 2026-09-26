@@ -528,12 +528,13 @@ pub fn upsert_tmdb_search(conn: &Connection, row: &TmdbRow) -> Result<()> {
     conn.execute(
         "INSERT INTO tmdb_metadata (normalized_title, year, content_type, tmdb_id, manual, title,
              original_title, release_year, rating, poster_path, backdrop_path, overview, genre_ids,
-             searched_at)
-         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+             searched_at, vote_count)
+         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
          ON CONFLICT(normalized_title, year, content_type) DO UPDATE SET
              tmdb_id = excluded.tmdb_id, title = excluded.title,
              original_title = excluded.original_title, release_year = excluded.release_year,
-             rating = excluded.rating, poster_path = excluded.poster_path,
+             rating = excluded.rating, vote_count = excluded.vote_count,
+             poster_path = excluded.poster_path,
              backdrop_path = excluded.backdrop_path, overview = excluded.overview,
              genre_ids = excluded.genre_ids, searched_at = excluded.searched_at,
              runtime_minutes = CASE WHEN excluded.tmdb_id IS tmdb_metadata.tmdb_id
@@ -561,6 +562,7 @@ pub fn upsert_tmdb_search(conn: &Connection, row: &TmdbRow) -> Result<()> {
             row.overview,
             row.genre_ids,
             row.searched_at,
+            row.vote_count,
         ],
     )?;
     Ok(())
@@ -572,12 +574,15 @@ pub fn upsert_tmdb_details(conn: &Connection, row: &TmdbRow) -> Result<()> {
     conn.execute(
         "INSERT INTO tmdb_metadata (normalized_title, year, content_type, tmdb_id, manual, title,
              original_title, release_year, rating, poster_path, backdrop_path, overview, genre_ids,
-             runtime_minutes, genres, cast_json, trailer_youtube_key, searched_at, details_fetched_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+             runtime_minutes, genres, cast_json, trailer_youtube_key, searched_at, details_fetched_at,
+             vote_count)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
+             ?20)
          ON CONFLICT(normalized_title, year, content_type) DO UPDATE SET
              tmdb_id = excluded.tmdb_id, title = excluded.title,
              original_title = excluded.original_title, release_year = excluded.release_year,
-             rating = excluded.rating, poster_path = excluded.poster_path,
+             rating = excluded.rating, vote_count = excluded.vote_count,
+             poster_path = excluded.poster_path,
              backdrop_path = excluded.backdrop_path, overview = excluded.overview,
              genre_ids = excluded.genre_ids, runtime_minutes = excluded.runtime_minutes,
              genres = excluded.genres, cast_json = excluded.cast_json,
@@ -588,6 +593,7 @@ pub fn upsert_tmdb_details(conn: &Connection, row: &TmdbRow) -> Result<()> {
             row.title, row.original_title, row.release_year, row.rating, row.poster_path,
             row.backdrop_path, row.overview, row.genre_ids, row.runtime_minutes, row.genres,
             row.cast_json, row.trailer_youtube_key, row.searched_at, row.details_fetched_at,
+            row.vote_count,
         ],
     )?;
     Ok(())
@@ -607,6 +613,7 @@ pub fn set_tmdb_manual(
          ON CONFLICT(normalized_title, year, content_type) DO UPDATE SET
              tmdb_id = excluded.tmdb_id, manual = 1, searched_at = excluded.searched_at,
              title = NULL, original_title = NULL, release_year = NULL, rating = NULL,
+             vote_count = NULL,
              poster_path = NULL, backdrop_path = NULL, overview = NULL, genre_ids = NULL,
              runtime_minutes = NULL, genres = NULL, cast_json = NULL,
              trailer_youtube_key = NULL, details_fetched_at = NULL",
@@ -1508,6 +1515,7 @@ mod tmdb_tests {
             original_title: None,
             release_year: Some(2010),
             rating: Some(8.2),
+            vote_count: tmdb_id.map(|_| 1200),
             poster_path: Some("/p.jpg".into()),
             backdrop_path: None,
             overview: Some("A marshal.".into()),
@@ -1651,6 +1659,55 @@ mod tmdb_tests {
         let got = queries::get_tmdb_row(&conn, &key()).unwrap().unwrap();
         assert_eq!(got.tmdb_id, Some(11324));
         assert!(got.manual);
+    }
+
+    #[test]
+    fn vote_count_round_trips_and_survives_a_re_search_of_the_same_id() {
+        let conn = setup_test_db();
+        upsert_tmdb_search(&conn, &row(Some(11324))).unwrap();
+        assert_eq!(
+            queries::get_tmdb_row(&conn, &key())
+                .unwrap()
+                .unwrap()
+                .vote_count,
+            Some(1200)
+        );
+        let mut again = row(Some(11324));
+        again.vote_count = Some(1300);
+        upsert_tmdb_search(&conn, &again).unwrap();
+        assert_eq!(
+            queries::get_tmdb_row(&conn, &key())
+                .unwrap()
+                .unwrap()
+                .vote_count,
+            Some(1300)
+        );
+    }
+
+    #[test]
+    fn a_manual_pick_clears_the_vote_count_until_details_arrive() {
+        let conn = setup_test_db();
+        upsert_tmdb_search(&conn, &row(Some(11324))).unwrap();
+        set_tmdb_manual(&conn, &key(), Some(999), "2026-09-26T12:00:00+00:00").unwrap();
+        assert_eq!(
+            queries::get_tmdb_row(&conn, &key())
+                .unwrap()
+                .unwrap()
+                .vote_count,
+            None
+        );
+        let mut details = row(Some(999));
+        details.manual = true;
+        details.vote_count = Some(77);
+        details.details_fetched_at = Some("2026-09-26T12:00:00+00:00".into());
+        upsert_tmdb_details(&conn, &details).unwrap();
+        assert_eq!(
+            queries::get_tmdb_row(&conn, &key())
+                .unwrap()
+                .unwrap()
+                .vote_count,
+            Some(77)
+        );
     }
 
     #[test]

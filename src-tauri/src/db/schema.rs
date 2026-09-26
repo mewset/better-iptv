@@ -242,6 +242,7 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             original_title TEXT,
             release_year INTEGER,
             rating REAL,
+            vote_count INTEGER,
             poster_path TEXT,
             backdrop_path TEXT,
             overview TEXT,
@@ -261,6 +262,13 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
          ON tmdb_metadata(content_type, normalized_title, year)",
         [],
     )?;
+    // Migration: vote_count arrived with the Home page (3.0.0). NULL means
+    // "searched before the column existed"; Home's filter skips such rows
+    // until the background scan re-searches them.
+    let _ = conn.execute(
+        "ALTER TABLE tmdb_metadata ADD COLUMN vote_count INTEGER",
+        [],
+    );
     conn.execute(
         "CREATE TABLE IF NOT EXISTS tmdb_episodes (
             tmdb_id INTEGER NOT NULL,
@@ -657,5 +665,39 @@ mod tests {
         assert!(queries::get_setting(&conn, M3U_SERIES_GROUPED_KEY)
             .unwrap()
             .is_some());
+    }
+}
+
+#[cfg(test)]
+mod home_migration_tests {
+    use super::*;
+
+    /// A database from before 3.0.0 has tmdb_metadata without vote_count;
+    /// init_schema must add it and stay idempotent.
+    #[test]
+    fn vote_count_is_added_to_a_pre_existing_tmdb_metadata_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE tmdb_metadata (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                normalized_title TEXT NOT NULL, year INTEGER NOT NULL, content_type TEXT NOT NULL,
+                tmdb_id INTEGER, manual INTEGER NOT NULL DEFAULT 0, title TEXT, original_title TEXT,
+                release_year INTEGER, rating REAL, poster_path TEXT, backdrop_path TEXT, overview TEXT,
+                genre_ids TEXT, runtime_minutes INTEGER, genres TEXT, cast_json TEXT,
+                trailer_youtube_key TEXT, searched_at TEXT NOT NULL, details_fetched_at TEXT,
+                UNIQUE(normalized_title, year, content_type))",
+            [],
+        )
+        .unwrap();
+        init_schema(&conn).unwrap();
+        init_schema(&conn).unwrap();
+        let columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(tmdb_metadata)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(|c| c.unwrap())
+            .collect();
+        assert!(columns.iter().any(|c| c == "vote_count"), "{columns:?}");
     }
 }

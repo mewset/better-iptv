@@ -335,7 +335,8 @@ pub fn get_channels_by_ids(conn: &Connection, ids: &[i64]) -> Result<Vec<Channel
 
 const TMDB_SELECT_COLUMNS: &str = "normalized_title, year, content_type, tmdb_id, manual, title, \
     original_title, release_year, rating, poster_path, backdrop_path, overview, genre_ids, \
-    runtime_minutes, genres, cast_json, trailer_youtube_key, searched_at, details_fetched_at";
+    runtime_minutes, genres, cast_json, trailer_youtube_key, searched_at, details_fetched_at, \
+    vote_count";
 
 fn map_tmdb_row(row: &rusqlite::Row) -> Result<TmdbRow> {
     Ok(TmdbRow {
@@ -360,6 +361,7 @@ fn map_tmdb_row(row: &rusqlite::Row) -> Result<TmdbRow> {
         trailer_youtube_key: row.get(16)?,
         searched_at: row.get(17)?,
         details_fetched_at: row.get(18)?,
+        vote_count: row.get(19)?,
     })
 }
 
