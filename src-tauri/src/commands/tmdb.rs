@@ -116,6 +116,7 @@ pub fn group_jobs(channels: &[Channel]) -> Vec<EnrichJob> {
                         query,
                         kind,
                         channel_ids: vec![id],
+                        generation: 0,
                     },
                 );
             }

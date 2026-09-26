@@ -1,9 +1,11 @@
 //! Per-process TMDB state: which key was rejected this session, which
-//! cache keys are being enriched right now, and the enrichment queue.
+//! cache keys are being enriched right now, and the two enrichment queues
+//! (visible rows first, the whole-library scan behind them).
 
 use crate::tmdb::enrich::EnrichJob;
+use serde::Serialize;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
@@ -23,6 +25,26 @@ struct SharedRejections {
     keys: HashSet<String>,
 }
 
+/// Where the background library scan stands. `running` is false once every
+/// planned title has been searched (or the scan was cancelled).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct BackgroundProgress {
+    pub done: u64,
+    pub total: u64,
+    pub running: bool,
+}
+
+/// Background jobs carry the generation they were planned in; a cancel
+/// bumps it and the worker drops anything older. Foreground jobs carry 0.
+pub fn is_stale_job(job: &EnrichJob, current_generation: u64) -> bool {
+    generation_is_stale(job.generation, current_generation)
+}
+
+/// `is_stale_job` for a job that has already been consumed.
+pub fn generation_is_stale(generation: u64, current_generation: u64) -> bool {
+    generation != 0 && generation < current_generation
+}
+
 #[derive(Debug)]
 pub struct TmdbSession {
     user_key_rejected: AtomicBool,
@@ -35,11 +57,28 @@ pub struct TmdbSession {
     in_flight: Mutex<HashSet<String>>,
     queue_tx: UnboundedSender<EnrichJob>,
     queue_rx: Mutex<Option<UnboundedReceiver<EnrichJob>>>,
+    /// The low-priority queue for the library scan. The worker only takes
+    /// from it while the foreground queue is empty.
+    bg_tx: UnboundedSender<EnrichJob>,
+    bg_rx: Mutex<Option<UnboundedReceiver<EnrichJob>>>,
+    /// Starts at 1 so a background job is never mistaken for a foreground
+    /// one (generation 0).
+    bg_generation: AtomicU64,
+    /// Held from the start of planning until the last planned job finished
+    /// or the scan was cancelled, so scans never interleave.
+    bg_scan_lock: AtomicBool,
+    /// Set by `start_background`, cleared by `cancel_background`; while it
+    /// is off there is no progress to report and nothing to count.
+    bg_started: AtomicBool,
+    bg_total: AtomicU64,
+    bg_done: AtomicU64,
+    bg_running: AtomicBool,
 }
 
 impl Default for TmdbSession {
     fn default() -> Self {
         let (tx, rx) = unbounded_channel();
+        let (bg_tx, bg_rx) = unbounded_channel();
         Self {
             user_key_rejected: AtomicBool::new(false),
             shared_key_rejected: AtomicBool::new(false),
@@ -49,6 +88,14 @@ impl Default for TmdbSession {
             in_flight: Mutex::new(HashSet::new()),
             queue_tx: tx,
             queue_rx: Mutex::new(Some(rx)),
+            bg_tx,
+            bg_rx: Mutex::new(Some(bg_rx)),
+            bg_generation: AtomicU64::new(1),
+            bg_scan_lock: AtomicBool::new(false),
+            bg_started: AtomicBool::new(false),
+            bg_total: AtomicU64::new(0),
+            bg_done: AtomicU64::new(0),
+            bg_running: AtomicBool::new(false),
         }
     }
 }
@@ -158,6 +205,95 @@ impl TmdbSession {
     pub fn take_receiver(&self) -> Option<UnboundedReceiver<EnrichJob>> {
         self.queue_rx.lock().expect("tmdb queue poisoned").take()
     }
+
+    /// Queue a title for the library scan; served only behind the
+    /// foreground queue. Dropped if the worker is gone.
+    #[allow(dead_code)] // Called by schedule_library_scan, which lands with the scan itself
+    pub fn enqueue_background(&self, job: EnrichJob) {
+        let _ = self.bg_tx.send(job);
+    }
+
+    /// The worker takes the background receiver once, at startup.
+    pub fn take_background_receiver(&self) -> Option<UnboundedReceiver<EnrichJob>> {
+        self.bg_rx.lock().expect("tmdb bg queue poisoned").take()
+    }
+
+    pub fn current_generation(&self) -> u64 {
+        self.bg_generation.load(Ordering::SeqCst)
+    }
+
+    /// Abandon the running scan: every queued background job becomes stale
+    /// and the progress is cleared, so a late job cannot count towards the
+    /// next scan. Releases the scan lock.
+    #[allow(dead_code)] // Called from set_setting, which lands with the scan itself
+    pub fn cancel_background(&self) {
+        self.bg_generation.fetch_add(1, Ordering::SeqCst);
+        self.bg_started.store(false, Ordering::SeqCst);
+        self.bg_running.store(false, Ordering::SeqCst);
+        self.bg_total.store(0, Ordering::SeqCst);
+        self.bg_done.store(0, Ordering::SeqCst);
+        self.bg_scan_lock.store(false, Ordering::SeqCst);
+    }
+
+    /// Take the scan lock. False while another scan is planning or still
+    /// has jobs in the queue.
+    #[allow(dead_code)] // Called by schedule_library_scan, which lands with the scan itself
+    pub fn try_begin_scan(&self) -> bool {
+        self.bg_scan_lock
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
+
+    /// Release the scan lock without touching the counters: planning bailed
+    /// out before any job was queued.
+    #[allow(dead_code)] // Called by schedule_library_scan, which lands with the scan itself
+    pub fn end_scan(&self) {
+        self.bg_scan_lock.store(false, Ordering::SeqCst);
+    }
+
+    /// A scan has been planned with `total` jobs. Zero jobs is a finished
+    /// scan, so the lock is released at once.
+    #[allow(dead_code)] // Called by schedule_library_scan, which lands with the scan itself
+    pub fn start_background(&self, total: u64) {
+        self.bg_total.store(total, Ordering::SeqCst);
+        self.bg_done.store(0, Ordering::SeqCst);
+        self.bg_started.store(true, Ordering::SeqCst);
+        let running = total > 0;
+        self.bg_running.store(running, Ordering::SeqCst);
+        if !running {
+            self.bg_scan_lock.store(false, Ordering::SeqCst);
+        }
+    }
+
+    /// One background job finished (or was skipped). Returns `(done, total)`;
+    /// the last one ends the scan and releases the lock. A no-op `(0, 0)`
+    /// while no scan is started, which is where a cancelled job lands.
+    pub fn note_background_done(&self) -> (u64, u64) {
+        if !self.bg_started.load(Ordering::SeqCst) {
+            return (0, 0);
+        }
+        let total = self.bg_total.load(Ordering::SeqCst);
+        let done = (self.bg_done.fetch_add(1, Ordering::SeqCst) + 1).min(total);
+        if done >= total {
+            self.bg_running.store(false, Ordering::SeqCst);
+            self.bg_scan_lock.store(false, Ordering::SeqCst);
+        }
+        (done, total)
+    }
+
+    /// `None` until the first scan of the session starts (or after a cancel).
+    #[allow(dead_code)] // Read by get_tmdb_status, which lands with the scan itself
+    pub fn background_progress(&self) -> Option<BackgroundProgress> {
+        if !self.bg_started.load(Ordering::SeqCst) {
+            return None;
+        }
+        let total = self.bg_total.load(Ordering::SeqCst);
+        Some(BackgroundProgress {
+            done: self.bg_done.load(Ordering::SeqCst).min(total),
+            total,
+            running: self.bg_running.load(Ordering::SeqCst),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -249,8 +385,112 @@ mod tests {
             },
             kind: crate::tmdb::Kind::Movie,
             channel_ids: vec![1, 2],
+            generation: 0,
         });
         let job = rx.try_recv().expect("the job is queued");
         assert_eq!(job.channel_ids, vec![1, 2]);
+    }
+
+    fn bg_job(generation: u64) -> EnrichJob {
+        EnrichJob {
+            key: crate::db::models::TmdbKey {
+                title: "dune".into(),
+                year: 2021,
+                content_type: "vod".into(),
+            },
+            query: crate::tmdb_domain::Normalized {
+                title: "Dune".into(),
+                year: Some(2021),
+            },
+            kind: crate::tmdb::Kind::Movie,
+            channel_ids: vec![1],
+            generation,
+        }
+    }
+
+    #[test]
+    fn the_background_receiver_can_be_taken_once_and_sees_queued_jobs() {
+        let s = TmdbSession::default();
+        let mut rx = s
+            .take_background_receiver()
+            .expect("first take yields the receiver");
+        assert!(s.take_background_receiver().is_none());
+        s.enqueue_background(bg_job(s.current_generation()));
+        let job = rx.try_recv().expect("the job is queued");
+        assert_eq!(job.generation, s.current_generation());
+        // The foreground queue is untouched.
+        let mut fg = s.take_receiver().unwrap();
+        assert!(fg.try_recv().is_err());
+    }
+
+    #[test]
+    fn cancelling_bumps_the_generation_and_only_older_background_jobs_are_stale() {
+        let s = TmdbSession::default();
+        let first = s.current_generation();
+        assert!(
+            first > 0,
+            "background generations start above the foreground's 0"
+        );
+        let job = bg_job(first);
+        assert!(!is_stale_job(&job, s.current_generation()));
+        s.cancel_background();
+        assert_eq!(s.current_generation(), first + 1);
+        assert!(is_stale_job(&job, s.current_generation()));
+        // A foreground job (generation 0) is never stale.
+        assert!(!is_stale_job(&bg_job(0), s.current_generation()));
+        assert!(!is_stale_job(
+            &bg_job(s.current_generation()),
+            s.current_generation()
+        ));
+    }
+
+    #[test]
+    fn progress_counts_up_to_the_total_and_is_absent_before_the_first_scan() {
+        let s = TmdbSession::default();
+        assert_eq!(s.background_progress(), None);
+        assert!(s.try_begin_scan());
+        s.start_background(2);
+        assert_eq!(
+            s.background_progress(),
+            Some(BackgroundProgress {
+                done: 0,
+                total: 2,
+                running: true
+            })
+        );
+        assert_eq!(s.note_background_done(), (1, 2));
+        assert!(s.background_progress().unwrap().running);
+        assert_eq!(s.note_background_done(), (2, 2));
+        assert_eq!(
+            s.background_progress(),
+            Some(BackgroundProgress {
+                done: 2,
+                total: 2,
+                running: false
+            })
+        );
+        // Cancelling clears the progress, so a stale job cannot count
+        // towards the next scan.
+        s.cancel_background();
+        assert_eq!(s.background_progress(), None);
+        assert_eq!(s.note_background_done(), (0, 0));
+    }
+
+    #[test]
+    fn one_scan_at_a_time_until_its_jobs_are_done_or_it_is_cancelled() {
+        let s = TmdbSession::default();
+        assert!(s.try_begin_scan());
+        assert!(!s.try_begin_scan(), "a second scan must wait");
+        s.start_background(1);
+        assert!(!s.try_begin_scan(), "still running");
+        s.note_background_done();
+        assert!(s.try_begin_scan(), "released when the last job finished");
+        s.cancel_background();
+        assert!(s.try_begin_scan(), "released by cancel");
+        s.end_scan();
+        assert!(s.try_begin_scan(), "released when planning bails out");
+        // An empty scan releases the lock right away.
+        s.start_background(0);
+        assert!(s.try_begin_scan());
     }
 }

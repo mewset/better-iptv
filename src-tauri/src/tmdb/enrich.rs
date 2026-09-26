@@ -1,5 +1,7 @@
-//! Background enrichment: one search per queued title, result written to
-//! the cache and pushed to the frontend as a `tmdb-card` event.
+//! Enrichment worker: one search per queued title, result written to the
+//! cache and pushed to the frontend as a `tmdb-card` event. Two queues feed
+//! it: the visible rows (foreground, served first) and the opt-in library
+//! scan (background, paced so it never crowds the foreground out).
 
 use crate::commands::tmdb::{card_from_row, TmdbCard};
 use crate::commands::with_db;
@@ -8,7 +10,7 @@ use crate::db::{mutations, queries};
 use crate::error::AppError;
 use crate::state::AppState;
 use crate::tmdb::keys::{handle_unauthorized, read_language, resolve_key};
-use crate::tmdb::session::TmdbSession;
+use crate::tmdb::session::{generation_is_stale, is_stale_job, BackgroundProgress, TmdbSession};
 use crate::tmdb::{Kind, TmdbClient, TmdbError};
 use crate::tmdb_domain::{pick_match, Normalized};
 use chrono::Utc;
@@ -16,7 +18,10 @@ use log::{debug, warn};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use serde::Serialize;
+use std::sync::Arc;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
+use tokio::time::Instant;
 
 #[derive(Debug, Clone)]
 pub struct EnrichJob {
@@ -24,6 +29,8 @@ pub struct EnrichJob {
     pub query: Normalized,
     pub kind: Kind,
     pub channel_ids: Vec<i64>,
+    /// 0 for a foreground job; the scan generation for a background one.
+    pub generation: u64,
 }
 
 #[derive(Serialize, Clone)]
@@ -33,6 +40,11 @@ struct CardEvent {
 }
 
 pub const CARD_EVENT: &str = "tmdb-card";
+pub const BACKGROUND_PROGRESS_EVENT: &str = "tmdb-background-progress";
+
+/// Background jobs start at most this often (five per second), so the
+/// library scan stays gentle on TMDB and on the four shared permits.
+pub const BACKGROUND_MIN_INTERVAL: Duration = Duration::from_millis(200);
 
 /// The in-flight key string, shared by the command and the worker.
 pub fn claim_key(key: &TmdbKey) -> String {
@@ -97,42 +109,111 @@ pub async fn search_and_store(
     Ok(final_row)
 }
 
+fn emit_progress(app: &AppHandle, progress: BackgroundProgress) {
+    if let Err(e) = app.emit(BACKGROUND_PROGRESS_EVENT, progress) {
+        warn!("TMDB: failed to emit {BACKGROUND_PROGRESS_EVENT}: {e}");
+    }
+}
+
+/// Search one job, release its claim, and push the card to the frontend.
+async fn run_job(
+    app: &AppHandle,
+    pool: &Pool<SqliteConnectionManager>,
+    session: &TmdbSession,
+    job: EnrichJob,
+) {
+    let claim = claim_key(&job.key);
+    let result = search_and_store(pool, session, &job.key, &job.query, job.kind).await;
+    session.release(&claim);
+    match result {
+        Ok(Some(row)) => {
+            if let Some(card) = card_from_row(job.channel_ids[0], &row) {
+                let event = CardEvent {
+                    channel_ids: job.channel_ids,
+                    card,
+                };
+                if let Err(e) = app.emit(CARD_EVENT, event) {
+                    warn!("TMDB: failed to emit {CARD_EVENT}: {e}");
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(e) => warn!("TMDB enrichment failed for {:?}: {e}", job.query.title),
+    }
+}
+
+/// A background job: the search, then exactly one progress event, unless
+/// the scan was cancelled while the search ran.
+async fn run_background_job(
+    app: &AppHandle,
+    pool: &Pool<SqliteConnectionManager>,
+    session: &TmdbSession,
+    job: EnrichJob,
+) {
+    let generation = job.generation;
+    run_job(app, pool, session, job).await;
+    if generation_is_stale(generation, session.current_generation()) {
+        return;
+    }
+    let (done, total) = session.note_background_done();
+    emit_progress(
+        app,
+        BackgroundProgress {
+            done,
+            total,
+            running: done < total,
+        },
+    );
+}
+
 /// Start the worker on Tauri's runtime. Called once from `lib.rs` setup.
+///
+/// The loop is biased to the foreground queue: a background job is only
+/// taken while the foreground queue is empty and `BACKGROUND_MIN_INTERVAL`
+/// has passed since the previous background job started. Both kinds run on
+/// their own task, so the loop keeps dispatching; the client's semaphore
+/// bounds real concurrency at four.
 pub fn spawn_worker(app: AppHandle) {
     let state = app.state::<AppState>();
-    let Some(mut rx) = state.tmdb.take_receiver() else {
+    let (Some(mut rx), Some(mut bg_rx)) = (
+        state.tmdb.take_receiver(),
+        state.tmdb.take_background_receiver(),
+    ) else {
         warn!("TMDB worker already started");
         return;
     };
     let pool = state.pool.clone();
-    let session = state.tmdb.clone();
+    let session: Arc<TmdbSession> = state.tmdb.clone();
     tauri::async_runtime::spawn(async move {
-        while let Some(job) = rx.recv().await {
-            let app = app.clone();
-            let pool = pool.clone();
-            let session = session.clone();
-            // The client's semaphore bounds real concurrency at 4.
-            tauri::async_runtime::spawn(async move {
-                let claim = claim_key(&job.key);
-                let result =
-                    search_and_store(&pool, &session, &job.key, &job.query, job.kind).await;
-                session.release(&claim);
-                match result {
-                    Ok(Some(row)) => {
-                        if let Some(card) = card_from_row(job.channel_ids[0], &row) {
-                            let event = CardEvent {
-                                channel_ids: job.channel_ids,
-                                card,
-                            };
-                            if let Err(e) = app.emit(CARD_EVENT, event) {
-                                warn!("TMDB: failed to emit {CARD_EVENT}: {e}");
-                            }
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(e) => warn!("TMDB enrichment failed for {:?}: {e}", job.query.title),
+        let mut next_background_at = Instant::now();
+        loop {
+            tokio::select! {
+                biased;
+                job = rx.recv() => {
+                    let Some(job) = job else { break };
+                    let (app, pool, session) = (app.clone(), pool.clone(), session.clone());
+                    tauri::async_runtime::spawn(async move {
+                        run_job(&app, &pool, &session, job).await;
+                    });
                 }
-            });
+                job = async {
+                    tokio::time::sleep_until(next_background_at).await;
+                    bg_rx.recv().await
+                } => {
+                    let Some(job) = job else { break };
+                    if is_stale_job(&job, session.current_generation()) {
+                        // Cancelled scan: free the claim so a visible row can
+                        // search it right away; no pacing cost for a drop.
+                        session.release(&claim_key(&job.key));
+                        continue;
+                    }
+                    next_background_at = Instant::now() + BACKGROUND_MIN_INTERVAL;
+                    let (app, pool, session) = (app.clone(), pool.clone(), session.clone());
+                    tauri::async_runtime::spawn(async move {
+                        run_background_job(&app, &pool, &session, job).await;
+                    });
+                }
+            }
         }
     });
 }
