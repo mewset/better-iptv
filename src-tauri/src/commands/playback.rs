@@ -15,6 +15,8 @@ const MPV_SETTING_KEYS: &[&str] = &[
     "mpv_start_fullscreen",
     "mpv_cache_secs",
     "mpv_start_volume",
+    "playlist_user_agent_mode",
+    "playlist_user_agent_custom",
 ];
 
 /// Build playback settings from database settings
@@ -48,6 +50,13 @@ pub fn build_playback_options(
     let start_volume = settings
         .get("mpv_start_volume")
         .and_then(|s| s.parse::<u32>().ok());
+    // The stream carries the same User-Agent as the playlist and EPG requests.
+    let user_agent = crate::http::resolve_playlist_user_agent(
+        settings.get("playlist_user_agent_mode").map(|s| s.as_str()),
+        settings
+            .get("playlist_user_agent_custom")
+            .map(|s| s.as_str()),
+    );
 
     Ok(PlaybackSettings {
         title: title.map(|s| s.to_string()),
@@ -59,6 +68,7 @@ pub fn build_playback_options(
         start_fullscreen,
         cache_secs,
         start_volume,
+        user_agent: Some(user_agent),
     })
 }
 

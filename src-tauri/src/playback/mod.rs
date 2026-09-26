@@ -19,6 +19,7 @@ pub struct PlaybackSettings {
     pub start_fullscreen: bool,
     pub cache_secs: Option<u32>,
     pub start_volume: Option<u32>,
+    pub user_agent: Option<String>,
 }
 
 impl PlaybackSettings {
@@ -33,6 +34,7 @@ impl PlaybackSettings {
             start_fullscreen: self.start_fullscreen,
             cache_secs: self.cache_secs,
             start_volume: self.start_volume,
+            user_agent: self.user_agent.as_deref(),
         }
     }
 }

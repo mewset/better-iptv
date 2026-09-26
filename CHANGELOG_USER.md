@@ -41,6 +41,7 @@ A simple overview of new features and improvements.
 
 ### Improvements
 
+- The User-Agent you choose under Settings → General (TiviMate, VLC or your own) is now sent with every stream too, not only when the playlist and guide are downloaded. Providers that only accept known players, or that allow a second connection for them, now see the same player for everything
 - The "Recently added" banner only features titles that TMDB recognises and never anything labelled as adult content, whether or not parental controls are on
 - The Series section starts with a "Recently added" banner for the newest series, like Movies already does
 - The profile menu in the top right now has an "Add profile" row, so you can add a playlist or provider without going into Settings

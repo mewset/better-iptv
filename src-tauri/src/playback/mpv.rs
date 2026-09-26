@@ -104,6 +104,9 @@ pub struct MpvPlaybackOptions<'a> {
     pub start_fullscreen: bool,
     pub cache_secs: Option<u32>,
     pub start_volume: Option<u32>,
+    /// User-Agent for the stream request, the same one the playlist and EPG
+    /// downloads use, so providers that allow-list players see one identity.
+    pub user_agent: Option<&'a str>,
 }
 
 impl MpvPlayer {
@@ -191,6 +194,13 @@ impl MpvPlayer {
         if let Some(lang) = options.subtitle_lang {
             if !lang.is_empty() {
                 cmd.arg(format!("--slang={}", lang));
+            }
+        }
+
+        // User-Agent for the stream request
+        if let Some(ua) = options.user_agent {
+            if !ua.is_empty() {
+                cmd.arg(format!("--user-agent={}", ua));
             }
         }
     }
@@ -389,6 +399,45 @@ mod tests {
                 failed: false
             }
         );
+    }
+
+    fn args_of(options: &MpvPlaybackOptions) -> Vec<String> {
+        let mut cmd = Command::new("mpv");
+        MpvPlayer::apply_args(&mut cmd, options);
+        cmd.get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect()
+    }
+
+    fn bare_options() -> MpvPlaybackOptions<'static> {
+        MpvPlaybackOptions {
+            title: None,
+            audio_lang: None,
+            subtitle_lang: None,
+            hwdec: true,
+            video_output: None,
+            deinterlace: None,
+            start_fullscreen: false,
+            cache_secs: None,
+            start_volume: None,
+            user_agent: None,
+        }
+    }
+
+    #[test]
+    fn the_configured_user_agent_is_passed_to_mpv() {
+        let options = MpvPlaybackOptions {
+            user_agent: Some("VLC/3.0.20 LibVLC/3.0.20"),
+            ..bare_options()
+        };
+        assert!(args_of(&options).contains(&"--user-agent=VLC/3.0.20 LibVLC/3.0.20".to_string()));
+    }
+
+    #[test]
+    fn no_user_agent_flag_without_a_configured_user_agent() {
+        assert!(!args_of(&bare_options())
+            .iter()
+            .any(|a| a.starts_with("--user-agent=")));
     }
 
     #[cfg(unix)]

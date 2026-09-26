@@ -108,7 +108,7 @@ export default function GeneralTab({
               ))}
             </select>
             <p className="mt-1 text-xs text-text-faint">
-              Used when downloading playlists and Xtream-provided EPG data
+              Sent with playlist and EPG downloads and with every stream MPV opens
             </p>
             <p className="mt-2 break-all text-xs text-text-faint">
               Current header: <span className="font-mono">{userAgentPreview.value}</span>

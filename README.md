@@ -73,6 +73,7 @@ Better IPTV is a desktop app for watching IPTV: live channels, movies and series
 - MPV does the playing: hardware acceleration, every codec, HLS, RTSP and RTMP streams
 - Choose the video renderer, deinterlacing, start volume, fullscreen at start and how many seconds to buffer
 - Preferred audio and subtitle languages (18 languages), passed to MPV for every stream
+- The User-Agent you pick in Settings → General (TiviMate, VLC or your own) goes out with every stream too, for providers that only accept known players
 - If a stream cannot be played, the app tells you instead of doing nothing
 
 ### Looks
@@ -242,6 +243,12 @@ Home only shows up when the app has ratings for your whole library, which the sh
 <summary><strong>How many channels can it handle?</strong></summary>
 
 Playlists of 150,000+ channels have been used during development without trouble. The grid only renders what is on screen.
+</details>
+
+<details>
+<summary><strong>I stop a channel, start another and get "The provider refused the stream"</strong></summary>
+
+The full message is *Couldn't play …. The provider refused the stream, maybe because your line is already in use.* Many providers allow one stream per line and count the previous one as open for a little while after you stop it, so quick zapping trips the limit. Some of them are more generous with players they recognise. Go to **Settings → General → User-Agent** and pick **TiviMate** or **VLC**; the app then identifies itself as that player for playlist downloads, the guide and every stream. If that does not help, wait half a minute between channels or ask your provider how many connections your line allows.
 </details>
 
 <details>
