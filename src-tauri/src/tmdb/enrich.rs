@@ -324,8 +324,9 @@ pub fn plan_background_jobs(
 }
 
 /// The database half of a scan: the active profile's channels, filtered
-/// by the same freshness rule `get_tmdb_cards` uses. `None` without an
-/// active profile.
+/// by `row_is_fresh_for_scan`, which extends the foreground rule to
+/// re-search automatic matches that predate the `vote_count` column (3.0.0).
+/// `None` without an active profile.
 fn plan_library_scan(conn: &Connection) -> Result<Option<Vec<EnrichJob>>, AppError> {
     let Some(playlist_id) = active_playlist_id(conn)? else {
         return Ok(None);
