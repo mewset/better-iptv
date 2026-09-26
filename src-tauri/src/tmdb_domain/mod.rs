@@ -1,9 +1,11 @@
 //! Pure TMDB logic: title normalisation, match selection, key format,
 //! staleness rules, genre names, image URLs. No I/O, no database.
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
 use lazy_static::lazy_static;
+use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use regex::Regex;
+use std::collections::HashSet;
 
 /// A provider title reduced to what TMDB can search for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -350,6 +352,131 @@ pub fn genre_name(id: i32) -> Option<&'static str> {
     })
 }
 
+// ---------- Home page ----------
+
+/// A genre the Home page may build a slideshow from, per content type
+/// (`"vod"` = TMDB movie genres, `"series"` = TMDB TV genres).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HomeGenre {
+    pub id: i32,
+    pub content_type: &'static str,
+}
+
+const fn movie(id: i32) -> HomeGenre {
+    HomeGenre {
+        id,
+        content_type: "vod",
+    }
+}
+
+const fn tv(id: i32) -> HomeGenre {
+    HomeGenre {
+        id,
+        content_type: "series",
+    }
+}
+
+/// Every TMDB genre worth a slideshow. Left out on purpose: Music, TV
+/// Movie, News, Reality, Soap, Talk.
+pub const HOME_GENRES: &[HomeGenre] = &[
+    movie(28),    // Action
+    movie(12),    // Adventure
+    movie(16),    // Animation
+    movie(35),    // Comedy
+    movie(80),    // Crime
+    movie(99),    // Documentary
+    movie(18),    // Drama
+    movie(10751), // Family
+    movie(14),    // Fantasy
+    movie(36),    // History
+    movie(27),    // Horror
+    movie(9648),  // Mystery
+    movie(10749), // Romance
+    movie(878),   // Science Fiction
+    movie(53),    // Thriller
+    movie(10752), // War
+    movie(37),    // Western
+    tv(10759),    // Action & Adventure
+    tv(16),       // Animation
+    tv(35),       // Comedy
+    tv(80),       // Crime
+    tv(99),       // Documentary
+    tv(18),       // Drama
+    tv(10751),    // Family
+    tv(10762),    // Kids
+    tv(9648),     // Mystery
+    tv(10765),    // Sci-Fi & Fantasy
+    tv(10768),    // War & Politics
+    tv(37),       // Western
+];
+
+pub const HOME_ROWS: usize = 6;
+pub const HOME_MIN_TITLES: usize = 5;
+pub const HOME_TITLES_PER_ROW: usize = 12;
+
+/// One title that passed Home's filter, reduced to what planning needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HomeInput {
+    pub channel_id: i64,
+    pub content_type: String,
+    pub genre_ids: Vec<i32>,
+}
+
+/// One slideshow: a genre, a content type and the day's sample of titles.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HomeRowPlan {
+    pub genre_id: i32,
+    pub content_type: String,
+    pub channel_ids: Vec<i64>,
+}
+
+/// The day as a number, so the same date seeds the same shuffle.
+pub fn home_seed(date: NaiveDate) -> u64 {
+    date.num_days_from_ce() as u64
+}
+
+/// The day's slideshows. Deterministic in `(date, inputs)`: the rng is
+/// consumed in a fixed order and candidate ids are sorted before every
+/// shuffle, so the caller's ordering does not matter. A title with several
+/// genres goes to the first accepted genre only. `rand`'s StdRng may change
+/// its algorithm on a major bump; that only changes which day shows what.
+pub fn plan_home(date: NaiveDate, inputs: &[HomeInput]) -> Vec<HomeRowPlan> {
+    let mut rng = StdRng::seed_from_u64(home_seed(date));
+    let mut genres: Vec<HomeGenre> = HOME_GENRES.to_vec();
+    genres.shuffle(&mut rng);
+
+    let mut used: HashSet<i64> = HashSet::new();
+    let mut rows = Vec::new();
+    for genre in genres {
+        if rows.len() == HOME_ROWS {
+            break;
+        }
+        let mut ids: Vec<i64> = inputs
+            .iter()
+            .filter(|i| {
+                i.content_type == genre.content_type
+                    && i.genre_ids.contains(&genre.id)
+                    && !used.contains(&i.channel_id)
+            })
+            .map(|i| i.channel_id)
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        if ids.len() < HOME_MIN_TITLES {
+            continue;
+        }
+        ids.shuffle(&mut rng);
+        ids.truncate(HOME_TITLES_PER_ROW);
+        used.extend(ids.iter().copied());
+        rows.push(HomeRowPlan {
+            genre_id: genre.id,
+            content_type: genre.content_type.to_string(),
+            channel_ids: ids,
+        });
+    }
+    rows
+}
+
 // ---------- images ----------
 
 pub const IMAGE_BASE: &str = "https://image.tmdb.org/t/p/";
@@ -693,5 +820,131 @@ mod matching_tests {
             decide_key(&settings(true, None, Some("s"), None), now),
             KeyDecision::FetchShared { .. }
         ));
+    }
+}
+
+#[cfg(test)]
+mod home_tests {
+    use super::*;
+    use chrono::NaiveDate;
+
+    fn d(day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, 9, day).unwrap()
+    }
+
+    fn input(channel_id: i64, content_type: &str, genre_ids: &[i32]) -> HomeInput {
+        HomeInput {
+            channel_id,
+            content_type: content_type.into(),
+            genre_ids: genre_ids.to_vec(),
+        }
+    }
+
+    /// Six movies in each of eight movie genres, ids 1..=48, plus six series in Drama.
+    fn library() -> Vec<HomeInput> {
+        let genres = [28, 35, 18, 53, 878, 27, 16, 80];
+        let mut v = Vec::new();
+        let mut id = 1;
+        for g in genres {
+            for _ in 0..6 {
+                v.push(input(id, "vod", &[g]));
+                id += 1;
+            }
+        }
+        for _ in 0..6 {
+            v.push(input(id, "series", &[18]));
+            id += 1;
+        }
+        v
+    }
+
+    #[test]
+    fn the_same_day_gives_the_same_plan_regardless_of_input_order() {
+        let lib = library();
+        let mut reversed = lib.clone();
+        reversed.reverse();
+        assert_eq!(plan_home(d(26), &lib), plan_home(d(26), &reversed));
+    }
+
+    #[test]
+    fn a_month_of_days_gives_more_than_one_plan() {
+        let lib = library();
+        let mut distinct: Vec<Vec<HomeRowPlan>> = Vec::new();
+        for day in 1..=30 {
+            let p = plan_home(d(day), &lib);
+            if !distinct.contains(&p) {
+                distinct.push(p);
+            }
+        }
+        assert!(distinct.len() > 1, "the date must change the plan");
+    }
+
+    #[test]
+    fn a_genre_needs_five_titles() {
+        let four: Vec<HomeInput> = (1..=4).map(|i| input(i, "vod", &[28])).collect();
+        assert!(plan_home(d(26), &four).is_empty());
+        let five: Vec<HomeInput> = (1..=5).map(|i| input(i, "vod", &[28])).collect();
+        let plan = plan_home(d(26), &five);
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].genre_id, 28);
+        assert_eq!(plan[0].content_type, "vod");
+        assert_eq!(plan[0].channel_ids.len(), 5);
+    }
+
+    #[test]
+    fn a_title_lands_in_at_most_one_row() {
+        // Every title is both Action and Thriller: one genre takes them all.
+        let both: Vec<HomeInput> = (1..=8).map(|i| input(i, "vod", &[28, 53])).collect();
+        let plan = plan_home(d(26), &both);
+        assert_eq!(plan.len(), 1, "{plan:?}");
+        assert_eq!(plan[0].channel_ids.len(), 8);
+    }
+
+    #[test]
+    fn rows_and_titles_are_capped() {
+        let mut lib = library();
+        // Thirty Comedy titles on top of the six already there.
+        lib.extend((100..130).map(|i| input(i, "vod", &[35])));
+        let plan = plan_home(d(26), &lib);
+        assert!(plan.len() <= HOME_ROWS);
+        assert!(plan
+            .iter()
+            .all(|r| r.channel_ids.len() <= HOME_TITLES_PER_ROW));
+        let comedy = plan
+            .iter()
+            .find(|r| r.genre_id == 35 && r.content_type == "vod");
+        if let Some(row) = comedy {
+            assert_eq!(row.channel_ids.len(), HOME_TITLES_PER_ROW);
+        }
+    }
+
+    #[test]
+    fn fewer_eligible_genres_give_fewer_rows_and_series_and_movies_are_separate() {
+        let lib = library(); // 8 movie genres + 1 series genre
+        let mut all_rows = Vec::new();
+        for day in 1..=30 {
+            all_rows.push(plan_home(d(day), &lib));
+        }
+        // Drama series and Drama movies are distinct rows.
+        assert!(all_rows
+            .iter()
+            .flatten()
+            .any(|r| r.content_type == "series"));
+        assert!(all_rows.iter().all(|p| p.len() == HOME_ROWS));
+        let small: Vec<HomeInput> = (1..=10)
+            .map(|i| input(i, "vod", &[if i <= 5 { 28 } else { 35 }]))
+            .collect();
+        assert_eq!(plan_home(d(26), &small).len(), 2);
+        assert!(plan_home(d(26), &[]).is_empty());
+    }
+
+    #[test]
+    fn the_genre_list_holds_no_talk_or_reality_entries() {
+        for g in HOME_GENRES {
+            assert!(genre_name(g.id).is_some(), "unknown genre id {}", g.id);
+            assert!(![10402, 10770, 10763, 10764, 10766, 10767].contains(&g.id));
+            assert!(g.content_type == "vod" || g.content_type == "series");
+        }
+        assert_eq!(HOME_GENRES.len(), 29);
     }
 }
