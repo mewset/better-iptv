@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -92,5 +92,24 @@ describe('useHomeRows', () => {
     rerender({ id: 2 });
     expect(result.current.loading).toBe(true);
     await waitFor(() => expect(result.current.loading).toBe(false));
+  });
+
+  describe('midnight rollover', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('refetches when the local date changes while Home stays open', async () => {
+      // shouldAdvanceTime: waitFor's own polling still needs real elapsed
+      // time to fire; only the app's setInterval is driven explicitly below.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date('2026-09-26T23:59:30'));
+      const { result } = renderHook(() => useHomeRows(1, true));
+      await waitFor(() => expect(mockedInvoke).toHaveBeenCalledTimes(1));
+      vi.setSystemTime(new Date('2026-09-27T00:00:30'));
+      act(() => vi.advanceTimersByTime(60_000));
+      await waitFor(() => expect(mockedInvoke).toHaveBeenCalledTimes(2));
+      void result;
+    });
   });
 });

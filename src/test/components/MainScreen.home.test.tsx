@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
@@ -60,6 +60,14 @@ function item(channel_id: number) {
 
 const rows = [{ genre: 'Action', content_type: 'vod', items: [1, 2, 3, 4, 5].map(item) }];
 
+const seriesChannels = [6, 7, 8].map((id) =>
+  movie(id, `Title ${id}`, { content_type: 'series' })
+);
+const rowsWithSurvivor = [
+  { genre: 'Action', content_type: 'vod', items: [1, 2, 3, 4, 5].map(item) },
+  { genre: 'Comedy', content_type: 'series', items: [6, 7, 8].map(item) },
+];
+
 const mockedInvoke = vi.mocked(invoke);
 
 function status(open: boolean) {
@@ -79,7 +87,11 @@ function status(open: boolean) {
 // Settings would) while every other command keeps its answer.
 let gateOpen = false;
 
-function setupInvoke(open: boolean, parental = { enabled: false, blocked: [] as number[] }) {
+function setupInvoke(
+  open: boolean,
+  parental = { enabled: false, blocked: [] as number[] },
+  homeRows: unknown = rows
+) {
   gateOpen = open;
   mockedInvoke.mockReset();
   mockedInvoke.mockImplementation(async (cmd: string) => {
@@ -87,7 +99,7 @@ function setupInvoke(open: boolean, parental = { enabled: false, blocked: [] as 
       case 'get_tmdb_status':
         return status(gateOpen);
       case 'get_home_rows':
-        return rows;
+        return homeRows;
       case 'get_blocked_channels':
         return parental.blocked;
       case 'get_parental_settings':
@@ -165,6 +177,11 @@ describe('MainScreen: Home', () => {
     await waitFor(() =>
       expect(mockedInvoke.mock.calls.some((c) => c[0] === 'get_tmdb_status')).toBe(true)
     );
+    // The status call resolving is not the same as `setTmdbStatus` having
+    // run; flush the promise queue before asserting on its effects.
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(rail().queryByRole('button', { name: 'Home' })).toBeNull();
     expect(rail().getByRole('button', { name: 'Live TV' })).toHaveAttribute('aria-current', 'page');
     expect(mockedInvoke.mock.calls.some((c) => c[0] === 'get_home_rows')).toBe(false);
@@ -180,15 +197,16 @@ describe('MainScreen: Home', () => {
   });
 
   it('drops blocked titles and hides a row that falls under three', async () => {
-    setupInvoke(true, { enabled: true, blocked: [1, 2, 3] });
+    setupInvoke(true, { enabled: true, blocked: [1, 2, 3] }, rowsWithSurvivor);
     usePlayerStore.setState({ parentalEnabled: true, blockedChannelIds: new Set([1, 2, 3]) });
+    usePlayerStore.getState().setChannels([...channels, ...seriesChannels]);
     render(<MainScreen />);
     await rail().findByRole('button', { name: 'Home' });
     await waitFor(() =>
       expect(mockedInvoke.mock.calls.some((c) => c[0] === 'get_home_rows')).toBe(true)
     );
     expect(screen.queryByRole('region', { name: 'Action Movies' })).toBeNull();
-    expect(await screen.findByText(/Nothing to show yet/)).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Comedy Series' })).toBeInTheDocument();
   });
 
   it('leaves Home for Live TV when the gate closes', async () => {
@@ -212,6 +230,21 @@ describe('MainScreen: Home', () => {
       )
     );
     expect(rail().queryByRole('button', { name: 'Home' })).toBeNull();
+  });
+
+  it('leaving Settings through the rail refreshes the gate', async () => {
+    setupInvoke(true);
+    render(<MainScreen />);
+    await screen.findByRole('region', { name: 'Action Movies' });
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+    await screen.findByRole('heading', { level: 1, name: 'General' });
+    // Let the load effect settle so the clean snapshot is taken.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /^save changes$/i })).not.toBeDisabled()
+    );
+    gateOpen = false;
+    fireEvent.click(rail().getByRole('button', { name: 'Live TV' }));
+    await waitFor(() => expect(rail().queryByRole('button', { name: 'Home' })).toBeNull());
   });
 
   it('"/" on Home switches to Live TV and focuses search', async () => {

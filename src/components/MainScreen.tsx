@@ -620,6 +620,16 @@ export default function MainScreen() {
     }
   }, [tmdbStatus, homeAvailable, contentTypeFilter, handleSection]);
 
+  // Settings' Metadata tab can change any of the three gate inputs. Whatever
+  // way the view leaves 'settings' (Escape, the Close button, or a rail
+  // section click that goes through leaveSettingsThen), refresh the status
+  // once, in this one place, so the gate and rail entry reflect the change.
+  const prevView = useRef(view);
+  useEffect(() => {
+    if (prevView.current === 'settings' && view !== 'settings') refreshTmdbStatus();
+    prevView.current = view;
+  }, [view, refreshTmdbStatus]);
+
   // "/" on Home, where there is no search box: go to Live TV, then focus.
   const focusSearchPending = useRef(false);
   // Only while browsing: Settings and the detail view have no search box
@@ -763,7 +773,6 @@ export default function MainScreen() {
           <Settings
             onClose={() => {
               setView('browse');
-              refreshTmdbStatus();
             }}
             initialTab={settingsTab}
             leaveRef={settingsRef}

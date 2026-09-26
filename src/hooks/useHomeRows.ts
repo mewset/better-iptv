@@ -23,10 +23,25 @@ export function useHomeRows(playlistId: number | null, enabled: boolean): HomeRo
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<TmdbBackgroundProgress | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // The local calendar date the rows were planned for. The command's plan is
+  // a pure function of the date, so a date change means a different day's
+  // rows exist server-side even though nothing else changed; tracking it
+  // here (rather than in the fetch effect's own closure) lets a tick that
+  // crosses midnight trigger a refetch via the dependency list below.
+  const [homeDate, setHomeDate] = useState(() => new Date().toDateString());
   // The playlist id of the last successful load, so a scan-finish reload of
   // the same profile does not flash a skeleton over already-rendered rows,
   // while a profile switch (or re-entering Home) still shows one.
   const loadedForRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const id = window.setInterval(() => {
+      const today = new Date().toDateString();
+      setHomeDate((prev) => (prev === today ? prev : today));
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [enabled]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -75,7 +90,7 @@ export function useHomeRows(playlistId: number | null, enabled: boolean): HomeRo
     return () => {
       cancelled = true;
     };
-  }, [enabled, playlistId, reloadKey]);
+  }, [enabled, playlistId, reloadKey, homeDate]);
 
   return { rows, loading, progress };
 }
