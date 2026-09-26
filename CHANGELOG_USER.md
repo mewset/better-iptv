@@ -30,6 +30,12 @@ A simple overview of new features and improvements.
 - When it is on, the titles of your movies and series are sent to TMDB to look them up. Nothing else leaves the app
 - With your own TMDB key you can let the app fetch posters and details for your whole library in the background, at a gentle pace
 
+**Home**
+
+- A new Home page greets you and shows a handful of genre slideshows, movies and series separately, picked fresh every day from the well-rated titles in your own playlist
+- Click a slide to open the title's detail page
+- Home appears when you use your own TMDB key with "Fetch details for the whole library in the background" turned on under Settings → Metadata, because it needs your whole library rated
+
 ### Improvements
 
 - The "Recently added" banner only features titles that TMDB recognises and never anything labelled as adult content, whether or not parental controls are on

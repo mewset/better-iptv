@@ -43,6 +43,7 @@ Better IPTV is a desktop app for watching IPTV: live channels, movies and series
 
 ### Movies and series
 - Real posters, year and rating on every card, fetched from [TMDB](https://www.themoviedb.org/)
+- A Home page with daily genre slideshows of the best-rated movies and series in your playlist (needs your own TMDB key with the background scan on)
 - A **detail page** for each title: backdrop, plot, cast, a trailer link, and for series the seasons and episodes
 - **Series playback that queues the rest of the season**, for Xtream and for M3U playlists that name their episodes (`Show S01E02`, `Show 1x02`, `Show Season 1 Episode 2`)
 - A "Recently added" banner at the top of Movies and Series, showing the newest title your provider added
