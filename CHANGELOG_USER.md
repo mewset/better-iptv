@@ -20,6 +20,7 @@ A simple overview of new features and improvements.
 **TV Guide**
 
 - See what is on now and next across your channels, and press G to open it
+- Hover a programme to see its full name and time, handy for short blocks with long names
 
 **Posters, ratings and details from TMDB**
 
