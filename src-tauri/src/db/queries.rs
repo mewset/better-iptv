@@ -417,7 +417,7 @@ pub fn get_tmdb_home_candidates(
 ) -> Result<Vec<TmdbHomeCandidate>> {
     let mut stmt = conn.prepare_cached(
         "SELECT normalized_title, year, content_type, tmdb_id, title, release_year, rating,
-                poster_path, backdrop_path, overview, genre_ids
+                poster_path, backdrop_path, overview, genre_ids, vote_count
          FROM tmdb_metadata
          WHERE tmdb_id IS NOT NULL AND backdrop_path IS NOT NULL
            AND release_year >= ?1 AND rating > ?2 AND vote_count > ?3",
@@ -435,6 +435,7 @@ pub fn get_tmdb_home_candidates(
                 title: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
                 release_year: row.get(5)?,
                 rating: row.get(6)?,
+                vote_count: row.get(11)?,
                 poster_path: row.get(7)?,
                 backdrop_path: row.get(8)?,
                 overview: row.get(9)?,
@@ -752,6 +753,7 @@ mod tests {
             .unwrap();
         assert_eq!(first.genre_ids, vec![28, 53]);
         assert_eq!(first.backdrop_path, "/b.jpg");
+        assert_eq!(first.vote_count, Some(51));
         assert_eq!(first.key.content_type, "vod");
     }
 }

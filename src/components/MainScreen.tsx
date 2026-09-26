@@ -41,6 +41,7 @@ import { useChannelFilter } from '../hooks/useChannelFilter';
 import { useUpdateCheck } from '../hooks/useUpdateCheck';
 import { useTmdbCards } from '../hooks/useTmdbCards';
 import { useHomeRows } from '../hooks/useHomeRows';
+import type { HomePickView } from './HomeView';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { newestTitles } from '../lib/newestTitle';
 
@@ -279,6 +280,7 @@ export default function MainScreen() {
   const channels = usePlayerStore((s) => s.channels);
   const {
     rows: homeRows,
+    pick: homePick,
     loading: homeLoading,
     progress: homeProgress,
   } = useHomeRows(currentPlaylist?.id ?? null, homeAvailable && contentTypeFilter === 'home');
@@ -290,14 +292,17 @@ export default function MainScreen() {
   // Same rule as the hero: `isAdultContent` regardless of the parental
   // settings, plus the parental block. The backend sends twelve per row so
   // eight usually survive; a row under three is dropped.
-  const homeVisibleRows = useMemo(() => {
-    const settings = {
+  const homeParental = useMemo(
+    () => ({
       enabled: parentalEnabled,
       autoDetect: parentalAutoDetect,
       blockedIds: blockedChannelIds,
       blockedCategories,
       unlocked: parentalUnlocked,
-    };
+    }),
+    [parentalEnabled, parentalAutoDetect, blockedChannelIds, blockedCategories, parentalUnlocked]
+  );
+  const homeVisibleRows = useMemo(() => {
     return homeRows
       .map((row) => ({
         ...row,
@@ -307,21 +312,32 @@ export default function MainScreen() {
             return (
               c !== undefined &&
               !isAdultContent(c.name, c.group_name) &&
-              !shouldBlockChannel(c, settings)
+              !shouldBlockChannel(c, homeParental)
             );
           })
           .slice(0, HOME_SLIDES),
       }))
       .filter((row) => row.items.length >= HOME_MIN_SLIDES);
-  }, [
-    homeRows,
-    channelById,
-    parentalEnabled,
-    parentalAutoDetect,
-    blockedChannelIds,
-    blockedCategories,
-    parentalUnlocked,
-  ]);
+  }, [homeRows, channelById, homeParental]);
+  // The pick goes through the same parental rule as the rows; a blocked or
+  // unknown title means no hero rather than a fallback.
+  const homePickView = useMemo<HomePickView | null>(() => {
+    if (!homePick) return null;
+    const channel = channelById.get(homePick.item.channel_id);
+    if (
+      !channel ||
+      isAdultContent(channel.name, channel.group_name) ||
+      shouldBlockChannel(channel, homeParental)
+    ) {
+      return null;
+    }
+    return {
+      channel,
+      card: homePick.item,
+      note:
+        homePick.source === 'trending' ? 'Trending on TMDB today' : 'Highest rated in your library',
+    };
+  }, [homePick, channelById, homeParental]);
 
   // The "Recently added" hero: the newest title of the Movies or Series
   // section, shown only while browsing it unfiltered (no category, no
@@ -794,6 +810,10 @@ export default function MainScreen() {
           />
         ) : contentTypeFilter === 'home' ? (
           <HomeView
+            pick={homePickView}
+            onPlay={handlePlayChannel}
+            onOpenTitle={handleOpenTitle}
+            isPlaying={isPlaying && currentChannel?.id === homePickView?.channel.id}
             rows={homeVisibleRows}
             loading={homeLoading}
             progress={homeProgress ?? tmdbStatus?.background_progress ?? null}

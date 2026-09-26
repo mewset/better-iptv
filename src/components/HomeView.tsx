@@ -1,10 +1,25 @@
 import { useEffect, useState } from 'react';
-import type { HomeRow } from '../lib/tauri';
+import type { HomeRow, TmdbCard } from '../lib/tauri';
+import type { Channel } from '../types';
+import { MoviesHero } from './MoviesHero';
 import { backgroundProgressLine, type TmdbBackgroundProgress } from '../lib/tmdb';
 import { greeting } from '../lib/greeting';
 import { GenreSlideshow } from './GenreSlideshow';
 
+/** The day's pick, resolved to its channel and filtered for parental controls by MainScreen. */
+export interface HomePickView {
+  channel: Channel;
+  card: TmdbCard;
+  /** Where it came from: "Trending on TMDB today" or "Highest rated in your library". */
+  note: string;
+}
+
 interface HomeViewProps {
+  pick: HomePickView | null;
+  onPlay: (channel: Channel) => void;
+  onOpenTitle: (channel: Channel) => void;
+  /** The pick is the title playing right now. */
+  isPlaying?: boolean;
   rows: HomeRow[];
   loading: boolean;
   progress: TmdbBackgroundProgress | null;
@@ -21,7 +36,16 @@ const dateFormat = new Intl.DateTimeFormat(undefined, {
  * The Home section: a greeting by the clock and the day's genre slideshows.
  * Rows arrive filtered for parental controls from MainScreen.
  */
-export function HomeView({ rows, loading, progress, onOpen }: HomeViewProps) {
+export function HomeView({
+  pick,
+  onPlay,
+  onOpenTitle,
+  isPlaying = false,
+  rows,
+  loading,
+  progress,
+  onOpen,
+}: HomeViewProps) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 60_000);
@@ -35,7 +59,25 @@ export function HomeView({ rows, loading, progress, onOpen }: HomeViewProps) {
       <header className="mb-8">
         <h2 className="font-display text-[44px] font-bold leading-none">{greeting(now)}</h2>
         <p className="mt-2 text-sm text-text-faint">{dateFormat.format(now)}</p>
+        <p className="mt-4 max-w-[640px] text-sm text-text-muted">
+          Your daily pick and six genre slideshows, drawn from the best-rated movies and series
+          already in your playlist. A new set every day.
+        </p>
       </header>
+
+      {pick && !loading && (
+        <div className="mb-10">
+          <MoviesHero
+            channel={pick.channel}
+            tmdb={pick.card}
+            eyebrow="Our pick of the day"
+            note={pick.note}
+            onPlay={onPlay}
+            onOpen={onOpenTitle}
+            isPlaying={isPlaying}
+          />
+        </div>
+      )}
 
       {loading ? (
         <div data-testid="home-skeleton" className="flex flex-col gap-10" aria-busy="true">

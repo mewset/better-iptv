@@ -101,4 +101,19 @@ describe('MoviesHero with TMDB data', () => {
     expect(screen.getByRole('heading', { name: 'Dune: Part Two' })).toBeInTheDocument();
     expect(screen.queryByText('Dune.Part.Two.2024.1080p')).not.toBeInTheDocument();
   });
+
+  it('takes a custom eyebrow and a note line', () => {
+    render(
+      <MoviesHero
+        channel={movie}
+        onPlay={vi.fn()}
+        eyebrow="Our pick of the day"
+        note="Trending on TMDB today"
+      />
+    );
+    expect(screen.getByRole('region', { name: 'Our pick of the day' })).toBeInTheDocument();
+    expect(screen.getByText('OUR PICK OF THE DAY')).toBeInTheDocument();
+    expect(screen.getByText('Trending on TMDB today')).toBeInTheDocument();
+    expect(screen.queryByText('RECENTLY ADDED')).not.toBeInTheDocument();
+  });
 });

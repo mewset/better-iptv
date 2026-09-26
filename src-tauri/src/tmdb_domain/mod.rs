@@ -477,6 +477,89 @@ pub fn plan_home(date: NaiveDate, inputs: &[HomeInput]) -> Vec<HomeRowPlan> {
     rows
 }
 
+// ---------- Home pick of the day ----------
+
+/// Where the day's pick came from, for the hero's note line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PickSource {
+    /// On TMDB's trending list today and in the library.
+    Trending,
+    /// Nothing trending is in the library: the best-rated title instead.
+    TopRated,
+}
+
+/// One title eligible for the pick (it already passed Home's filter).
+#[derive(Debug, Clone, PartialEq)]
+pub struct HomePickInput {
+    pub channel_id: i64,
+    pub content_type: String,
+    pub tmdb_id: i64,
+    pub rating: Option<f64>,
+    pub vote_count: Option<i64>,
+}
+
+/// TMDB's daily trending lists merged into one order: first movie, first
+/// series, second movie, ... so neither kind always wins. Each entry is
+/// `(content_type, tmdb_id)`.
+pub fn interleave_trending(movies: &[i64], tv: &[i64]) -> Vec<(String, i64)> {
+    let mut out = Vec::with_capacity(movies.len() + tv.len());
+    let mut m = movies.iter();
+    let mut t = tv.iter();
+    loop {
+        let next_movie = m.next().map(|id| ("vod".to_string(), *id));
+        let next_tv = t.next().map(|id| ("series".to_string(), *id));
+        if next_movie.is_none() && next_tv.is_none() {
+            break;
+        }
+        out.extend(next_movie);
+        out.extend(next_tv);
+    }
+    out
+}
+
+/// The day's pick: the first trending title that is in the library, else
+/// the highest rating (more votes, then the lowest channel id break ties).
+/// `None` only for an empty library.
+pub fn pick_of_the_day(
+    trending: &[(String, i64)],
+    inputs: &[HomePickInput],
+) -> Option<(i64, PickSource)> {
+    for (content_type, tmdb_id) in trending {
+        if let Some(hit) = inputs
+            .iter()
+            .filter(|i| &i.content_type == content_type && i.tmdb_id == *tmdb_id)
+            .min_by_key(|i| i.channel_id)
+        {
+            return Some((hit.channel_id, PickSource::Trending));
+        }
+    }
+    inputs
+        .iter()
+        .max_by(|a, b| {
+            let ra = a.rating.unwrap_or(0.0);
+            let rb = b.rating.unwrap_or(0.0);
+            ra.partial_cmp(&rb)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.vote_count.unwrap_or(0).cmp(&b.vote_count.unwrap_or(0)))
+                .then(b.channel_id.cmp(&a.channel_id))
+        })
+        .map(|best| (best.channel_id, PickSource::TopRated))
+}
+
+/// The stored trending list, but only when it was fetched today (local
+/// date, `YYYY-MM-DD`). Anything unparsable counts as absent.
+pub fn cached_trending(
+    fetched_on: Option<&str>,
+    ids_json: Option<&str>,
+    today: &str,
+) -> Option<Vec<(String, i64)>> {
+    if fetched_on? != today {
+        return None;
+    }
+    serde_json::from_str(ids_json?).ok()
+}
+
 // ---------- images ----------
 
 pub const IMAGE_BASE: &str = "https://image.tmdb.org/t/p/";
@@ -946,5 +1029,111 @@ mod home_tests {
             assert!(g.content_type == "vod" || g.content_type == "series");
         }
         assert_eq!(HOME_GENRES.len(), 29);
+    }
+
+    fn pick(
+        channel_id: i64,
+        content_type: &str,
+        tmdb_id: i64,
+        rating: f64,
+        votes: i64,
+    ) -> HomePickInput {
+        HomePickInput {
+            channel_id,
+            content_type: content_type.into(),
+            tmdb_id,
+            rating: Some(rating),
+            vote_count: Some(votes),
+        }
+    }
+
+    fn t(content_type: &str, tmdb_id: i64) -> (String, i64) {
+        (content_type.into(), tmdb_id)
+    }
+
+    #[test]
+    fn trending_interleaves_movies_and_series_starting_with_a_movie() {
+        assert_eq!(
+            interleave_trending(&[1, 2, 3], &[10]),
+            vec![t("vod", 1), t("series", 10), t("vod", 2), t("vod", 3)]
+        );
+        assert_eq!(
+            interleave_trending(&[], &[10, 11]),
+            vec![t("series", 10), t("series", 11)]
+        );
+        assert!(interleave_trending(&[], &[]).is_empty());
+    }
+
+    #[test]
+    fn the_first_trending_title_in_the_library_is_the_pick() {
+        let library = vec![
+            pick(1, "vod", 100, 9.0, 5000),
+            pick(2, "series", 200, 6.0, 100),
+            pick(3, "vod", 300, 7.0, 800),
+        ];
+        // 999 is trending but not in the library; 200 is the first that is.
+        let trending = vec![t("vod", 999), t("series", 200), t("vod", 100)];
+        assert_eq!(
+            pick_of_the_day(&trending, &library),
+            Some((2, PickSource::Trending))
+        );
+    }
+
+    #[test]
+    fn a_trending_id_must_match_the_content_type_too() {
+        // Movie 100 and series 100 are different TMDB titles.
+        let library = vec![pick(1, "vod", 100, 5.0, 60), pick(2, "vod", 101, 8.0, 60)];
+        let trending = vec![t("series", 100)];
+        assert_eq!(
+            pick_of_the_day(&trending, &library),
+            Some((2, PickSource::TopRated))
+        );
+    }
+
+    #[test]
+    fn without_a_trending_match_the_highest_rating_wins_then_votes_then_lowest_id() {
+        let library = vec![
+            pick(5, "vod", 100, 8.0, 100),
+            pick(4, "series", 200, 8.0, 100),
+            pick(3, "vod", 300, 8.0, 900),
+            pick(2, "vod", 400, 7.9, 99999),
+        ];
+        assert_eq!(
+            pick_of_the_day(&[], &library),
+            Some((3, PickSource::TopRated)),
+            "8.0 with 900 votes beats 8.0 with 100"
+        );
+        let tie = vec![
+            pick(5, "vod", 100, 8.0, 100),
+            pick(4, "series", 200, 8.0, 100),
+        ];
+        assert_eq!(pick_of_the_day(&[], &tie), Some((4, PickSource::TopRated)));
+    }
+
+    #[test]
+    fn an_empty_library_has_no_pick() {
+        assert_eq!(pick_of_the_day(&[t("vod", 1)], &[]), None);
+    }
+
+    #[test]
+    fn the_trending_cache_is_used_only_for_today() {
+        let ids = r#"[["vod",1],["series",2]]"#;
+        assert_eq!(
+            cached_trending(Some("2026-09-26"), Some(ids), "2026-09-26"),
+            Some(vec![t("vod", 1), t("series", 2)])
+        );
+        assert_eq!(
+            cached_trending(Some("2026-09-25"), Some(ids), "2026-09-26"),
+            None
+        );
+        assert_eq!(cached_trending(None, Some(ids), "2026-09-26"), None);
+        assert_eq!(
+            cached_trending(Some("2026-09-26"), Some("not json"), "2026-09-26"),
+            None
+        );
+        assert_eq!(
+            cached_trending(Some("2026-09-26"), None, "2026-09-26"),
+            None
+        );
     }
 }

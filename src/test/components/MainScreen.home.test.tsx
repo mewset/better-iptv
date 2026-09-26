@@ -100,6 +100,8 @@ function setupInvoke(
         return status(gateOpen);
       case 'get_home_rows':
         return homeRows;
+      case 'get_home_pick':
+        return { item: item(1), source: 'trending' };
       case 'get_blocked_channels':
         return parental.blocked;
       case 'get_parental_settings':
@@ -278,5 +280,21 @@ describe('MainScreen: Home', () => {
       'aria-current',
       'page'
     );
+  });
+
+  it('shows the pick of the day hero with its source', async () => {
+    setupInvoke(true);
+    render(<MainScreen />);
+    const hero = await screen.findByRole('region', { name: 'Our pick of the day' });
+    expect(hero).toHaveTextContent('Title 1');
+    expect(hero).toHaveTextContent('Trending on TMDB today');
+  });
+
+  it('hides a blocked pick', async () => {
+    setupInvoke(true, { enabled: true, blocked: [1] });
+    usePlayerStore.setState({ parentalEnabled: true, blockedChannelIds: new Set([1]) });
+    render(<MainScreen />);
+    await screen.findByRole('region', { name: 'Action Movies' });
+    expect(screen.queryByRole('region', { name: 'Our pick of the day' })).toBeNull();
   });
 });

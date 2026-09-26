@@ -385,6 +385,8 @@ mod tests {
     const SEARCH_EMPTY: &str =
         include_str!("../../tests/fixtures/tmdb/search_movie_no_results.json");
     const MOVIE: &str = include_str!("../../tests/fixtures/tmdb/movie_11324_details.json");
+    const TRENDING_MOVIE: &str = include_str!("../../tests/fixtures/tmdb/trending_movie_day.json");
+    const TRENDING_TV: &str = include_str!("../../tests/fixtures/tmdb/trending_tv_day.json");
     const TV: &str = include_str!("../../tests/fixtures/tmdb/tv_120487_details.json");
     const SEASON: &str = include_str!("../../tests/fixtures/tmdb/tv_120487_season_1.json");
     const AUTH_ERR: &str = include_str!("../../tests/fixtures/tmdb/auth_invalid_key.json");
@@ -418,6 +420,20 @@ mod tests {
         assert_eq!(fullt_hus.year, Some(2020));
         let full_house = hits.iter().find(|h| h.id == 4313).unwrap();
         assert_eq!(full_house.original_title, "Full House");
+    }
+
+    /// `/trending/{movie,tv}/day` answers in the search shape (plus a
+    /// `media_type` we ignore), so the search parsers serve it too.
+    #[test]
+    fn trending_responses_parse_with_the_search_parsers() {
+        let movies = parse_movie_search(TRENDING_MOVIE).unwrap();
+        assert_eq!(movies.len(), 20);
+        assert_eq!(movies[0].id, 1492640);
+        assert!(movies[0].vote_count > 0);
+        let tv = parse_tv_search(TRENDING_TV).unwrap();
+        assert_eq!(tv.len(), 20);
+        assert_eq!(tv[0].id, 1413);
+        assert_eq!(tv[0].title, "American Horror Story");
     }
 
     #[test]

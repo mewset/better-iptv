@@ -12,12 +12,34 @@ const mockedInvoke = vi.mocked(invoke);
 const mockedListen = vi.mocked(listen);
 
 const rows = [{ genre: 'Action', content_type: 'vod', items: [] }];
+const pick = {
+  item: {
+    channel_id: 7,
+    tmdb_id: 70,
+    title: 'Pick',
+    year: 2021,
+    rating: 8.1,
+    poster_url: null,
+    backdrop_url: null,
+    genres: ['Drama'],
+    overview: null,
+  },
+  source: 'trending',
+};
+
+function answer(cmd: string) {
+  return cmd === 'get_home_pick' ? pick : rows;
+}
+
+function rowCalls() {
+  return mockedInvoke.mock.calls.filter((c) => c[0] === 'get_home_rows').length;
+}
 
 describe('useHomeRows', () => {
   beforeEach(() => {
     mockedInvoke.mockReset();
     mockedListen.mockClear();
-    mockedInvoke.mockResolvedValue(rows);
+    mockedInvoke.mockImplementation(async (cmd: string) => answer(cmd));
   });
 
   it('does nothing while disabled', () => {
@@ -32,6 +54,22 @@ describe('useHomeRows', () => {
     await waitFor(() => expect(result.current.rows).toEqual(rows));
     expect(result.current.loading).toBe(false);
     expect(mockedInvoke).toHaveBeenCalledWith('get_home_rows', { playlistId: 1 });
+  });
+
+  it("loads the day's pick alongside the rows", async () => {
+    const { result } = renderHook(() => useHomeRows(1, true));
+    await waitFor(() => expect(result.current.pick).toEqual(pick));
+    expect(mockedInvoke).toHaveBeenCalledWith('get_home_pick', { playlistId: 1 });
+  });
+
+  it('a rejected pick leaves the rows alone', async () => {
+    mockedInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_home_pick') throw new Error('no pick');
+      return rows;
+    });
+    const { result } = renderHook(() => useHomeRows(1, true));
+    await waitFor(() => expect(result.current.rows).toEqual(rows));
+    expect(result.current.pick).toBeNull();
   });
 
   it('reloads on a profile switch', async () => {
@@ -49,9 +87,9 @@ describe('useHomeRows', () => {
     const handler = mockedListen.mock.calls[0][1] as (e: { payload: unknown }) => void;
     act(() => handler({ payload: { done: 3, total: 10, running: true } }));
     expect(result.current.progress).toEqual({ done: 3, total: 10, running: true });
-    expect(mockedInvoke).toHaveBeenCalledTimes(1);
+    expect(rowCalls()).toBe(1);
     act(() => handler({ payload: { done: 10, total: 10, running: false } }));
-    await waitFor(() => expect(mockedInvoke).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(rowCalls()).toBe(2));
   });
 
   it('logs and shows nothing when the command rejects', async () => {
@@ -81,7 +119,7 @@ describe('useHomeRows', () => {
     act(() => handler({ payload: { done: 10, total: 10, running: false } }));
     expect(result.current.loading).toBe(false);
     expect(result.current.rows).toEqual(rows);
-    await waitFor(() => expect(mockedInvoke).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(rowCalls()).toBe(2));
   });
 
   it('a profile switch shows the skeleton', async () => {
@@ -105,10 +143,10 @@ describe('useHomeRows', () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.setSystemTime(new Date('2026-09-26T23:59:30'));
       const { result } = renderHook(() => useHomeRows(1, true));
-      await waitFor(() => expect(mockedInvoke).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(rowCalls()).toBe(1));
       vi.setSystemTime(new Date('2026-09-27T00:00:30'));
       act(() => vi.advanceTimersByTime(60_000));
-      await waitFor(() => expect(mockedInvoke).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(rowCalls()).toBe(2));
       void result;
     });
   });

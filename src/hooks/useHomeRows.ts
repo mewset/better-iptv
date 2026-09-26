@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { getHomeRows, type HomeRow } from '../lib/tauri';
+import { getHomePick, getHomeRows, type HomePick, type HomeRow } from '../lib/tauri';
 import { TMDB_BACKGROUND_PROGRESS_EVENT, type TmdbBackgroundProgress } from '../lib/tmdb';
 import { logger } from '../lib/logger';
 
 export interface HomeRowsState {
   rows: HomeRow[];
+  /** "Our pick of the day"; null until loaded, when nothing qualifies, or when the pick failed. */
+  pick: HomePick | null;
   loading: boolean;
   /** The latest background-scan progress event, for the empty state. */
   progress: TmdbBackgroundProgress | null;
@@ -20,6 +22,7 @@ export interface HomeRowsState {
  */
 export function useHomeRows(playlistId: number | null, enabled: boolean): HomeRowsState {
   const [rows, setRows] = useState<HomeRow[]>([]);
+  const [pick, setPick] = useState<HomePick | null>(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<TmdbBackgroundProgress | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -66,6 +69,7 @@ export function useHomeRows(playlistId: number | null, enabled: boolean): HomeRo
   useEffect(() => {
     if (!enabled || playlistId == null) {
       setRows([]);
+      setPick(null);
       setLoading(false);
       setProgress(null);
       loadedForRef.current = null;
@@ -87,10 +91,19 @@ export function useHomeRows(playlistId: number | null, enabled: boolean): HomeRo
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    // The pick is independent of the rows: a failed pick leaves the rows up.
+    getHomePick(playlistId)
+      .then((p) => {
+        if (!cancelled) setPick(p);
+      })
+      .catch((err) => {
+        logger.error('Failed to load the Home pick:', err);
+        if (!cancelled) setPick(null);
+      });
     return () => {
       cancelled = true;
     };
   }, [enabled, playlistId, reloadKey, homeDate]);
 
-  return { rows, loading, progress };
+  return { rows, pick, loading, progress };
 }

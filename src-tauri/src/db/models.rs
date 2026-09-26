@@ -121,6 +121,7 @@ pub struct TmdbHomeCandidate {
     pub title: String,
     pub release_year: Option<i32>,
     pub rating: Option<f64>,
+    pub vote_count: Option<i64>,
     pub poster_path: Option<String>,
     pub backdrop_path: String,
     pub overview: Option<String>,

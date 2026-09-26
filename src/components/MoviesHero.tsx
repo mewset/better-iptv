@@ -13,6 +13,10 @@ interface MoviesHeroProps {
   isPlaying?: boolean;
   /** TMDB card data when known: backdrop and the year · genres · rating row. */
   tmdb?: TmdbCard;
+  /** The small label above the title; also the section's accessible name. */
+  eyebrow?: string;
+  /** An extra line under the meta row, e.g. where a pick came from. */
+  note?: string;
 }
 
 /**
@@ -21,14 +25,22 @@ interface MoviesHeroProps {
  * virtualiser by the caller (`MainScreen`) — this component only renders the
  * row's content, it does not manage its own position or measurement.
  */
-export function MoviesHero({ channel, onPlay, onOpen, isPlaying = false, tmdb }: MoviesHeroProps) {
+export function MoviesHero({
+  channel,
+  onPlay,
+  onOpen,
+  isPlaying = false,
+  tmdb,
+  eyebrow = 'Recently added',
+  note,
+}: MoviesHeroProps) {
   const art = tmdb?.backdrop_url ?? channel.logo;
   const isSeries = channel.content_type === 'series';
   // TMDB's title over the provider's ("The.Great.Flood.2025.1080p") once matched.
   const title = tmdb?.title || channel.name;
   return (
     <section
-      aria-label="Recently added"
+      aria-label={eyebrow}
       className="relative h-[272px] overflow-hidden rounded-[18px] border border-border bg-surface-2"
     >
       {art ? (
@@ -53,11 +65,14 @@ export function MoviesHero({ channel, onPlay, onOpen, isPlaying = false, tmdb }:
       />
 
       <div className="relative flex h-full max-w-[640px] flex-col justify-center gap-3 px-10">
-        <span className="text-xs font-bold tracking-[0.12em] text-accent-text">RECENTLY ADDED</span>
+        <span className="text-xs font-bold tracking-[0.12em] text-accent-text">
+          {eyebrow.toUpperCase()}
+        </span>
         <h2 className="font-display text-[44px] font-bold leading-none">{title}</h2>
         <p className="text-[13px] text-text-muted">
           {heroMetaLine(tmdb, channel.group_name ?? '')}
         </p>
+        {note && <p className="text-[13px] text-text-muted">{note}</p>}
         {isSeries ? (
           <button
             type="button"

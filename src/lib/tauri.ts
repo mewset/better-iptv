@@ -398,6 +398,17 @@ export async function getHomeRows(playlistId: number): Promise<HomeRow[]> {
   return await invoke('get_home_rows', { playlistId });
 }
 
+/** "Our pick of the day": a trending title in the library, else the best rated. */
+export interface HomePick {
+  item: HomeItem;
+  source: 'trending' | 'top_rated';
+}
+
+/** The day's pick for a profile; null when the gate is closed or nothing qualifies. */
+export async function getHomePick(playlistId: number): Promise<HomePick | null> {
+  return await invoke('get_home_pick', { playlistId });
+}
+
 export async function searchTmdb(
   query: string,
   contentType: 'vod' | 'series'

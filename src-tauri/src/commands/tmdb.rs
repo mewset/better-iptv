@@ -14,8 +14,9 @@ use crate::tmdb::session::BackgroundProgress;
 use crate::tmdb::types::Details;
 use crate::tmdb::{Kind, TmdbClient, TmdbError};
 use crate::tmdb_domain::{
-    details_are_stale, genre_name, image_url, normalize_title, plan_home, search_is_stale,
-    HomeInput, ImageSize, Normalized,
+    cached_trending, details_are_stale, genre_name, image_url, interleave_trending,
+    normalize_title, pick_of_the_day, plan_home, search_is_stale, HomeInput, HomePickInput,
+    ImageSize, Normalized, PickSource,
 };
 use chrono::{Datelike, Local, NaiveDate, Utc};
 use log::debug;
@@ -143,6 +144,155 @@ pub fn build_home_rows(
                 .collect(),
         })
         .collect()
+}
+
+/// The day's pick for the Home hero.
+#[derive(Debug, Clone, Serialize)]
+pub struct HomePick {
+    pub item: HomeItem,
+    pub source: PickSource,
+}
+
+/// Settings keys for the once-a-day trending fetch.
+pub const HOME_TRENDING_DATE_KEY: &str = "home_trending_date";
+pub const HOME_TRENDING_IDS_KEY: &str = "home_trending_ids";
+
+/// One channel per cache key (lowest id wins), joined to the candidates.
+fn library_titles<'a>(
+    channels: &[Channel],
+    candidates: &'a HashMap<TmdbKey, TmdbHomeCandidate>,
+) -> Vec<(i64, &'a TmdbHomeCandidate)> {
+    let mut chosen: HashMap<&TmdbKey, i64> = HashMap::new();
+    for channel in channels {
+        let Some(id) = channel.id else { continue };
+        let Some((key, _, _)) = cache_key_for(channel) else {
+            continue;
+        };
+        let Some(cand) = candidates.get(&key) else {
+            continue;
+        };
+        let slot = chosen.entry(&cand.key).or_insert(id);
+        if id < *slot {
+            *slot = id;
+        }
+    }
+    chosen
+        .into_iter()
+        .map(|(key, id)| (id, &candidates[key]))
+        .collect()
+}
+
+/// The pure half of `get_home_pick`: the first trending title in the
+/// library, else the best rated. `None` when nothing qualifies.
+pub fn build_home_pick(
+    trending: &[(String, i64)],
+    channels: &[Channel],
+    candidates: &HashMap<TmdbKey, TmdbHomeCandidate>,
+) -> Option<HomePick> {
+    let titles = library_titles(channels, candidates);
+    let inputs: Vec<HomePickInput> = titles
+        .iter()
+        .map(|(id, c)| HomePickInput {
+            channel_id: *id,
+            content_type: c.key.content_type.clone(),
+            tmdb_id: c.tmdb_id,
+            rating: c.rating,
+            vote_count: c.vote_count,
+        })
+        .collect();
+    let (channel_id, source) = pick_of_the_day(trending, &inputs)?;
+    let (_, cand) = titles.iter().find(|(id, _)| *id == channel_id)?;
+    Some(HomePick {
+        item: home_item(channel_id, cand),
+        source,
+    })
+}
+
+/// Today's trending ids, fetched at most once per local day and kept in
+/// the settings table. A failed fetch keeps whatever was stored before
+/// (possibly yesterday's list) and the pick falls back to the best rated.
+async fn trending_for_today(
+    state: &State<'_, AppState>,
+    today: &str,
+) -> Result<Vec<(String, i64)>, AppError> {
+    let (date, ids) = with_db(&state.pool, |conn| {
+        Ok((
+            queries::get_setting(conn, HOME_TRENDING_DATE_KEY)?,
+            queries::get_setting(conn, HOME_TRENDING_IDS_KEY)?,
+        ))
+    })
+    .await?;
+    if let Some(cached) = cached_trending(date.as_deref(), ids.as_deref(), today) {
+        return Ok(cached);
+    }
+    let stale: Vec<(String, i64)> = ids
+        .as_deref()
+        .and_then(|j| serde_json::from_str(j).ok())
+        .unwrap_or_default();
+    let Some(resolved) = resolve_key(&state.pool, &state.tmdb).await? else {
+        return Ok(stale);
+    };
+    let lang = with_db(&state.pool, |conn| Ok(read_language(conn)?)).await?;
+    let client = TmdbClient::new(&resolved.key);
+    let fetched = match (
+        client.trending(Kind::Movie, &lang).await,
+        client.trending(Kind::Tv, &lang).await,
+    ) {
+        (Ok(movies), Ok(tv)) => interleave_trending(
+            &movies.iter().map(|h| h.id).collect::<Vec<_>>(),
+            &tv.iter().map(|h| h.id).collect::<Vec<_>>(),
+        ),
+        (Err(TmdbError::Unauthorized), _) | (_, Err(TmdbError::Unauthorized)) => {
+            handle_unauthorized(&state.pool, &state.tmdb, &resolved).await?;
+            return Ok(stale);
+        }
+        (a, b) => {
+            debug!("TMDB trending fetch failed: {:?} / {:?}", a.err(), b.err());
+            return Ok(stale);
+        }
+    };
+    let json = serde_json::to_string(&fetched).unwrap_or_else(|_| "[]".into());
+    let today = today.to_string();
+    with_db(&state.pool, move |conn| {
+        mutations::set_setting(conn, HOME_TRENDING_DATE_KEY, &today)?;
+        mutations::set_setting(conn, HOME_TRENDING_IDS_KEY, &json)?;
+        Ok(())
+    })
+    .await?;
+    Ok(fetched)
+}
+
+/// "Our pick of the day" for the Home hero: TMDB's trending list (fetched
+/// once a day) intersected with the library, else the best-rated title.
+/// Empty when the Home gate is closed.
+#[tauri::command]
+pub async fn get_home_pick(
+    playlist_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Option<HomePick>, AppError> {
+    let today = Local::now().date_naive();
+    let (allowed, channels, candidates) = with_db(&state.pool, move |conn| {
+        if !background_scan_allowed(conn)? {
+            return Ok((false, Vec::new(), HashMap::new()));
+        }
+        let min_year = today.year() - HOME_YEARS_BACK;
+        let candidates: HashMap<TmdbKey, TmdbHomeCandidate> =
+            queries::get_tmdb_home_candidates(conn, min_year)?
+                .into_iter()
+                .map(|c| (c.key.clone(), c))
+                .collect();
+        Ok((
+            true,
+            queries::get_channels(conn, Some(playlist_id))?,
+            candidates,
+        ))
+    })
+    .await?;
+    if !allowed || candidates.is_empty() {
+        return Ok(None);
+    }
+    let trending = trending_for_today(&state, &today.format("%Y-%m-%d").to_string()).await?;
+    Ok(build_home_pick(&trending, &channels, &candidates))
 }
 
 /// The Home page's rows for the active profile. Empty when the gate (feature
@@ -828,6 +978,7 @@ mod tests {
             title: title.to_uppercase(),
             release_year: Some(2020),
             rating: Some(7.0),
+            vote_count: Some(500),
             poster_path: Some("/p.jpg".into()),
             backdrop_path: "/b.jpg".into(),
             overview: Some("plot".into()),
@@ -873,6 +1024,38 @@ mod tests {
             Some("https://image.tmdb.org/t/p/w1280/b.jpg")
         );
         assert_eq!(alpha.overview.as_deref(), Some("plot"));
+    }
+
+    #[test]
+    fn home_pick_prefers_a_trending_title_and_falls_back_to_the_best_rated() {
+        let channels = vec![
+            channel(1, "alpha", "vod"),
+            channel(2, "bravo", "series"),
+            channel(3, "Alpha", "vod"),
+        ];
+        let mut alpha = candidate("alpha", "vod", &[28]);
+        alpha.rating = Some(6.0);
+        let mut bravo = candidate("bravo", "series", &[18]);
+        bravo.rating = Some(8.5);
+        let candidates: HashMap<TmdbKey, TmdbHomeCandidate> = [alpha.clone(), bravo.clone()]
+            .into_iter()
+            .map(|c| (c.key.clone(), c))
+            .collect();
+
+        let trending = vec![("vod".to_string(), alpha.tmdb_id)];
+        let pick = build_home_pick(&trending, &channels, &candidates).unwrap();
+        assert_eq!(
+            pick.item.channel_id, 1,
+            "lowest channel id of the shared title"
+        );
+        assert_eq!(pick.source, PickSource::Trending);
+        assert_eq!(pick.item.title, "ALPHA");
+
+        let pick = build_home_pick(&[], &channels, &candidates).unwrap();
+        assert_eq!(pick.item.channel_id, 2, "best rated when nothing trends");
+        assert_eq!(pick.source, PickSource::TopRated);
+
+        assert!(build_home_pick(&trending, &channels, &HashMap::new()).is_none());
     }
 
     #[test]

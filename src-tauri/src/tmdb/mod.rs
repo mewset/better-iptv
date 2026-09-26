@@ -199,6 +199,22 @@ impl TmdbClient {
         parsed.map_err(|e| TmdbError::Decode(e.to_string()))
     }
 
+    /// Today's trending list for one kind (`/trending/{movie,tv}/day`, page
+    /// 1, 20 titles in TMDB's own order). The answer has the search shape.
+    pub async fn trending(&self, kind: Kind, lang: &str) -> Result<Vec<SearchHit>, TmdbError> {
+        let query = vec![("language", lang.to_string()), ("page", "1".to_string())];
+        let path = match kind {
+            Kind::Movie => "/trending/movie/day",
+            Kind::Tv => "/trending/tv/day",
+        };
+        let body = self.get_text(path, &query).await?;
+        let parsed = match kind {
+            Kind::Movie => types::parse_movie_search(&body),
+            Kind::Tv => types::parse_tv_search(&body),
+        };
+        parsed.map_err(|e| TmdbError::Decode(e.to_string()))
+    }
+
     /// Details with credits and videos. An empty localised overview is
     /// filled from `en-US` with a second request.
     pub async fn details(&self, kind: Kind, id: i64, lang: &str) -> Result<Details, TmdbError> {
@@ -313,6 +329,17 @@ mod live_tests {
         assert!(!d.cast.is_empty());
         assert!(d.trailer_youtube_key.is_some());
         assert!(d.overview.is_some());
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn trending_lists_twenty_titles_per_kind() {
+        let client = TmdbClient::new(&key());
+        assert_eq!(
+            client.trending(Kind::Movie, "en-US").await.unwrap().len(),
+            20
+        );
+        assert_eq!(client.trending(Kind::Tv, "en-US").await.unwrap().len(), 20);
     }
 
     #[tokio::test]
