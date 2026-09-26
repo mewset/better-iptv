@@ -207,6 +207,7 @@ pub fn run() {
             search_tmdb,
             set_tmdb_match,
             delete_tmdb_cache,
+            get_home_rows,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -2,11 +2,11 @@
 //! HTTP in `tmdb`, persistence in `db`.
 
 use crate::commands::with_db;
-use crate::db::models::{Channel, TmdbEpisodeRow, TmdbKey, TmdbRow};
+use crate::db::models::{Channel, TmdbEpisodeRow, TmdbHomeCandidate, TmdbKey, TmdbRow};
 use crate::db::{mutations, queries};
 use crate::error::AppError;
 use crate::state::AppState;
-use crate::tmdb::enrich::{claim_key, search_and_store, EnrichJob};
+use crate::tmdb::enrich::{background_scan_allowed, claim_key, search_and_store, EnrichJob};
 use crate::tmdb::keys::{
     handle_unauthorized, read_key_settings, read_language, resolve_key, TMDB_BACKGROUND_ENRICH_KEY,
 };
@@ -14,10 +14,10 @@ use crate::tmdb::session::BackgroundProgress;
 use crate::tmdb::types::Details;
 use crate::tmdb::{Kind, TmdbClient, TmdbError};
 use crate::tmdb_domain::{
-    details_are_stale, genre_name, image_url, normalize_title, search_is_stale, ImageSize,
-    Normalized,
+    details_are_stale, genre_name, image_url, normalize_title, plan_home, search_is_stale,
+    HomeInput, ImageSize, Normalized,
 };
-use chrono::{Datelike, Utc};
+use chrono::{Datelike, Local, NaiveDate, Utc};
 use log::debug;
 use rusqlite::Connection;
 use serde::Serialize;
@@ -51,6 +51,123 @@ pub struct TmdbStatus {
     pub background_enrich: bool,
     /// Where the library scan stands; `None` until one ran this session.
     pub background_progress: Option<BackgroundProgress>,
+}
+
+/// One slide of a Home slideshow.
+#[derive(Debug, Clone, Serialize)]
+pub struct HomeItem {
+    pub channel_id: i64,
+    pub tmdb_id: i64,
+    pub title: String,
+    pub year: Option<i32>,
+    pub rating: Option<f64>,
+    pub poster_url: Option<String>,
+    pub backdrop_url: Option<String>,
+    pub genres: Vec<String>,
+    pub overview: Option<String>,
+}
+
+/// One Home slideshow: a genre of movies or of series.
+#[derive(Debug, Clone, Serialize)]
+pub struct HomeRow {
+    pub genre: String,
+    /// `"vod"` or `"series"`.
+    pub content_type: String,
+    pub items: Vec<HomeItem>,
+}
+
+/// Home shows titles released within this many years.
+pub const HOME_YEARS_BACK: i32 = 20;
+
+fn home_item(channel_id: i64, c: &TmdbHomeCandidate) -> HomeItem {
+    HomeItem {
+        channel_id,
+        tmdb_id: c.tmdb_id,
+        title: c.title.clone(),
+        year: c.release_year,
+        rating: c.rating,
+        poster_url: image_url(c.poster_path.as_deref(), ImageSize::CardPoster),
+        backdrop_url: image_url(Some(&c.backdrop_path), ImageSize::Backdrop),
+        genres: c
+            .genre_ids
+            .iter()
+            .filter_map(|&g| genre_name(g))
+            .map(String::from)
+            .collect(),
+        overview: c.overview.clone(),
+    }
+}
+
+/// The pure half of `get_home_rows`: the profile's channels joined to the
+/// filtered cache by cache key, one channel per title (lowest id wins, so
+/// the same film in two categories is one slide), then the day's plan.
+pub fn build_home_rows(
+    date: NaiveDate,
+    channels: &[Channel],
+    candidates: &HashMap<TmdbKey, TmdbHomeCandidate>,
+) -> Vec<HomeRow> {
+    let mut chosen: HashMap<&TmdbKey, i64> = HashMap::new();
+    for channel in channels {
+        let Some(id) = channel.id else { continue };
+        let Some((key, _, _)) = cache_key_for(channel) else {
+            continue;
+        };
+        let Some(cand) = candidates.get(&key) else {
+            continue;
+        };
+        let slot = chosen.entry(&cand.key).or_insert(id);
+        if id < *slot {
+            *slot = id;
+        }
+    }
+    let mut by_id: HashMap<i64, &TmdbHomeCandidate> = HashMap::new();
+    let mut inputs: Vec<HomeInput> = Vec::with_capacity(chosen.len());
+    for (key, id) in chosen {
+        let cand = &candidates[key];
+        by_id.insert(id, cand);
+        inputs.push(HomeInput {
+            channel_id: id,
+            content_type: key.content_type.clone(),
+            genre_ids: cand.genre_ids.clone(),
+        });
+    }
+    plan_home(date, &inputs)
+        .into_iter()
+        .map(|row| HomeRow {
+            genre: genre_name(row.genre_id).unwrap_or("Other").to_string(),
+            content_type: row.content_type,
+            items: row
+                .channel_ids
+                .iter()
+                .filter_map(|id| by_id.get(id).map(|c| home_item(*id, c)))
+                .collect(),
+        })
+        .collect()
+}
+
+/// The Home page's rows for the active profile. Empty when the gate (feature
+/// on, own key, background scan on) is closed; the frontend hides the page.
+/// No network: everything comes from the cache the scan filled.
+#[tauri::command]
+pub async fn get_home_rows(
+    playlist_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Vec<HomeRow>, AppError> {
+    with_db(&state.pool, move |conn| {
+        if !background_scan_allowed(conn)? {
+            return Ok(Vec::new());
+        }
+        let today = Local::now().date_naive();
+        let min_year = today.year() - HOME_YEARS_BACK;
+        let candidates: HashMap<TmdbKey, TmdbHomeCandidate> =
+            queries::get_tmdb_home_candidates(conn, min_year)?
+                .into_iter()
+                .map(|c| (c.key.clone(), c))
+                .collect();
+        let channels = queries::get_channels(conn, Some(playlist_id))?;
+        Ok(build_home_rows(today, &channels, &candidates))
+    })
+    .await
 }
 
 /// Cache key, search query and TMDB kind for a channel; `None` for live TV.
@@ -680,7 +797,7 @@ pub async fn delete_tmdb_cache(state: State<'_, AppState>) -> Result<usize, AppE
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::models::{Channel, TmdbKey, TmdbRow};
+    use crate::db::models::{Channel, TmdbHomeCandidate, TmdbKey, TmdbRow};
 
     fn channel(id: i64, name: &str, content_type: &str) -> Channel {
         Channel {
@@ -698,6 +815,71 @@ mod tests {
             category_order: 0,
             created_at: None,
         }
+    }
+
+    fn candidate(title: &str, content_type: &str, genre_ids: &[i32]) -> TmdbHomeCandidate {
+        TmdbHomeCandidate {
+            key: TmdbKey {
+                title: title.into(),
+                year: 0,
+                content_type: content_type.into(),
+            },
+            tmdb_id: title.len() as i64,
+            title: title.to_uppercase(),
+            release_year: Some(2020),
+            rating: Some(7.0),
+            poster_path: Some("/p.jpg".into()),
+            backdrop_path: "/b.jpg".into(),
+            overview: Some("plot".into()),
+            genre_ids: genre_ids.to_vec(),
+        }
+    }
+
+    #[test]
+    fn home_rows_join_channels_to_candidates_and_dedupe_shared_titles() {
+        let names = ["alpha", "bravo", "charlie", "delta", "echo"];
+        let mut channels: Vec<Channel> = names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| channel(i as i64 + 1, n, "vod"))
+            .collect();
+        // The same film again under another category, and a live channel.
+        channels.push(channel(50, "Alpha", "vod"));
+        channels.push(channel(51, "SVT1", "live"));
+        let candidates: HashMap<TmdbKey, TmdbHomeCandidate> = names
+            .iter()
+            .map(|n| {
+                let c = candidate(n, "vod", &[28]);
+                (c.key.clone(), c)
+            })
+            .collect();
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 9, 26).unwrap();
+        let rows = build_home_rows(date, &channels, &candidates);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].genre, "Action");
+        assert_eq!(rows[0].content_type, "vod");
+        let mut ids: Vec<i64> = rows[0].items.iter().map(|i| i.channel_id).collect();
+        ids.sort_unstable();
+        assert_eq!(
+            ids,
+            vec![1, 2, 3, 4, 5],
+            "lowest channel id wins the shared title"
+        );
+        let alpha = rows[0].items.iter().find(|i| i.channel_id == 1).unwrap();
+        assert_eq!(alpha.title, "ALPHA");
+        assert_eq!(alpha.genres, vec!["Action"]);
+        assert_eq!(
+            alpha.backdrop_url.as_deref(),
+            Some("https://image.tmdb.org/t/p/w1280/b.jpg")
+        );
+        assert_eq!(alpha.overview.as_deref(), Some("plot"));
+    }
+
+    #[test]
+    fn home_rows_are_empty_without_candidates() {
+        let channels = vec![channel(1, "alpha", "vod")];
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 9, 26).unwrap();
+        assert!(build_home_rows(date, &channels, &HashMap::new()).is_empty());
     }
 
     #[test]
