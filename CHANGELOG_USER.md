@@ -10,8 +10,12 @@ A simple overview of new features and improvements.
 
 **A New Look**
 
-- Dark by default, with an amber accent, new fonts and a side rail for Live TV, Movies, Series, Favorites and the TV Guide
+- Dark by default, with an amber accent and new fonts
+- A side rail takes you to Live TV, Movies, Series, Favorites and the TV Guide; the search and profile switcher sit in a bar at the top
 - Movie and series posters are no longer cropped, and live channels show how far the current programme has come
+- What's playing now floats in a small dock over the grid instead of a bar below it
+- Settings opens as a page with a section list instead of a pop-up, and the first-run setup screen has been redesigned
+- Channels without a logo get a colour-bar placeholder with the channel's initial
 
 **TV Guide**
 
@@ -19,7 +23,7 @@ A simple overview of new features and improvements.
 
 **Posters, ratings and details from TMDB**
 
-- Movies and series show their real poster, year and rating, and the Movies hero gets a proper backdrop
+- Movies and series show their real poster, year and rating, and the "Recently added" banner gets a proper backdrop
 - Opening a movie or a series shows a detail page with the plot, cast, a trailer link and, for series, seasons and episodes
 - Wrong match? "Wrong title?" on the detail page lets you pick the right one, or mark a title as not on TMDB
 - Works out of the box with a shared key; you can add your own TMDB key under Settings → Metadata, choose the language, or turn the feature off
@@ -39,7 +43,6 @@ A simple overview of new features and improvements.
 - A channel that is off air between broadcasts now says so and shows its next program, instead of "No guide data"
 - If a stream can't be played, the app now tells you instead of silently doing nothing
 - Pressing Play several times in a row no longer starts the stream again and again
-- The app no longer flashes white when it starts
 - Settings → EPG no longer shows your provider username and password in the guide address
 - Switching between Live TV, Movies and Series, picking a category, or clearing a search now starts at the top of the list instead of where you last scrolled
 
