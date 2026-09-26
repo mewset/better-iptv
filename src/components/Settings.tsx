@@ -110,6 +110,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   const [tmdbEnabled, setTmdbEnabled] = useState(true);
   const [tmdbApiKey, setTmdbApiKey] = useState('');
   const [tmdbLanguage, setTmdbLanguage] = useState<TmdbLanguage>('en-US');
+  const [tmdbBackgroundEnrich, setTmdbBackgroundEnrich] = useState(false);
   const [tmdbStatus, setTmdbStatus] = useState<TmdbStatus | null>(null);
   const [originalTmdbLanguage, setOriginalTmdbLanguage] = useState('');
   const [originalTmdbKey, setOriginalTmdbKey] = useState('');
@@ -156,6 +157,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
     tmdbEnabled,
     tmdbApiKey,
     tmdbLanguage,
+    tmdbBackgroundEnrich,
     parentalEnabled,
     blockedChannelIds: Array.from(blockedChannelIds).sort((a, b) => a - b),
     blockedCategories,
@@ -263,6 +265,8 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
         const savedTmdbEnabled = await getSetting('tmdb_enabled');
         const savedTmdbKey = await getSetting('tmdb_api_key');
         const savedTmdbLanguage = await getSetting('tmdb_language');
+        const savedTmdbBackgroundEnrich = await getSetting('tmdb_background_enrich');
+        setTmdbBackgroundEnrich(savedTmdbBackgroundEnrich === '1');
         const enabledValue = savedTmdbEnabled !== '0';
         setTmdbEnabled(enabledValue);
         setOriginalTmdbEnabled(enabledValue);
@@ -496,6 +500,11 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       // change invalidates the cards already shown.
       await setSetting('tmdb_enabled', tmdbEnabled ? '1' : '0');
       await setSetting('tmdb_api_key', tmdbApiKey.trim());
+      // After the key, so the backend sees it first; the flag cannot be on
+      // without an own key (the backend refuses it too).
+      const backgroundEnrichValue = tmdbApiKey.trim() !== '' && tmdbBackgroundEnrich;
+      await setSetting('tmdb_background_enrich', backgroundEnrichValue ? '1' : '0');
+      if (!backgroundEnrichValue) setTmdbBackgroundEnrich(false);
       await setSetting('tmdb_language', tmdbLanguage);
       if (tmdbLanguage !== originalTmdbLanguage) await deleteTmdbCache();
       if (
@@ -674,6 +683,8 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
                   await deleteTmdbCache();
                   clearTmdbCards();
                 }}
+                backgroundEnrich={tmdbBackgroundEnrich}
+                onBackgroundEnrichChange={setTmdbBackgroundEnrich}
               />
             </TabsContent>
 

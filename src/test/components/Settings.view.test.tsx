@@ -4,8 +4,18 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import Settings from '../../components/Settings';
 import { usePlayerStore } from '../../stores/player-store';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
-import { setSetting, stopPlayback, deletePlaylist, deleteTmdbCache } from '../../lib/tauri';
+import {
+  getSetting,
+  setSetting,
+  stopPlayback,
+  deletePlaylist,
+  deleteTmdbCache,
+} from '../../lib/tauri';
 import type { Channel, Playlist } from '../../types';
+
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(async () => () => {}),
+}));
 
 vi.mock('../../lib/tauri', () => ({
   getSetting: vi.fn(async () => null),
@@ -45,6 +55,8 @@ vi.mock('../../lib/tauri', () => ({
     user_key_rejected: false,
     shared_key_rejected: false,
     language: 'en-US',
+    background_enrich: false,
+    background_progress: null,
   })),
   checkTmdbKey: vi.fn(async () => {}),
   deleteTmdbCache: vi.fn(async () => 0),
@@ -77,6 +89,10 @@ async function renderSettings(onClose = vi.fn()) {
 describe('Settings as a view', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks keeps implementations; put back the defaults a test may
+    // have swapped out.
+    vi.mocked(getSetting).mockImplementation(async () => null);
+    vi.mocked(setSetting).mockImplementation(async () => {});
     usePlayerStore.setState({
       playlists: [],
       currentPlaylist: null,
@@ -118,6 +134,48 @@ describe('Settings as a view', () => {
     expect(setSetting).toHaveBeenCalledWith('tmdb_enabled', '1');
     expect(setSetting).toHaveBeenCalledWith('tmdb_api_key', '');
     expect(deleteTmdbCache).toHaveBeenCalled();
+  });
+
+  it('Save writes tmdb_background_enrich after tmdb_api_key, false once the key is emptied', async () => {
+    vi.mocked(getSetting).mockImplementation(async (key: string) =>
+      key === 'tmdb_api_key' ? 'own-key' : key === 'tmdb_background_enrich' ? '1' : null
+    );
+    await renderSettings();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /^metadata$/i }));
+    await screen.findByRole('heading', { level: 1, name: 'Metadata' });
+    const box = screen.getByRole('checkbox', {
+      name: 'Fetch details for the whole library in the background',
+    });
+    expect(box).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(setSetting).toHaveBeenCalledWith('tmdb_background_enrich', '1'));
+    const calls = vi.mocked(setSetting).mock.calls.map(([key]) => key);
+    expect(calls.indexOf('tmdb_background_enrich')).toBeGreaterThan(calls.indexOf('tmdb_api_key'));
+
+    // Emptying the key saves the flag as off, whatever the checkbox held.
+    vi.mocked(setSetting).mockClear();
+    fireEvent.change(screen.getByLabelText('TMDB API key'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(setSetting).toHaveBeenCalledWith('tmdb_background_enrich', '0'));
+  });
+
+  it('shows the backend refusal of the background flag in the error modal', async () => {
+    vi.mocked(setSetting).mockImplementation(async (key: string, value: string) => {
+      if (key === 'tmdb_background_enrich' && value === '1')
+        throw 'Background fetching needs your own TMDB API key';
+    });
+    await renderSettings();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /^metadata$/i }));
+    await screen.findByRole('heading', { level: 1, name: 'Metadata' });
+    fireEvent.change(screen.getByLabelText('TMDB API key'), { target: { value: 'k' } });
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'Fetch details for the whole library in the background',
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await screen.findByRole('heading', { name: 'Failed to Save Settings' });
+    expect(screen.getByText(/Background fetching needs your own TMDB API key/)).toBeInTheDocument();
   });
 
   it('Save with an unchanged language leaves the cache alone', async () => {

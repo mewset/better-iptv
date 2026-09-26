@@ -1,5 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { checkTmdbKey, type TmdbStatus } from '../../lib/tauri';
+import {
+  TMDB_BACKGROUND_PROGRESS_EVENT,
+  backgroundProgressLine,
+  type TmdbBackgroundProgress,
+} from '../../lib/tmdb';
 import { TMDB_LANGUAGE_OPTIONS, TMDB_ATTRIBUTION, type TmdbLanguage } from './constants';
 import { logger } from '../../lib/logger';
 import tmdbLogo from '../../assets/tmdb/tmdb-blue-short.svg';
@@ -13,6 +19,8 @@ interface MetadataTabProps {
   onLanguageChange: (language: TmdbLanguage) => void;
   status: TmdbStatus | null;
   onClearCache: () => Promise<void>;
+  backgroundEnrich: boolean;
+  onBackgroundEnrichChange: (enabled: boolean) => void;
 }
 
 /** The one-line key status, spec §3. */
@@ -43,10 +51,37 @@ export default function MetadataTab({
   onLanguageChange,
   status,
   onClearCache,
+  backgroundEnrich,
+  onBackgroundEnrichChange,
 }: MetadataTabProps) {
   const [testResult, setTestResult] = useState<string>('');
   const [testing, setTesting] = useState(false);
   const [cleared, setCleared] = useState(false);
+  const hasOwnKey = apiKey.trim() !== '';
+
+  // The scan's progress: the snapshot from the status on open, then live.
+  const [progress, setProgress] = useState<TmdbBackgroundProgress | null>(null);
+  const statusProgress = status?.background_progress ?? null;
+  useEffect(() => {
+    setProgress(statusProgress);
+  }, [statusProgress]);
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    listen<TmdbBackgroundProgress>(TMDB_BACKGROUND_PROGRESS_EVENT, (event) => {
+      setProgress(event.payload);
+    })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch((err) => logger.warn('Failed to listen for TMDB progress:', err));
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+  const progressLine = backgroundProgressLine(progress);
 
   const handleTest = async () => {
     setTesting(true);
@@ -150,6 +185,33 @@ export default function MetadataTab({
             <p className="mt-1 text-xs text-text-faint">
               English is used when a translation is missing.
             </p>
+          </div>
+
+          <div>
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={backgroundEnrich}
+                disabled={!hasOwnKey}
+                onChange={(e) => onBackgroundEnrichChange(e.target.checked)}
+                className="h-4 w-4 accent-accent disabled:opacity-50"
+              />
+              <span
+                className={`text-sm font-medium ${hasOwnKey ? 'text-text' : 'text-text-muted'}`}
+              >
+                Fetch details for the whole library in the background
+              </span>
+            </label>
+            <p className="mt-1 text-xs text-text-faint">
+              {hasOwnKey
+                ? 'Searches TMDB for every movie and series once, at a gentle pace, so posters and details are ready before you scroll to them'
+                : 'Needs your own TMDB API key'}
+            </p>
+            {progressLine && (
+              <p className="mt-1 text-xs text-text-muted" role="status">
+                {progressLine}
+              </p>
+            )}
           </div>
 
           <div className="flex items-center gap-3">

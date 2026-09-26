@@ -345,6 +345,10 @@ export interface TmdbStatus {
   user_key_rejected: boolean;
   shared_key_rejected: boolean;
   language: string;
+  /** The `tmdb_background_enrich` setting. */
+  background_enrich: boolean;
+  /** Where the library scan stands; null until one ran this session. */
+  background_progress: { done: number; total: number; running: boolean } | null;
 }
 
 /** Cached cards for these channels (max 120); misses arrive later as `tmdb-card` events. */
