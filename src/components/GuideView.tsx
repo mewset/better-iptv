@@ -154,6 +154,9 @@ const GuideRow = memo(function GuideRow({
                 key={`${program.start_time}|${program.title}`}
                 type="button"
                 aria-label={[program.title, range, channel.name].filter(Boolean).join(', ')}
+                // Native tooltip: short blocks truncate long names (children's
+                // programmes especially), so hovering shows the whole thing.
+                title={[program.title, range].filter(Boolean).join(' · ')}
                 aria-pressed={selected}
                 onClick={() => onSelect(channel, program)}
                 style={{

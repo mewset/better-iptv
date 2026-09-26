@@ -119,6 +119,16 @@ describe('GuideView', () => {
     expect(within(tv4Row).queryByRole('button')).toBeNull();
   });
 
+  it('a block shows the full programme name and time as its hover text', async () => {
+    renderGuide();
+    const svtRow = await screen.findByRole('row', { name: 'SVT1' });
+    const block = await within(svtRow).findByRole('button', { name: blockName(airing, 'SVT1') });
+    expect(block).toHaveAttribute(
+      'title',
+      `${airing.title} · ${formatClock(airing.start_time)}–${formatClock(airing.end_time)}`
+    );
+  });
+
   it('asks the backend only for channels with an epg id', async () => {
     renderGuide({ channels: [svt1, channel(3, 'No EPG', null), channel(4, 'Blank', '  ')] });
     await screen.findByRole('button', { name: blockName(airing, 'SVT1') });
