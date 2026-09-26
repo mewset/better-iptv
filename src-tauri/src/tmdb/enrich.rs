@@ -159,6 +159,18 @@ pub fn row_is_fresh(conn: &Connection, key: &TmdbKey) -> Result<bool, AppError> 
     }))
 }
 
+/// The background planner's rule: `row_is_fresh`, plus a matched automatic
+/// row that predates the `vote_count` column (3.0.0) is searched once more
+/// so the Home page can rate it. The foreground rule is untouched, so the
+/// shared key never pays for this refill.
+pub fn row_is_fresh_for_scan(conn: &Connection, key: &TmdbKey) -> Result<bool, AppError> {
+    let now = Utc::now();
+    Ok(queries::get_tmdb_row(conn, key)?.is_some_and(|row| {
+        let needs_votes = row.tmdb_id.is_some() && row.vote_count.is_none() && !row.manual;
+        !needs_votes && !search_is_stale(&row.searched_at, now, row.tmdb_id.is_some(), row.manual)
+    }))
+}
+
 /// A background job: the search, then exactly one progress event, unless
 /// the scan was cancelled while the search ran. A title a visible row
 /// searched (and released) since planning is skipped, not searched twice.
@@ -319,7 +331,7 @@ fn plan_library_scan(conn: &Connection) -> Result<Option<Vec<EnrichJob>>, AppErr
         return Ok(None);
     };
     let channels = queries::get_channels(conn, Some(playlist_id))?;
-    plan_background_jobs(&channels, &|key| row_is_fresh(conn, key)).map(Some)
+    plan_background_jobs(&channels, &|key| row_is_fresh_for_scan(conn, key)).map(Some)
 }
 
 /// Hand the planned jobs to the background queue, stamped with the current
@@ -493,6 +505,54 @@ mod tests {
         )
         .unwrap();
         assert!(row_is_fresh(&conn, &key).unwrap());
+    }
+
+    #[test]
+    fn the_scan_re_searches_a_matched_row_without_a_vote_count_but_the_foreground_does_not() {
+        let conn = setup_test_db();
+        let key = TmdbKey {
+            title: "dune".into(),
+            year: 2021,
+            content_type: "vod".into(),
+        };
+        let mut row = TmdbRow {
+            key: key.clone(),
+            tmdb_id: Some(438631),
+            manual: false,
+            title: Some("Dune".into()),
+            original_title: None,
+            release_year: Some(2021),
+            rating: Some(7.8),
+            vote_count: None,
+            poster_path: None,
+            backdrop_path: None,
+            overview: None,
+            genre_ids: None,
+            runtime_minutes: None,
+            genres: None,
+            cast_json: None,
+            trailer_youtube_key: None,
+            searched_at: Utc::now().to_rfc3339(),
+            details_fetched_at: None,
+        };
+        crate::db::mutations::upsert_tmdb_search(&conn, &row).unwrap();
+        assert!(
+            row_is_fresh(&conn, &key).unwrap(),
+            "foreground rule unchanged"
+        );
+        assert!(
+            !row_is_fresh_for_scan(&conn, &key).unwrap(),
+            "scan refills the count"
+        );
+
+        row.vote_count = Some(9000);
+        crate::db::mutations::upsert_tmdb_search(&conn, &row).unwrap();
+        assert!(row_is_fresh_for_scan(&conn, &key).unwrap());
+
+        // A manual pick is never re-searched (the search upsert ignores it anyway).
+        crate::db::mutations::set_tmdb_manual(&conn, &key, Some(1), &Utc::now().to_rfc3339())
+            .unwrap();
+        assert!(row_is_fresh_for_scan(&conn, &key).unwrap());
     }
 
     #[test]
