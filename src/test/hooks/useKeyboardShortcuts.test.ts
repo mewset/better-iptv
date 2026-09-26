@@ -128,4 +128,12 @@ describe('useKeyboardShortcuts', () => {
     await Promise.resolve();
     expect(stopPlayback).not.toHaveBeenCalled();
   });
+
+  it('calls onSearchUnavailable for "/" when there is no search box', () => {
+    const onSearchUnavailable = vi.fn();
+    const ref = { current: null };
+    renderHook(() => useKeyboardShortcuts(ref, { onSearchUnavailable }));
+    press('/');
+    expect(onSearchUnavailable).toHaveBeenCalledTimes(1);
+  });
 });

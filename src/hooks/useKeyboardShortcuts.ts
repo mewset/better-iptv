@@ -11,7 +11,7 @@ import { logger } from '../lib/logger';
  * | Space  | Toggle play/stop                               |
  * | F      | Toggle fullscreen (MPV)                        |
  * | Escape | Close the open view, else stop playback        |
- * | /      | Focus search bar                               |
+ * | /      | Focus search bar (else `onSearchUnavailable`)  |
  * | G      | Toggle the TV guide (`onToggleGuide`)          |
  * | M      | Mute toggle (future)                           |
  *
@@ -32,13 +32,15 @@ export interface KeyboardShortcutOptions {
   onToggleGuide?: () => void;
   /** Close the open view; true when something was closed. */
   onEscapeView?: () => boolean;
+  /** "/" pressed while no search box is mounted (Home): the caller decides where to go. */
+  onSearchUnavailable?: () => void;
 }
 
 export function useKeyboardShortcuts(
   searchInputRef?: React.RefObject<globalThis.HTMLInputElement | null>,
   options: KeyboardShortcutOptions = {}
 ) {
-  const { onToggleGuide, onEscapeView } = options;
+  const { onToggleGuide, onEscapeView, onSearchUnavailable } = options;
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const currentChannel = usePlayerStore((s) => s.currentChannel);
   const setIsPlaying = usePlayerStore((s) => s.setIsPlaying);
@@ -108,7 +110,8 @@ export function useKeyboardShortcuts(
 
         case '/': {
           e.preventDefault();
-          searchInputRef?.current?.focus();
+          if (searchInputRef?.current) searchInputRef.current.focus();
+          else onSearchUnavailable?.();
           break;
         }
 
@@ -132,6 +135,7 @@ export function useKeyboardShortcuts(
       setNextProgram,
       searchInputRef,
       onToggleGuide,
+      onSearchUnavailable,
       onEscapeView,
     ]
   );

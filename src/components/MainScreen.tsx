@@ -7,9 +7,13 @@ import {
   getChannels,
   getSeriesInfo,
   getLocalSeriesInfo,
+  getTmdbStatus,
+  type TmdbDetails,
+  type TmdbStatus,
 } from '../lib/tauri';
 import { CategoryBar } from './CategoryBar';
 import { GuideView } from './GuideView';
+import { HomeView } from './HomeView';
 import { ChannelCard } from './ChannelCard';
 import { PosterCard } from './PosterCard';
 import { MoviesHero } from './MoviesHero';
@@ -25,7 +29,6 @@ import ConfirmationModal from './modals/ConfirmationModal';
 import RefreshModal from './modals/RefreshModal';
 import TmdbMatchModal from './modals/TmdbMatchModal';
 import { cardFromDetails } from '../lib/tmdb';
-import type { TmdbDetails } from '../lib/tauri';
 import type { Channel, SeriesInfo } from '../types';
 import { logger } from '../lib/logger';
 import { useResponsiveGrid, getGridClasses } from '../hooks/useResponsiveGrid';
@@ -37,6 +40,7 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useChannelFilter } from '../hooks/useChannelFilter';
 import { useUpdateCheck } from '../hooks/useUpdateCheck';
 import { useTmdbCards } from '../hooks/useTmdbCards';
+import { useHomeRows } from '../hooks/useHomeRows';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { newestTitles } from '../lib/newestTitle';
 
@@ -55,6 +59,11 @@ const SECTION_TITLES: Record<Section, string> = {
   favorites: 'Favorites',
   guide: 'TV Guide',
 };
+
+/** Slides shown per Home row after parental filtering; the backend sends twelve. */
+const HOME_SLIDES = 8;
+/** A Home row with fewer visible slides than this is dropped. */
+const HOME_MIN_SLIDES = 3;
 
 // [singular, plural] count nouns per section. While a search spans every
 // content type the list is no longer one kind, so it counts "results".
@@ -123,6 +132,31 @@ export default function MainScreen() {
   const parentalAutoDetect = usePlayerStore((s) => s.parentalAutoDetect);
   const parentalVisibility = usePlayerStore((s) => s.parentalVisibility);
   const loadParentalSettings = usePlayerStore((s) => s.loadParentalSettings);
+
+  // TMDB status drives the Home gate: feature on, own key, background scan on.
+  const [tmdbStatus, setTmdbStatus] = useState<TmdbStatus | null>(null);
+  const refreshTmdbStatus = useCallback(() => {
+    getTmdbStatus()
+      .then(setTmdbStatus)
+      .catch((err) => logger.warn('Failed to read TMDB status:', err));
+  }, []);
+  useEffect(() => {
+    refreshTmdbStatus();
+  }, [refreshTmdbStatus, currentPlaylist?.id]);
+  const homeAvailable = Boolean(
+    tmdbStatus?.enabled && tmdbStatus.has_user_key && tmdbStatus.background_enrich
+  );
+
+  // Start on Home once, when the first status arrives and the user is still
+  // on the default section. Any later status change only closes the gate.
+  const startSectionDecided = useRef(false);
+  useEffect(() => {
+    if (startSectionDecided.current || tmdbStatus === null) return;
+    startSectionDecided.current = true;
+    if (homeAvailable && usePlayerStore.getState().contentTypeFilter === 'live') {
+      setContentTypeFilter('home');
+    }
+  }, [tmdbStatus, homeAvailable, setContentTypeFilter]);
 
   // Use consolidated EPG hook for channel EPG data (with debouncing and
   // caching). The playing channel always rides along so the dock stays fresh.
@@ -199,7 +233,7 @@ export default function MainScreen() {
       return;
     }
 
-    if (contentTypeFilter === 'favorites') {
+    if (contentTypeFilter === 'favorites' || contentTypeFilter === 'home') {
       setCategories([]);
       return;
     }
@@ -240,6 +274,53 @@ export default function MainScreen() {
     parentalAutoDetect,
     blockedChannelIds,
     blockedCategories,
+  ]);
+
+  const channels = usePlayerStore((s) => s.channels);
+  const {
+    rows: homeRows,
+    loading: homeLoading,
+    progress: homeProgress,
+  } = useHomeRows(currentPlaylist?.id ?? null, homeAvailable && contentTypeFilter === 'home');
+  const channelById = useMemo(() => {
+    const map = new Map<number, Channel>();
+    for (const c of channels) if (c.id) map.set(c.id, c);
+    return map;
+  }, [channels]);
+  // Same rule as the hero: `isAdultContent` regardless of the parental
+  // settings, plus the parental block. The backend sends twelve per row so
+  // eight usually survive; a row under three is dropped.
+  const homeVisibleRows = useMemo(() => {
+    const settings = {
+      enabled: parentalEnabled,
+      autoDetect: parentalAutoDetect,
+      blockedIds: blockedChannelIds,
+      blockedCategories,
+      unlocked: parentalUnlocked,
+    };
+    return homeRows
+      .map((row) => ({
+        ...row,
+        items: row.items
+          .filter((item) => {
+            const c = channelById.get(item.channel_id);
+            return (
+              c !== undefined &&
+              !isAdultContent(c.name, c.group_name) &&
+              !shouldBlockChannel(c, settings)
+            );
+          })
+          .slice(0, HOME_SLIDES),
+      }))
+      .filter((row) => row.items.length >= HOME_MIN_SLIDES);
+  }, [
+    homeRows,
+    channelById,
+    parentalEnabled,
+    parentalAutoDetect,
+    blockedChannelIds,
+    blockedCategories,
+    parentalUnlocked,
   ]);
 
   // The "Recently added" hero: the newest title of the Movies or Series
@@ -369,6 +450,14 @@ export default function MainScreen() {
       openDetail(channel);
     },
     [openDetail]
+  );
+
+  const handleOpenHomeItem = useCallback(
+    (channelId: number) => {
+      const channel = channelById.get(channelId);
+      if (channel) handleOpenTitle(channel);
+    },
+    [channelById, handleOpenTitle]
   );
 
   const handlePlayChannel = useCallback(
@@ -524,6 +613,27 @@ export default function MainScreen() {
     [setContentTypeFilter, closeDetail]
   );
 
+  // The gate closed while Home was open (scan or key turned off in Settings).
+  useEffect(() => {
+    if (tmdbStatus !== null && !homeAvailable && contentTypeFilter === 'home') {
+      handleSection('live');
+    }
+  }, [tmdbStatus, homeAvailable, contentTypeFilter, handleSection]);
+
+  // "/" on Home, where there is no search box: go to Live TV, then focus.
+  const focusSearchPending = useRef(false);
+  const handleSearchUnavailable = useCallback(() => {
+    if (contentTypeFilter !== 'home') return;
+    focusSearchPending.current = true;
+    handleSection('live');
+  }, [contentTypeFilter, handleSection]);
+  useEffect(() => {
+    if (focusSearchPending.current && contentTypeFilter !== 'home') {
+      focusSearchPending.current = false;
+      searchInputRef.current?.focus();
+    }
+  }, [contentTypeFilter]);
+
   // Navigating away from Settings asks it first: unsaved edits get a
   // "Discard changes?" dialog, and `go` runs only on Discard.
   const leaveSettingsThen = useCallback(
@@ -584,6 +694,7 @@ export default function MainScreen() {
   useKeyboardShortcuts(searchInputRef, {
     onToggleGuide: handleToggleGuide,
     onEscapeView: handleEscapeView,
+    onSearchUnavailable: handleSearchUnavailable,
   });
 
   const handleOpenUpdate = useCallback(() => {
@@ -600,12 +711,12 @@ export default function MainScreen() {
   let subtitle =
     contentTypeFilter === 'guide'
       ? guideSubtitle(new Date())
-      : countLabel(
-          filteredChannels.length,
-          trimmedQuery
-            ? RESULT_NOUNS
-            : SECTION_COUNT_NOUNS[contentTypeFilter as Exclude<Section, 'guide' | 'home'>]
-        );
+      : contentTypeFilter === 'home'
+        ? ''
+        : countLabel(
+            filteredChannels.length,
+            trimmedQuery ? RESULT_NOUNS : SECTION_COUNT_NOUNS[contentTypeFilter]
+          );
   if (view === 'settings') {
     title = 'Settings';
     subtitle = 'Ctrl+1–7 switches sections';
@@ -626,6 +737,7 @@ export default function MainScreen() {
           setProfileMenuOpen(true);
         }}
         profileButtonRef={railProfileRef}
+        homeAvailable={homeAvailable}
       />
       <main className="relative flex min-w-0 flex-1 flex-col">
         <TopBar
@@ -636,7 +748,7 @@ export default function MainScreen() {
           onQuery={setSearchQuery}
           update={update}
           onOpenUpdate={handleOpenUpdate}
-          showSearch={view === 'browse'}
+          showSearch={view === 'browse' && contentTypeFilter !== 'home'}
           profileMenuOpen={profileMenuOpen}
           onProfileMenuOpenChange={(open) => {
             if (open) setProfileMenuFromRail(false);
@@ -647,7 +759,10 @@ export default function MainScreen() {
 
         {view === 'settings' ? (
           <Settings
-            onClose={() => setView('browse')}
+            onClose={() => {
+              setView('browse');
+              refreshTmdbStatus();
+            }}
             initialTab={settingsTab}
             leaveRef={settingsRef}
           />
@@ -665,6 +780,13 @@ export default function MainScreen() {
             onFixMatch={handleFixMatch}
             onDetails={handleDetails}
             detailsOverride={matchOverride}
+          />
+        ) : contentTypeFilter === 'home' ? (
+          <HomeView
+            rows={homeVisibleRows}
+            loading={homeLoading}
+            progress={homeProgress ?? tmdbStatus?.background_progress ?? null}
+            onOpen={handleOpenHomeItem}
           />
         ) : contentTypeFilter === 'guide' ? (
           <GuideView
