@@ -111,3 +111,18 @@ pub struct TmdbEpisodeRow {
     pub air_date: Option<String>,
     pub fetched_at: String,
 }
+
+/// A cached title that passes the Home page's fixed filter
+/// (`queries::get_tmdb_home_candidates`). Only what a slide needs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TmdbHomeCandidate {
+    pub key: TmdbKey,
+    pub tmdb_id: i64,
+    pub title: String,
+    pub release_year: Option<i32>,
+    pub rating: Option<f64>,
+    pub poster_path: Option<String>,
+    pub backdrop_path: String,
+    pub overview: Option<String>,
+    pub genre_ids: Vec<i32>,
+}
