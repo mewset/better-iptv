@@ -227,4 +227,23 @@ describe('MainScreen: Home', () => {
     );
     await waitFor(() => expect(screen.getByRole('searchbox')).toHaveFocus());
   });
+
+  it('"/" inside Settings opened from Home leaves Settings alone', async () => {
+    setupInvoke(true);
+    render(<MainScreen />);
+    await screen.findByRole('region', { name: 'Action Movies' });
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+    await screen.findByRole('heading', { level: 1, name: 'General' });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /^save changes$/i })).not.toBeDisabled()
+    );
+    fireEvent.keyDown(document, { key: '/' });
+    // Give a wrongful section switch the chance to render.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByRole('heading', { level: 1, name: 'General' })).toBeInTheDocument();
+    expect(rail().getByRole('button', { name: 'Live TV' })).not.toHaveAttribute(
+      'aria-current',
+      'page'
+    );
+  });
 });

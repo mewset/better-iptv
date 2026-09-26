@@ -622,11 +622,13 @@ export default function MainScreen() {
 
   // "/" on Home, where there is no search box: go to Live TV, then focus.
   const focusSearchPending = useRef(false);
+  // Only while browsing: Settings and the detail view have no search box
+  // either, and leaving them here would skip Settings' discard check.
   const handleSearchUnavailable = useCallback(() => {
-    if (contentTypeFilter !== 'home') return;
+    if (view !== 'browse' || contentTypeFilter !== 'home') return;
     focusSearchPending.current = true;
     handleSection('live');
-  }, [contentTypeFilter, handleSection]);
+  }, [view, contentTypeFilter, handleSection]);
   useEffect(() => {
     if (focusSearchPending.current && contentTypeFilter !== 'home') {
       focusSearchPending.current = false;
