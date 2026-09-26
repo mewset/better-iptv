@@ -16,6 +16,8 @@ use serde::Deserialize;
 pub const TMDB_ENABLED_KEY: &str = "tmdb_enabled";
 pub const TMDB_API_KEY_KEY: &str = "tmdb_api_key";
 pub const TMDB_LANGUAGE_KEY: &str = "tmdb_language";
+/// "1" lets the library scan run; only ever "1" together with an own key.
+pub const TMDB_BACKGROUND_ENRICH_KEY: &str = "tmdb_background_enrich";
 pub const TMDB_SHARED_KEY_KEY: &str = "tmdb_shared_key";
 pub const TMDB_SHARED_KEY_FETCHED_AT_KEY: &str = "tmdb_shared_key_fetched_at";
 pub const SHARED_KEY_URL: &str = "https://better-iptv.vercel.app/api/tmdb-key";

@@ -7,7 +7,10 @@ use crate::db::{mutations, queries};
 use crate::error::AppError;
 use crate::state::AppState;
 use crate::tmdb::enrich::{claim_key, search_and_store, EnrichJob};
-use crate::tmdb::keys::{handle_unauthorized, read_key_settings, read_language, resolve_key};
+use crate::tmdb::keys::{
+    handle_unauthorized, read_key_settings, read_language, resolve_key, TMDB_BACKGROUND_ENRICH_KEY,
+};
+use crate::tmdb::session::BackgroundProgress;
 use crate::tmdb::types::Details;
 use crate::tmdb::{Kind, TmdbClient, TmdbError};
 use crate::tmdb_domain::{
@@ -44,6 +47,10 @@ pub struct TmdbStatus {
     pub user_key_rejected: bool,
     pub shared_key_rejected: bool,
     pub language: String,
+    /// The `tmdb_background_enrich` setting.
+    pub background_enrich: bool,
+    /// Where the library scan stands; `None` until one ran this session.
+    pub background_progress: Option<BackgroundProgress>,
 }
 
 /// Cache key, search query and TMDB kind for a channel; `None` for live TV.
@@ -201,8 +208,12 @@ async fn feature_enabled(state: &State<'_, AppState>) -> Result<bool, AppError> 
 
 #[tauri::command]
 pub async fn get_tmdb_status(state: State<'_, AppState>) -> Result<TmdbStatus, AppError> {
-    let (settings, language) = with_db(&state.pool, |conn| {
-        Ok((read_key_settings(conn)?, read_language(conn)?))
+    let (settings, language, background_enrich) = with_db(&state.pool, |conn| {
+        Ok((
+            read_key_settings(conn)?,
+            read_language(conn)?,
+            queries::get_setting(conn, TMDB_BACKGROUND_ENRICH_KEY)?.is_some_and(|v| v == "1"),
+        ))
     })
     .await?;
     Ok(TmdbStatus {
@@ -218,6 +229,8 @@ pub async fn get_tmdb_status(state: State<'_, AppState>) -> Result<TmdbStatus, A
         user_key_rejected: state.tmdb.user_key_rejected(),
         shared_key_rejected: state.tmdb.shared_key_rejected(),
         language,
+        background_enrich,
+        background_progress: state.tmdb.background_progress(),
     })
 }
 

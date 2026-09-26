@@ -208,7 +208,6 @@ impl TmdbSession {
 
     /// Queue a title for the library scan; served only behind the
     /// foreground queue. Dropped if the worker is gone.
-    #[allow(dead_code)] // Called by schedule_library_scan, which lands with the scan itself
     pub fn enqueue_background(&self, job: EnrichJob) {
         let _ = self.bg_tx.send(job);
     }
@@ -225,7 +224,6 @@ impl TmdbSession {
     /// Abandon the running scan: every queued background job becomes stale
     /// and the progress is cleared, so a late job cannot count towards the
     /// next scan. Releases the scan lock.
-    #[allow(dead_code)] // Called from set_setting, which lands with the scan itself
     pub fn cancel_background(&self) {
         self.bg_generation.fetch_add(1, Ordering::SeqCst);
         self.bg_started.store(false, Ordering::SeqCst);
@@ -237,7 +235,6 @@ impl TmdbSession {
 
     /// Take the scan lock. False while another scan is planning or still
     /// has jobs in the queue.
-    #[allow(dead_code)] // Called by schedule_library_scan, which lands with the scan itself
     pub fn try_begin_scan(&self) -> bool {
         self.bg_scan_lock
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -246,14 +243,12 @@ impl TmdbSession {
 
     /// Release the scan lock without touching the counters: planning bailed
     /// out before any job was queued.
-    #[allow(dead_code)] // Called by schedule_library_scan, which lands with the scan itself
     pub fn end_scan(&self) {
         self.bg_scan_lock.store(false, Ordering::SeqCst);
     }
 
     /// A scan has been planned with `total` jobs. Zero jobs is a finished
     /// scan, so the lock is released at once.
-    #[allow(dead_code)] // Called by schedule_library_scan, which lands with the scan itself
     pub fn start_background(&self, total: u64) {
         self.bg_total.store(total, Ordering::SeqCst);
         self.bg_done.store(0, Ordering::SeqCst);
@@ -282,7 +277,6 @@ impl TmdbSession {
     }
 
     /// `None` until the first scan of the session starts (or after a cancel).
-    #[allow(dead_code)] // Read by get_tmdb_status, which lands with the scan itself
     pub fn background_progress(&self) -> Option<BackgroundProgress> {
         if !self.bg_started.load(Ordering::SeqCst) {
             return None;

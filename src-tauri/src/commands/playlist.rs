@@ -7,6 +7,7 @@ use crate::playlist::{
 use crate::playlist_domain;
 use crate::series_domain::{self, SeriesGroup};
 use crate::state::AppState;
+use crate::tmdb::enrich::schedule_library_scan;
 use log::{debug, error, info};
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter, State};
@@ -27,6 +28,7 @@ fn get_playlist_user_agent(db: &rusqlite::Connection) -> Result<String, AppError
 
 #[tauri::command]
 pub async fn import_playlist(
+    app: AppHandle,
     state: State<'_, AppState>,
     name: String,
     source: String,
@@ -55,7 +57,7 @@ pub async fn import_playlist(
 
     let playlist = playlist_domain::build_m3u_playlist(name, source)?;
 
-    with_db(&state.pool, move |conn| {
+    let imported = with_db(&state.pool, move |conn| {
         // All-or-nothing: a playlist row with some series present and some
         // missing, or channels without their owning playlist, is worse than
         // no import at all.
@@ -88,7 +90,9 @@ pub async fn import_playlist(
         result.id = Some(playlist_id);
         Ok(result)
     })
-    .await
+    .await?;
+    schedule_library_scan(app);
+    Ok(imported)
 }
 
 #[tauri::command]
@@ -138,7 +142,7 @@ pub async fn import_xtream_playlist(
     let playlist = playlist_domain::build_xtream_playlist(name, server_url, username, password)?;
     let epg_url = get_xtream_epg_url(&creds);
 
-    with_db(&state.pool, move |conn| {
+    let imported = with_db(&state.pool, move |conn| {
         // `create_channels_batch` no longer opens its own transaction (see
         // the M3U import above), so this closure owns one for the whole
         // import to keep every batch's commit atomic with the rest.
@@ -199,7 +203,9 @@ pub async fn import_xtream_playlist(
         result.id = Some(playlist_id);
         Ok(result)
     })
-    .await
+    .await?;
+    schedule_library_scan(app);
+    Ok(imported)
 }
 
 /// Read the subscription expiry an Xtream provider reports for a playlist
@@ -350,6 +356,7 @@ pub async fn refresh_playlist(
         "Playlist '{}' refreshed: {} added, {} updated, {} removed ({} total)",
         playlist_name, result.added, result.updated, result.removed, result.total
     );
+    schedule_library_scan(app);
 
     Ok(result)
 }

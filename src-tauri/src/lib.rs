@@ -127,8 +127,14 @@ pub fn run() {
             let state = AppState::new(pool);
             app.manage(state);
 
-            // Background TMDB enrichment: one search per visible title.
+            // TMDB enrichment: one search per visible title, plus the opt-in
+            // library scan once the first channel load is out of the way.
             tmdb::enrich::spawn_worker(app.handle().clone());
+            let scan_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(tmdb::enrich::BACKGROUND_SCAN_START_DELAY).await;
+                tmdb::enrich::schedule_library_scan(scan_handle);
+            });
 
             // Background EPG refresh. Runs on Tauri's tokio runtime; the
             // heavy parts (download, parse, store) already go through
