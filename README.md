@@ -3,7 +3,7 @@
 
   # Better IPTV
 
-  **Modern, cross-platform IPTV player built with Rust and Tauri**
+  **A dark, content-first IPTV player for Linux, Windows and macOS**
 
   [![Test Build](https://github.com/mewset/better-iptv/workflows/Test%20Build/badge.svg)](https://github.com/mewset/better-iptv/actions)
   [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-blue.svg)](#-installation)
@@ -11,67 +11,80 @@
   [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
   [![Website](https://img.shields.io/badge/website-better--iptv.vercel.app-informational)](https://better-iptv.vercel.app)
 
-  [Website](https://better-iptv.vercel.app) • [Features](#-features) • [Installation](#-installation) • [Quick Start](#-quick-start) • [FAQ](#-faq) • [Contributing](#-contributing)
+  [Website](https://better-iptv.vercel.app) • [What you get](#-what-you-get) • [Installation](#-installation) • [Getting started](#-getting-started) • [FAQ](#-faq) • [Contributing](#-contributing)
 </div>
 
-> **Note:** Better IPTV is not affiliated with any IPTV provider. Users are responsible for compliance with local laws and provider terms.
+> **Note:** Better IPTV is a player, not a provider. It plays the playlists you bring. You are responsible for following your provider's terms and your local laws.
+
+<div align="center">
+  <img src="resources/screenshots/movies.webp" alt="Movies section with a Recently added banner and a grid of posters" width="960"/>
+</div>
 
 ---
 
-## 📺 Overview
+## 📺 What is Better IPTV?
 
-Better IPTV is a desktop IPTV player that combines the performance of Rust with a modern web UI. Built on MPV for video playback, it handles live TV, movies, and series across Linux, Windows, and macOS.
+Better IPTV is a desktop app for watching IPTV: live channels, movies and series from an M3U playlist or an Xtream Codes provider. It keeps everything on your computer, plays video through MPV, and stays quick even with a playlist of 150,000 channels.
 
-**Why Better IPTV?**
-- **Fast & Efficient** - Rust backend stays smooth on playlists of 150,000+ channels
-- **Smart Features** - EPG, parental controls, multi-profile support, and more
-- **Modern UI** - Clean, responsive interface with dark/light themes
-- **Privacy First** - All data stored locally, credentials never leave your device
-- **Cross-Platform** - One app for Linux, Windows, and macOS
+- **Made to browse.** Posters, ratings and plots from TMDB, a TV guide, and a dark interface built around the content rather than around menus.
+- **Made to keep private.** Your playlists, credentials and history never leave your machine. The only things the app talks to are your provider, TMDB (titles only, and only when you keep it on) and GitHub (to check for updates).
+- **Made to last.** One SQLite file holds your data. Delete it and the app is back to first launch. Nothing phones home.
 
 ---
 
-## ✨ Features
+## ✨ What you get
 
-### 🎬 Content Library
-- **Live TV** - Stream live channels with real-time Electronic Program Guide (EPG)
-- **Movies (VOD)** - Browse and watch on-demand movies
-- **TV Series** - Season/episode organization with automatic episode queuing, for Xtream and M3U playlists
-- **Smart Search** - Instant filtering across all content types
-- **Virtual Scrolling** - Smooth performance even on 150,000-channel playlists
+### Live TV
+- Channels grouped the way your provider groups them, with a category bar for quick filtering and a Favorites section for the ones you actually watch
+- The current and next programme on every channel card, with a progress line showing how far the programme has come
+- A **TV Guide** (press `G`): what is on now and next across your channels, with a "Watch now" button on any programme
 
-### 🔒 Parental Controls
-- PIN protection (4-6 digits) with manual or automatic channel blocking
-- Auto-detection of adult content (+18, XXX, Adult markers)
-- Category-level blocking for entire channel groups
-- Three viewing modes: Hide, Lock Icon, or Blur
-- Session-based unlock that re-locks on restart
+<img src="resources/screenshots/live-tv.webp" alt="Live TV grid with programme names and progress lines" width="720"/>&nbsp;<img src="resources/screenshots/guide.webp" alt="TV Guide with a now line" width="720"/>
 
-### 📋 Playlist Management
-- **M3U/M3U8** import from a URL or a path to a local file
-- **Xtream Codes** integration with your IPTV provider
-- **Multi-Profile System** - Switch between multiple providers/playlists
-- **Favorites** - Star any channel and find them in a dedicated tab
-- **Custom User-Agent** - Presets for TiviMate, VLC, or enter your own
-- **Category Quick-Access** - Horizontal bar for instant category filtering
+### Movies and series
+- Real posters, year and rating on every card, fetched from [TMDB](https://www.themoviedb.org/)
+- A **detail page** for each title: backdrop, plot, cast, a trailer link, and for series the seasons and episodes
+- **Series playback that queues the rest of the season**, for Xtream and for M3U playlists that name their episodes (`Show S01E02`, `Show 1x02`, `Show Season 1 Episode 2`)
+- A "Recently added" banner at the top of Movies and Series, showing the newest title your provider added
+- Wrong poster? "Wrong title?" on the detail page lets you pick the right match, or mark a title as not on TMDB
 
-### 🎚️ Playback Settings
-- Video output renderer, deinterlacing and hardware acceleration
-- Start volume, start-in-fullscreen and stream cache duration
-- All handed to MPV, all saved per install
+<img src="resources/screenshots/movie-detail.webp" alt="Movie detail page with backdrop, plot, cast and a trailer button" width="720"/>&nbsp;<img src="resources/screenshots/series-detail.webp" alt="Series detail page with seasons" width="720"/>
 
-### 🌐 Language Support
-18 languages for audio and subtitle preferences (Scandinavian, European, and International), configurable per profile.
+### Search and navigation
+- Search across everything (press `/`), instant even on huge playlists
+- A side rail for Live TV, Movies, Series, Favorites and the TV Guide; search and the profile switcher at the top
+- Keyboard shortcuts for the things you do all the time (see below)
+
+<img src="resources/screenshots/search.webp" alt="Search results mixing series and movies, each with its poster, year and rating" width="720"/>
+
+### Profiles
+- One profile per playlist or provider; switch between them from the top-right menu, and add a new one from the same place
+- Each profile keeps its own favorites, language preferences and playlist refresh
+
+### Parental controls
+- A 4–6 digit PIN, hashed with Argon2, that locks the controls
+- Block channels by hand, block whole categories, or let the app pick out adult content by its labels
+- Blocked channels can be hidden, shown with a lock, or blurred; unlocking lasts until you close the app
+
+### Playback
+- MPV does the playing: hardware acceleration, every codec, HLS, RTSP and RTMP streams
+- Choose the video renderer, deinterlacing, start volume, fullscreen at start and how many seconds to buffer
+- Preferred audio and subtitle languages (18 languages), passed to MPV for every stream
+- If a stream cannot be played, the app tells you instead of doing nothing
+
+### Looks
+- Dark by default, with a light theme in Settings → General
+- New fonts, a floating now-playing dock, and a colour-bar placeholder for channels without a logo
 
 ---
 
 ## 📥 Installation
 
-### MPV Media Player
+### 1. MPV
 
-Better IPTV plays video through MPV.
+Better IPTV plays video through [MPV](https://mpv.io/), in its own window.
 
-**Windows:** nothing to do — MPV ships inside the installer.
+**Windows:** nothing to do. MPV is included in the installer.
 
 **Linux and macOS:** install MPV first.
 
@@ -82,27 +95,30 @@ sudo dnf install mpv      # Fedora
 brew install mpv          # macOS
 ```
 
-### Download Better IPTV
+### 2. Better IPTV
 
-Grab your file from [Releases](https://github.com/mewset/better-iptv/releases/latest):
+Download from [Releases](https://github.com/mewset/better-iptv/releases/latest):
 
 | Platform | File |
 |----------|------|
-| Windows | `Better.IPTV_<version>_x64_en-US.msi`, or `Better.IPTV_<version>_x64-setup.exe` |
+| Windows | `Better.IPTV_<version>_x64-setup.exe` (or the `.msi`) |
 | Ubuntu/Debian | `Better.IPTV_<version>_amd64.deb` or `Better.IPTV_<version>_amd64.AppImage` |
 | Fedora/RHEL | `Better.IPTV-<version>-1.x86_64.rpm` |
-| Arch/Manjaro | AUR, or `Better.IPTV_<version>_amd64-arch.AppImage` |
+| Arch/Manjaro | AUR (below), or `Better.IPTV_<version>_amd64-arch.AppImage` |
 | macOS (Apple Silicon) | `Better.IPTV_<version>_aarch64.dmg` |
 
-**Two AppImages — pick the right one.** The standard AppImage carries WebKit
-libraries built against Ubuntu. On a distro shipping a current `webkit2gtk`
-those clash and the app opens a white window or dies at startup with
-`Could not create default EGL display`. The `-arch` build uses your system's
-`webkit2gtk` instead, so despite the name it is the right file on **any**
-distro with recent libraries — Arch and Manjaro, but Fedora too.
+**Arch/Manjaro via the AUR:**
+```bash
+yay -S better-iptv-bin   # prebuilt
+yay -S better-iptv       # meta-package, pulls in better-iptv-bin
+```
 
-Because it bundles nothing, the `-arch` build needs `webkit2gtk-4.1`, `gtk3` and
-`mpv` from your distro, and tells you so if they are missing:
+<details>
+<summary><strong>Two AppImages, which one?</strong></summary>
+
+The standard AppImage bundles WebKit libraries built on Ubuntu. On a distro with a current `webkit2gtk` (Arch, Manjaro, Fedora) those clash, and the app opens a white window or dies with `Could not create default EGL display`. The `-arch` AppImage uses your system's `webkit2gtk` instead, so despite the name it is the right file on any distro with recent libraries.
+
+It bundles nothing, so it needs `webkit2gtk-4.1`, `gtk3` and `mpv` from your distro, and tells you if they are missing:
 
 ```bash
 sudo pacman -S webkit2gtk-4.1 gtk3 mpv      # Arch/Manjaro
@@ -111,149 +127,146 @@ sudo dnf install webkit2gtk4.1 gtk3 mpv     # Fedora
 chmod +x Better.IPTV_*_amd64-arch.AppImage
 ./Better.IPTV_*_amd64-arch.AppImage
 ```
-
-**Arch/Manjaro via the AUR:**
-```bash
-yay -S better-iptv-bin   # prebuilt, the quick one
-yay -S better-iptv       # same package, pulls in better-iptv-bin
-```
+</details>
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Getting started
 
-### 1. Import Playlist
+### Add your playlist
 
-On first launch you get two tabs, **M3U URL** and **Xtream Codes**.
+The first screen asks for one playlist. Give it a name, then either:
 
-**M3U URL**
-1. Enter a playlist name (e.g. "My IPTV")
-2. Paste your M3U/M3U8 URL — or the path to a local `.m3u` file
-3. Click **"Add Playlist"** and wait for the channels to load
+- **M3U:** paste the playlist URL, or the path to a `.m3u` file on your computer
+- **Xtream Codes:** enter the server URL, username and password from your provider
 
-**Xtream Codes**
-1. Enter a playlist name
-2. Fill in your server URL, username and password
-3. Click **"Add Playlist"** — Live TV, Movies and Series all import together
+Click **Add playlist**. Live TV, Movies and Series import together. More playlists can be added later from the profile menu in the top-right corner.
 
-### 2. Configure EPG (Optional)
+### Watch
 
-1. Open **Settings** (gear icon) → **EPG**
-2. Enter your XMLTV EPG URL (Xtream users get this automatically)
-3. Click **"Update Now"** — from then on the guide re-downloads itself every 6 hours while the app is running
+- Pick a section in the side rail, use the category bar to narrow it down, or press `/` and type
+- Click a channel to play it. MPV opens in its own window; the app shows what is playing in a dock at the bottom
+- Click a movie or series to open its detail page, then **Play** (or **Play S1 E1** for a series). The rest of the season queues automatically
+- Hover a card and click the star to add it to Favorites
 
-### 3. Start Watching
+### The programme guide
 
-- Use tabs (All / Live TV / Movies / Series / Favorites) and the category bar to browse
-- Type in the search box for instant filtering
-- Click a channel — anywhere on the card — and MPV opens in a separate window
+Xtream providers usually deliver a guide with the playlist, and the app picks it up on its own. For an M3U playlist, open **Settings → EPG** and paste an XMLTV URL. The guide refreshes itself every six hours while the app runs.
 
-**Series:** Select a series → choose season → click Play on any episode. Remaining episodes auto-queue.
+### Posters and details
 
-**M3U series:** Episodes are grouped by name. Rows like `Show S01E02`, `Show 1x02` or `Show Season 1 Episode 2` become one series card; rows without such a marker are treated as live channels.
+TMDB metadata is on from the start and needs no account. Under **Settings → Metadata** you can:
 
-**Favorites:** Hover over any channel card and click the star to add or remove.
+- turn it off, if you would rather not have titles looked up
+- choose the language for plots and titles
+- add your **own TMDB API key** (free at [themoviedb.org](https://www.themoviedb.org/settings/api)), which also unlocks fetching details for your whole library in the background
 
-**Multiple Profiles:** Add more playlists in **Settings → Profiles**, and switch between them from the same place.
+When metadata is on, the app sends the names of your movies and series to TMDB to find them. Nothing else leaves the app.
+
+<img src="resources/screenshots/settings-metadata.webp" alt="Settings, Metadata section" width="720"/>
 
 ---
 
-## 🎮 Keyboard Shortcuts
+## ⌨️ Keyboard shortcuts
 
 | Key | Action |
 |-----|--------|
-| `Space` | Play/Stop current channel |
-| `/` | Focus search bar |
-| `Escape` | Stop playback |
-| `Ctrl+1-6` | Switch settings tabs |
+| `Space` | Play or stop the selected channel |
+| `/` | Focus the search box |
+| `G` | Open or close the TV Guide |
+| `Escape` | Close the guide, a detail page or Settings; otherwise stop playback |
+| `Ctrl+1` … `Ctrl+7` | Jump between Settings sections |
 
-For MPV player controls (fullscreen, volume, seek, etc.), see the [MPV keyboard documentation](https://mpv.io/manual/stable/#keyboard-control).
+For controls inside the video window (fullscreen, volume, seeking), see the [MPV keyboard reference](https://mpv.io/manual/stable/#keyboard-control).
+
+---
+
+## 🔒 Privacy
+
+Everything Better IPTV knows about you is in one SQLite file on your computer (locations below). There is no account, no telemetry and no analytics.
+
+The app makes three kinds of network requests:
+
+| To | What | When |
+|----|------|------|
+| Your provider | Playlist, guide, streams | Always |
+| TMDB | The names of your movies and series | While metadata is on (default), never for live channels |
+| GitHub | A version check | Once a day, can be turned off in Settings → General |
+
+Your provider credentials are stored locally and masked in the log file, so a log is safe to attach to a bug report.
 
 ---
 
 ## ❓ FAQ
 
 <details>
-<summary><strong>Why won't MPV open?</strong></summary>
+<summary><strong>Why does video open in a separate window?</strong></summary>
 
-On Linux and macOS, MPV has to be installed on your system. On Windows it comes bundled, so this should not happen.
-
-Verify installation:
-```bash
-mpv --version
-```
-
-See [Installation](#-installation) for platform-specific instructions.
+Because MPV plays it. That is what gives you every codec, hardware acceleration and MPV's own controls. The app window stays for browsing; the video window is MPV's.
 </details>
 
 <details>
-<summary><strong>Can I watch channels directly in the app?</strong></summary>
+<summary><strong>MPV does not open</strong></summary>
 
-No, Better IPTV uses MPV as an external player. This provides broad codec support and hardware acceleration, but video displays in a separate window.
+On Linux and macOS MPV has to be installed (`mpv --version` should print a version). On Windows it is bundled, so this should not happen; if it does, file a bug with your log.
 </details>
 
 <details>
-<summary><strong>EPG data not showing?</strong></summary>
+<summary><strong>No guide data on a channel</strong></summary>
 
-Check:
-1. Playlist contains EPG identifiers (`tvg-id` or `tvg-name`)
-2. EPG URL configured in Settings → EPG
-3. EPG data fetched (Settings → EPG → **"Update Now"**)
-4. Wait a minute for the channel cards to pick up the new data (they re-read the guide every 5 minutes, and immediately after a download)
+The playlist must carry an EPG id for the channel (`tvg-id` or `tvg-name` in an M3U), the guide URL must be set (Settings → EPG, automatic for Xtream), and the guide must have been downloaded (Settings → EPG → Update now). Cards re-read the guide within a minute.
+</details>
+
+<details>
+<summary><strong>A movie has no poster, or the wrong one</strong></summary>
+
+No poster means TMDB found nothing for the provider's name of the title; the app keeps the provider's artwork. The wrong poster means it found the wrong title. Open the title and use **Wrong title?** to search TMDB yourself, or mark it as not on TMDB.
+</details>
+
+<details>
+<summary><strong>Do I need a TMDB account?</strong></summary>
+
+No. The app ships with a shared key that covers normal browsing. Your own key (free) is only needed if you want the whole library fetched in the background, or if the shared key ever stops working.
 </details>
 
 <details>
 <summary><strong>How many channels can it handle?</strong></summary>
 
-Better IPTV has been tested with 150,000+ channels during development without issues.
+Playlists of 150,000+ channels have been used during development without trouble. The grid only renders what is on screen.
 </details>
 
 <details>
-<summary><strong>Does it work with VPN?</strong></summary>
+<summary><strong>Does it work with a VPN?</strong></summary>
 
-Yes. Ensure your VPN is active before launching streams.
-</details>
-
-<details>
-<summary><strong>Are my Xtream credentials secure?</strong></summary>
-
-Yes. All credentials are stored locally on your device. Nothing is sent to external servers. Logs automatically mask sensitive data.
+Yes. Turn the VPN on before you start a stream.
 </details>
 
 <details>
 <summary><strong>Can I play local video files?</strong></summary>
 
-No, Better IPTV is designed for IPTV streams. Use MPV directly for local media.
+No. Better IPTV is for streams. MPV itself plays local files well.
+</details>
+
+<details>
+<summary><strong>I forgot my parental PIN</strong></summary>
+
+Delete `better-ip-tv.db` from the data folder below and add your playlist again. There is no recovery by design.
 </details>
 
 ---
 
 ## 🛠️ Troubleshooting
 
-### Channels Buffering
-- **Check your connection** - Run a speed test
-- **Try another channel** - It is often the provider's server, not you
-- **Raise the cache** - Settings → Playback → Cache Duration
+**Channels buffer.** It is usually the provider's server. Try another channel, and raise the buffer in Settings → Playback → Cache.
 
-### Series Not Importing (Xtream)
-- **Verify credentials** - Double-check username/password
-- **Check provider support** - Not all Xtream providers offer series
-- **Retry import** - Network issues may cause partial imports
+**Series missing after an Xtream import.** Not every provider offers series through the API. Check your credentials and refresh the playlist from Settings → Profiles.
 
-### App Won't Start
-- **Linux**: Ensure the `.AppImage` has execute permissions (`chmod +x`). White window or an `EGL_BAD_PARAMETER` crash means you want the `-arch` AppImage — see [Installation](#-installation)
-- **Windows**: Run as administrator or check Windows Defender
-- **macOS**: Allow app in **System Preferences → Security & Privacy**
+**The app does not start.**
+- Linux: `chmod +x` the AppImage. A white window or an `EGL_BAD_PARAMETER` crash means you want the `-arch` AppImage (see Installation)
+- Windows: check that Windows Defender did not quarantine it
+- macOS: allow the app under System Settings → Privacy & Security
 
-### Parental Controls Issues
-- **Auto-detect not working?** - Re-save settings to trigger a channel scan
-- **Forgot your PIN?** - Delete `better-ip-tv.db` from the data folder below and re-import your playlist
-
-### Where your files live
-
-Playlists, channels, settings and EPG cache all sit in one SQLite database,
-`better-ip-tv.db`. Logs are written somewhere else — on Windows and macOS the
-two are not in the same place, which trips people up.
+**Where your files are**
 
 | | Data (`better-ip-tv.db`) | Log (`better-ip-tv.log`) |
 |---|---|---|
@@ -261,60 +274,55 @@ two are not in the same place, which trips people up.
 | Windows | `%APPDATA%\com.m0s.better-ip-tv\` | `%LOCALAPPDATA%\com.m0s.better-ip-tv\logs\` |
 | macOS | `~/Library/Application Support/com.m0s.better-ip-tv/` | `~/Library/Logs/com.m0s.better-ip-tv/` |
 
-Credentials are masked in logs, so a log file is safe to attach to a bug report.
+Settings → About has an **Open logs folder** button.
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, and PR guidelines.
+Bug reports, feature ideas and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) has the development setup and the rules for PRs.
 
 - [Report a bug](https://github.com/mewset/better-iptv/issues/new)
-- [Request a feature](https://github.com/mewset/better-iptv/issues/new)
-- [Join discussions](https://github.com/mewset/better-iptv/discussions)
+- [Suggest a feature](https://github.com/mewset/better-iptv/issues/new)
+- [Discussions](https://github.com/mewset/better-iptv/discussions), where every release is announced
+
+Built with Rust, [Tauri](https://tauri.app/), React and [MPV](https://mpv.io/).
 
 ---
 
 ## 📝 Changelog
 
-See [CHANGELOG_USER.md](CHANGELOG_USER.md) for version history and release notes.
+[CHANGELOG_USER.md](CHANGELOG_USER.md) lists what changed in each version, in plain words.
 
 ---
 
 ## 📄 License
 
-[GNU General Public License v2.0](LICENSE) — MPV is GPL v2+ licensed, and we chose GPL v2.0 for compatibility.
+[GNU General Public License v2.0](LICENSE).
+
+This product uses the TMDB API but is not endorsed or certified by TMDB.
 
 ---
 
 ## 🙏 Acknowledgments
 
-- **[MPV Project](https://mpv.io/)** - Media player with comprehensive codec support
-- **[Tauri](https://tauri.app/)** - Cross-platform framework enabling this project
-- **[Open TV](https://github.com/Fredolx/open-tv)** - Architectural inspiration
-- **IPTV Community** - Standards, protocols, and ongoing support
+- **[MPV](https://mpv.io/)** for the playback
+- **[Tauri](https://tauri.app/)** for the cross-platform shell
+- **[TMDB](https://www.themoviedb.org/)** for the posters, plots and cast
+- **[Open TV](https://github.com/Fredolx/open-tv)** for showing the way
+- Everyone who has filed an issue, reviewed the UI or sent a fix
 
 ---
 
-## 💖 Support the Project
+## 💖 Support the project
 
-If you find Better IPTV useful, consider supporting its development:
+Better IPTV is built by one person in their spare time. If it is useful to you:
 
 - **Ko-fi**: [ko-fi.com/R6R21I53PD](https://ko-fi.com/R6R21I53PD)
-- **GitHub Sponsors**: [Sponsor on GitHub](https://github.com/sponsors/mewset)
+- **GitHub Sponsors**: [github.com/sponsors/mewset](https://github.com/sponsors/mewset)
 
-**Crypto donations:**
-
-| Currency | Address |
-|----------|---------|
+| Crypto | Address |
+|--------|---------|
 | ETH | `0x47183F4e4FEAeE4BF52d95E68893e950125b1B44` |
 | BTC | `bc1qth40h9t8r7hvp4czqvf20f3w72jdg4epd5mjq8` |
 | SOL | `3waxf6r2tmaaADuBGYoVD5qz4z8VnFNEGGafbXZ6Jf2j` |
-
----
-
-<div align="center">
-
-  **Made for IPTV enthusiasts**
-
-</div>
