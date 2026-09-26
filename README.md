@@ -53,7 +53,7 @@ Better IPTV is a desktop app for watching IPTV: live channels, movies and series
 
 ### Search and navigation
 - Search across everything (press `/`), instant even on huge playlists
-- A side rail for Live TV, Movies, Series, Favorites and the TV Guide; search and the profile switcher at the top
+- A side rail for Home (when you use your own TMDB key with the background scan on), Live TV, Movies, Series, Favorites and the TV Guide; search and the profile switcher at the top
 - Keyboard shortcuts for the things you do all the time (see below)
 
 <img src="resources/screenshots/search.webp" alt="Search results mixing series and movies, each with its poster, year and rating" width="720"/>
