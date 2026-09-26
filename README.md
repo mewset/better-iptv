@@ -43,13 +43,15 @@ Better IPTV is a desktop app for watching IPTV: live channels, movies and series
 
 ### Movies and series
 - Real posters, year and rating on every card, fetched from [TMDB](https://www.themoviedb.org/)
-- A Home page with daily genre slideshows of the best-rated movies and series in your playlist (needs your own TMDB key with the background scan on)
+- A **Home page** with "Our pick of the day" and daily genre slideshows of the best-rated movies and series in your playlist (needs your own TMDB key with the background scan on, see the FAQ)
 - A **detail page** for each title: backdrop, plot, cast, a trailer link, and for series the seasons and episodes
 - **Series playback that queues the rest of the season**, for Xtream and for M3U playlists that name their episodes (`Show S01E02`, `Show 1x02`, `Show Season 1 Episode 2`)
 - A "Recently added" banner at the top of Movies and Series, showing the newest title your provider added
 - Wrong poster? "Wrong title?" on the detail page lets you pick the right match, or mark a title as not on TMDB
 
 <img src="resources/screenshots/movie-detail.webp" alt="Movie detail page with backdrop, plot, cast and a trailer button" width="720"/>&nbsp;<img src="resources/screenshots/series-detail.webp" alt="Series detail page with seasons" width="720"/>
+
+<img src="resources/screenshots/home.webp" alt="Home page with a greeting, the pick of the day and a genre slideshow" width="960"/>
 
 ### Search and navigation
 - Search across everything (press `/`), instant even on huge playlists
@@ -227,7 +229,13 @@ No poster means TMDB found nothing for the provider's name of the title; the app
 <details>
 <summary><strong>Do I need a TMDB account?</strong></summary>
 
-No. The app ships with a shared key that covers normal browsing. Your own key (free) is only needed if you want the whole library fetched in the background, or if the shared key ever stops working.
+No. The app ships with a shared key that covers normal browsing. Your own key (free) is only needed for the Home page, which wants the whole library fetched in the background, or if the shared key ever stops working.
+</details>
+
+<details>
+<summary><strong>I can't see the Home tab</strong></summary>
+
+Home only shows up when the app has ratings for your whole library, which the shared key is not meant to carry. Under **Settings → Metadata**, add your own TMDB API key (free at [themoviedb.org](https://www.themoviedb.org/settings/api)), press **Test**, and turn on **Fetch details for the whole library in the background**. Home appears in the side rail right away and fills in as the scan runs; a large library takes a while, and the page tells you how far it has come. Turning the scan or the key off hides Home again.
 </details>
 
 <details>
