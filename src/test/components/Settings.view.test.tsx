@@ -82,7 +82,10 @@ async function goToProfiles() {
 async function renderSettings(onClose = vi.fn()) {
   render(<Settings onClose={onClose} />);
   // Wait for the load effect to finish so tab switching / save aren't racing it.
+  // The tab list renders before loading is done; Save stays disabled until it
+  // is, so an early click on a slow runner does nothing at all.
   await screen.findByRole('tab', { name: /general/i });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled());
   return onClose;
 }
 
