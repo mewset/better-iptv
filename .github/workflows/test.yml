@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-24.04]
+        platform: [ubuntu-22.04]
 
     runs-on: ${{ matrix.platform }}
 
@@ -74,7 +74,7 @@ jobs:
         if: always()
         run: |
           echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- **Platform**: Ubuntu 24.04" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platform**: Ubuntu 22.04" >> $GITHUB_STEP_SUMMARY
           echo "- **Node.js**: 20" >> $GITHUB_STEP_SUMMARY
           echo "- **Rust**: stable" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
