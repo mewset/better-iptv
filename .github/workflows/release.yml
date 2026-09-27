@@ -156,6 +156,25 @@ jobs:
           chmod +x "$APPIMAGE"
           "$APPIMAGE" --appimage-extract > /dev/null
 
+          # Download appimagetool. The maintained one, not the archived AppImageKit
+          # build: that one swaps Tauri's static runtime for the old libfuse2 one
+          # and packs with gzip instead of zstd (84 MB -> 93 MB).
+          echo "📥 Downloading appimagetool..."
+          curl -L -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          # Unpack instead of mounting, so the runner needs no FUSE for it
+          export APPIMAGE_EXTRACT_AND_RUN=1
+
+          # linuxdeploy writes AppRun.wrapped as 0770. It still starts when the
+          # user owns the mounted squashfs, which is the normal case, but not when
+          # it runs as anyone else: the AppImageHub test mounts it as root and
+          # launches it as another user in firejail, and gets "Permission denied".
+          # Give everyone read access, and execute wherever the owner has it, then
+          # repack the regular AppImage in place before the -arch build below.
+          echo "🔧 Fixing file permissions in the regular AppImage..."
+          chmod -R a+rX squashfs-root
+          ARCH=x86_64 ./appimagetool squashfs-root "$APPIMAGE"
+
           # Drop the bundled Ubuntu library stack entirely and run against the
           # system one, the same way the AUR package does. That is what makes this
           # build usable on distros with a current webkit2gtk, where the bundled
@@ -215,11 +234,6 @@ jobs:
             exit 1
           fi
 
-          # Download appimagetool
-          echo "📥 Downloading appimagetool..."
-          curl -L -o appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool
-
           # Repack as Arch-compatible AppImage
           ARCH_APPIMAGE="${APPIMAGE%.AppImage}-arch.AppImage"
           echo "📦 Repacking as: $ARCH_APPIMAGE"
@@ -231,11 +245,19 @@ jobs:
           echo "✅ Arch-compatible AppImage created: $ARCH_APPIMAGE"
           ls -la "$ARCH_APPIMAGE"
 
-      - name: Upload Arch AppImage to release (Linux only)
+      - name: Upload AppImages to release (Linux only)
         if: matrix.platform == 'ubuntu-24.04'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Replace the regular AppImage tauri-action uploaded with the repacked one
+          APPIMAGE=$(find src-tauri/target/release/bundle/appimage -name "*.AppImage" ! -name "*-arch.AppImage" | head -1)
+          if [ -n "$APPIMAGE" ]; then
+            echo "📤 Replacing regular AppImage in release..."
+            gh release upload "${{ github.ref_name }}" "$APPIMAGE" --clobber
+            echo "✅ Uploaded: $APPIMAGE"
+          fi
+
           # Find the Arch AppImage
           ARCH_APPIMAGE=$(find src-tauri/target/release/bundle/appimage -name "*-arch.AppImage" | head -1)
           if [ -n "$ARCH_APPIMAGE" ]; then
