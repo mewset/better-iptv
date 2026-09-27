@@ -78,7 +78,9 @@ describe('useHomeRows', () => {
     });
     await waitFor(() => expect(result.current.rows).toEqual(rows));
     rerender({ id: 2 });
-    await waitFor(() => expect(mockedInvoke).toHaveBeenCalledWith('get_home_rows', { playlistId: 2 }));
+    await waitFor(() =>
+      expect(mockedInvoke).toHaveBeenCalledWith('get_home_rows', { playlistId: 2 })
+    );
   });
 
   it('reloads when the background scan finishes and exposes the progress', async () => {

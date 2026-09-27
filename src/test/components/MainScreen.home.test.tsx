@@ -60,9 +60,7 @@ function item(channel_id: number) {
 
 const rows = [{ genre: 'Action', content_type: 'vod', items: [1, 2, 3, 4, 5].map(item) }];
 
-const seriesChannels = [6, 7, 8].map((id) =>
-  movie(id, `Title ${id}`, { content_type: 'series' })
-);
+const seriesChannels = [6, 7, 8].map((id) => movie(id, `Title ${id}`, { content_type: 'series' }));
 const rowsWithSurvivor = [
   { genre: 'Action', content_type: 'vod', items: [1, 2, 3, 4, 5].map(item) },
   { genre: 'Comedy', content_type: 'series', items: [6, 7, 8].map(item) },

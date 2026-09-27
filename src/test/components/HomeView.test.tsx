@@ -44,14 +44,34 @@ describe('HomeView', () => {
   afterEach(() => vi.useRealTimers());
 
   it('greets by the clock and lists one slideshow per row', () => {
-    render(<HomeView pick={null} onPlay={vi.fn()} onOpenTitle={vi.fn()} rows={rows} loading={false} progress={null} onOpen={vi.fn()} />);
+    render(
+      <HomeView
+        pick={null}
+        onPlay={vi.fn()}
+        onOpenTitle={vi.fn()}
+        rows={rows}
+        loading={false}
+        progress={null}
+        onOpen={vi.fn()}
+      />
+    );
     expect(screen.getByRole('heading', { level: 2, name: 'Good morning' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Comedy Movies' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Drama Series' })).toBeInTheDocument();
   });
 
   it('shows skeletons while loading', () => {
-    render(<HomeView pick={null} onPlay={vi.fn()} onOpenTitle={vi.fn()} rows={[]} loading progress={null} onOpen={vi.fn()} />);
+    render(
+      <HomeView
+        pick={null}
+        onPlay={vi.fn()}
+        onOpenTitle={vi.fn()}
+        rows={[]}
+        loading
+        progress={null}
+        onOpen={vi.fn()}
+      />
+    );
     expect(screen.getByTestId('home-skeleton')).toBeInTheDocument();
     expect(screen.queryByText(/Nothing to show yet/)).toBeNull();
   });
@@ -73,13 +93,31 @@ describe('HomeView', () => {
   });
 
   it('explains an empty library', () => {
-    render(<HomeView pick={null} onPlay={vi.fn()} onOpenTitle={vi.fn()} rows={[]} loading={false} progress={null} onOpen={vi.fn()} />);
+    render(
+      <HomeView
+        pick={null}
+        onPlay={vi.fn()}
+        onOpenTitle={vi.fn()}
+        rows={[]}
+        loading={false}
+        progress={null}
+        onOpen={vi.fn()}
+      />
+    );
     expect(screen.getByText(/Nothing to show yet/)).toBeInTheDocument();
   });
 
   it('explains what Home is under the greeting', () => {
     render(
-      <HomeView pick={null} onPlay={vi.fn()} onOpenTitle={vi.fn()} rows={rows} loading={false} progress={null} onOpen={vi.fn()} />
+      <HomeView
+        pick={null}
+        onPlay={vi.fn()}
+        onOpenTitle={vi.fn()}
+        rows={rows}
+        loading={false}
+        progress={null}
+        onOpen={vi.fn()}
+      />
     );
     expect(screen.getByText(/daily pick and six genre slideshows/i)).toBeInTheDocument();
   });
@@ -100,6 +138,8 @@ describe('HomeView', () => {
     const hero = screen.getByRole('region', { name: 'Our pick of the day' });
     expect(hero).toHaveTextContent('Pick Movie');
     expect(hero).toHaveTextContent('Trending on TMDB today');
-    expect(hero.compareDocumentPosition(screen.getByRole('region', { name: 'Comedy Movies' })) & 4).toBeTruthy();
+    expect(
+      hero.compareDocumentPosition(screen.getByRole('region', { name: 'Comedy Movies' })) & 4
+    ).toBeTruthy();
   });
 });
