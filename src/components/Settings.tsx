@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { useState, useEffect, useRef, useImperativeHandle } from 'react';
 import {
   getSetting,
   setSetting,
@@ -8,11 +7,14 @@ import {
   getEpgStatus,
   forceRefreshEpg,
   getChannels,
+  getTmdbStatus,
+  deleteTmdbCache,
 } from '../lib/tauri';
-import type { EpgStatus } from '../lib/tauri';
+import type { EpgStatus, TmdbStatus } from '../lib/tauri';
 import { usePlayerStore } from '../stores/player-store';
 import { logger } from '../lib/logger';
 import { applyTheme } from '../lib/theme';
+import { cn } from '../lib/utils';
 import ProfileManager from './ProfileManager';
 import PinEntryModal from './modals/PinEntryModal';
 import ChannelBlockingModal from './modals/ChannelBlockingModal';
@@ -25,9 +27,12 @@ import {
   PlaybackTab,
   EpgTab,
   ParentalTab,
+  MetadataTab,
   AboutTab,
   LANGUAGE_OPTIONS,
   USER_AGENT_OPTIONS,
+  TMDB_LANGUAGE_OPTIONS,
+  type TmdbLanguage,
   type Theme,
   type LanguageCode,
   type UserAgentMode,
@@ -36,16 +41,46 @@ import {
   type ParentalVisibility,
 } from './settings/index';
 
-interface SettingsProps {
-  onClose: () => void;
+/** What MainScreen may ask of an open Settings view. */
+export interface SettingsHandle {
+  /**
+   * Run `leave` now when nothing is unsaved; otherwise ask first ("Discard
+   * changes?") and run it only on Discard.
+   */
+  requestLeave: (leave: () => void) => void;
 }
 
-export default function Settings({ onClose }: SettingsProps) {
-  const { triggerEpgRefresh, channels, loadParentalSettings, currentPlaylist, setChannels } =
-    usePlayerStore();
+interface SettingsProps {
+  onClose: () => void;
+  /** Section shown when the view opens (the guide's empty state opens 'epg'). */
+  initialTab?: string;
+  /** Lets the host route navigation away from Settings through the unsaved-edits check. */
+  leaveRef?: React.Ref<SettingsHandle>;
+}
+
+/** The left nav's sections, in display order. Ctrl+1-7 below maps to these by index. */
+const SECTIONS: Array<{ value: string; name: string; description: string }> = [
+  { value: 'general', name: 'General', description: 'Playlist, appearance, updates' },
+  { value: 'playback', name: 'Playback', description: 'MPV, video, audio, subtitles' },
+  { value: 'epg', name: 'EPG', description: 'Guide sources and refresh' },
+  { value: 'metadata', name: 'Metadata', description: 'Posters and details from TMDB' },
+  { value: 'parental', name: 'Parental', description: 'PIN and blocked content' },
+  { value: 'profiles', name: 'Profiles', description: 'Playlists and providers' },
+  { value: 'about', name: 'About', description: 'Version and licenses' },
+];
+
+export default function Settings({ onClose, initialTab = 'general', leaveRef }: SettingsProps) {
+  const {
+    triggerEpgRefresh,
+    channels,
+    loadParentalSettings,
+    currentPlaylist,
+    setChannels,
+    clearTmdbCards,
+  } = usePlayerStore();
 
   // UI state
-  const [activeTab, setActiveTab] = useState('general');
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -71,6 +106,16 @@ export default function Settings({ onClose }: SettingsProps) {
   const [audioLang, setAudioLang] = useState<LanguageCode>('none');
   const [subtitleLang, setSubtitleLang] = useState<LanguageCode>('none');
 
+  // Metadata tab state; the originals decide what Save has to invalidate.
+  const [tmdbEnabled, setTmdbEnabled] = useState(true);
+  const [tmdbApiKey, setTmdbApiKey] = useState('');
+  const [tmdbLanguage, setTmdbLanguage] = useState<TmdbLanguage>('en-US');
+  const [tmdbBackgroundEnrich, setTmdbBackgroundEnrich] = useState(false);
+  const [tmdbStatus, setTmdbStatus] = useState<TmdbStatus | null>(null);
+  const [originalTmdbLanguage, setOriginalTmdbLanguage] = useState('');
+  const [originalTmdbKey, setOriginalTmdbKey] = useState('');
+  const [originalTmdbEnabled, setOriginalTmdbEnabled] = useState(true);
+
   // Parental tab state
   const [parentalEnabled, setParentalEnabled] = useState(false);
   const [hasPin, setHasPin] = useState(false);
@@ -90,6 +135,73 @@ export default function Settings({ onClose }: SettingsProps) {
   const [errorTitle, setErrorTitle] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [showRefreshModal, setShowRefreshModal] = useState(false);
+  // The navigation waiting on "Discard changes?"; null while no one asks.
+  const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
+
+  // Unsaved-edits tracking: every value Save writes, serialised, compared
+  // against the same snapshot taken once loading finished.
+  const savedValues = JSON.stringify({
+    theme,
+    playlistUserAgentMode,
+    playlistUserAgentCustom,
+    updateCheckEnabled,
+    epgUrl,
+    hardwareAcceleration,
+    videoOutput,
+    deinterlace,
+    startFullscreen,
+    cacheSecs,
+    startVolume,
+    audioLang,
+    subtitleLang,
+    tmdbEnabled,
+    tmdbApiKey,
+    tmdbLanguage,
+    tmdbBackgroundEnrich,
+    parentalEnabled,
+    blockedChannelIds: Array.from(blockedChannelIds).sort((a, b) => a - b),
+    blockedCategories,
+    parentalAutoDetect,
+    parentalVisibility,
+  });
+  const [loadedValues, setLoadedValues] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isLoading && loadedValues === null) setLoadedValues(savedValues);
+  }, [isLoading, loadedValues, savedValues]);
+  const dirty = loadedValues !== null && savedValues !== loadedValues;
+
+  // Read through a ref so the Escape listener and the imperative handle
+  // always see the latest dirty state without re-subscribing.
+  const requestLeave = (leave: () => void) => {
+    if (dirty) setPendingLeave(() => leave);
+    else leave();
+  };
+  const requestLeaveRef = useRef(requestLeave);
+  requestLeaveRef.current = requestLeave;
+  useImperativeHandle(
+    leaveRef,
+    () => ({ requestLeave: (leave) => requestLeaveRef.current(leave) }),
+    []
+  );
+
+  // Reserves room at the bottom of the scrolling content for the sticky
+  // footer below, so its own natural flow height never sits under it -
+  // sticky keeps the footer glued to the viewport bottom instead of
+  // pushing content up, so without this the last ~footer-height of a long
+  // section (e.g. Playback) renders behind it. Measured rather than
+  // hardcoded since the footer's height depends on its own padding/button
+  // sizing, not a value this component should have to know.
+  const footerRef = useRef<globalThis.HTMLDivElement>(null);
+  const [footerHeight, setFooterHeight] = useState(0);
+
+  useEffect(() => {
+    const measure = () => {
+      if (footerRef.current) setFooterHeight(footerRef.current.getBoundingClientRect().height);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
 
   // Load settings on mount
   useEffect(() => {
@@ -149,6 +261,30 @@ export default function Settings({ onClose }: SettingsProps) {
           setHardwareAcceleration(savedHwAccel !== 'false');
         }
 
+        // Metadata (TMDB): absent enabled means on, absent language means en-US.
+        const savedTmdbEnabled = await getSetting('tmdb_enabled');
+        const savedTmdbKey = await getSetting('tmdb_api_key');
+        const savedTmdbLanguage = await getSetting('tmdb_language');
+        const savedTmdbBackgroundEnrich = await getSetting('tmdb_background_enrich');
+        setTmdbBackgroundEnrich(savedTmdbBackgroundEnrich === '1');
+        const enabledValue = savedTmdbEnabled !== '0';
+        setTmdbEnabled(enabledValue);
+        setOriginalTmdbEnabled(enabledValue);
+        setTmdbApiKey(savedTmdbKey ?? '');
+        setOriginalTmdbKey(savedTmdbKey ?? '');
+        const lang = TMDB_LANGUAGE_OPTIONS.some((l) => l.tag === savedTmdbLanguage)
+          ? (savedTmdbLanguage as TmdbLanguage)
+          : 'en-US';
+        setTmdbLanguage(lang);
+        setOriginalTmdbLanguage(lang);
+        // Only feeds the status line; a failure must not skip the loads below.
+        setTmdbStatus(
+          await getTmdbStatus().catch((err) => {
+            logger.warn('Failed to load TMDB status:', err);
+            return null;
+          })
+        );
+
         // Load EPG status
         const status = await getEpgStatus();
         setEpgStatus(status);
@@ -174,7 +310,7 @@ export default function Settings({ onClose }: SettingsProps) {
     loadSettings();
   }, []);
 
-  // Keyboard navigation (Ctrl+1-6 for tab switching)
+  // Keyboard navigation (Ctrl+1-7 for tab switching)
   useEffect(() => {
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey) {
@@ -182,9 +318,10 @@ export default function Settings({ onClose }: SettingsProps) {
           '1': 'general',
           '2': 'playback',
           '3': 'epg',
-          '4': 'parental',
-          '5': 'profiles',
-          '6': 'about',
+          '4': 'metadata',
+          '5': 'parental',
+          '6': 'profiles',
+          '7': 'about',
         };
         if (tabMap[e.key]) {
           e.preventDefault();
@@ -196,6 +333,65 @@ export default function Settings({ onClose }: SettingsProps) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // Escape closes the view - but only when nothing "inner" wants the key
+  // first. Unlike TopBar's profile menu (a self-contained popup), Settings
+  // hosts arbitrary descendants - an inline profile rename input, PIN/
+  // blocking/confirmation/refresh/error modals, ProfileManager's own Setup
+  // and delete-last-profile overlays - that must get to handle Escape
+  // themselves (cancel the rename, do nothing and let the open dialog's own
+  // Cancel button be used, etc). So this listener does NOT stopPropagation:
+  // it only marks the event via `preventDefault` (capture phase, ahead of
+  // useKeyboardShortcuts' bubble-phase handler, which treats a
+  // defaultPrevented Escape as already spoken for and never stops
+  // playback), then closes the view unless the target is a form field, one
+  // of Settings' own modal flags is set, or any `aria-modal="true"` dialog
+  // is open anywhere in the document (Settings' modals and ProfileManager's
+  // two inline overlays all carry that attribute on their panel).
+  useEffect(() => {
+    const modalOpen =
+      showSetPinModal ||
+      showChangePinModal ||
+      showResetPinModal ||
+      showDisablePinModal ||
+      showResetPinConfirmation ||
+      showChannelBlockingModal ||
+      showErrorModal ||
+      showRefreshModal ||
+      pendingLeave !== null;
+
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+
+      const target = e.target as globalThis.HTMLElement | null;
+      const isFormField =
+        target instanceof globalThis.HTMLInputElement ||
+        target instanceof globalThis.HTMLTextAreaElement ||
+        target instanceof globalThis.HTMLSelectElement ||
+        target?.isContentEditable;
+      if (isFormField) return;
+
+      if (modalOpen) return;
+      if (document.querySelector('[aria-modal="true"]')) return;
+
+      requestLeaveRef.current(onClose);
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [
+    onClose,
+    showSetPinModal,
+    showChangePinModal,
+    showResetPinModal,
+    showDisablePinModal,
+    showResetPinConfirmation,
+    showChannelBlockingModal,
+    showErrorModal,
+    showRefreshModal,
+    pendingLeave,
+  ]);
 
   // Error helper
   const showError = (title: string, message: string) => {
@@ -243,6 +439,12 @@ export default function Settings({ onClose }: SettingsProps) {
       await resetParentalPin();
       setHasPin(false);
       setParentalEnabled(false);
+      // The reset already turned parental controls off in the backend, so
+      // that is not an unsaved edit.
+      setLoadedValues((prev) => {
+        if (prev === null) return prev;
+        return JSON.stringify({ ...JSON.parse(prev), parentalEnabled: false });
+      });
       logger.info('Parental PIN reset successfully');
     } catch (err) {
       logger.error('Failed to reset PIN:', err);
@@ -293,6 +495,25 @@ export default function Settings({ onClose }: SettingsProps) {
       await setSetting('playlist_user_agent_mode', playlistUserAgentMode);
       await setSetting('playlist_user_agent_custom', sanitizedCustomUserAgent);
       await setSetting('update_check_enabled', updateCheckEnabled.toString());
+
+      // Metadata (TMDB): a new language invalidates every cached record; any
+      // change invalidates the cards already shown.
+      await setSetting('tmdb_enabled', tmdbEnabled ? '1' : '0');
+      await setSetting('tmdb_api_key', tmdbApiKey.trim());
+      // After the key, so the backend sees it first; the flag cannot be on
+      // without an own key (the backend refuses it too).
+      const backgroundEnrichValue = tmdbApiKey.trim() !== '' && tmdbBackgroundEnrich;
+      await setSetting('tmdb_background_enrich', backgroundEnrichValue ? '1' : '0');
+      if (!backgroundEnrichValue) setTmdbBackgroundEnrich(false);
+      await setSetting('tmdb_language', tmdbLanguage);
+      if (tmdbLanguage !== originalTmdbLanguage) await deleteTmdbCache();
+      if (
+        tmdbLanguage !== originalTmdbLanguage ||
+        tmdbApiKey.trim() !== originalTmdbKey ||
+        tmdbEnabled !== originalTmdbEnabled
+      ) {
+        clearTmdbCards();
+      }
 
       // Save MPV playback settings
       await setSetting('mpv_hardware_acceleration', hardwareAcceleration.toString());
@@ -357,33 +578,48 @@ export default function Settings({ onClose }: SettingsProps) {
     }
   };
 
+  const activeSection = SECTIONS.find((s) => s.value === activeTab) ?? SECTIONS[0];
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white shadow-xl dark:bg-gray-800">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 p-6 dark:border-gray-700">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h2>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-2 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
-          >
-            <X className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-6">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList>
-              <TabsTrigger value="general">General</TabsTrigger>
-              <TabsTrigger value="playback">Playback</TabsTrigger>
-              <TabsTrigger value="epg">EPG</TabsTrigger>
-              <TabsTrigger value="parental">Parental</TabsTrigger>
-              <TabsTrigger value="profiles">Profiles</TabsTrigger>
-              <TabsTrigger value="about">About</TabsTrigger>
+    <div id="settings-view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <Tabs value={activeTab} onValueChange={setActiveTab} orientation="vertical">
+        <div className="flex gap-10 px-10 pt-7" style={{ paddingBottom: footerHeight }}>
+          <nav aria-label="Settings sections" className="w-[240px] shrink-0">
+            <TabsList className="flex h-auto w-full flex-col items-stretch justify-start gap-1 border-b-0">
+              {SECTIONS.map(({ value, name, description }) => {
+                const active = activeTab === value;
+                const descriptionId = `settings-section-${value}-description`;
+                return (
+                  <TabsTrigger
+                    key={value}
+                    value={value}
+                    aria-label={name}
+                    aria-describedby={descriptionId}
+                    className={cn(
+                      'flex w-full flex-col items-start gap-0.5 rounded-lg border border-transparent px-4 py-3 text-left text-text-muted transition-colors hover:text-text',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                      'data-[state=active]:border-border-strong data-[state=active]:bg-text/5 data-[state=active]:text-text'
+                    )}
+                  >
+                    <span className="text-sm font-semibold">{name}</span>
+                    <span
+                      id={descriptionId}
+                      className={cn('text-xs', active ? 'text-text-muted' : 'text-text-faint')}
+                    >
+                      {description}
+                    </span>
+                  </TabsTrigger>
+                );
+              })}
             </TabsList>
+          </nav>
 
-            <TabsContent value="general">
+          <div className="min-w-0 flex-1 pb-10">
+            <h1 className="mb-6 font-display text-3xl font-semibold text-text">
+              {activeSection.name}
+            </h1>
+
+            <TabsContent value="general" className="mt-0 min-h-0">
               <GeneralTab
                 theme={theme}
                 onThemeChange={(t) => {
@@ -403,7 +639,7 @@ export default function Settings({ onClose }: SettingsProps) {
               />
             </TabsContent>
 
-            <TabsContent value="playback">
+            <TabsContent value="playback" className="mt-0 min-h-0">
               <PlaybackTab
                 hardwareAcceleration={hardwareAcceleration}
                 onHardwareAccelerationChange={setHardwareAcceleration}
@@ -424,7 +660,7 @@ export default function Settings({ onClose }: SettingsProps) {
               />
             </TabsContent>
 
-            <TabsContent value="epg">
+            <TabsContent value="epg" className="mt-0 min-h-0">
               <EpgTab
                 epgUrl={epgUrl}
                 onEpgUrlChange={setEpgUrl}
@@ -434,7 +670,25 @@ export default function Settings({ onClose }: SettingsProps) {
               />
             </TabsContent>
 
-            <TabsContent value="parental">
+            <TabsContent value="metadata" className="mt-0 min-h-0">
+              <MetadataTab
+                enabled={tmdbEnabled}
+                onEnabledChange={setTmdbEnabled}
+                apiKey={tmdbApiKey}
+                onApiKeyChange={setTmdbApiKey}
+                language={tmdbLanguage}
+                onLanguageChange={setTmdbLanguage}
+                status={tmdbStatus}
+                onClearCache={async () => {
+                  await deleteTmdbCache();
+                  clearTmdbCards();
+                }}
+                backgroundEnrich={tmdbBackgroundEnrich}
+                onBackgroundEnrichChange={setTmdbBackgroundEnrich}
+              />
+            </TabsContent>
+
+            <TabsContent value="parental" className="mt-0 min-h-0">
               <ParentalTab
                 enabled={parentalEnabled}
                 onEnabledChange={setParentalEnabled}
@@ -452,32 +706,35 @@ export default function Settings({ onClose }: SettingsProps) {
               />
             </TabsContent>
 
-            <TabsContent value="profiles">
+            <TabsContent value="profiles" className="mt-0 min-h-0">
               <ProfileManager onClose={onClose} />
             </TabsContent>
 
-            <TabsContent value="about">
+            <TabsContent value="about" className="mt-0 min-h-0">
               <AboutTab />
             </TabsContent>
-          </Tabs>
+          </div>
         </div>
+      </Tabs>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 border-t border-gray-200 p-6 dark:border-gray-700">
-          <button
-            onClick={onClose}
-            className="rounded-lg px-4 py-2 text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={isSaving || isLoading}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isSaving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
+      {/* Footer */}
+      <div
+        ref={footerRef}
+        className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-border bg-bg/90 px-10 py-6 backdrop-blur"
+      >
+        <button
+          onClick={onClose}
+          className="rounded-lg px-4 py-2 text-text-muted transition-colors hover:bg-surface-hover"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={isSaving || isLoading}
+          className="rounded-lg bg-accent px-4 py-2 text-on-accent transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isSaving ? 'Saving...' : 'Save changes'}
+        </button>
       </div>
 
       {/* Modals */}
@@ -532,6 +789,17 @@ export default function Settings({ onClose }: SettingsProps) {
         channels={channels}
         initialBlockedIds={blockedChannelIds}
         onUpdate={handleBlockedChannelsUpdate}
+      />
+
+      <ConfirmationModal
+        isOpen={pendingLeave !== null}
+        onClose={() => setPendingLeave(null)}
+        onConfirm={() => pendingLeave?.()}
+        title="Discard changes?"
+        message="You have unsaved settings. Leave without saving?"
+        confirmText="Discard"
+        cancelText="Keep editing"
+        confirmVariant="danger"
       />
 
       <ErrorModal

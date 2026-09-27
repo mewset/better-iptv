@@ -1,3 +1,4 @@
+use crate::epg_domain::normalize_epg_id;
 use crate::http::get_http_client;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -272,7 +273,7 @@ fn store_programs(conn: &Connection, programs: &[EpgProgram]) -> Result<usize> {
 
         for program in programs {
             stmt.execute(rusqlite::params![
-                program.channel_id,
+                normalize_epg_id(&program.channel_id),
                 program.title,
                 program.description,
                 program.start_time.to_rfc3339(),
@@ -299,7 +300,7 @@ pub fn get_current_program(conn: &Connection, channel_epg_id: &str) -> Result<Op
              AND end_time > ?2
              ORDER BY start_time DESC
              LIMIT 1",
-            rusqlite::params![channel_epg_id, now.to_rfc3339()],
+            rusqlite::params![normalize_epg_id(channel_epg_id), now.to_rfc3339()],
             |row| row.get(0),
         )
         .optional()?;
@@ -318,7 +319,7 @@ pub fn get_next_program(conn: &Connection, channel_epg_id: &str) -> Result<Optio
              AND start_time > ?2
              ORDER BY start_time ASC
              LIMIT 1",
-            rusqlite::params![channel_epg_id, now.to_rfc3339()],
+            rusqlite::params![normalize_epg_id(channel_epg_id), now.to_rfc3339()],
             |row| row.get(0),
         )
         .optional()?;
@@ -326,11 +327,15 @@ pub fn get_next_program(conn: &Connection, channel_epg_id: &str) -> Result<Optio
     Ok(program)
 }
 
-/// Current and next programme title for one channel.
+/// Current and next programme for one channel, with the current programme's
+/// start/end and the next programme's start as RFC 3339 strings (as stored).
 #[derive(Debug, Clone, Serialize)]
 pub struct ChannelEpg {
     pub current: Option<String>,
+    pub current_start: Option<String>,
+    pub current_end: Option<String>,
     pub next: Option<String>,
+    pub next_start: Option<String>,
 }
 
 /// Look up current and next programme for many channels in one go.
@@ -346,13 +351,13 @@ pub fn get_programs_for_channels(
     let now = Utc::now().to_rfc3339();
 
     let mut current_stmt = conn.prepare_cached(
-        "SELECT title FROM epg_programs
+        "SELECT title, start_time, end_time FROM epg_programs
          WHERE channel_epg_id = ?1 AND start_time <= ?2 AND end_time > ?2
          ORDER BY start_time DESC
          LIMIT 1",
     )?;
     let mut next_stmt = conn.prepare_cached(
-        "SELECT title FROM epg_programs
+        "SELECT title, start_time FROM epg_programs
          WHERE channel_epg_id = ?1 AND start_time > ?2
          ORDER BY start_time ASC
          LIMIT 1",
@@ -363,15 +368,92 @@ pub fn get_programs_for_channels(
         if result.contains_key(id) {
             continue;
         }
-        let current: Option<String> = current_stmt
-            .query_row(rusqlite::params![id, now], |row| row.get(0))
+        // Stored ids are normalised; the result stays keyed by the id asked for.
+        let key = normalize_epg_id(id);
+        let current: Option<(String, String, String)> = current_stmt
+            .query_row(rusqlite::params![key, now], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
             .optional()?;
-        let next: Option<String> = next_stmt
-            .query_row(rusqlite::params![id, now], |row| row.get(0))
+        let next: Option<(String, String)> = next_stmt
+            .query_row(rusqlite::params![key, now], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
             .optional()?;
         if current.is_some() || next.is_some() {
-            result.insert(id.clone(), ChannelEpg { current, next });
+            let (current, current_start, current_end) = match current {
+                Some((t, s, e)) => (Some(t), Some(s), Some(e)),
+                None => (None, None, None),
+            };
+            let (next, next_start) = match next {
+                Some((t, s)) => (Some(t), Some(s)),
+                None => (None, None),
+            };
+            result.insert(
+                id.clone(),
+                ChannelEpg {
+                    current,
+                    current_start,
+                    current_end,
+                    next,
+                    next_start,
+                },
+            );
         }
+    }
+
+    Ok(result)
+}
+
+/// One row of a programme guide: title, optional synopsis and RFC 3339 start/end.
+#[derive(Debug, Clone, Serialize)]
+pub struct GuideProgram {
+    pub title: String,
+    pub description: Option<String>,
+    pub start_time: String,
+    pub end_time: String,
+}
+
+/// Programmes for many channels within a time window.
+///
+/// A programme is included if it overlaps `[from, to)` at all
+/// (`end_time > from AND start_time < to`), so one already playing at `from`
+/// is included while one that ends exactly at `from` or starts exactly at
+/// `to` is not. `from` and `to` must already be RFC 3339 strings in the same
+/// format `store_epg_programs` writes (UTC `to_rfc3339()`); callers should
+/// run them through `epg_domain::validate_guide_window` first so the string
+/// comparison in the SQL below is exact. Every id in `epg_ids` is a key in
+/// the result, with an empty `Vec` when it has no programmes in the window.
+pub fn get_guide(
+    conn: &Connection,
+    epg_ids: &[String],
+    from: &str,
+    to: &str,
+) -> Result<HashMap<String, Vec<GuideProgram>>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT title, description, start_time, end_time FROM epg_programs
+         WHERE channel_epg_id = ?1 AND end_time > ?2 AND start_time < ?3
+         ORDER BY start_time",
+    )?;
+
+    let mut result = HashMap::with_capacity(epg_ids.len());
+    for id in epg_ids {
+        if result.contains_key(id) {
+            continue;
+        }
+        // Stored ids are normalised; the result stays keyed by the id asked for.
+        let key = normalize_epg_id(id);
+        let programmes = stmt
+            .query_map(rusqlite::params![key, from, to], |row| {
+                Ok(GuideProgram {
+                    title: row.get(0)?,
+                    description: row.get(1)?,
+                    start_time: row.get(2)?,
+                    end_time: row.get(3)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        result.insert(id.clone(), programmes);
     }
 
     Ok(result)
@@ -561,5 +643,227 @@ mod tests {
         let tv4 = &result["tv4.se"];
         assert_eq!(tv4.current, None);
         assert_eq!(tv4.next.as_deref(), Some("Nyheterna"));
+    }
+
+    #[test]
+    fn batch_lookup_returns_times_for_current_and_next() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+        let current_start = now - Duration::minutes(10);
+        let next_start = now + Duration::minutes(20);
+        store_epg_programs(
+            &conn,
+            &[
+                programme("svt1.se", "Rapport", current_start, 30),
+                programme("svt1.se", "Aktuellt", next_start, 30),
+            ],
+        )
+        .unwrap();
+
+        let map = get_programs_for_channels(&conn, &["svt1.se".to_string()]).unwrap();
+        let epg = map.get("svt1.se").unwrap();
+        assert_eq!(epg.current.as_deref(), Some("Rapport"));
+        assert_eq!(
+            epg.current_start.as_deref(),
+            Some(current_start.to_rfc3339().as_str())
+        );
+        assert_eq!(
+            epg.current_end.as_deref(),
+            Some(
+                (current_start + Duration::minutes(30))
+                    .to_rfc3339()
+                    .as_str()
+            )
+        );
+        assert_eq!(epg.next.as_deref(), Some("Aktuellt"));
+        assert_eq!(
+            epg.next_start.as_deref(),
+            Some(next_start.to_rfc3339().as_str())
+        );
+    }
+
+    #[test]
+    fn batch_lookup_with_only_a_next_programme_has_no_current_times() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+        store_epg_programs(
+            &conn,
+            &[programme("tv4.se", "Later", now + Duration::hours(1), 30)],
+        )
+        .unwrap();
+        let map = get_programs_for_channels(&conn, &["tv4.se".to_string()]).unwrap();
+        let epg = map.get("tv4.se").unwrap();
+        assert!(epg.current.is_none() && epg.current_start.is_none() && epg.current_end.is_none());
+        assert_eq!(epg.next.as_deref(), Some("Later"));
+    }
+
+    #[test]
+    fn guide_includes_overlapping_and_excludes_boundary_touching_programmes() {
+        let conn = setup_test_db();
+        let from = Utc::now();
+        let to = from + Duration::hours(2);
+
+        store_epg_programs(
+            &conn,
+            &[
+                // Starts before the window and ends after `from`: overlaps the start.
+                programme("svt1.se", "Overlap", from - Duration::minutes(30), 45),
+                // Fully inside the window; stored out of chronological order.
+                programme("svt1.se", "Second", from + Duration::minutes(30), 30),
+                programme("svt1.se", "First", from + Duration::minutes(5), 10),
+                // Ends exactly at `from`: must be excluded.
+                programme("svt1.se", "EndsAtFrom", from - Duration::minutes(20), 20),
+                // Starts exactly at `to`: must be excluded.
+                programme("svt1.se", "StartsAtTo", to, 30),
+            ],
+        )
+        .unwrap();
+
+        let result = get_guide(
+            &conn,
+            &["svt1.se".to_string()],
+            &from.to_rfc3339(),
+            &to.to_rfc3339(),
+        )
+        .unwrap();
+
+        let titles: Vec<&str> = result["svt1.se"].iter().map(|p| p.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            vec!["Overlap", "First", "Second"],
+            "boundary-touching programmes are excluded and results are ordered by start"
+        );
+    }
+
+    #[test]
+    fn guide_isolates_channels_and_gives_empty_vec_for_ids_without_programmes() {
+        let conn = setup_test_db();
+        let from = Utc::now();
+        let to = from + Duration::hours(2);
+
+        store_epg_programs(
+            &conn,
+            &[
+                programme("svt1.se", "Rapport", from + Duration::minutes(5), 30),
+                programme("tv4.se", "Nyheterna", from + Duration::minutes(10), 20),
+            ],
+        )
+        .unwrap();
+
+        let result = get_guide(
+            &conn,
+            &[
+                "svt1.se".to_string(),
+                "tv4.se".to_string(),
+                "unknown.se".to_string(),
+            ],
+            &from.to_rfc3339(),
+            &to.to_rfc3339(),
+        )
+        .unwrap();
+
+        let svt1: Vec<&str> = result["svt1.se"].iter().map(|p| p.title.as_str()).collect();
+        let tv4: Vec<&str> = result["tv4.se"].iter().map(|p| p.title.as_str()).collect();
+        assert_eq!(
+            svt1,
+            vec!["Rapport"],
+            "other channels' programmes do not leak in"
+        );
+        assert_eq!(tv4, vec!["Nyheterna"]);
+        assert!(
+            result["unknown.se"].is_empty(),
+            "an id without programmes still maps to an empty vec"
+        );
+    }
+    #[test]
+    fn batch_lookup_matches_ids_regardless_of_case() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+        store_epg_programs(
+            &conn,
+            &[programme(
+                "svt1.se",
+                "Rapport",
+                now - Duration::minutes(10),
+                30,
+            )],
+        )
+        .unwrap();
+
+        let map = get_programs_for_channels(&conn, &["SVT1.se".to_string()]).unwrap();
+        // Keyed by the id the caller asked with, so the frontend finds it.
+        let epg = map
+            .get("SVT1.se")
+            .expect("upper-case id finds lower-case feed");
+        assert_eq!(epg.current.as_deref(), Some("Rapport"));
+    }
+
+    #[test]
+    fn stored_ids_are_normalised_so_a_mixed_case_feed_matches_lower_case_channels() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+        store_epg_programs(
+            &conn,
+            &[programme(
+                "SVT2.se",
+                "Babel",
+                now - Duration::minutes(5),
+                30,
+            )],
+        )
+        .unwrap();
+
+        let map = get_programs_for_channels(&conn, &["svt2.se".to_string()]).unwrap();
+        assert_eq!(
+            map.get("svt2.se").and_then(|e| e.current.as_deref()),
+            Some("Babel")
+        );
+        assert_eq!(
+            get_current_program(&conn, "Svt2.Se").unwrap().as_deref(),
+            Some("Babel")
+        );
+    }
+
+    #[test]
+    fn next_programme_lookup_ignores_case() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+        store_epg_programs(
+            &conn,
+            &[programme(
+                "tv4.se",
+                "Nyheterna",
+                now + Duration::minutes(20),
+                30,
+            )],
+        )
+        .unwrap();
+        assert_eq!(
+            get_next_program(&conn, "TV4.se").unwrap().as_deref(),
+            Some("Nyheterna")
+        );
+    }
+
+    #[test]
+    fn guide_lookup_ignores_case_and_keys_by_requested_id() {
+        let conn = setup_test_db();
+        let now = Utc::now();
+        store_epg_programs(
+            &conn,
+            &[programme(
+                "svt1.se",
+                "Rapport",
+                now - Duration::minutes(10),
+                30,
+            )],
+        )
+        .unwrap();
+        let from = (now - Duration::hours(1)).to_rfc3339();
+        let to = (now + Duration::hours(1)).to_rfc3339();
+
+        let guide = get_guide(&conn, &["SVT1.se".to_string()], &from, &to).unwrap();
+        let rows = guide.get("SVT1.se").expect("keyed by the requested id");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "Rapport");
     }
 }

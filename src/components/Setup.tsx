@@ -1,11 +1,16 @@
-import { useState, useEffect } from 'react';
-import { importPlaylist, importXtreamPlaylist, getChannels } from '../lib/tauri';
+import { useState, useEffect, useRef } from 'react';
+import { importPlaylist, importXtreamPlaylist, getChannels, checkMpvInstalled } from '../lib/tauri';
 import { usePlayerStore } from '../stores/player-store';
 import { listen } from '@tauri-apps/api/event';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { logger } from '../lib/logger';
 import type { Playlist } from '../types';
+import { X, Check, AlertTriangle } from 'lucide-react';
 import LoadingScreen from './LoadingScreen';
 import logoImage from '../assets/logo/logo-256.webp';
+import { BARS } from './ColorBars';
+
+const MPV_INSTALL_URL = 'https://mpv.io/installation/';
 
 type ImportType = 'm3u' | 'xtream';
 
@@ -33,8 +38,34 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
     series_count: number;
   } | null>(null);
 
+  // null while the check is in flight; a rejected call is treated the same
+  // as "not found" rather than left in an unknown state.
+  const [mpvInstalled, setMpvInstalled] = useState<boolean | null>(null);
+
+  const m3uTabRef = useRef<globalThis.HTMLButtonElement>(null);
+  const xtreamTabRef = useRef<globalThis.HTMLButtonElement>(null);
+
   const { setIsSetupComplete, setChannels, setIsLoading, setCurrentPlaylist, isLoading } =
     usePlayerStore();
+
+  // Check whether MPV is available so the status line can tell the user
+  // before they import a playlist they can't play back yet.
+  useEffect(() => {
+    let cancelled = false;
+
+    checkMpvInstalled()
+      .then((found) => {
+        if (!cancelled) setMpvInstalled(found);
+      })
+      .catch((err) => {
+        logger.warn('Failed to check for MPV:', err);
+        if (!cancelled) setMpvInstalled(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Listen for import progress events
   useEffect(() => {
@@ -49,6 +80,23 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
       unlisten.then((fn) => fn());
     };
   }, []);
+
+  const handleInstallMpvClick = () => {
+    openUrl(MPV_INSTALL_URL).catch((err) =>
+      logger.warn('Failed to open the MPV install page:', err)
+    );
+  };
+
+  // Tabs keyboard model (WAI-ARIA APG): ArrowLeft/ArrowRight move between
+  // tabs and select the newly-focused one (automatic activation). With only
+  // two tabs, either arrow key just swaps to the other one.
+  const handleTabKeyDown = (e: React.KeyboardEvent<globalThis.HTMLButtonElement>) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const next: ImportType = importType === 'm3u' ? 'xtream' : 'm3u';
+    setImportType(next);
+    (next === 'm3u' ? m3uTabRef : xtreamTabRef).current?.focus();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,187 +171,225 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
     );
   }
 
-  return (
-    <div
-      className={
-        onCancel
-          ? ''
-          : 'flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4 dark:from-gray-900 dark:to-gray-800'
-      }
-    >
+  const card = (
+    <div className="relative w-[560px] max-w-[calc(100%-32px)] rounded-3xl border border-border-strong bg-surface/80 p-10 backdrop-blur-2xl">
+      {/* Modal mode loading overlay */}
+      {isLoading && onCancel && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-3xl bg-surface/80 backdrop-blur-sm">
+          <div className="text-center">
+            <div className="mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4 border-accent border-t-transparent"></div>
+            <p className="font-medium text-text-muted">Importing playlist...</p>
+            {importProgress && totalLoaded > 0 && (
+              <p className="mt-2 text-sm text-text-muted">
+                Loaded {totalLoaded.toLocaleString()} channels
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Cancel button if in modal mode */}
+      {onCancel && (
+        <button
+          type="button"
+          onClick={onCancel}
+          aria-label="Cancel"
+          className="absolute right-6 top-6 text-text-muted transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <X className="h-5 w-5" aria-hidden="true" />
+        </button>
+      )}
+
+      <img
+        src={logoImage}
+        alt="Better-IPTV Logo"
+        className="mb-4 h-[52px] w-[52px] rounded-[14px]"
+      />
+
+      <h1 className="font-display text-[34px] font-bold text-text">
+        {onCancel ? 'Add a profile' : 'Add your first playlist'}
+      </h1>
+      <p className="mt-2 text-sm text-text-muted">
+        {onCancel
+          ? 'Each profile is one playlist or provider. Add an M3U link or sign in to an Xtream Codes provider.'
+          : 'Paste an M3U link or sign in to your Xtream Codes provider. Everything is stored on this computer and nothing is sent anywhere else.'}
+      </p>
+
+      {/* Import type segmented control */}
       <div
-        className={`rounded-lg bg-white p-8 shadow-xl dark:bg-gray-800 ${onCancel ? 'w-full max-w-md' : 'w-full max-w-md'} relative`}
+        role="tablist"
+        aria-label="Playlist type"
+        className="mt-6 grid grid-cols-2 gap-1 rounded-xl bg-text/5 p-1"
       >
-        {/* Modal mode loading overlay */}
-        {isLoading && onCancel && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-white/80 backdrop-blur-sm dark:bg-gray-800/80">
-            <div className="text-center">
-              <div className="mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"></div>
-              <p className="font-medium text-gray-700 dark:text-gray-300">Importing playlist...</p>
-              {importProgress && totalLoaded > 0 && (
-                <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                  Loaded {totalLoaded.toLocaleString()} channels
-                </p>
-              )}
-            </div>
-          </div>
-        )}
+        <button
+          ref={m3uTabRef}
+          type="button"
+          role="tab"
+          aria-selected={importType === 'm3u'}
+          tabIndex={importType === 'm3u' ? 0 : -1}
+          onClick={() => setImportType('m3u')}
+          onKeyDown={handleTabKeyDown}
+          className={`rounded-lg py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+            importType === 'm3u' ? 'bg-text text-bg' : 'text-text-muted'
+          }`}
+        >
+          M3U URL
+        </button>
+        <button
+          ref={xtreamTabRef}
+          type="button"
+          role="tab"
+          aria-selected={importType === 'xtream'}
+          tabIndex={importType === 'xtream' ? 0 : -1}
+          onClick={() => setImportType('xtream')}
+          onKeyDown={handleTabKeyDown}
+          className={`rounded-lg py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+            importType === 'xtream' ? 'bg-text text-bg' : 'text-text-muted'
+          }`}
+        >
+          Xtream Codes
+        </button>
+      </div>
 
-        {/* Cancel button if in modal mode */}
-        {onCancel && (
-          <button
-            onClick={onCancel}
-            className="absolute right-4 top-4 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-          >
-            ✕
-          </button>
-        )}
-
-        <div className="mb-8 text-center">
-          {/* Logo */}
-          <div className="mb-4 flex justify-center">
-            <img src={logoImage} alt="Better-IPTV Logo" className="h-24 w-24" />
-          </div>
-
-          <h1 className="mb-2 text-3xl font-bold text-gray-900 dark:text-white">
-            {onCancel ? 'Add New Profile' : 'Better IPTV'}
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            {onCancel ? 'Add a new IPTV playlist' : 'Add your IPTV playlist to get started'}
-          </p>
+      <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+        <div>
+          <label htmlFor="name" className="mb-1.5 block text-[13px] font-semibold text-text-muted">
+            Playlist Name
+          </label>
+          <input
+            id="name"
+            type="text"
+            value={playlistName}
+            onChange={(e) => setPlaylistName(e.target.value)}
+            placeholder="My IPTV Playlist"
+            className="h-11 w-full rounded-xl border border-border-strong bg-text/5 px-3.5 text-text focus:border-transparent focus:outline-none focus:ring-2 focus:ring-accent"
+          />
         </div>
 
-        {/* Tab switcher */}
-        <div className="mb-6 flex border-b border-gray-200 dark:border-gray-700">
-          <button
-            type="button"
-            onClick={() => setImportType('m3u')}
-            className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
-              importType === 'm3u'
-                ? 'border-b-2 border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
-                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
-          >
-            M3U URL
-          </button>
-          <button
-            type="button"
-            onClick={() => setImportType('xtream')}
-            className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
-              importType === 'xtream'
-                ? 'border-b-2 border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
-                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
-          >
-            Xtream Codes
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {importType === 'm3u' ? (
           <div>
-            <label
-              htmlFor="name"
-              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Playlist Name
+            <label htmlFor="url" className="mb-1.5 block text-[13px] font-semibold text-text-muted">
+              M3U Playlist URL
             </label>
             <input
-              id="name"
+              id="url"
               type="text"
-              value={playlistName}
-              onChange={(e) => setPlaylistName(e.target.value)}
-              placeholder="My IPTV Playlist"
-              className="w-full rounded-md border border-gray-300 px-4 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              value={playlistUrl}
+              onChange={(e) => setPlaylistUrl(e.target.value)}
+              placeholder="http://example.com/playlist.m3u"
+              className="h-11 w-full rounded-xl border border-border-strong bg-text/5 px-3.5 text-text focus:border-transparent focus:outline-none focus:ring-2 focus:ring-accent"
             />
           </div>
-
-          {importType === 'm3u' ? (
+        ) : (
+          <>
             <div>
               <label
-                htmlFor="url"
-                className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                htmlFor="server"
+                className="mb-1.5 block text-[13px] font-semibold text-text-muted"
               >
-                M3U Playlist URL
+                Server URL
               </label>
               <input
-                id="url"
+                id="server"
                 type="text"
-                value={playlistUrl}
-                onChange={(e) => setPlaylistUrl(e.target.value)}
-                placeholder="http://example.com/playlist.m3u"
-                className="w-full rounded-md border border-gray-300 px-4 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                value={serverUrl}
+                onChange={(e) => setServerUrl(e.target.value)}
+                placeholder="http://example.com:8080"
+                className="h-11 w-full rounded-xl border border-border-strong bg-text/5 px-3.5 text-text focus:border-transparent focus:outline-none focus:ring-2 focus:ring-accent"
               />
             </div>
-          ) : (
-            <>
-              <div>
-                <label
-                  htmlFor="server"
-                  className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  Server URL
-                </label>
-                <input
-                  id="server"
-                  type="text"
-                  value={serverUrl}
-                  onChange={(e) => setServerUrl(e.target.value)}
-                  placeholder="http://example.com:8080"
-                  className="w-full rounded-md border border-gray-300 px-4 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="username"
-                  className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  Username
-                </label>
-                <input
-                  id="username"
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="username"
-                  className="w-full rounded-md border border-gray-300 px-4 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="password"
-                  className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  Password
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="password"
-                  className="w-full rounded-md border border-gray-300 px-4 py-2 focus:border-transparent focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                />
-              </div>
-            </>
-          )}
-
-          {error && (
-            <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
-              {error}
+            <div>
+              <label
+                htmlFor="username"
+                className="mb-1.5 block text-[13px] font-semibold text-text-muted"
+              >
+                Username
+              </label>
+              <input
+                id="username"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="username"
+                className="h-11 w-full rounded-xl border border-border-strong bg-text/5 px-3.5 text-text focus:border-transparent focus:outline-none focus:ring-2 focus:ring-accent"
+              />
             </div>
-          )}
+            <div>
+              <label
+                htmlFor="password"
+                className="mb-1.5 block text-[13px] font-semibold text-text-muted"
+              >
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="password"
+                className="h-11 w-full rounded-xl border border-border-strong bg-text/5 px-3.5 text-text focus:border-transparent focus:outline-none focus:ring-2 focus:ring-accent"
+              />
+            </div>
+          </>
+        )}
 
-          <button
-            type="submit"
-            className="w-full rounded-md bg-blue-600 px-4 py-3 font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Add Playlist
-          </button>
-        </form>
+        {error && (
+          <div className="rounded-md border border-danger/20 bg-danger/10 px-4 py-3 text-sm text-text">
+            {error}
+          </div>
+        )}
 
-        <div className="mt-6 text-center text-xs text-gray-500 dark:text-gray-400">
-          Your playlist will be saved locally
-        </div>
+        <button
+          type="submit"
+          className="h-12 w-full rounded-xl bg-accent font-bold text-on-accent transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Import playlist
+        </button>
+      </form>
+
+      {/* MPV status */}
+      <div className="mt-4 flex items-center gap-1.5 text-xs">
+        {mpvInstalled === true && (
+          <>
+            <Check className="h-3.5 w-3.5 shrink-0 text-success" aria-hidden="true" />
+            <span className="text-text-muted">MPV found</span>
+          </>
+        )}
+        {mpvInstalled === false && (
+          <>
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-danger" aria-hidden="true" />
+            <span className="text-text-muted">MPV not found</span>
+            <button
+              type="button"
+              onClick={handleInstallMpvClick}
+              className="font-semibold text-accent-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              How to install MPV
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  // Modal mode (inside ProfileManager's add-profile dialog): the same card,
+  // without the full-screen glow background or the colour-bar strip - the
+  // dialog wrapper already provides its own backdrop.
+  if (onCancel) {
+    return card;
+  }
+
+  return (
+    <div className="relative min-h-screen bg-bg">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_50%_0%,rgb(var(--color-accent)/0.10),transparent_70%)]"
+      />
+      <div className="relative flex min-h-screen items-center justify-center p-4">{card}</div>
+      <div aria-hidden="true" className="absolute inset-x-0 bottom-0 flex h-[6px] opacity-[.35]">
+        {BARS.map((c) => (
+          <div key={c} className="flex-1" style={{ backgroundColor: c }} />
+        ))}
       </div>
     </div>
   );

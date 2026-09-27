@@ -1,6 +1,28 @@
 import { create } from 'zustand';
 import type { Channel, Playlist, SeriesInfo } from '../types';
 import { getParentalSettings, getBlockedChannels, toggleFavorite } from '../lib/tauri';
+import type { TmdbCard } from '../lib/tauri';
+
+/**
+ * A section of the app the user is browsing: the destinations behind the
+ * icon rail (Home, Live TV, Movies, Series, Favorites, TV Guide). There is
+ * no catch-all 'all' section. Home exists only while the TMDB background
+ * scan runs with the user's own key.
+ */
+export type Section = 'home' | 'live' | 'vod' | 'series' | 'favorites' | 'guide';
+
+/**
+ * Current/next programme for one channel, with optional start/end times.
+ * `current` is absent while the channel is off air between broadcasts; the
+ * entry is then kept for its `next` programme.
+ */
+export interface EpgEntry {
+  current?: string;
+  currentStart?: string;
+  currentEnd?: string;
+  next?: string;
+  nextStart?: string;
+}
 
 interface PlayerState {
   // Playlists
@@ -30,8 +52,8 @@ interface PlayerState {
   setSearchQuery: (query: string) => void;
 
   // Content Type Filter
-  contentTypeFilter: 'all' | 'live' | 'vod' | 'series' | 'favorites';
-  setContentTypeFilter: (filter: 'all' | 'live' | 'vod' | 'series' | 'favorites') => void;
+  contentTypeFilter: Section;
+  setContentTypeFilter: (filter: Section) => void;
 
   // Category Filter (provider categories like "Sweden", "Norway", etc.)
   categoryFilter: string | null;
@@ -49,18 +71,30 @@ interface PlayerState {
   setCurrentProgram: (program: string | null) => void;
   setNextProgram: (program: string | null) => void;
 
-  // EPG data for all channels (channelId -> { current, next })
-  channelEpgData: Map<number, { current: string; next?: string }>;
-  setChannelEpg: (channelId: number, current: string | null, next?: string | null) => void;
+  // EPG data for all channels (channelId -> EpgEntry)
+  channelEpgData: Map<number, EpgEntry>;
+  setChannelEpg: (channelId: number, entry: EpgEntry | null) => void;
   clearAllEpg: () => void;
   epgRefreshTrigger: number;
   triggerEpgRefresh: () => void;
+
+  // TMDB cards for movies and series (channelId -> card)
+  tmdbCards: Map<number, TmdbCard>;
+  /** Bumped by clearTmdbCards so consumers ask for the visible ids again. */
+  tmdbCardsEpoch: number;
+  setTmdbCards: (cards: TmdbCard[]) => void;
+  clearTmdbCards: () => void;
 
   // Series Navigation
   currentSeries: SeriesInfo | null;
   selectedSeason: string | null;
   setCurrentSeries: (series: SeriesInfo | null) => void;
   setSelectedSeason: (seasonNumber: string | null) => void;
+
+  // A short-lived notice at the bottom of the screen (one at a time)
+  toast: { id: number; message: string } | null;
+  showToast: (message: string) => void;
+  dismissToast: () => void;
 
   // UI State
   isSetupComplete: boolean;
@@ -182,11 +216,11 @@ export const usePlayerStore = create<PlayerState>((set) => ({
 
   // EPG data for all channels
   channelEpgData: new Map(),
-  setChannelEpg: (channelId, current, next) =>
+  setChannelEpg: (channelId, entry) =>
     set((state) => {
       const newMap = new Map(state.channelEpgData);
-      if (current) {
-        newMap.set(channelId, { current, next: next ?? undefined });
+      if (entry) {
+        newMap.set(channelId, entry);
       } else {
         newMap.delete(channelId);
       }
@@ -196,11 +230,27 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   epgRefreshTrigger: 0,
   triggerEpgRefresh: () => set((state) => ({ epgRefreshTrigger: state.epgRefreshTrigger + 1 })),
 
+  tmdbCards: new Map(),
+  setTmdbCards: (cards) =>
+    set((state) => {
+      if (cards.length === 0) return {};
+      const next = new Map(state.tmdbCards);
+      for (const card of cards) next.set(card.channel_id, card);
+      return { tmdbCards: next };
+    }),
+  tmdbCardsEpoch: 0,
+  clearTmdbCards: () =>
+    set((state) => ({ tmdbCards: new Map(), tmdbCardsEpoch: state.tmdbCardsEpoch + 1 })),
+
   // Series Navigation
   currentSeries: null,
   selectedSeason: null,
   setCurrentSeries: (series) => set({ currentSeries: series }),
   setSelectedSeason: (seasonNumber) => set({ selectedSeason: seasonNumber }),
+
+  toast: null,
+  showToast: (message) => set({ toast: { id: Date.now(), message } }),
+  dismissToast: () => set({ toast: null }),
 
   // UI State
   isSetupComplete: false,

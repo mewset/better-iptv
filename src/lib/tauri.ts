@@ -15,8 +15,14 @@ export async function stopPlayback(): Promise<void> {
   await invoke('stop_playback');
 }
 
-export async function isPlaying(): Promise<boolean> {
-  return await invoke('is_playing');
+/** Whether MPV is still playing, and whether it stopped because the stream failed. */
+export interface PlaybackStatus {
+  playing: boolean;
+  failed: boolean;
+}
+
+export async function getPlaybackStatus(): Promise<PlaybackStatus> {
+  return await invoke('playback_status');
 }
 
 // ========== Playlist Commands ==========
@@ -63,6 +69,19 @@ export async function refreshPlaylist(playlistId: number): Promise<MergeResult> 
 
 export async function getStalePlaylistIds(): Promise<number[]> {
   return await invoke('get_stale_playlist_ids');
+}
+
+/**
+ * Channel count per playlist, for the profile cards. A playlist with no
+ * channels is absent from the map rather than mapped to 0.
+ *
+ * serde turns the Rust side's `HashMap<i64, i64>` keys into JSON object keys,
+ * which are always strings, so the wire payload has string keys even though
+ * they are playlist ids; this converts them back to numbers.
+ */
+export async function getPlaylistChannelCounts(): Promise<Record<number, number>> {
+  const raw = await invoke<Record<string, number>>('get_playlist_channel_counts');
+  return Object.fromEntries(Object.entries(raw).map(([id, count]) => [Number(id), count]));
 }
 
 // ========== Channel Commands ==========
@@ -168,12 +187,35 @@ export async function getChannelEpg(channelEpgId: string): Promise<[string | nul
 
 export interface ChannelEpg {
   current: string | null;
+  current_start: string | null;
+  current_end: string | null;
   next: string | null;
+  next_start: string | null;
 }
 
 /** Current/next programme for many channels in one IPC call (max 500 ids). */
 export async function getChannelsEpg(epgIds: string[]): Promise<Record<string, ChannelEpg>> {
   return await invoke('get_channels_epg', { epgIds });
+}
+
+export interface GuideProgram {
+  title: string;
+  description: string | null;
+  start_time: string;
+  end_time: string;
+}
+
+/**
+ * Programmes for many channels within a time window (max 100 ids, max 48h
+ * span). `from`/`to` are RFC 3339 strings; every requested id is a key in
+ * the result, with an empty array when it has no programmes in the window.
+ */
+export async function getGuide(
+  epgIds: string[],
+  from: string,
+  to: string
+): Promise<Record<string, GuideProgram[]>> {
+  return await invoke('get_guide', { epgIds, from, to });
 }
 
 export interface EpgStatus {
@@ -237,4 +279,148 @@ export async function getParentalSettings(): Promise<ParentalSettings> {
 
 export async function checkForUpdate(): Promise<UpdateInfo | null> {
   return await invoke('check_for_update');
+}
+
+// ========== TMDB Commands ==========
+
+export interface TmdbCard {
+  channel_id: number;
+  tmdb_id: number;
+  title: string;
+  year: number | null;
+  rating: number | null;
+  poster_url: string | null;
+  backdrop_url: string | null;
+  genres: string[];
+}
+
+export interface TmdbCastMember {
+  name: string;
+  character: string | null;
+  photo_url: string | null;
+}
+
+export interface TmdbDetails {
+  /** A key resolved and the feature is on. False: provider data only, no "Wrong title?". */
+  available: boolean;
+  matched: boolean;
+  manual: boolean;
+  tmdb_id: number | null;
+  title: string | null;
+  original_title: string | null;
+  year: number | null;
+  rating: number | null;
+  poster_url: string | null;
+  backdrop_url: string | null;
+  overview: string | null;
+  runtime_minutes: number | null;
+  genres: string[];
+  cast: TmdbCastMember[];
+  trailer_url: string | null;
+}
+
+export interface TmdbEpisode {
+  season: number;
+  episode: number;
+  title: string | null;
+  overview: string | null;
+  still_url: string | null;
+  runtime_minutes: number | null;
+  air_date: string | null;
+}
+
+export interface TmdbCandidate {
+  tmdb_id: number;
+  title: string;
+  original_title: string;
+  year: number | null;
+  poster_url: string | null;
+  overview: string | null;
+}
+
+export interface TmdbStatus {
+  enabled: boolean;
+  has_user_key: boolean;
+  has_shared_key: boolean;
+  user_key_rejected: boolean;
+  shared_key_rejected: boolean;
+  language: string;
+  /** The `tmdb_background_enrich` setting. */
+  background_enrich: boolean;
+  /** Where the library scan stands; null until one ran this session. */
+  background_progress: { done: number; total: number; running: boolean } | null;
+}
+
+/** Cached cards for these channels (max 120); misses arrive later as `tmdb-card` events. */
+export async function getTmdbCards(channelIds: number[]): Promise<TmdbCard[]> {
+  return await invoke('get_tmdb_cards', { channelIds });
+}
+
+export async function getTmdbStatus(): Promise<TmdbStatus> {
+  return await invoke('get_tmdb_status');
+}
+
+/** Resolves when TMDB accepts the key; rejects with TMDB's message otherwise. */
+export async function checkTmdbKey(key: string): Promise<void> {
+  await invoke('check_tmdb_key', { key });
+}
+
+export async function getTmdbDetails(channelId: number): Promise<TmdbDetails> {
+  return await invoke('get_tmdb_details', { channelId });
+}
+
+export async function getTmdbSeason(channelId: number, season: number): Promise<TmdbEpisode[]> {
+  return await invoke('get_tmdb_season', { channelId, season });
+}
+
+/** One slide of a Home slideshow; a superset of TmdbCard plus the plot. */
+export interface HomeItem {
+  channel_id: number;
+  tmdb_id: number;
+  title: string;
+  year: number | null;
+  rating: number | null;
+  poster_url: string | null;
+  backdrop_url: string | null;
+  genres: string[];
+  overview: string | null;
+}
+
+/** One Home slideshow: a genre of movies or of series. */
+export interface HomeRow {
+  genre: string;
+  content_type: 'vod' | 'series';
+  items: HomeItem[];
+}
+
+/** The day's Home rows for a profile; empty when the gate is closed. */
+export async function getHomeRows(playlistId: number): Promise<HomeRow[]> {
+  return await invoke('get_home_rows', { playlistId });
+}
+
+/** "Our pick of the day": a trending title in the library, else the best rated. */
+export interface HomePick {
+  item: HomeItem;
+  source: 'trending' | 'top_rated';
+}
+
+/** The day's pick for a profile; null when the gate is closed or nothing qualifies. */
+export async function getHomePick(playlistId: number): Promise<HomePick | null> {
+  return await invoke('get_home_pick', { playlistId });
+}
+
+export async function searchTmdb(
+  query: string,
+  contentType: 'vod' | 'series'
+): Promise<TmdbCandidate[]> {
+  return await invoke('search_tmdb', { query, contentType });
+}
+
+/** `null` records "not on TMDB". */
+export async function setTmdbMatch(channelId: number, tmdbId: number | null): Promise<TmdbDetails> {
+  return await invoke('set_tmdb_match', { channelId, tmdbId });
+}
+
+export async function deleteTmdbCache(): Promise<number> {
+  return await invoke('delete_tmdb_cache');
 }

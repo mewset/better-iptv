@@ -4,11 +4,62 @@ A simple overview of new features and improvements.
 
 ---
 
-## Unreleased
+## Version 3.0.0 (September 27, 2026)
+
+### New Features
+
+**A New Look**
+
+- Dark by default, with an amber accent and new fonts
+- A new logo: a play triangle cut into channel stripes, in amber, used for the app icon, the side rail and the first-run screen
+- A side rail takes you to Live TV, Movies, Series, Favorites and the TV Guide; the search and profile switcher sit in a bar at the top
+- Movie and series posters are no longer cropped, and live channels show how far the current programme has come
+- What's playing now floats in a small dock over the grid instead of a bar below it
+- Settings opens as a page with a section list instead of a pop-up, and the first-run setup screen has been redesigned
+- Channels without a logo get a colour-bar placeholder with the channel's initial
+
+**TV Guide**
+
+- See what is on now and next across your channels, and press G to open it
+- Hover a programme to see its full name and time, handy for short blocks with long names
+
+**Posters, ratings and details from TMDB**
+
+- Movies and series show their real poster, year and rating, and the "Recently added" banner gets a proper backdrop
+- Opening a movie or a series shows a detail page with the plot, cast, a trailer link and, for series, seasons and episodes
+- Wrong match? "Wrong title?" on the detail page lets you pick the right one, or mark a title as not on TMDB
+- Works out of the box with a shared key; you can add your own TMDB key under Settings → Metadata, choose the language, or turn the feature off
+- When it is on, the titles of your movies and series are sent to TMDB to look them up. Nothing else leaves the app
+- With your own TMDB key you can let the app fetch posters and details for your whole library in the background, at a gentle pace
+
+**Home**
+
+- A new Home page greets you and shows a handful of genre slideshows, movies and series separately, picked fresh every day from the well-rated titles in your own playlist
+- "Our pick of the day" at the top: a title from your playlist that is trending on TMDB today, or the best-rated one when nothing trending is in your library
+- Click a slide to open the title's detail page
+- Home appears when you use your own TMDB key with "Fetch details for the whole library in the background" turned on under Settings → Metadata, because it needs your whole library rated
 
 ### Improvements
 
+- The User-Agent you choose under Settings → General (TiviMate, VLC or your own) is now sent with every stream too, not only when the playlist and guide are downloaded. Providers that only accept known players, or that allow a second connection for them, now see the same player for everything
+- The "Recently added" banner only features titles that TMDB recognises and never anything labelled as adult content, whether or not parental controls are on
+- The Series section starts with a "Recently added" banner for the newest series, like Movies already does
+- The profile menu in the top right now has an "Add profile" row, so you can add a playlist or provider without going into Settings
 - Updated the app framework and several of the libraries Better IPTV is built on, including security fixes
+
+### Fixes
+
+- More channels now show their program guide when the guide comes from your Xtream provider
+- A channel that is off air between broadcasts now says so and shows its next program, instead of "No guide data"
+- If a stream can't be played, the app now tells you instead of silently doing nothing
+- Pressing Play several times in a row no longer starts the stream again and again
+- The app no longer flashes white when it starts
+- Settings → EPG no longer shows your provider username and password in the guide address
+- Switching between Live TV, Movies and Series, picking a category, or clearing a search now starts at the top of the list instead of where you last scrolled
+
+### Thanks
+
+- **@orcdev**, whose live review of the app's look prompted this redesign
 
 ## Version 2.9.0 (September 11, 2026)
 

@@ -15,18 +15,30 @@ export default {
       colors: {
         bg: 'rgb(var(--color-bg) / <alpha-value>)',
         surface: 'rgb(var(--color-surface) / <alpha-value>)',
+        'surface-2': 'rgb(var(--color-surface-2) / <alpha-value>)',
         'surface-hover': 'rgb(var(--color-surface-hover) / <alpha-value>)',
         text: 'rgb(var(--color-text) / <alpha-value>)',
         'text-muted': 'rgb(var(--color-text-muted) / <alpha-value>)',
+        'text-faint': 'rgb(var(--color-text-faint) / <alpha-value>)',
         border: 'rgb(var(--color-border) / <alpha-value>)',
+        'border-strong': 'rgb(var(--color-border-strong) / <alpha-value>)',
         accent: {
           DEFAULT: 'rgb(var(--color-accent) / <alpha-value>)',
           hover: 'rgb(var(--color-accent-hover) / <alpha-value>)',
+          text: 'rgb(var(--color-accent-text) / <alpha-value>)',
         },
+        'on-accent': 'rgb(var(--color-on-accent) / <alpha-value>)',
+        danger: 'rgb(var(--color-danger) / <alpha-value>)',
+        'on-danger': 'rgb(var(--color-on-danger) / <alpha-value>)',
+        success: 'rgb(var(--color-success) / <alpha-value>)',
       },
       // Type that scales with the viewport. The app is used on a TV as well as
       // a desktop monitor, and clamp() covers both ends continuously - no
       // separate "TV mode" to maintain. Not yet applied to components.
+      fontFamily: {
+        sans: ['"Schibsted Grotesk"', 'system-ui', '"Segoe UI"', 'sans-serif'],
+        display: ['"Familjen Grotesk"', '"Schibsted Grotesk"', 'system-ui', 'sans-serif'],
+      },
       fontSize: {
         'fluid-xs': 'clamp(0.75rem, 0.65rem + 0.3vw, 0.9rem)',
         'fluid-sm': 'clamp(0.875rem, 0.75rem + 0.4vw, 1.125rem)',

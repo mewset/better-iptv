@@ -11,6 +11,8 @@ mod playlist;
 mod playlist_domain;
 mod series_domain;
 mod state;
+mod tmdb;
+mod tmdb_domain;
 mod update_domain;
 mod utils;
 
@@ -125,6 +127,15 @@ pub fn run() {
             let state = AppState::new(pool);
             app.manage(state);
 
+            // TMDB enrichment: one search per visible title, plus the opt-in
+            // library scan once the first channel load is out of the way.
+            tmdb::enrich::spawn_worker(app.handle().clone());
+            let scan_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(tmdb::enrich::BACKGROUND_SCAN_START_DELAY).await;
+                tmdb::enrich::schedule_library_scan(scan_handle);
+            });
+
             // Background EPG refresh. Runs on Tauri's tokio runtime; the
             // heavy parts (download, parse, store) already go through
             // spawn_blocking / async HTTP inside run_epg_refresh.
@@ -144,7 +155,7 @@ pub fn run() {
             check_mpv_installed,
             play_channel,
             stop_playback,
-            is_playing,
+            playback_status,
             // Playlist commands
             import_playlist,
             import_xtream_playlist,
@@ -153,6 +164,7 @@ pub fn run() {
             refresh_playlist,
             get_subscription_expiry,
             get_stale_playlist_ids,
+            get_playlist_channel_counts,
             // Channel commands
             get_channels,
             get_channel_groups,
@@ -174,6 +186,7 @@ pub fn run() {
             fetch_epg_data,
             get_channel_epg,
             get_channels_epg,
+            get_guide,
             get_epg_status,
             force_refresh_epg,
             // Parental controls commands
@@ -185,6 +198,17 @@ pub fn run() {
             get_parental_settings,
             // Update check
             check_for_update,
+            // TMDB
+            get_tmdb_cards,
+            get_tmdb_status,
+            check_tmdb_key,
+            get_tmdb_details,
+            get_tmdb_season,
+            search_tmdb,
+            set_tmdb_match,
+            delete_tmdb_cache,
+            get_home_rows,
+            get_home_pick,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

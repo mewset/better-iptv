@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { usePlayerStore } from '../stores/player-store';
+import type { Section } from '../stores/player-store';
 import { shouldBlockChannel } from '../lib/parentalControls';
 import type { Channel } from '../types';
 
@@ -7,7 +8,9 @@ import type { Channel } from '../types';
  * Consolidated channel filtering hook.
  *
  * Applies filters in order:
- * 1. Content type (instant via pre-filtered arrays)
+ * 1. Content type (instant via pre-filtered arrays) — bypassed in favour of
+ *    every channel while a non-empty search query is active, except in the
+ *    guide, whose search stays scoped to its own live list.
  * 2. Category filter
  * 3. Parental controls (hide mode)
  * 4. Search query
@@ -31,9 +34,19 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
   const parentalAutoDetect = usePlayerStore((s) => s.parentalAutoDetect);
   const parentalVisibility = usePlayerStore((s) => s.parentalVisibility);
 
-  // Step 1: Select base list by content type (O(1) - pre-computed)
+  // Step 1: Select base list by content type (O(1) - pre-computed).
+  // A non-empty search spans every content type (design doc: "search stays
+  // cross-type") except in the guide, whose search stays scoped to its own
+  // live list.
   const baseList = useMemo(() => {
+    const hasQuery = debouncedSearchQuery.trim() !== '';
+    if (hasQuery && contentTypeFilter !== 'guide') {
+      return channels;
+    }
     switch (contentTypeFilter) {
+      case 'home':
+        // Home lists nothing of its own; its rows come from get_home_rows.
+        return [];
       case 'live':
         return liveChannels;
       case 'vod':
@@ -42,10 +55,19 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
         return seriesChannels;
       case 'favorites':
         return favoriteChannels;
-      default:
-        return channels;
+      case 'guide':
+        // Every live channel; the guide's own Favorites chip narrows it.
+        return liveChannels;
     }
-  }, [contentTypeFilter, liveChannels, vodChannels, seriesChannels, favoriteChannels, channels]);
+  }, [
+    contentTypeFilter,
+    liveChannels,
+    vodChannels,
+    seriesChannels,
+    favoriteChannels,
+    channels,
+    debouncedSearchQuery,
+  ]);
 
   // Step 2-4: Apply category, parental, and search filters
   useEffect(() => {
@@ -96,9 +118,10 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
 }
 
 /**
- * Content type filter options
+ * Content type filter options. Re-exports `Section` so the store stays the
+ * single source of truth for the type.
  */
-export type ContentTypeFilter = 'all' | 'live' | 'vod' | 'series' | 'favorites';
+export type ContentTypeFilter = Section;
 
 /**
  * Hook to manage content type filter state
@@ -108,7 +131,7 @@ export function useContentTypeFilter() {
   const setContentTypeFilter = usePlayerStore((s) => s.setContentTypeFilter);
 
   return {
-    activeFilter: contentTypeFilter as ContentTypeFilter,
+    activeFilter: contentTypeFilter,
     setFilter: setContentTypeFilter,
   };
 }

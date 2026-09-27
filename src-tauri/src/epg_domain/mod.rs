@@ -90,6 +90,51 @@ pub fn validate_channel_epg_id(epg_id: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Longest window a single guide request may span.
+pub const GUIDE_MAX_WINDOW_HOURS: i64 = 48;
+
+/// Canonical form of an EPG channel id: trimmed and ASCII lower-cased.
+///
+/// XMLTV feeds and playlists disagree on case (`SVT1.se` vs `svt1.se`), and an
+/// exact comparison made those channels show no guide data. ASCII-only so it
+/// agrees with SQLite's `lower()`, which the one-time migration in
+/// `db::schema` uses on rows stored before this existed.
+pub fn normalize_epg_id(id: &str) -> String {
+    id.trim().to_ascii_lowercase()
+}
+
+/// Validate and normalise a guide request's time window.
+///
+/// Parses `from` and `to` as RFC 3339, requires `to` to be strictly after
+/// `from`, and rejects a window longer than `GUIDE_MAX_WINDOW_HOURS`. Returns
+/// both bounds re-formatted as UTC `to_rfc3339()` strings, so a caller who
+/// passed a non-UTC offset still gets values in the exact format
+/// `store_epg_programs` writes, keeping the boundary string comparison in
+/// `get_guide`'s SQL correct regardless of the caller's offset.
+pub fn validate_guide_window(from: &str, to: &str) -> Result<(String, String), AppError> {
+    let from_dt = DateTime::parse_from_rfc3339(from)
+        .map_err(|e| AppError::InvalidInput(format!("Invalid 'from' timestamp: {}", e)))?
+        .with_timezone(&Utc);
+    let to_dt = DateTime::parse_from_rfc3339(to)
+        .map_err(|e| AppError::InvalidInput(format!("Invalid 'to' timestamp: {}", e)))?
+        .with_timezone(&Utc);
+
+    if to_dt <= from_dt {
+        return Err(AppError::InvalidInput(
+            "'to' must be after 'from'".to_string(),
+        ));
+    }
+
+    if to_dt - from_dt > chrono::Duration::hours(GUIDE_MAX_WINDOW_HOURS) {
+        return Err(AppError::InvalidInput(format!(
+            "Guide window cannot exceed {} hours",
+            GUIDE_MAX_WINDOW_HOURS
+        )));
+    }
+
+    Ok((from_dt.to_rfc3339(), to_dt.to_rfc3339()))
+}
+
 /// How old `epg_last_fetched` may be before the background task refreshes.
 pub const EPG_AUTO_REFRESH_INTERVAL_HOURS: i64 = 6;
 
@@ -130,6 +175,15 @@ pub fn epg_retry_allowed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn epg_ids_are_normalised_to_trimmed_ascii_lowercase() {
+        assert_eq!(normalize_epg_id("SVT1.se"), "svt1.se");
+        assert_eq!(normalize_epg_id("  TV4.SE "), "tv4.se");
+        assert_eq!(normalize_epg_id("svt1.se"), "svt1.se");
+        // Non-ASCII letters are left alone, matching SQLite's lower().
+        assert_eq!(normalize_epg_id("Ämne.se"), "Ämne.se");
+    }
 
     #[test]
     fn test_validate_epg_url_valid_https() {
@@ -294,6 +348,69 @@ mod tests {
         #[test]
         fn retry_window_is_one_hour() {
             assert_eq!(EPG_AUTO_REFRESH_RETRY_MINUTES, 60);
+        }
+    }
+
+    mod guide_window {
+        use super::super::validate_guide_window;
+        use crate::error::AppError;
+        use chrono::{Duration, Utc};
+
+        #[test]
+        fn valid_window_is_accepted_and_normalised_to_utc() {
+            let from = Utc::now();
+            let to = from + Duration::hours(1);
+            // Same instants, but `from` given with a +02:00 offset.
+            let from_offset = from
+                .with_timezone(&chrono::FixedOffset::east_opt(2 * 3600).unwrap())
+                .to_rfc3339();
+
+            let (norm_from, norm_to) =
+                validate_guide_window(&from_offset, &to.to_rfc3339()).unwrap();
+
+            assert_eq!(norm_from, from.to_rfc3339());
+            assert_eq!(norm_to, to.to_rfc3339());
+        }
+
+        #[test]
+        fn unparsable_from_is_rejected() {
+            let to = Utc::now() + Duration::hours(1);
+            let err = validate_guide_window("not-a-date", &to.to_rfc3339()).unwrap_err();
+            assert!(matches!(err, AppError::InvalidInput(_)));
+        }
+
+        #[test]
+        fn unparsable_to_is_rejected() {
+            let from = Utc::now();
+            let err = validate_guide_window(&from.to_rfc3339(), "not-a-date").unwrap_err();
+            assert!(matches!(err, AppError::InvalidInput(_)));
+        }
+
+        #[test]
+        fn equal_bounds_are_rejected() {
+            let now = Utc::now().to_rfc3339();
+            assert!(validate_guide_window(&now, &now).is_err());
+        }
+
+        #[test]
+        fn inverted_window_is_rejected() {
+            let now = Utc::now();
+            let earlier = (now - Duration::hours(1)).to_rfc3339();
+            assert!(validate_guide_window(&now.to_rfc3339(), &earlier).is_err());
+        }
+
+        #[test]
+        fn window_longer_than_48_hours_is_rejected() {
+            let from = Utc::now();
+            let to = from + Duration::hours(48) + Duration::minutes(1);
+            assert!(validate_guide_window(&from.to_rfc3339(), &to.to_rfc3339()).is_err());
+        }
+
+        #[test]
+        fn window_of_exactly_48_hours_is_accepted() {
+            let from = Utc::now();
+            let to = from + Duration::hours(48);
+            assert!(validate_guide_window(&from.to_rfc3339(), &to.to_rfc3339()).is_ok());
         }
     }
 }

@@ -146,10 +146,30 @@ describe('usePlayerStore', () => {
 
   describe('EPG data', () => {
     it('should store and retrieve channel EPG data', () => {
-      usePlayerStore.getState().setChannelEpg(123, 'News at 6', 'Weather');
+      usePlayerStore.getState().setChannelEpg(123, { current: 'News at 6', next: 'Weather' });
 
       const { channelEpgData } = usePlayerStore.getState();
       expect(channelEpgData.get(123)).toEqual({ current: 'News at 6', next: 'Weather' });
+    });
+
+    it('stores and clears an EPG entry with times', () => {
+      const { setChannelEpg } = usePlayerStore.getState();
+      setChannelEpg(7, {
+        current: 'Rapport',
+        currentStart: 'a',
+        currentEnd: 'b',
+        next: 'Sport',
+        nextStart: 'b',
+      });
+      expect(usePlayerStore.getState().channelEpgData.get(7)).toEqual({
+        current: 'Rapport',
+        currentStart: 'a',
+        currentEnd: 'b',
+        next: 'Sport',
+        nextStart: 'b',
+      });
+      setChannelEpg(7, null);
+      expect(usePlayerStore.getState().channelEpgData.has(7)).toBe(false);
     });
 
     it('should trigger EPG refresh', () => {

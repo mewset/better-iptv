@@ -51,12 +51,10 @@ export default function App() {
 
   if (isCheckingSetup) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
+      <div className="flex min-h-screen items-center justify-center bg-bg">
         <div className="text-center">
-          <div className="mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"></div>
-          <p className="text-lg font-medium text-gray-700 dark:text-gray-300">
-            Loading playlist...
-          </p>
+          <div className="mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4 border-accent border-t-transparent"></div>
+          <p className="text-lg font-medium text-text-muted">Loading playlist...</p>
         </div>
       </div>
     );

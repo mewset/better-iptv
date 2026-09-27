@@ -1,7 +1,7 @@
 pub mod mpv;
 
 use crate::error::AppError;
-use mpv::{MpvPlaybackOptions, MpvPlayer};
+use mpv::{MpvPlaybackOptions, MpvPlayer, PlaybackStatus};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// The MPV controller shared between commands.
@@ -19,6 +19,7 @@ pub struct PlaybackSettings {
     pub start_fullscreen: bool,
     pub cache_secs: Option<u32>,
     pub start_volume: Option<u32>,
+    pub user_agent: Option<String>,
 }
 
 impl PlaybackSettings {
@@ -33,6 +34,7 @@ impl PlaybackSettings {
             start_fullscreen: self.start_fullscreen,
             cache_secs: self.cache_secs,
             start_volume: self.start_volume,
+            user_agent: self.user_agent.as_deref(),
         }
     }
 }
@@ -81,11 +83,11 @@ pub async fn stop(player: SharedPlayer) -> Result<(), AppError> {
     .await?
 }
 
-/// Poll whether the MPV process is still alive.
-pub async fn is_playing(player: SharedPlayer) -> Result<bool, AppError> {
+/// Poll the MPV process: still playing, or exited, and if so whether it failed.
+pub async fn status(player: SharedPlayer) -> Result<PlaybackStatus, AppError> {
     tokio::task::spawn_blocking(move || {
         let mut mpv = lock_player(&player)?;
-        Ok(mpv.is_playing())
+        Ok(mpv.status())
     })
     .await?
 }

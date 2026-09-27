@@ -1,91 +1,106 @@
 import { useState, useEffect, useCallback } from 'react';
 
-interface GridConfig {
+export interface GridConfig {
   columns: number;
   cardHeight: number;
   estimatedRowHeight: number;
   gap: number;
 }
 
-interface BreakpointConfig {
-  minWidth: number;
-  columns: number;
-  minCardHeight: number;
-  maxCardHeight: number;
-}
-
-// Breakpoint configuration - easily adjustable
-const BREAKPOINTS: BreakpointConfig[] = [
-  { minWidth: 0, columns: 2, minCardHeight: 200, maxCardHeight: 240 },
-  { minWidth: 640, columns: 3, minCardHeight: 220, maxCardHeight: 260 },
-  { minWidth: 1024, columns: 4, minCardHeight: 240, maxCardHeight: 300 },
-  { minWidth: 1440, columns: 5, minCardHeight: 260, maxCardHeight: 320 },
-  { minWidth: 1920, columns: 6, minCardHeight: 280, maxCardHeight: 360 },
-  { minWidth: 2560, columns: 7, minCardHeight: 300, maxCardHeight: 400 },
-];
+export type GridKind = 'live' | 'poster';
 
 const GAP = 16; // Tailwind gap-4
-const HEADER_HEIGHT = 200; // Approximate header + search + tabs height
-const NOW_PLAYING_HEIGHT = 100; // Now playing bar
-const PADDING = 32; // Container padding
-const VISIBLE_ROWS = 4; // Target number of visible rows
+// Live cards have a fixed 208px shape (124px logo area + a fixed info block),
+// so the grid only picks a column count per breakpoint for them.
+const LIVE_CARD_HEIGHT = 208;
 
-function getBreakpointConfig(width: number): BreakpointConfig {
-  // Find the highest matching breakpoint
-  let config = BREAKPOINTS[0];
-  for (const bp of BREAKPOINTS) {
-    if (width >= bp.minWidth) {
-      config = bp;
-    }
-  }
-  return config;
+// The content area is the window width minus the 72px rail and 80px
+// horizontal padding (rail/padding land in a later task; posters compute
+// against window.innerWidth today, same as the live grid always has).
+const RAIL_AND_PADDING = 72 + 80;
+
+interface Breakpoint {
+  minWidth: number;
+  columns: number;
 }
 
-function calculateGridConfig(viewportWidth: number, viewportHeight: number): GridConfig {
-  const breakpoint = getBreakpointConfig(viewportWidth);
+// Live grid gains the same 0 -> 1 column row below 560px as posters (design
+// doc open question 2); every other live breakpoint is unchanged.
+const LIVE_BREAKPOINTS: Breakpoint[] = [
+  { minWidth: 0, columns: 1 },
+  { minWidth: 560, columns: 2 },
+  { minWidth: 640, columns: 3 },
+  { minWidth: 1024, columns: 4 },
+  { minWidth: 1440, columns: 5 },
+  { minWidth: 1920, columns: 6 },
+  { minWidth: 2560, columns: 7 },
+];
 
-  // Calculate available height for the grid
-  const availableHeight = viewportHeight - HEADER_HEIGHT - NOW_PLAYING_HEIGHT - PADDING;
+const POSTER_BREAKPOINTS: Breakpoint[] = [
+  { minWidth: 0, columns: 1 },
+  { minWidth: 560, columns: 2 },
+  { minWidth: 640, columns: 3 },
+  { minWidth: 1024, columns: 4 },
+  { minWidth: 1280, columns: 6 },
+  { minWidth: 1440, columns: 7 },
+  { minWidth: 1920, columns: 8 },
+];
 
-  // Calculate ideal card height to show VISIBLE_ROWS rows
-  // Total height = (cardHeight + gap) * rows - gap (no gap after last row)
-  // availableHeight = (cardHeight + gap) * VISIBLE_ROWS - gap
-  // cardHeight = (availableHeight + gap) / VISIBLE_ROWS - gap
-  const idealCardHeight = (availableHeight + GAP) / VISIBLE_ROWS - GAP;
+function getColumns(breakpoints: Breakpoint[], width: number): number {
+  let columns = breakpoints[0].columns;
+  for (const bp of breakpoints) {
+    if (width >= bp.minWidth) {
+      columns = bp.columns;
+    }
+  }
+  return columns;
+}
 
-  // Clamp card height within breakpoint bounds
-  const cardHeight = Math.max(
-    breakpoint.minCardHeight,
-    Math.min(breakpoint.maxCardHeight, idealCardHeight)
-  );
+/**
+ * Pure grid math for a given viewport size and item kind. No `window` access
+ * inside: callers pass the viewport dimensions in, so this is testable
+ * without a DOM.
+ */
+export function calculateGridConfig(width: number, _height: number, kind: GridKind): GridConfig {
+  if (kind === 'live') {
+    const columns = getColumns(LIVE_BREAKPOINTS, width);
+    return {
+      columns,
+      cardHeight: LIVE_CARD_HEIGHT,
+      estimatedRowHeight: LIVE_CARD_HEIGHT + GAP,
+      gap: GAP,
+    };
+  }
 
-  // Row height includes gap for virtualizer
-  const estimatedRowHeight = cardHeight + GAP;
+  const columns = getColumns(POSTER_BREAKPOINTS, width);
+  const columnWidth = (width - RAIL_AND_PADDING - (columns - 1) * GAP) / columns;
+  // 2:3 poster frame plus the 28px meta line underneath it.
+  const cardHeight = Math.round(columnWidth * 1.5) + 28;
 
   return {
-    columns: breakpoint.columns,
-    cardHeight: Math.round(cardHeight),
-    estimatedRowHeight: Math.round(estimatedRowHeight),
+    columns,
+    cardHeight,
+    estimatedRowHeight: cardHeight + GAP,
     gap: GAP,
   };
 }
 
-export function useResponsiveGrid(): GridConfig {
+export function useResponsiveGrid(kind: GridKind = 'live'): GridConfig {
   const [gridConfig, setGridConfig] = useState<GridConfig>(() => {
     // Initial calculation based on window size (or defaults for SSR)
     if (typeof window !== 'undefined') {
-      return calculateGridConfig(window.innerWidth, window.innerHeight);
+      return calculateGridConfig(window.innerWidth, window.innerHeight, kind);
     }
     return {
       columns: 4,
-      cardHeight: 280,
-      estimatedRowHeight: 296,
+      cardHeight: LIVE_CARD_HEIGHT,
+      estimatedRowHeight: LIVE_CARD_HEIGHT + GAP,
       gap: GAP,
     };
   });
 
   const handleResize = useCallback(() => {
-    const newConfig = calculateGridConfig(window.innerWidth, window.innerHeight);
+    const newConfig = calculateGridConfig(window.innerWidth, window.innerHeight, kind);
     setGridConfig((prev) => {
       // Only update if values changed to prevent unnecessary re-renders
       if (
@@ -97,10 +112,10 @@ export function useResponsiveGrid(): GridConfig {
       }
       return prev;
     });
-  }, []);
+  }, [kind]);
 
   useEffect(() => {
-    // Initial calculation
+    // Initial calculation (also re-runs when `kind` changes)
     handleResize();
 
     // Debounced resize handler
@@ -123,6 +138,7 @@ export function useResponsiveGrid(): GridConfig {
 // Utility to generate Tailwind grid classes based on columns
 export function getGridClasses(columns: number): string {
   const gridColsMap: Record<number, string> = {
+    1: 'grid-cols-1',
     2: 'grid-cols-2',
     3: 'grid-cols-3',
     4: 'grid-cols-4',

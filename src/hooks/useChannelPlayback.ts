@@ -3,12 +3,13 @@ import { usePlayerStore } from '../stores/player-store';
 import {
   playChannel as tauriPlayChannel,
   stopPlayback as tauriStopPlayback,
-  isPlaying as checkIsPlaying,
+  getPlaybackStatus,
   getChannelEpg,
   playEpisodeWithSeason,
   playSeriesEpisodes,
 } from '../lib/tauri';
 import { logger } from '../lib/logger';
+import { beginPlaybackStart, endPlaybackStart } from '../lib/playGuard';
 import type { Channel, Playlist } from '../types';
 
 /**
@@ -66,6 +67,7 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
   const setIsPlaying = usePlayerStore((s) => s.setIsPlaying);
   const setCurrentProgram = usePlayerStore((s) => s.setCurrentProgram);
   const setNextProgram = usePlayerStore((s) => s.setNextProgram);
+  const showToast = usePlayerStore((s) => s.showToast);
 
   // Poll MPV playback status to detect when player is closed externally
   useEffect(() => {
@@ -73,9 +75,16 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
 
     const interval = setInterval(async () => {
       try {
-        const playing = await checkIsPlaying();
-        if (!playing) {
-          // MPV was closed externally, update UI
+        const status = await getPlaybackStatus();
+        if (!status.playing) {
+          // MPV exited: closed by the user, or (failed) the stream could not
+          // be opened, which used to look like nothing happened at all.
+          if (status.failed) {
+            const name = usePlayerStore.getState().currentChannel?.name ?? 'this stream';
+            showToast(
+              `Couldn't play ${name}. The provider refused the stream, maybe because your line is already in use.`
+            );
+          }
           setIsPlaying(false);
           setCurrentChannel(null);
           setCurrentProgram(null);
@@ -87,7 +96,7 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [isPlaying, setIsPlaying, setCurrentChannel, setCurrentProgram, setNextProgram]);
+  }, [isPlaying, setIsPlaying, setCurrentChannel, setCurrentProgram, setNextProgram, showToast]);
 
   // Update EPG periodically while playing
   useEffect(() => {
@@ -114,6 +123,7 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         return { type: 'series', channel };
       }
 
+      if (!beginPlaybackStart()) return;
       try {
         // Toggle playback if same channel
         if (currentChannel?.id === channel.id && isPlaying) {
@@ -146,10 +156,21 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         }
       } catch (err) {
         logger.error('Failed to play channel:', err);
+        showToast(`Couldn't start ${channel.name}.`);
         throw err;
+      } finally {
+        endPlaybackStart();
       }
     },
-    [currentChannel, isPlaying, setCurrentChannel, setIsPlaying, setCurrentProgram, setNextProgram]
+    [
+      currentChannel,
+      isPlaying,
+      setCurrentChannel,
+      setIsPlaying,
+      setCurrentProgram,
+      setNextProgram,
+      showToast,
+    ]
   );
 
   // Stop playback
@@ -179,6 +200,7 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         throw new Error('Missing Xtream credentials');
       }
 
+      if (!beginPlaybackStart()) return;
       try {
         if (remainingEpisodes && remainingEpisodes.length > 0) {
           // Play season playlist
@@ -209,15 +231,19 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         }
       } catch (err) {
         logger.error('Failed to play episode:', err);
+        showToast(`Couldn't start ${title}.`);
         throw err;
+      } finally {
+        endPlaybackStart();
       }
     },
-    [setCurrentChannel, setIsPlaying]
+    [setCurrentChannel, setIsPlaying, showToast]
   );
 
   // Play stored M3U episodes (grouped at import) by database id
   const playLocalEpisodes = useCallback(
     async (episodeIds: number[], title: string) => {
+      if (!beginPlaybackStart()) return;
       try {
         await playSeriesEpisodes(episodeIds);
         setCurrentChannel({
@@ -234,10 +260,13 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         setNextProgram(null);
       } catch (err) {
         logger.error('Failed to play local episodes:', err);
+        showToast(`Couldn't start ${title}.`);
         throw err;
+      } finally {
+        endPlaybackStart();
       }
     },
-    [setCurrentChannel, setIsPlaying, setCurrentProgram, setNextProgram]
+    [setCurrentChannel, setIsPlaying, setCurrentProgram, setNextProgram, showToast]
   );
 
   return {

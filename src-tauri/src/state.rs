@@ -42,6 +42,9 @@ pub struct AppState {
     /// Serialises manual (Update Now, EPG URL save) and automatic EPG
     /// refreshes so they never download and store concurrently.
     pub epg_refresh_lock: Arc<tokio::sync::Mutex<()>>,
+
+    /// TMDB session flags and the in-flight enrichment set.
+    pub tmdb: Arc<crate::tmdb::session::TmdbSession>,
 }
 
 impl AppState {
@@ -51,6 +54,7 @@ impl AppState {
             current_channel: Arc::new(RwLock::new(None)),
             mpv_player: Arc::new(Mutex::new(crate::playback::mpv::MpvPlayer::new())),
             epg_refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
+            tmdb: Arc::new(crate::tmdb::session::TmdbSession::default()),
         }
     }
 }

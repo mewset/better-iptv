@@ -5,6 +5,13 @@
     <link rel="icon" type="image/webp" href="./src/assets/logo/logo-256.webp" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Better IPTV</title>
+    <!-- The app's dark ground (--color-bg), painted before any CSS loads so
+         startup never flashes white. Tailwind's body bg-bg takes over after. -->
+    <style>
+      html {
+        background-color: #0f1013;
+      }
+    </style>
   </head>
 
   <body class="bg-bg">

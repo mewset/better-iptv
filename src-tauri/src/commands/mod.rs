@@ -6,6 +6,7 @@ pub mod playback;
 pub mod playlist;
 pub mod series;
 pub mod settings;
+pub mod tmdb;
 pub mod update;
 
 // Re-export all commands for lib.rs
@@ -16,6 +17,7 @@ pub use playback::*;
 pub use playlist::*;
 pub use series::*;
 pub use settings::*;
+pub use tmdb::*;
 pub use update::*;
 
 use crate::error::AppError;

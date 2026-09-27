@@ -72,3 +72,25 @@ export const CACHE_SECONDS_OPTIONS = [
   { value: 120, label: '2 minutes' },
   { value: 300, label: '5 minutes' },
 ];
+
+// Metadata (TMDB) languages; tags are what TMDB's `language` parameter accepts.
+export const TMDB_LANGUAGE_OPTIONS = [
+  { tag: 'en-US', name: 'English' },
+  { tag: 'sv-SE', name: 'Svenska' },
+  { tag: 'da-DK', name: 'Dansk' },
+  { tag: 'nb-NO', name: 'Norsk' },
+  { tag: 'fi-FI', name: 'Suomi' },
+  { tag: 'de-DE', name: 'Deutsch' },
+  { tag: 'fr-FR', name: 'Français' },
+  { tag: 'es-ES', name: 'Español' },
+  { tag: 'it-IT', name: 'Italiano' },
+  { tag: 'nl-NL', name: 'Nederlands' },
+  { tag: 'pt-BR', name: 'Português' },
+  { tag: 'pl-PL', name: 'Polski' },
+  { tag: 'tr-TR', name: 'Türkçe' },
+  { tag: 'ar-SA', name: 'العربية' },
+] as const;
+export type TmdbLanguage = (typeof TMDB_LANGUAGE_OPTIONS)[number]['tag'];
+/** Required by TMDB's terms wherever their data is shown or configured. */
+export const TMDB_ATTRIBUTION =
+  'This product uses the TMDB API but is not endorsed or certified by TMDB.';

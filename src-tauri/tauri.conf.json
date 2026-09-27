@@ -14,7 +14,8 @@
       {
         "title": "Better IPTV",
         "width": 1280,
-        "height": 800
+        "height": 800,
+        "backgroundColor": "#0F1013"
       }
     ],
     "security": {

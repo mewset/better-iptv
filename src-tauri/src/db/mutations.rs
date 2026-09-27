@@ -186,6 +186,16 @@ pub fn delete_setting(conn: &Connection, key: &str) -> Result<()> {
     Ok(())
 }
 
+/// Delete a setting only if it currently holds `value`. Returns whether a row
+/// was removed, so a caller can tell a match from a stale compare.
+pub fn delete_setting_if_value(conn: &Connection, key: &str, value: &str) -> Result<bool> {
+    let removed = conn.execute(
+        "DELETE FROM settings WHERE key = ?1 AND value = ?2",
+        params![key, value],
+    )?;
+    Ok(removed > 0)
+}
+
 // ========== Playlist Refresh Mutations ==========
 
 /// Update the last_updated timestamp of a playlist to now
@@ -506,6 +516,143 @@ pub fn update_channel_epg_ids(conn: &Connection) -> Result<usize> {
 
     tx.commit()?;
     Ok(updated_count)
+}
+
+// ========== TMDB cache ==========
+
+/// Write the search-level columns. A `manual` row is left exactly as it is:
+/// the user's choice outranks any automatic match.
+/// Detail columns survive a re-search that finds the same id; a different id
+/// clears them, so the details of the old match are never shown as fresh.
+pub fn upsert_tmdb_search(conn: &Connection, row: &TmdbRow) -> Result<()> {
+    conn.execute(
+        "INSERT INTO tmdb_metadata (normalized_title, year, content_type, tmdb_id, manual, title,
+             original_title, release_year, rating, poster_path, backdrop_path, overview, genre_ids,
+             searched_at, vote_count)
+         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+         ON CONFLICT(normalized_title, year, content_type) DO UPDATE SET
+             tmdb_id = excluded.tmdb_id, title = excluded.title,
+             original_title = excluded.original_title, release_year = excluded.release_year,
+             rating = excluded.rating, vote_count = excluded.vote_count,
+             poster_path = excluded.poster_path,
+             backdrop_path = excluded.backdrop_path, overview = excluded.overview,
+             genre_ids = excluded.genre_ids, searched_at = excluded.searched_at,
+             runtime_minutes = CASE WHEN excluded.tmdb_id IS tmdb_metadata.tmdb_id
+                 THEN tmdb_metadata.runtime_minutes ELSE NULL END,
+             genres = CASE WHEN excluded.tmdb_id IS tmdb_metadata.tmdb_id
+                 THEN tmdb_metadata.genres ELSE NULL END,
+             cast_json = CASE WHEN excluded.tmdb_id IS tmdb_metadata.tmdb_id
+                 THEN tmdb_metadata.cast_json ELSE NULL END,
+             trailer_youtube_key = CASE WHEN excluded.tmdb_id IS tmdb_metadata.tmdb_id
+                 THEN tmdb_metadata.trailer_youtube_key ELSE NULL END,
+             details_fetched_at = CASE WHEN excluded.tmdb_id IS tmdb_metadata.tmdb_id
+                 THEN tmdb_metadata.details_fetched_at ELSE NULL END
+         WHERE tmdb_metadata.manual = 0",
+        params![
+            row.key.title,
+            row.key.year,
+            row.key.content_type,
+            row.tmdb_id,
+            row.title,
+            row.original_title,
+            row.release_year,
+            row.rating,
+            row.poster_path,
+            row.backdrop_path,
+            row.overview,
+            row.genre_ids,
+            row.searched_at,
+            row.vote_count,
+        ],
+    )?;
+    Ok(())
+}
+
+/// Write every column. Keeps `manual` as stored (details are fetched for
+/// manual picks too).
+pub fn upsert_tmdb_details(conn: &Connection, row: &TmdbRow) -> Result<()> {
+    conn.execute(
+        "INSERT INTO tmdb_metadata (normalized_title, year, content_type, tmdb_id, manual, title,
+             original_title, release_year, rating, poster_path, backdrop_path, overview, genre_ids,
+             runtime_minutes, genres, cast_json, trailer_youtube_key, searched_at, details_fetched_at,
+             vote_count)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
+             ?20)
+         ON CONFLICT(normalized_title, year, content_type) DO UPDATE SET
+             tmdb_id = excluded.tmdb_id, title = excluded.title,
+             original_title = excluded.original_title, release_year = excluded.release_year,
+             rating = excluded.rating, vote_count = excluded.vote_count,
+             poster_path = excluded.poster_path,
+             backdrop_path = excluded.backdrop_path, overview = excluded.overview,
+             genre_ids = excluded.genre_ids, runtime_minutes = excluded.runtime_minutes,
+             genres = excluded.genres, cast_json = excluded.cast_json,
+             trailer_youtube_key = excluded.trailer_youtube_key,
+             searched_at = excluded.searched_at, details_fetched_at = excluded.details_fetched_at",
+        params![
+            row.key.title, row.key.year, row.key.content_type, row.tmdb_id, row.manual as i64,
+            row.title, row.original_title, row.release_year, row.rating, row.poster_path,
+            row.backdrop_path, row.overview, row.genre_ids, row.runtime_minutes, row.genres,
+            row.cast_json, row.trailer_youtube_key, row.searched_at, row.details_fetched_at,
+            row.vote_count,
+        ],
+    )?;
+    Ok(())
+}
+
+/// Record the user's choice: a TMDB id, or `None` for "not on TMDB". Detail
+/// columns are cleared so the next open fetches them for the new id.
+pub fn set_tmdb_manual(
+    conn: &Connection,
+    key: &TmdbKey,
+    tmdb_id: Option<i64>,
+    now: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO tmdb_metadata (normalized_title, year, content_type, tmdb_id, manual, searched_at)
+         VALUES (?1, ?2, ?3, ?4, 1, ?5)
+         ON CONFLICT(normalized_title, year, content_type) DO UPDATE SET
+             tmdb_id = excluded.tmdb_id, manual = 1, searched_at = excluded.searched_at,
+             title = NULL, original_title = NULL, release_year = NULL, rating = NULL,
+             vote_count = NULL,
+             poster_path = NULL, backdrop_path = NULL, overview = NULL, genre_ids = NULL,
+             runtime_minutes = NULL, genres = NULL, cast_json = NULL,
+             trailer_youtube_key = NULL, details_fetched_at = NULL",
+        params![key.title, key.year, key.content_type, tmdb_id, now],
+    )?;
+    Ok(())
+}
+
+pub fn upsert_tmdb_episodes(conn: &Connection, episodes: &[TmdbEpisodeRow]) -> Result<()> {
+    let mut stmt = conn.prepare_cached(
+        "INSERT INTO tmdb_episodes (tmdb_id, season, episode, title, overview, still_path,
+             runtime_minutes, air_date, fetched_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+         ON CONFLICT(tmdb_id, season, episode) DO UPDATE SET
+             title = excluded.title, overview = excluded.overview, still_path = excluded.still_path,
+             runtime_minutes = excluded.runtime_minutes, air_date = excluded.air_date,
+             fetched_at = excluded.fetched_at",
+    )?;
+    for e in episodes {
+        stmt.execute(params![
+            e.tmdb_id,
+            e.season,
+            e.episode,
+            e.title,
+            e.overview,
+            e.still_path,
+            e.runtime_minutes,
+            e.air_date,
+            e.fetched_at,
+        ])?;
+    }
+    Ok(())
+}
+
+/// Empty both cache tables; returns the number of rows removed.
+pub fn delete_tmdb_cache(conn: &Connection) -> Result<usize> {
+    let a = conn.execute("DELETE FROM tmdb_metadata", [])?;
+    let b = conn.execute("DELETE FROM tmdb_episodes", [])?;
+    Ok(a + b)
 }
 
 // ========== Tests ==========
@@ -835,6 +982,24 @@ mod tests {
 
         let value = get_setting(&conn, "theme").unwrap();
         assert_eq!(value, Some("dark".to_string()));
+    }
+
+    #[test]
+    fn delete_setting_if_value_only_removes_a_matching_row() {
+        let conn = setup_test_db();
+        set_setting(&conn, "tmdb_shared_key", "K").unwrap();
+
+        assert!(!delete_setting_if_value(&conn, "tmdb_shared_key", "L").unwrap());
+        assert_eq!(
+            get_setting(&conn, "tmdb_shared_key").unwrap().as_deref(),
+            Some("K")
+        );
+
+        assert!(delete_setting_if_value(&conn, "tmdb_shared_key", "K").unwrap());
+        assert_eq!(get_setting(&conn, "tmdb_shared_key").unwrap(), None);
+
+        // Nothing left to delete.
+        assert!(!delete_setting_if_value(&conn, "tmdb_shared_key", "K").unwrap());
     }
 
     // ========== Cascade Delete Tests ==========
@@ -1324,5 +1489,286 @@ mod tests {
         let written = replace_series_episodes(&conn, pid, &[fresh]).unwrap();
         assert_eq!(written, 1);
         assert_eq!(get_series_episodes(&conn, live_id).unwrap().len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod tmdb_tests {
+    use crate::db::mutations::*;
+    use crate::db::queries;
+    use crate::db::test_helpers::*;
+
+    fn key() -> TmdbKey {
+        TmdbKey {
+            title: "shutter island".into(),
+            year: 2010,
+            content_type: "vod".into(),
+        }
+    }
+
+    fn row(tmdb_id: Option<i64>) -> TmdbRow {
+        TmdbRow {
+            key: key(),
+            tmdb_id,
+            manual: false,
+            title: tmdb_id.map(|_| "Shutter Island".to_string()),
+            original_title: None,
+            release_year: Some(2010),
+            rating: Some(8.2),
+            vote_count: tmdb_id.map(|_| 1200),
+            poster_path: Some("/p.jpg".into()),
+            backdrop_path: None,
+            overview: Some("A marshal.".into()),
+            genre_ids: Some("[18,53]".into()),
+            runtime_minutes: None,
+            genres: None,
+            cast_json: None,
+            trailer_youtube_key: None,
+            searched_at: "2026-09-25T12:00:00+00:00".into(),
+            details_fetched_at: None,
+        }
+    }
+
+    #[test]
+    fn search_upsert_round_trips_and_updates_in_place() {
+        let conn = setup_test_db();
+        upsert_tmdb_search(&conn, &row(Some(11324))).unwrap();
+        let got = queries::get_tmdb_row(&conn, &key()).unwrap().unwrap();
+        assert_eq!(got.tmdb_id, Some(11324));
+        assert_eq!(got.rating, Some(8.2));
+        assert!(got.details_fetched_at.is_none());
+
+        let mut again = row(Some(11324));
+        again.rating = Some(8.3);
+        again.searched_at = "2026-09-26T12:00:00+00:00".into();
+        upsert_tmdb_search(&conn, &again).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tmdb_metadata", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(
+            queries::get_tmdb_row(&conn, &key())
+                .unwrap()
+                .unwrap()
+                .rating,
+            Some(8.3)
+        );
+    }
+
+    #[test]
+    fn a_no_match_row_is_stored_with_a_null_id() {
+        let conn = setup_test_db();
+        upsert_tmdb_search(&conn, &row(None)).unwrap();
+        let got = queries::get_tmdb_row(&conn, &key()).unwrap().unwrap();
+        assert_eq!(got.tmdb_id, None);
+        assert!(!got.manual);
+    }
+
+    #[test]
+    fn details_upsert_fills_the_detail_columns() {
+        let conn = setup_test_db();
+        upsert_tmdb_search(&conn, &row(Some(11324))).unwrap();
+        let mut full = row(Some(11324));
+        full.runtime_minutes = Some(138);
+        full.genres = Some("[\"Drama\",\"Thriller\"]".into());
+        full.cast_json = Some("[{\"name\":\"Leonardo DiCaprio\"}]".into());
+        full.trailer_youtube_key = Some("qdPw9x9h5CY".into());
+        full.details_fetched_at = Some("2026-09-25T13:00:00+00:00".into());
+        upsert_tmdb_details(&conn, &full).unwrap();
+        let got = queries::get_tmdb_row(&conn, &key()).unwrap().unwrap();
+        assert_eq!(got.runtime_minutes, Some(138));
+        assert_eq!(
+            got.details_fetched_at.as_deref(),
+            Some("2026-09-25T13:00:00+00:00")
+        );
+        assert_eq!(got.trailer_youtube_key.as_deref(), Some("qdPw9x9h5CY"));
+    }
+
+    #[test]
+    fn re_search_keeps_details_for_the_same_id_and_clears_them_for_a_new_one() {
+        let conn = setup_test_db();
+        upsert_tmdb_search(&conn, &row(Some(11324))).unwrap();
+        let mut full = row(Some(11324));
+        full.runtime_minutes = Some(138);
+        full.genres = Some("[\"Drama\"]".into());
+        full.cast_json = Some("[{\"name\":\"Leonardo DiCaprio\"}]".into());
+        full.trailer_youtube_key = Some("qdPw9x9h5CY".into());
+        full.details_fetched_at = Some("2026-09-25T13:00:00+00:00".into());
+        upsert_tmdb_details(&conn, &full).unwrap();
+
+        let mut same = row(Some(11324));
+        same.searched_at = "2026-10-25T12:00:00+00:00".into();
+        upsert_tmdb_search(&conn, &same).unwrap();
+        let kept = queries::get_tmdb_row(&conn, &key()).unwrap().unwrap();
+        assert_eq!(kept.runtime_minutes, Some(138));
+        assert_eq!(kept.genres.as_deref(), Some("[\"Drama\"]"));
+        assert!(kept.cast_json.is_some());
+        assert_eq!(kept.trailer_youtube_key.as_deref(), Some("qdPw9x9h5CY"));
+        assert_eq!(
+            kept.details_fetched_at.as_deref(),
+            Some("2026-09-25T13:00:00+00:00")
+        );
+
+        let mut other = row(Some(999));
+        other.title = Some("Other Film".into());
+        other.rating = Some(5.5);
+        upsert_tmdb_search(&conn, &other).unwrap();
+        let got = queries::get_tmdb_row(&conn, &key()).unwrap().unwrap();
+        assert_eq!(got.tmdb_id, Some(999));
+        assert_eq!(got.title.as_deref(), Some("Other Film"));
+        assert_eq!(got.rating, Some(5.5));
+        assert_eq!(got.runtime_minutes, None);
+        assert_eq!(got.genres, None);
+        assert_eq!(got.cast_json, None);
+        assert_eq!(got.trailer_youtube_key, None);
+        assert_eq!(got.details_fetched_at, None);
+    }
+
+    #[test]
+    fn manual_choice_survives_an_automatic_search_upsert() {
+        let conn = setup_test_db();
+        upsert_tmdb_search(&conn, &row(Some(11324))).unwrap();
+        set_tmdb_manual(&conn, &key(), None, "2026-09-25T14:00:00+00:00").unwrap();
+        let got = queries::get_tmdb_row(&conn, &key()).unwrap().unwrap();
+        assert!(got.manual);
+        assert_eq!(got.tmdb_id, None);
+        assert!(got.details_fetched_at.is_none());
+
+        upsert_tmdb_search(&conn, &row(Some(11324))).unwrap();
+        let after = queries::get_tmdb_row(&conn, &key()).unwrap().unwrap();
+        assert!(
+            after.manual,
+            "automatic search must not clear the manual flag"
+        );
+        assert_eq!(
+            after.tmdb_id, None,
+            "automatic search must not replace a manual choice"
+        );
+
+        // A manual pick of a different id is allowed and keeps manual = 1.
+        set_tmdb_manual(&conn, &key(), Some(999), "2026-09-25T15:00:00+00:00").unwrap();
+        let picked = queries::get_tmdb_row(&conn, &key()).unwrap().unwrap();
+        assert_eq!(picked.tmdb_id, Some(999));
+        assert!(picked.manual);
+    }
+
+    #[test]
+    fn manual_on_a_missing_row_creates_it() {
+        let conn = setup_test_db();
+        set_tmdb_manual(&conn, &key(), Some(11324), "2026-09-25T14:00:00+00:00").unwrap();
+        let got = queries::get_tmdb_row(&conn, &key()).unwrap().unwrap();
+        assert_eq!(got.tmdb_id, Some(11324));
+        assert!(got.manual);
+    }
+
+    #[test]
+    fn vote_count_round_trips_and_survives_a_re_search_of_the_same_id() {
+        let conn = setup_test_db();
+        upsert_tmdb_search(&conn, &row(Some(11324))).unwrap();
+        assert_eq!(
+            queries::get_tmdb_row(&conn, &key())
+                .unwrap()
+                .unwrap()
+                .vote_count,
+            Some(1200)
+        );
+        let mut again = row(Some(11324));
+        again.vote_count = Some(1300);
+        upsert_tmdb_search(&conn, &again).unwrap();
+        assert_eq!(
+            queries::get_tmdb_row(&conn, &key())
+                .unwrap()
+                .unwrap()
+                .vote_count,
+            Some(1300)
+        );
+    }
+
+    #[test]
+    fn a_manual_pick_clears_the_vote_count_until_details_arrive() {
+        let conn = setup_test_db();
+        upsert_tmdb_search(&conn, &row(Some(11324))).unwrap();
+        set_tmdb_manual(&conn, &key(), Some(999), "2026-09-26T12:00:00+00:00").unwrap();
+        assert_eq!(
+            queries::get_tmdb_row(&conn, &key())
+                .unwrap()
+                .unwrap()
+                .vote_count,
+            None
+        );
+        let mut details = row(Some(999));
+        details.manual = true;
+        details.vote_count = Some(77);
+        details.details_fetched_at = Some("2026-09-26T12:00:00+00:00".into());
+        upsert_tmdb_details(&conn, &details).unwrap();
+        assert_eq!(
+            queries::get_tmdb_row(&conn, &key())
+                .unwrap()
+                .unwrap()
+                .vote_count,
+            Some(77)
+        );
+    }
+
+    #[test]
+    fn episodes_upsert_and_read_back_in_order() {
+        let conn = setup_test_db();
+        let ep = |n: i32| TmdbEpisodeRow {
+            tmdb_id: 120487,
+            season: 1,
+            episode: n,
+            title: Some(format!("Ep {n}")),
+            overview: None,
+            still_path: None,
+            runtime_minutes: Some(22),
+            air_date: Some("2020-08-02".into()),
+            fetched_at: "2026-09-25T12:00:00+00:00".into(),
+        };
+        upsert_tmdb_episodes(&conn, &[ep(2), ep(1)]).unwrap();
+        upsert_tmdb_episodes(&conn, &[ep(1)]).unwrap();
+        let got = queries::get_tmdb_episodes(&conn, 120487, 1).unwrap();
+        assert_eq!(
+            got.iter().map(|e| e.episode).collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert!(queries::get_tmdb_episodes(&conn, 120487, 2)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn clearing_the_cache_empties_both_tables() {
+        let conn = setup_test_db();
+        upsert_tmdb_search(&conn, &row(Some(11324))).unwrap();
+        upsert_tmdb_episodes(
+            &conn,
+            &[TmdbEpisodeRow {
+                tmdb_id: 1,
+                season: 1,
+                episode: 1,
+                title: None,
+                overview: None,
+                still_path: None,
+                runtime_minutes: None,
+                air_date: None,
+                fetched_at: "2026-09-25T12:00:00+00:00".into(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(delete_tmdb_cache(&conn).unwrap(), 2);
+        assert!(queries::get_tmdb_row(&conn, &key()).unwrap().is_none());
+    }
+
+    #[test]
+    fn channels_by_ids_returns_only_existing_rows() {
+        let conn = setup_test_db();
+        let pl = create_test_playlist(&conn, "P");
+        let a = create_test_channel(&conn, pl, "A");
+        let b = create_test_channel(&conn, pl, "B");
+        let got = queries::get_channels_by_ids(&conn, &[b, a, 9999]).unwrap();
+        let mut names: Vec<_> = got.iter().map(|c| c.name.as_str()).collect();
+        names.sort();
+        assert_eq!(names, vec!["A", "B"]);
+        assert!(queries::get_channels_by_ids(&conn, &[]).unwrap().is_empty());
     }
 }
