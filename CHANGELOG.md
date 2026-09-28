@@ -3,6 +3,17 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## Unreleased
+
+### Fixed
+
+- **Provider credentials no longer written to the log file** - `epg/xmltv.rs` logged `Fetching EPG from: <url>` at info level with the Xtream `xmltv.php` URL unmasked, so every EPG fetch wrote the account's username and password in plain text to `better-ip-tv.log`
+  - `fetch_and_parse_epg` now logs the URL through `utils::mask_credentials`
+  - `From<reqwest::Error>` and the reqwest branch of `From<anyhow::Error>` in `error.rs` mask the message: reqwest embeds the full request URL (`error sending request for url (...)`), and `AppError::Http` both reaches the log and is shown in the UI
+  - `mask_credentials` also masks userinfo (`scheme://user:pass@host`), which a pasted M3U URL can carry
+  - The `tauri_plugin_log` formatter in `lib.rs` runs every record through `mask_credentials` before any target (file, stdout, webview), so frontend `logger` calls and future log lines are covered too. It keeps the plugin's default line layout
+  - `Settings.tsx` no longer passes the EPG URL to `logger.info` on save; the backend logs it masked
+
 ## [3.0.0] - 2026-09-27
 
 ### Added

@@ -552,7 +552,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       // Only fetch EPG data if URL has actually changed
       const epgUrlChanged = epgUrl.trim() !== originalEpgUrl.trim();
       if (epgUrlChanged && epgUrl.trim()) {
-        logger.info('EPG URL changed, fetching new data from:', epgUrl);
+        logger.info('EPG URL changed, fetching new data');
         const count = await fetchEpgData(epgUrl);
         logger.info(`EPG fetched successfully: ${count} programs`);
 

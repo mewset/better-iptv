@@ -73,6 +73,18 @@ pub fn run() {
                 .max_file_size(10_000_000) // 10 MB
                 .rotation_strategy(RotationStrategy::KeepOne)
                 .timezone_strategy(TimezoneStrategy::UseLocal)
+                // Same line layout as the plugin default (which timezone_strategy sets), plus a
+                // last line of defence: mask playlist/EPG credentials in every record, from Rust
+                // and from the frontend alike, before it reaches the log file or the console
+                .format(|out, message, record| {
+                    out.finish(format_args!(
+                        "{}[{}][{}] {}",
+                        chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S]"),
+                        record.level(),
+                        record.target(),
+                        crate::utils::mask_credentials(&message.to_string())
+                    ))
+                })
                 .build(),
         )
         .setup(|app| {

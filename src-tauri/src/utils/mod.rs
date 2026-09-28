@@ -10,13 +10,19 @@ lazy_static! {
 
     // Path-based patterns for Xtream URLs: /live/USER/PASS/ or /series/USER/PASS/ or /movie/USER/PASS/
     static ref PATH_CREDENTIALS_RE: Regex = Regex::new(r"/(live|series|movie)/[^/]+/[^/]+/").unwrap();
+
+    // Userinfo in the authority: scheme://USER:PASS@host
+    static ref USERINFO_RE: Regex = Regex::new(r"(://)[^/@\s:]+:[^/@\s]*@").unwrap();
 }
 
 /// Mask credentials in URLs for safe logging
 ///
-/// Handles two credential formats:
+/// Handles three credential formats:
 /// 1. Query parameters: `?username=X&password=Y`
 /// 2. Path-based (Xtream): `/series/USERNAME/PASSWORD/12345.mp4`
+/// 3. Userinfo: `http://USERNAME:PASSWORD@server.com/`
+///
+/// Also safe to run on whole log lines or error messages that embed a URL.
 ///
 /// # Examples
 ///
@@ -41,6 +47,10 @@ pub fn mask_credentials(url: &str) -> String {
     // Mask path-based credentials (Xtream format: /live|series|movie/user/pass/)
     result = PATH_CREDENTIALS_RE
         .replace_all(&result, "/$1/****/****/")
+        .to_string();
+
+    result = USERINFO_RE
+        .replace_all(&result, "${1}****:****@")
         .to_string();
 
     result
@@ -210,6 +220,26 @@ mod tests {
         assert_eq!(
             mask_credentials("http://server.com/other/path/here/file.mp4"),
             "http://server.com/other/path/here/file.mp4"
+        );
+    }
+
+    #[test]
+    fn test_mask_credentials_userinfo() {
+        assert_eq!(
+            mask_credentials("http://john:secret@server.com/get.php?type=m3u"),
+            "http://****:****@server.com/get.php?type=m3u"
+        );
+        // Userinfo inside a longer log line, e.g. a reqwest error message
+        assert_eq!(
+            mask_credentials(
+                "error sending request for url (https://john:secret@server.com/list.m3u)"
+            ),
+            "error sending request for url (https://****:****@server.com/list.m3u)"
+        );
+        // A port is not userinfo
+        assert_eq!(
+            mask_credentials("http://server.com:8080/list.m3u"),
+            "http://server.com:8080/list.m3u"
         );
     }
 

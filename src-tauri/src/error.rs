@@ -3,6 +3,7 @@
 //! This module provides a unified error type that is serializable for Tauri IPC
 //! and implements proper error conversion traits.
 
+use crate::utils::mask_credentials;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -70,7 +71,8 @@ impl From<rusqlite::Error> for AppError {
 
 impl From<reqwest::Error> for AppError {
     fn from(e: reqwest::Error) -> Self {
-        AppError::Http(e.to_string())
+        // reqwest puts the full request URL in its message, credentials included
+        AppError::Http(mask_credentials(&e.to_string()))
     }
 }
 
@@ -87,7 +89,7 @@ impl From<anyhow::Error> for AppError {
             return AppError::Database(db_err.to_string());
         }
         if let Some(req_err) = e.downcast_ref::<reqwest::Error>() {
-            return AppError::Http(req_err.to_string());
+            return AppError::Http(mask_credentials(&req_err.to_string()));
         }
         if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
             return AppError::Io(io_err.to_string());
@@ -158,6 +160,40 @@ mod tests {
     fn test_error_display() {
         let error = AppError::Mpv("failed to start".to_string());
         assert_eq!(error.to_string(), "MPV error: failed to start");
+    }
+
+    async fn failing_request_with_credentials() -> reqwest::Error {
+        // Port 9 (discard) is closed on a normal machine, so this fails fast without network
+        reqwest::Client::new()
+            .get("http://127.0.0.1:9/xmltv.php?username=john&password=secret")
+            .send()
+            .await
+            .expect_err("request to a closed local port should fail")
+    }
+
+    #[tokio::test]
+    async fn test_from_reqwest_error_masks_credentials() {
+        let err = failing_request_with_credentials().await;
+        assert!(
+            err.to_string().contains("secret"),
+            "precondition: reqwest puts the URL in its message"
+        );
+
+        let direct = AppError::from(err);
+        let via_anyhow = AppError::from(anyhow::Error::from(
+            failing_request_with_credentials().await,
+        ));
+        for app_error in [direct, via_anyhow] {
+            let msg = app_error.to_string();
+            assert!(
+                !msg.contains("john") && !msg.contains("secret"),
+                "credentials leaked: {msg}"
+            );
+            assert!(
+                msg.contains("127.0.0.1"),
+                "host should stay for debugging: {msg}"
+            );
+        }
     }
 
     #[test]

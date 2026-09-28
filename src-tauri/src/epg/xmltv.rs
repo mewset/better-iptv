@@ -25,7 +25,7 @@ pub struct EpgProgram {
 /// Fetch and parse XMLTV EPG data from a URL (async part)
 pub async fn fetch_and_parse_epg(url: &str, user_agent: Option<&str>) -> Result<Vec<EpgProgram>> {
     let start = Instant::now();
-    info!("Fetching EPG from: {}", url);
+    info!("Fetching EPG from: {}", crate::utils::mask_credentials(url));
 
     // Download EPG file using shared HTTP client
     let request = get_http_client().get(url);

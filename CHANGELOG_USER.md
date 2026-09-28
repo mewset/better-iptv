@@ -4,6 +4,12 @@ A simple overview of new features and improvements.
 
 ---
 
+## Unreleased
+
+### Fixes
+
+- Your provider username and password are no longer written in plain text to the app's log file when the program guide is fetched. If you have shared a log file, consider changing your provider password
+
 ## Version 3.0.0 (September 27, 2026)
 
 ### New Features
