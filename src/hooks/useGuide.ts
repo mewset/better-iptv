@@ -24,7 +24,7 @@ interface GuideState {
 export function useGuide(channels: Channel[], dayOffset: number): GuideState {
   const idsKey = useMemo(() => {
     const ids = new Set<string>();
-    for (const channel of guideChannels(channels)) ids.add(channel.epg_id!.trim());
+    for (const channel of guideChannels(channels, null)) ids.add(channel.epg_id!.trim());
     return [...ids].join(SEP);
   }, [channels]);
 

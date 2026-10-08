@@ -3,7 +3,7 @@ import { CalendarRange, Lock, Play, X } from 'lucide-react';
 import { usePlayerStore } from '../stores/player-store';
 import type { Channel } from '../types';
 import { getEpgStatus, type GuideProgram } from '../lib/tauri';
-import { blockGeometry, guideChannels } from '../lib/guideLayout';
+import { GUIDE_DAY_COUNT, blockGeometry, guideChannels } from '../lib/guideLayout';
 import { formatClock, minutesLeft, progressPercent } from '../lib/epgTime';
 import { logger } from '../lib/logger';
 import { cn } from '../lib/utils';
@@ -11,7 +11,6 @@ import { useGuide } from '../hooks/useGuide';
 import { CategoryBar } from './CategoryBar';
 import { ColorBars } from './ColorBars';
 
-const DAY_COUNT = 5;
 const HALF_HOUR = 30 * 60_000;
 const NOW_TICK_MS = 30_000;
 
@@ -20,7 +19,7 @@ const weekdayShort = new Intl.DateTimeFormat(undefined, { weekday: 'short' });
 /** "Today", then "Fri 25"-style labels for the next four days. */
 function dayLabels(now: number): string[] {
   const base = new Date(now);
-  return Array.from({ length: DAY_COUNT }, (_, i) => {
+  return Array.from({ length: GUIDE_DAY_COUNT }, (_, i) => {
     if (i === 0) return 'Today';
     const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
     return `${weekdayShort.format(d)} ${d.getDate()}`;
@@ -335,7 +334,7 @@ export function GuideView({
     () => (favoritesOnly ? channels.filter((c) => c.is_favorite) : channels),
     [channels, favoritesOnly]
   );
-  const rows = useMemo(() => guideChannels(listed), [listed]);
+  const rows = useMemo(() => guideChannels(listed, null), [listed]);
   const { programs, window: win, loading } = useGuide(listed, dayOffset);
 
   // Escape closes the detail panel before anything else sees it. A bubble

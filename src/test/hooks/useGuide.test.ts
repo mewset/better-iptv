@@ -47,13 +47,6 @@ describe('useGuide', () => {
     expect(result.current.window.to - result.current.window.from).toBe(3 * 3600_000);
   });
 
-  it('caps the request at 100 ids', async () => {
-    const channels = Array.from({ length: 130 }, (_, i) => ch(i + 1, `e${i}`));
-    renderHook(() => useGuide(channels, 0));
-    await waitFor(() => expect(mockedGetGuide).toHaveBeenCalled());
-    expect(mockedGetGuide.mock.calls[0][0]).toHaveLength(100);
-  });
-
   it('does not call the backend when no channel has an epg id', async () => {
     const { result } = renderHook(() => useGuide([ch(1, null)], 0));
     await waitFor(() => expect(result.current.loading).toBe(false));

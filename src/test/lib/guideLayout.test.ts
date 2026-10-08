@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  guideWindow,
   blockGeometry,
   guideChannels,
-  GUIDE_CHANNEL_CAP,
+  guideDataRange,
+  guideWindow,
+  normalizeEpgId,
 } from '../../lib/guideLayout';
 import type { Channel } from '../../types';
 
@@ -80,18 +81,57 @@ describe('blockGeometry', () => {
   });
 });
 
+describe('normalizeEpgId', () => {
+  it('trims and lower-cases ASCII only, like the backend', () => {
+    expect(normalizeEpgId('  SVT1.se ')).toBe('svt1.se');
+    expect(normalizeEpgId('KANAL5.SE')).toBe('kanal5.se');
+    // Non-ASCII letters keep their case, as Rust's to_ascii_lowercase does.
+    expect(normalizeEpgId('ÖRESUND.dk')).toBe('Öresund.dk');
+  });
+});
+
+describe('guideDataRange', () => {
+  it('runs from today 00:00 local to the same time five days later', () => {
+    const now = new Date(2026, 9, 8, 20, 12).getTime();
+    const { from, to } = guideDataRange(now);
+    expect(from).toBe(new Date(2026, 9, 8).getTime());
+    expect(to).toBe(new Date(2026, 9, 13).getTime());
+  });
+
+  it('crosses a month boundary', () => {
+    const { to } = guideDataRange(new Date(2026, 9, 29, 9).getTime());
+    expect(to).toBe(new Date(2026, 10, 3).getTime());
+  });
+});
+
 describe('guideChannels', () => {
   const ch = (id: number, epg_id: string | null | undefined): Channel =>
     ({ id, name: `C${id}`, content_type: 'live', epg_id }) as Channel;
 
-  it('keeps only channels with a non-blank epg_id', () => {
-    const list = [ch(1, 'a'), ch(2, null), ch(3, '  '), ch(4, undefined), ch(5, ' b ')];
-    expect(guideChannels(list).map((c) => c.id)).toEqual([1, 5]);
+  it('keeps channels whose normalized id has data, in list order', () => {
+    const list = [ch(1, 'b.se'), ch(2, ' SVT1.se '), ch(3, 'none.se'), ch(4, 'a.se')];
+    const rows = guideChannels(list, new Set(['a.se', 'b.se', 'svt1.se']));
+    expect(rows.map((c) => c.id)).toEqual([1, 2, 4]);
   });
 
-  it('caps the list at 100 channels', () => {
-    const list = Array.from({ length: 150 }, (_, i) => ch(i + 1, `e${i}`));
-    expect(GUIDE_CHANNEL_CAP).toBe(100);
-    expect(guideChannels(list)).toHaveLength(100);
+  it('keeps every channel sharing an id with data', () => {
+    const rows = guideChannels([ch(1, 'svt1.se'), ch(2, 'SVT1.se')], new Set(['svt1.se']));
+    expect(rows.map((c) => c.id)).toEqual([1, 2]);
+  });
+
+  it('drops channels without an id or with a blank one', () => {
+    const list = [ch(1, null), ch(2, undefined), ch(3, '   '), ch(4, 'a.se')];
+    expect(guideChannels(list, new Set(['a.se', ''])).map((c) => c.id)).toEqual([4]);
+  });
+
+  it('has no cap', () => {
+    const list = Array.from({ length: 1500 }, (_, i) => ch(i + 1, `e${i}`));
+    const ids = new Set(list.map((c) => c.epg_id!));
+    expect(guideChannels(list, ids)).toHaveLength(1500);
+  });
+
+  it('without a set keeps every channel with a non-blank id', () => {
+    const list = [ch(1, 'a'), ch(2, null), ch(3, '  '), ch(4, 'b')];
+    expect(guideChannels(list, null).map((c) => c.id)).toEqual([1, 4]);
   });
 });

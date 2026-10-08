@@ -3,8 +3,8 @@ import type { Channel } from '../types';
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
-/** The guide asks the backend for at most this many channels (its limit too). */
-export const GUIDE_CHANNEL_CAP = 100;
+/** Days the guide offers: today and the next four. */
+export const GUIDE_DAY_COUNT = 5;
 
 /**
  * The guide's time window in epoch ms.
@@ -53,16 +53,38 @@ export function blockGeometry(
 }
 
 /**
- * The guide's rows: the first 100 channels with a non-blank `epg_id`. The
- * backend rejects a request with any blank id, so a blank one never gets
- * this far.
+ * An EPG id in the form the backend stores and returns: trimmed, ASCII
+ * lower case (`epg_domain::normalize_epg_id`). Only A-Z is lowered, as in Rust.
  */
-export function guideChannels(channels: Channel[]): Channel[] {
-  const rows: Channel[] = [];
-  for (const channel of channels) {
-    if (!channel.epg_id?.trim()) continue;
-    rows.push(channel);
-    if (rows.length === GUIDE_CHANNEL_CAP) break;
-  }
-  return rows;
+export function normalizeEpgId(id: string): string {
+  return id.trim().replace(/[A-Z]/g, (c) => c.toLowerCase());
+}
+
+/**
+ * The span a channel needs programmes in to get a guide row: today 00:00
+ * local to the same time `GUIDE_DAY_COUNT` calendar days later. Rows are the
+ * same whichever day is shown.
+ */
+export function guideDataRange(now: number): { from: number; to: number } {
+  const d = new Date(now);
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  const day = d.getDate();
+  return {
+    from: new Date(y, m, day).getTime(),
+    to: new Date(y, m, day + GUIDE_DAY_COUNT).getTime(),
+  };
+}
+
+/**
+ * The guide's rows: the channels whose normalized `epg_id` is in
+ * `idsWithData`, in list order. `null` means the lookup is not available
+ * (it failed): then every channel with a non-blank `epg_id` gets a row.
+ */
+export function guideChannels(channels: Channel[], idsWithData: Set<string> | null): Channel[] {
+  return channels.filter((channel) => {
+    const id = channel.epg_id ? normalizeEpgId(channel.epg_id) : '';
+    if (id === '') return false;
+    return idsWithData === null || idsWithData.has(id);
+  });
 }
