@@ -39,10 +39,10 @@ describe('useEpgData', () => {
     vi.mocked(getChannelsEpg).mockResolvedValue({
       'svt1.se': {
         current: 'Rapport',
-        current_start: '2026-09-24T18:00:00Z',
-        current_end: '2026-09-24T18:30:00Z',
+        current_start: '2099-09-24T18:00:00Z',
+        current_end: '2099-09-24T18:30:00Z',
         next: 'Aktuellt',
-        next_start: '2026-09-24T18:30:00Z',
+        next_start: '2099-09-24T18:30:00Z',
       },
       'tv4.se': {
         current: 'Nyheterna',
@@ -69,15 +69,117 @@ describe('useEpgData', () => {
       const data = usePlayerStore.getState().channelEpgData;
       expect(data.get(1)).toEqual({
         current: 'Rapport',
-        currentStart: '2026-09-24T18:00:00Z',
-        currentEnd: '2026-09-24T18:30:00Z',
+        currentStart: '2099-09-24T18:00:00Z',
+        currentEnd: '2099-09-24T18:30:00Z',
         next: 'Aktuellt',
-        nextStart: '2026-09-24T18:30:00Z',
+        nextStart: '2099-09-24T18:30:00Z',
       });
       expect(data.get(2)).toEqual({ current: 'Nyheterna', next: undefined });
       expect(data.has(3)).toBe(false);
       expect(data.has(4)).toBe(false);
     });
+  });
+
+  it('does not stall behind channels without guide data', async () => {
+    // 120 channels the guide knows nothing about, then 30 it does. The batch
+    // holds 100, so the first pass is all misses; the second must reach the rest.
+    const channels = Array.from({ length: 150 }, (_, i) =>
+      makeChannel({ id: i + 1, name: `C${i}`, epg_id: `c${i}` })
+    );
+    vi.mocked(getChannelsEpg).mockImplementation(async (ids: string[]) =>
+      Object.fromEntries(
+        ids
+          .filter((id) => Number(id.slice(1)) >= 120)
+          .map((id) => [
+            id,
+            {
+              current: `Show ${id}`,
+              current_start: null,
+              current_end: null,
+              next: null,
+              next_start: null,
+            },
+          ])
+      )
+    );
+
+    renderHook(() => useEpgData(channels));
+
+    await waitFor(
+      () => expect(usePlayerStore.getState().channelEpgData.get(150)?.current).toBe('Show c149'),
+      {
+        timeout: 3000,
+      }
+    );
+    expect(getChannelsEpg).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not ask again for channels the guide had nothing for', async () => {
+    vi.mocked(getChannelsEpg).mockResolvedValue({});
+    const channels = [makeChannel({ id: 1, name: 'No data', epg_id: 'none.se' })];
+
+    const { rerender } = renderHook(({ list }) => useEpgData(list), {
+      initialProps: { list: channels },
+    });
+    await waitFor(() => expect(getChannelsEpg).toHaveBeenCalledTimes(1), { timeout: 2000 });
+
+    // Scrolling away and back hands the hook a new array with the same channel.
+    rerender({ list: [...channels] });
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(getChannelsEpg).toHaveBeenCalledTimes(1);
+  });
+
+  it('stores a whole batch with one store update', async () => {
+    const entry = {
+      current: 'P',
+      current_start: null,
+      current_end: null,
+      next: null,
+      next_start: null,
+    };
+    vi.mocked(getChannelsEpg).mockResolvedValue({ 'a.se': entry, 'b.se': entry, 'c.se': entry });
+    let updates = 0;
+    const unsubscribe = usePlayerStore.subscribe((state, prev) => {
+      if (state.channelEpgData !== prev.channelEpgData) updates++;
+    });
+
+    renderHook(() =>
+      useEpgData([
+        makeChannel({ id: 1, epg_id: 'a.se' }),
+        makeChannel({ id: 2, epg_id: 'b.se' }),
+        makeChannel({ id: 3, epg_id: 'c.se' }),
+      ])
+    );
+
+    await waitFor(() => expect(usePlayerStore.getState().channelEpgData.size).toBe(3), {
+      timeout: 2000,
+    });
+    unsubscribe();
+    expect(updates).toBe(1);
+  });
+
+  it('refetches a listed channel whose cached programme has ended', async () => {
+    const past = (m: number) => new Date(Date.now() - m * 60000).toISOString();
+    usePlayerStore.setState({
+      channelEpgData: new Map([
+        [1, { current: 'Old show', currentStart: past(90), currentEnd: past(30) }],
+      ]),
+    });
+    vi.mocked(getChannelsEpg).mockResolvedValue({
+      'svt1.se': {
+        current: 'New show',
+        current_start: null,
+        current_end: null,
+        next: null,
+        next_start: null,
+      },
+    });
+
+    renderHook(() => useEpgData([makeChannel({ id: 1, name: 'SVT1', epg_id: 'svt1.se' })]));
+
+    await waitFor(() =>
+      expect(usePlayerStore.getState().channelEpgData.get(1)?.current).toBe('New show')
+    );
   });
 
   it('always includes the playing channel in the batch, even when it is not in the list', async () => {
@@ -160,9 +262,9 @@ describe('useEpgData', () => {
   it('clears cached EPG and refetches when the backend emits epg-refreshed', async () => {
     // The second resolution is empty: with forceRefresh=true the hook skips
     // its cache filter entirely, so the only way the stale 'Rapport' entry
-    // can disappear is via clearAllEpg() (setChannelEpg is never called when
-    // entry?.current is missing). This proves the cache was actually cleared,
-    // not just that a second backend call happened.
+    // can disappear is via clearAllEpg() (an empty answer stores nothing).
+    // This proves the cache was actually cleared, not just that a second
+    // backend call happened.
     vi.mocked(getChannelsEpg)
       .mockResolvedValueOnce({
         'svt1.se': {

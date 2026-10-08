@@ -146,30 +146,39 @@ describe('usePlayerStore', () => {
 
   describe('EPG data', () => {
     it('should store and retrieve channel EPG data', () => {
-      usePlayerStore.getState().setChannelEpg(123, { current: 'News at 6', next: 'Weather' });
+      usePlayerStore.getState().setChannelEpgs([[123, { current: 'News at 6', next: 'Weather' }]]);
 
       const { channelEpgData } = usePlayerStore.getState();
       expect(channelEpgData.get(123)).toEqual({ current: 'News at 6', next: 'Weather' });
     });
 
-    it('stores and clears an EPG entry with times', () => {
-      const { setChannelEpg } = usePlayerStore.getState();
-      setChannelEpg(7, {
+    it('stores several entries with times in one update and keeps the others', () => {
+      usePlayerStore.getState().setChannelEpgs([[1, { current: 'Earlier' }]]);
+      const before = usePlayerStore.getState().channelEpgData;
+      usePlayerStore.getState().setChannelEpgs([
+        [
+          7,
+          { current: 'Rapport', currentStart: 'a', currentEnd: 'b', next: 'Sport', nextStart: 'b' },
+        ],
+        [8, { next: 'Morgon' }],
+      ]);
+      const after = usePlayerStore.getState().channelEpgData;
+      expect(after).not.toBe(before);
+      expect(after.get(1)).toEqual({ current: 'Earlier' });
+      expect(after.get(7)).toEqual({
         current: 'Rapport',
         currentStart: 'a',
         currentEnd: 'b',
         next: 'Sport',
         nextStart: 'b',
       });
-      expect(usePlayerStore.getState().channelEpgData.get(7)).toEqual({
-        current: 'Rapport',
-        currentStart: 'a',
-        currentEnd: 'b',
-        next: 'Sport',
-        nextStart: 'b',
-      });
-      setChannelEpg(7, null);
-      expect(usePlayerStore.getState().channelEpgData.has(7)).toBe(false);
+      expect(after.get(8)).toEqual({ next: 'Morgon' });
+    });
+
+    it('leaves the map untouched for an empty batch', () => {
+      const before = usePlayerStore.getState().channelEpgData;
+      usePlayerStore.getState().setChannelEpgs([]);
+      expect(usePlayerStore.getState().channelEpgData).toBe(before);
     });
 
     it('should trigger EPG refresh', () => {

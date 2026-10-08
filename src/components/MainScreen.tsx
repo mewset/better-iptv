@@ -159,10 +159,6 @@ export default function MainScreen() {
     }
   }, [tmdbStatus, homeAvailable, setContentTypeFilter]);
 
-  // Use consolidated EPG hook for channel EPG data (with debouncing and
-  // caching). The playing channel always rides along so the dock stays fresh.
-  const { channelEpgData } = useEpgData(filteredChannels, currentChannel);
-
   // The movie or series open in the detail view.
   const [detailChannel, setDetailChannel] = useState<Channel | null>(null);
   // The profile the title was opened under. A title belongs to one
@@ -420,23 +416,36 @@ export default function MainScreen() {
     if (parentRef.current) parentRef.current.scrollTop = 0;
   }, [contentTypeFilter, categoryFilter, trimmedQuery]);
 
+  // The cards in view, overscan included. They feed the EPG and TMDB lookups,
+  // so a 15,000-channel list only ever asks about what is on screen.
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const visibleChannels = useMemo(() => {
+    const out: Channel[] = [];
+    for (const row of virtualItems) {
+      if (showHero && row.index === 0) continue;
+      const start = (showHero ? row.index - 1 : row.index) * columns;
+      for (let i = start; i < Math.min(start + columns, filteredChannels.length); i++) {
+        out.push(filteredChannels[i]);
+      }
+    }
+    return out;
+  }, [virtualItems, showHero, columns, filteredChannels]);
+
+  // EPG for the live cards in view. The playing channel always rides along so
+  // the dock stays fresh, also in sections without a grid.
+  const { channelEpgData } = useEpgData(visibleChannels, currentChannel);
+
   // Visible poster rows feed the TMDB lookup, after the hero candidates of
   // both sections so the banner is warm before its section opens. Live rows
   // never do.
-  const virtualItems = rowVirtualizer.getVirtualItems();
   const visibleCardIds = useMemo(() => {
     const ids: number[] = [...heroWarmupIds];
-    for (const row of virtualItems) {
-      if (showHero && row.index === 0) continue;
-      const cardRowIndex = showHero ? row.index - 1 : row.index;
-      const start = cardRowIndex * columns;
-      for (const c of filteredChannels.slice(start, start + columns)) {
-        // Live rows (search results, Favorites) still hold movies and series.
-        if (kind === 'poster' || c.content_type !== 'live') ids.push(c.id);
-      }
+    for (const c of visibleChannels) {
+      // Live rows (search results, Favorites) still hold movies and series.
+      if (kind === 'poster' || c.content_type !== 'live') ids.push(c.id);
     }
     return ids;
-  }, [kind, heroWarmupIds, virtualItems, showHero, columns, filteredChannels]);
+  }, [kind, heroWarmupIds, visibleChannels]);
   useTmdbCards(visibleCardIds);
 
   const openDetail = useCallback((channel: Channel) => {

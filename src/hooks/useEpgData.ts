@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { usePlayerStore } from '../stores/player-store';
 import type { EpgEntry } from '../stores/player-store';
@@ -17,6 +17,8 @@ const EPG_CONFIG = {
   DEBOUNCE_DELAY: 500,
   /** Maximum channels to fetch EPG for at once (backend caps at 500) */
   MAX_CHANNELS: 100,
+  /** A channel the guide had nothing for is not asked about again for this long (ms) */
+  EMPTY_RETRY: 300000,
 };
 
 /**
@@ -33,21 +35,22 @@ interface UseEpgDataResult {
  * Custom hook for managing EPG (Electronic Program Guide) data
  *
  * Consolidates all EPG-related logic:
- * - Fetches EPG for visible live channels with debouncing
- * - Fetches all visible channels in a single IPC call
+ * - Fetches EPG for the channels passed in (the cards in view) with debouncing
+ * - Fetches them in a single IPC call and stores the answer in one update
  * - Periodic refresh every 5 minutes
  * - Responds to external refresh triggers
- * - Skips channels that already have cached EPG data
+ * - Skips channels whose cached entry still describes the present, and
+ *   channels the guide had nothing for in the last few minutes, so a run of
+ *   channels without guide data never holds up the ones after it
  * - Always includes the playing channel (first, so the batch cap never drops
- *   it), and refetches it once its cached programme has ended, so the dock
- *   keeps up even when the channel is not in the visible list
+ *   it), so the dock keeps up even when the channel is not in view
  */
 export function useEpgData(
   visibleChannels: Channel[],
   playingChannel?: Channel | null
 ): UseEpgDataResult {
   const channelEpgData = usePlayerStore((s) => s.channelEpgData);
-  const setChannelEpg = usePlayerStore((s) => s.setChannelEpg);
+  const setChannelEpgs = usePlayerStore((s) => s.setChannelEpgs);
   const epgRefreshTrigger = usePlayerStore((s) => s.epgRefreshTrigger);
   const triggerEpgRefresh = usePlayerStore((s) => s.triggerEpgRefresh);
   const clearAllEpg = usePlayerStore((s) => s.clearAllEpg);
@@ -62,8 +65,14 @@ export function useEpgData(
   // over channelEpgData) as long as epgRefreshTrigger stayed > 0 - an
   // infinite forced-refetch loop.
   const lastHandledTriggerRef = useRef(0);
+  // Channel id -> when a fetch last came back without a usable entry for it.
+  // Without this, channels the guide knows nothing about would be asked for
+  // again on every pass, and a hundred of them in a row would fill every batch.
+  const emptyAtRef = useRef<Map<number, number>>(new Map());
+  // Bumped after a batch that had to leave channels out, so the rest get
+  // their turn even when the batch stored nothing (all misses).
+  const [pass, setPass] = useState(0);
 
-  const playingId = playingChannel?.id;
   const channels = useMemo(() => {
     if (!playingChannel) return visibleChannels;
     return [playingChannel, ...visibleChannels.filter((c) => c.id !== playingChannel.id)];
@@ -79,19 +88,20 @@ export function useEpgData(
         (c) => c.epg_id && c.id && c.content_type === 'live'
       );
 
-      // Skip channels that already have cached data (unless force refresh).
-      // The playing channel's entry counts as missing
-      // once its programme has ended.
+      // Skip channels whose cached entry still describes the present (unless
+      // force refresh), and channels the guide recently had nothing for.
       if (!forceRefresh) {
         const now = Date.now();
         channelsWithEpg = channelsWithEpg.filter((c) => {
+          const emptyAt = emptyAtRef.current.get(c.id);
+          if (emptyAt !== undefined && now - emptyAt < EPG_CONFIG.EMPTY_RETRY) return false;
           const cached = channelEpgData.get(c.id);
-          if (!cached) return true;
-          return c.id === playingId && isEpgEntryStale(cached, now);
+          return !cached || isEpgEntryStale(cached, now);
         });
       }
 
       // Limit to MAX_CHANNELS to avoid overwhelming the backend
+      const leftOver = channelsWithEpg.length > EPG_CONFIG.MAX_CHANNELS;
       channelsWithEpg = channelsWithEpg.slice(0, EPG_CONFIG.MAX_CHANNELS);
 
       if (channelsWithEpg.length === 0) return;
@@ -107,24 +117,33 @@ export function useEpgData(
         // effect that aborted us will schedule a fresh fetch.
         if (abortControllerRef.current?.signal.aborted) return;
 
+        const now = Date.now();
+        const entries: Array<[number, EpgEntry]> = [];
         for (const channel of channelsWithEpg) {
           const raw = epgById[channel.epg_id!];
           // A channel between broadcasts has no current programme but still a
           // next one, and the card shows it as off air instead of "No guide data".
-          if (!channel.id || (!raw?.current && !raw?.next)) continue;
-          const entry: EpgEntry = {
-            current: raw.current ?? undefined,
-            currentStart: raw.current_start ?? undefined,
-            currentEnd: raw.current_end ?? undefined,
-            next: raw.next ?? undefined,
-            nextStart: raw.next_start ?? undefined,
-          };
-          // Storing an already-stale entry for the playing channel would only
-          // re-trigger the refetch above in a loop; the dock falls back to the
-          // playback strings until the next refresh brings a fresh one.
-          if (channel.id === playingId && isEpgEntryStale(entry)) continue;
-          setChannelEpg(channel.id, entry);
+          const entry: EpgEntry | null =
+            raw?.current || raw?.next
+              ? {
+                  current: raw.current ?? undefined,
+                  currentStart: raw.current_start ?? undefined,
+                  currentEnd: raw.current_end ?? undefined,
+                  next: raw.next ?? undefined,
+                  nextStart: raw.next_start ?? undefined,
+                }
+              : null;
+          // Nothing usable, or an entry that is already stale (storing it would
+          // only re-trigger the refetch above in a loop): remember the miss.
+          if (!entry || isEpgEntryStale(entry, now)) {
+            emptyAtRef.current.set(channel.id, now);
+            continue;
+          }
+          emptyAtRef.current.delete(channel.id);
+          entries.push([channel.id, entry]);
         }
+        setChannelEpgs(entries);
+        if (leftOver) setPass((p) => p + 1);
       } catch (err) {
         logger.debug('Failed to fetch EPG batch:', err);
       } finally {
@@ -132,7 +151,7 @@ export function useEpgData(
         abortControllerRef.current = null;
       }
     },
-    [channelEpgData, setChannelEpg, playingId]
+    [channelEpgData, setChannelEpgs]
   );
 
   // Debounced fetch when channels change
@@ -159,7 +178,8 @@ export function useEpgData(
         clearTimeout(debounceTimerRef.current);
       }
     };
-  }, [channels, fetchEpgForChannels]);
+    // pass: a capped batch asks for the next one.
+  }, [channels, fetchEpgForChannels, pass]);
 
   // Handle manual refresh trigger (force refresh all)
   useEffect(() => {
@@ -182,6 +202,7 @@ export function useEpgData(
   // fetch reads fresh titles for every channel, then trigger that fetch.
   useEffect(() => {
     const unlisten = listen('epg-refreshed', () => {
+      emptyAtRef.current = new Map();
       clearAllEpg();
       triggerEpgRefresh();
     });
