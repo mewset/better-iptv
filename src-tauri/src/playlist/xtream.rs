@@ -1,5 +1,6 @@
 use crate::db::models::Channel;
 use crate::http::{download_error, get_http_client, BULK_DOWNLOAD_TIMEOUT};
+use crate::utils::mask_credentials;
 use anyhow::{Context, Result};
 use backoff::{future::retry, ExponentialBackoff};
 use log::warn;
@@ -405,17 +406,90 @@ async fn fetch_json_once<T: DeserializeOwned + Send + 'static>(
     })?;
 
     // A body that does not decode as the expected JSON will not decode next
-    // time either.
-    tokio::task::spawn_blocking(move || serde_json::from_slice::<T>(&body))
-        .await
-        .map_err(|e| backoff::Error::permanent(anyhow::Error::new(e)))?
-        .map_err(|e| {
-            warn!("Failed to parse {} response, giving up: {}", action, e);
-            backoff::Error::permanent(
-                anyhow::Error::new(e)
-                    .context(format!("The {SERVER} sent {action} that could not be read")),
-            )
-        })
+    // time either. That includes a refusal: a provider that turns a busy or
+    // blocked line away answers the same way again, and every extra request
+    // counts against its rate limit.
+    tokio::task::spawn_blocking(move || {
+        serde_json::from_slice::<T>(&body)
+            .map_err(|e| (e, UnreadableBody::of(&body), describe_body(&body)))
+    })
+    .await
+    .map_err(|e| backoff::Error::permanent(anyhow::Error::new(e)))?
+    .map_err(|(e, kind, described)| {
+        warn!(
+            "Failed to parse {} response ({}), giving up: {}",
+            action, described, e
+        );
+        backoff::Error::permanent(anyhow::Error::new(e).context(kind.message(SERVER, action)))
+    })
+}
+
+/// What a 200 answer that is not the expected JSON looks like, so the
+/// message can say something more useful than "could not be read".
+#[derive(Debug, PartialEq)]
+enum UnreadableBody {
+    /// Nothing, or only whitespace.
+    Empty,
+    /// Not JSON at all: an HTML page, or a line of text such as a
+    /// connection-limit notice.
+    NotJson,
+    /// The account envelope with `auth: 0`, which panels send instead of a
+    /// list when they do not accept the credentials.
+    Rejected,
+    /// JSON, just not the shape asked for.
+    WrongShape,
+}
+
+impl UnreadableBody {
+    fn of(body: &[u8]) -> Self {
+        let text = body
+            .strip_prefix(b"\xEF\xBB\xBF")
+            .unwrap_or(body)
+            .trim_ascii();
+        if text.is_empty() {
+            return Self::Empty;
+        }
+        match serde_json::from_slice::<serde_json::Value>(text) {
+            Err(_) => Self::NotJson,
+            Ok(value) => {
+                let auth = value.pointer("/user_info/auth");
+                if auth.is_some_and(|a| a == 0 || a == "0") {
+                    Self::Rejected
+                } else {
+                    Self::WrongShape
+                }
+            }
+        }
+    }
+
+    fn message(&self, server: &str, action: &str) -> String {
+        const BUSY_HINT: &str = "The account may be in use on another device or briefly \
+            blocked; try again in a few minutes";
+        match self {
+            Self::Empty => {
+                format!("The {server} sent an empty answer instead of the {action}. {BUSY_HINT}")
+            }
+            Self::NotJson => {
+                format!("The {server} sent a web page instead of the {action}. {BUSY_HINT}")
+            }
+            Self::Rejected => format!("The {server} did not accept the username and password"),
+            Self::WrongShape => format!("The {server} sent {action} that could not be read"),
+        }
+    }
+}
+
+/// A body for the log: its size and the start of it, on one line, with
+/// credentials masked (a refusal page can echo the request URL).
+fn describe_body(body: &[u8]) -> String {
+    const SHOWN: usize = 120;
+    if body.is_empty() {
+        return "empty".to_string();
+    }
+    let text = String::from_utf8_lossy(&body[..body.len().min(SHOWN * 4)]);
+    // Masked before it is cut, so a URL split at the cut cannot slip past.
+    let one_line = mask_credentials(&text.split_whitespace().collect::<Vec<_>>().join(" "));
+    let start: String = one_line.chars().take(SHOWN).collect();
+    format!("{} bytes, starts with \"{}\"", body.len(), start)
 }
 
 /// Fetch categories from Xtream API
@@ -1082,6 +1156,50 @@ mod user_info_tests {
 }
 
 #[cfg(test)]
+mod body_description_tests {
+    use super::describe_body;
+
+    #[test]
+    fn names_the_size_and_quotes_the_start() {
+        assert_eq!(
+            describe_body(b"<html>\n  <title>Login</title>"),
+            r#"29 bytes, starts with "<html> <title>Login</title>""#
+        );
+    }
+
+    #[test]
+    fn masks_a_url_that_the_cut_would_split() {
+        let mut body = vec![b'x'; 100];
+        body.extend(b" http://p.example/live/alice/s3cret/1.ts");
+        let described = describe_body(&body);
+        assert!(!described.contains("s3cret"), "{described}");
+        assert!(!described.contains("alice"), "{described}");
+    }
+
+    #[test]
+    fn says_empty_for_an_empty_body() {
+        assert_eq!(describe_body(b""), "empty");
+    }
+
+    #[test]
+    fn cuts_long_bodies_and_masks_credentials() {
+        let mut body =
+            b"Redirect to http://p.example/live/alice/s3cret/1.ts?username=alice&password=s3cret "
+                .to_vec();
+        body.extend(std::iter::repeat_n(b'x', 500));
+        let described = describe_body(&body);
+        assert!(
+            described.starts_with("583 bytes, starts with \""),
+            "{described}"
+        );
+        assert!(!described.contains("s3cret"), "{described}");
+        assert!(!described.contains("alice"), "{described}");
+        // 120 characters of body at most, plus the quotes and the prefix
+        assert!(described.len() < 160, "{described}");
+    }
+}
+
+#[cfg(test)]
 mod json_fetch_tests {
     use super::fetch_json_once;
     use crate::http::build_client;
@@ -1119,18 +1237,57 @@ mod json_fetch_tests {
         }
     }
 
-    #[tokio::test]
-    async fn a_body_that_is_not_the_expected_json_is_not_retried() {
-        let result = attempt(vec![respond("200 OK", b"<html>Login</html>")]).await;
-        match result {
-            Err(backoff::Error::Permanent(err)) => {
-                assert_eq!(
-                    err.to_string(),
-                    "The provider sent live streams that could not be read"
-                )
-            }
+    /// The permanent error's message for a 200 answer carrying `body`.
+    async fn unreadable(body: &[u8]) -> String {
+        match attempt(vec![respond("200 OK", body)]).await {
+            Err(backoff::Error::Permanent(err)) => err.to_string(),
             other => panic!("expected a permanent error, got {other:?}"),
         }
+    }
+
+    const BUSY_HINT: &str =
+        "The account may be in use on another device or briefly blocked; try again in a few minutes";
+
+    #[tokio::test]
+    async fn a_web_page_instead_of_json_says_so_and_is_not_retried() {
+        // Not retried: a provider that refuses a busy line answers the same
+        // way again, and more requests only risk its rate limit.
+        assert_eq!(
+            unreadable(b"<html>Login</html>").await,
+            format!("The provider sent a web page instead of the live streams. {BUSY_HINT}")
+        );
+    }
+
+    #[tokio::test]
+    async fn plain_text_instead_of_json_says_so() {
+        assert_eq!(
+            unreadable(b"Max connections reached").await,
+            format!("The provider sent a web page instead of the live streams. {BUSY_HINT}")
+        );
+    }
+
+    #[tokio::test]
+    async fn an_empty_answer_says_so() {
+        assert_eq!(
+            unreadable(b"  \r\n").await,
+            format!("The provider sent an empty answer instead of the live streams. {BUSY_HINT}")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rejected_login_envelope_says_the_credentials_were_refused() {
+        assert_eq!(
+            unreadable(br#"{"user_info":{"auth":0}}"#).await,
+            "The provider did not accept the username and password"
+        );
+    }
+
+    #[tokio::test]
+    async fn json_of_the_wrong_shape_keeps_the_generic_message() {
+        assert_eq!(
+            unreadable(br#"{"unexpected":true}"#).await,
+            "The provider sent live streams that could not be read"
+        );
     }
 
     #[tokio::test]
