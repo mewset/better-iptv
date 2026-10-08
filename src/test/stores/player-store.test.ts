@@ -6,7 +6,6 @@ describe('usePlayerStore', () => {
     // Reset store state between tests
     usePlayerStore.setState({
       channels: [],
-      filteredChannels: [],
       liveChannels: [],
       vodChannels: [],
       seriesChannels: [],
@@ -265,9 +264,6 @@ describe('usePlayerStore', () => {
         const result: Partial<typeof state> = {
           channels: updatedChannels,
           favoriteChannels: updatedChannels.filter((c) => c.is_favorite),
-          filteredChannels: state.filteredChannels.map((c) =>
-            c.id === 1 ? { ...c, is_favorite: true } : c
-          ),
         };
 
         if (contentType === 'live') {

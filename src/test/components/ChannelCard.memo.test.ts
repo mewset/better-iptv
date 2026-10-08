@@ -14,7 +14,6 @@ describe('ChannelCard memo stability', () => {
   beforeEach(() => {
     usePlayerStore.setState({
       channels: [],
-      filteredChannels: [],
       liveChannels: [],
       vodChannels: [],
       seriesChannels: [],

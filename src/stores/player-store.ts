@@ -35,7 +35,6 @@ interface PlayerState {
 
   // Channels
   channels: Channel[];
-  filteredChannels: Channel[];
   currentChannel: Channel | null;
   // Pre-filtered channels by type (for instant tab switching)
   liveChannels: Channel[];
@@ -43,7 +42,6 @@ interface PlayerState {
   seriesChannels: Channel[];
   favoriteChannels: Channel[];
   setChannels: (channels: Channel[]) => void;
-  setFilteredChannels: (channels: Channel[]) => void;
   setCurrentChannel: (channel: Channel | null) => void;
   toggleChannelFavorite: (channelId: number) => Promise<void>;
 
@@ -132,7 +130,6 @@ export const usePlayerStore = create<PlayerState>((set) => ({
 
   // Channels
   channels: [],
-  filteredChannels: [],
   currentChannel: null,
   liveChannels: [],
   vodChannels: [],
@@ -147,14 +144,12 @@ export const usePlayerStore = create<PlayerState>((set) => ({
 
     set({
       channels,
-      filteredChannels: channels,
       liveChannels,
       vodChannels,
       seriesChannels,
       favoriteChannels,
     });
   },
-  setFilteredChannels: (channels) => set({ filteredChannels: channels }),
   setCurrentChannel: (channel) => set({ currentChannel: channel }),
 
   toggleChannelFavorite: async (channelId) => {
@@ -173,9 +168,6 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       const result: Partial<PlayerState> = {
         channels: updatedChannels,
         favoriteChannels: updatedChannels.filter((c) => c.is_favorite),
-        filteredChannels: state.filteredChannels.map((c) =>
-          c.id === channelId ? { ...c, is_favorite: !c.is_favorite } : c
-        ),
       };
 
       // Only rebuild the specific content type array that contains this channel
