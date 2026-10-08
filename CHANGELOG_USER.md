@@ -12,6 +12,7 @@ A simple overview of new features and improvements.
 
 - Switching between Live TV, Movies and Series is much quicker, with no flash of the wrong list
 - Movies and Series stay smooth while posters and ratings load in the background
+- Large playlists load faster when the app starts and when you switch profile
 
 ### Fixes
 
@@ -21,6 +22,7 @@ A simple overview of new features and improvements.
 - A failed program guide update now says why it failed, instead of reporting success with an empty guide
 - Fixed a bug where a small error in a provider's program guide could throw away the whole guide
 - Channels further down a long list now show what's on, instead of "No guide data"
+- When a provider turns a playlist update away, the app now says so (for example a busy account or a wrong password) instead of an unclear error
 
 ## Version 3.0.0 (September 27, 2026)
 

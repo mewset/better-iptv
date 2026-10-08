@@ -36,6 +36,10 @@ This file is a developer-changelog, aimed towards development changes.
   - A channel the guide had nothing for waits `EMPTY_RETRY` (5 min) before it is asked again, and `epg-refreshed` forgets those misses. A stale cached entry is refetched for every card in view, not only for the playing channel
   - A batch that had to leave channels out (`MAX_CHANNELS`) bumps a pass counter, so the next batch runs even when the first stored nothing
   - `setChannelEpgs` stores a batch with one Map copy and one store update; `setChannelEpg` copied the whole Map once per channel (100 copies of a 15,000-entry Map is 128 ms)
+- **Xtream refresh says what the provider sent instead of JSON** - a refresh failed with "The provider sent live streams that could not be read": all four `player_api.php` calls answered 200 within one second with a body that was not JSON, and the log only had serde's "expected value at line 1 column 1"
+  - `fetch_json_once` logs the body's size and first 120 characters on one line, credentials masked before the cut (`describe_body`)
+  - `UnreadableBody` picks the message: an empty answer or a web page/text ("The account may be in use on another device or briefly blocked; try again in a few minutes"), a rejected login when the panel sends the account envelope with `user_info.auth` 0, and the old message for JSON of another shape
+  - Still permanent, not retried: a refusing provider answers the same way again, and extra requests count against its rate limit
 
 ### Performance
 
@@ -56,6 +60,11 @@ Measured on the 26,049-channel playlist (15,310 live), headless Chromium, React 
 | Live TV -> Movies | 202 card mounts, 77 ms React, long tasks 137 + 72 ms | 64 mounts, 20 ms, no long task |
 | Movies -> Live TV | 262 card mounts, 31 ms React | 60 mounts, 7 ms |
 | TMDB card stream (40 batches) | 364 ms React | 22 ms |
+
+- **Channel list without stream URLs; playback by id** - `get_channels` serialized every `Channel` column: 9.66 MB of JSON for 26,049 channels on each start and profile switch. The stream URL was a quarter of it and, for Xtream, carries the account's username and password
+  - `get_channels` and `get_favorites` return `ChannelSummary` (`db/models.rs`): id, name, logo, group_name, epg_id, content_type, is_favorite, created_at, `None` fields skipped. `tvg_name`, `category_order`, `playlist_id` and `sort_order` had no reader in the frontend. 9.66 -> 5.30 MB (-45 %), `JSON.parse` 32 -> 22 ms (V8). The TS `Channel` type follows; `ChannelInput` is gone
+  - `play_channel` takes `channel_id` and reads the row, so the webview cannot hand MPV a URL of its own. `get_xtream_series_id` replaces the frontend's `parseXtreamSeriesId`; `series_domain::parse_xtream_series_id` gives `None` for a last segment that is not a number, where `parseInt` accepted a numeric prefix
+  - A single Xtream episode plays through `play_episode_with_season` instead of a virtual channel whose URL the frontend built from the credentials. Space no longer tries to resume a virtual episode channel (id -1), which has no row to play
 
 ## [3.0.0] - 2026-09-27
 
