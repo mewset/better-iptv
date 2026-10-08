@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { usePlayerStore, type Section } from '../stores/player-store';
 import {
@@ -412,9 +412,19 @@ export default function MainScreen() {
   // a scroll offset left over from the previous list would land the user
   // somewhere arbitrary in the new one. Returning from the detail view is
   // not a new list, so it keeps its place (nothing here changes then).
-  useEffect(() => {
+  // The virtualiser's offset is reset during render, before it picks the
+  // rows below, so the first render of the new list already starts at the
+  // top instead of mounting rows at the old list's depth. The DOM follows
+  // before paint.
+  const listKey = `${contentTypeFilter}\u0000${categoryFilter ?? ''}\u0000${trimmedQuery}`;
+  const [renderedListKey, setRenderedListKey] = useState(listKey);
+  if (renderedListKey !== listKey) {
+    setRenderedListKey(listKey);
+    rowVirtualizer.scrollOffset = 0;
+  }
+  useLayoutEffect(() => {
     if (parentRef.current) parentRef.current.scrollTop = 0;
-  }, [contentTypeFilter, categoryFilter, trimmedQuery]);
+  }, [listKey]);
 
   // The cards in view, overscan included. They feed the EPG and TMDB lookups,
   // so a 15,000-channel list only ever asks about what is on screen.

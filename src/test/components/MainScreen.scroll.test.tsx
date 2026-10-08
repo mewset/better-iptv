@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
@@ -9,15 +9,28 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
 }));
 
-// jsdom has no layout, so the real virtualiser would render no rows.
+// jsdom has no layout, so the real virtualiser would render no rows. The
+// stand-in keeps one instance across renders, like the real hook, and logs
+// the scroll offset each time rows are asked for.
+const virtualiser = vi.hoisted(() => ({
+  scrollOffset: 0 as number | null,
+  offsetsAsked: [] as Array<number | null>,
+}));
 vi.mock('@tanstack/react-virtual', () => ({
-  useVirtualizer: ({ count }: { count: number }) => ({
-    getVirtualItems: () =>
-      Array.from({ length: count }, (_, index) => ({ index, key: index, start: index * 300 })),
-    getTotalSize: () => count * 300,
-    measureElement: () => {},
-    measure: () => {},
-  }),
+  useVirtualizer: ({ count }: { count: number }) =>
+    Object.assign(virtualiser, {
+      getVirtualItems: () => {
+        virtualiser.offsetsAsked.push(virtualiser.scrollOffset);
+        return Array.from({ length: count }, (_, index) => ({
+          index,
+          key: index,
+          start: index * 300,
+        }));
+      },
+      getTotalSize: () => count * 300,
+      measureElement: () => {},
+      measure: () => {},
+    }),
 }));
 
 const home: Playlist = { id: 1, name: 'Home', url: 'http://home.example', auto_refresh: false };
@@ -128,5 +141,19 @@ describe('MainScreen: scroll position resets when the list changes', () => {
     list = await scrolledList();
     usePlayerStore.getState().setSearchQuery('');
     await waitFor(() => expect(list.scrollTop).toBe(0));
+  });
+
+  it('lays out a new list from the top in its very first render', async () => {
+    // Resetting only the DOM, after commit, rendered the new list once at the
+    // old list's offset: rows deep in the new list mounted for nothing.
+    render(<MainScreen />);
+    await scrolledList();
+    virtualiser.scrollOffset = 4800;
+    virtualiser.offsetsAsked = [];
+
+    act(() => usePlayerStore.getState().setContentTypeFilter('vod'));
+
+    expect(virtualiser.offsetsAsked.length).toBeGreaterThan(0);
+    expect(virtualiser.offsetsAsked[0]).toBe(0);
   });
 });
