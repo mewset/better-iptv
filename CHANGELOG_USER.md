@@ -24,6 +24,7 @@ A simple overview of new features and improvements.
 - Fixed a bug where a small error in a provider's program guide could throw away the whole guide
 - Channels further down a long list now show what's on, instead of "No guide data"
 - When a provider turns a playlist update away, the app now says so (for example a busy account or a wrong password) instead of an unclear error
+- Fixed playlist updates failing for providers that send their channel list compressed
 
 ## Version 3.0.0 (September 27, 2026)
 

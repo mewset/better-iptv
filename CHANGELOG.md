@@ -40,6 +40,9 @@ This file is a developer-changelog, aimed towards development changes.
   - `fetch_json_once` logs the body's size and first 120 characters on one line, credentials masked before the cut (`describe_body`)
   - `UnreadableBody` picks the message: an empty answer or a web page/text ("The account may be in use on another device or briefly blocked; try again in a few minutes"), a rejected login when the panel sends the account envelope with `user_info.auth` 0, and the old message for JSON of another shape
   - Still permanent, not retried: a refusing provider answers the same way again, and extra requests count against its rate limit
+- **Xtream answers sent gzip-compressed are read** - a playlist refresh failed because the provider answered every `player_api.php` call with gzip (the new body logging showed `1f 8b ...`); reqwest was built without its `gzip` feature, so the compressed bytes reached the JSON decoder
+  - reqwest gets the `gzip` feature: answers marked `Content-Encoding: gzip` are decompressed for every request
+  - `fetch_json_once` and `fetch_user_info` also unpack a body that starts with the gzip magic bytes but is not marked (`gunzip_if_gzipped`), as `epg/xmltv.rs` already does; a damaged compressed body reports "sent a damaged compressed answer"
 
 ### Performance
 
