@@ -97,9 +97,11 @@ export function useKeyboardShortcuts(
             } catch (err) {
               logger.error('Failed to stop playback via keyboard:', err);
             }
-          } else if (currentChannel) {
+          } else if (currentChannel && currentChannel.id > 0) {
+            // A virtual episode channel (id -1) has no row to play again;
+            // its episodes are started from the detail view.
             try {
-              await playChannel(currentChannel);
+              await playChannel(currentChannel.id);
               setIsPlaying(true);
             } catch (err) {
               logger.error('Failed to resume playback via keyboard:', err);

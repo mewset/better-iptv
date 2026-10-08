@@ -5,13 +5,10 @@ import type { Channel } from '../../types';
 
 const ch: Channel = {
   id: 1,
-  playlist_id: 1,
   name: 'SVT1',
-  url: 'http://x',
   group_name: 'Sweden',
   content_type: 'live',
   is_favorite: false,
-  sort_order: 0,
 };
 
 const now = Date.now();

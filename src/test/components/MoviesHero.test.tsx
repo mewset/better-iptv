@@ -5,13 +5,10 @@ import type { Channel } from '../../types';
 
 const movie: Channel = {
   id: 16,
-  playlist_id: 1,
   name: 'Dune: Part Two',
-  url: 'http://example.invalid/movie/16.mkv',
   group_name: 'Movies',
   content_type: 'vod',
   is_favorite: false,
-  sort_order: 0,
   created_at: '2026-09-01T00:00:00Z',
 };
 

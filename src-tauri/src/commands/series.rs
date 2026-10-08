@@ -30,6 +30,21 @@ pub async fn get_series_info(
         .map_err(|e| AppError::Http(e.to_string()))
 }
 
+/// The Xtream series id behind a series row, read from its stream URL so the
+/// URL itself stays in the backend. None when the URL does not end in one.
+#[tauri::command]
+pub async fn get_xtream_series_id(
+    state: State<'_, AppState>,
+    channel_id: i64,
+) -> Result<Option<i64>, AppError> {
+    with_db(&state.pool, move |conn| {
+        let channel = queries::get_channel_by_id(conn, channel_id)?
+            .ok_or(AppError::ChannelNotFound(channel_id))?;
+        Ok(series_domain::parse_xtream_series_id(&channel.url))
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn play_episode_with_season(
     state: State<'_, AppState>,

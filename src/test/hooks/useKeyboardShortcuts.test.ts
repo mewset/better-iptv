@@ -10,7 +10,7 @@ vi.mock('../../lib/tauri', () => ({
   playChannel: vi.fn(async () => {}),
 }));
 
-const channel = { id: 1, name: 'SVT1', url: 'http://x', content_type: 'live' } as Channel;
+const channel = { id: 1, name: 'SVT1', content_type: 'live' } as Channel;
 
 function press(key: string, target: globalThis.EventTarget = document.body, init = {}) {
   const event = new globalThis.KeyboardEvent('keydown', {

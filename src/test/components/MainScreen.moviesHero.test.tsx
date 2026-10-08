@@ -129,6 +129,8 @@ function setupInvoke(
         return parentalSettings;
       case 'play_channel':
         return undefined;
+      case 'get_xtream_series_id':
+        return 1012;
       case 'get_series_info':
       case 'get_local_series_info':
         return { seasons: [], info: { name: 'Newest Show' }, episodes: {} };
@@ -207,7 +209,7 @@ describe('MainScreen: Movies hero', () => {
     fireEvent.click(within(hero).getByRole('button', { name: 'Play Newest Movie' }));
 
     await waitFor(() => expect(calls('play_channel')).toHaveLength(1));
-    expect(calls('play_channel')[0][1]).toEqual({ channel: newest });
+    expect(calls('play_channel')[0][1]).toEqual({ channelId: newest.id });
   });
 
   it('skips a blocked newest title and shows the next one instead', async () => {

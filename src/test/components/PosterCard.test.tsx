@@ -5,14 +5,11 @@ import type { Channel } from '../../types';
 
 const movie: Channel = {
   id: 9,
-  playlist_id: 1,
   name: 'Past Lives',
-  url: 'http://x',
   group_name: 'Drama',
   logo: 'http://img/poster.jpg',
   content_type: 'vod',
   is_favorite: false,
-  sort_order: 0,
 };
 
 describe('PosterCard', () => {

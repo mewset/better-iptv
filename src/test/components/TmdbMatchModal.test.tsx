@@ -13,12 +13,9 @@ import { searchTmdb, setTmdbMatch } from '../../lib/tauri';
 
 const movie: Channel = {
   id: 9,
-  playlist_id: 1,
   name: 'Shuter Island',
-  url: 'http://x',
   content_type: 'vod',
   is_favorite: false,
-  sort_order: 0,
 };
 const details = { available: true, matched: true, manual: true, tmdb_id: 11324 } as TmdbDetails;
 

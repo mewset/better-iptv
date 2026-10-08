@@ -2,9 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useChannelPlayback } from '../../hooks/useChannelPlayback';
 import { usePlayerStore } from '../../stores/player-store';
-import { playSeriesEpisodes, playChannel, getPlaybackStatus } from '../../lib/tauri';
+import {
+  playSeriesEpisodes,
+  playChannel,
+  playEpisodeWithSeason,
+  getPlaybackStatus,
+} from '../../lib/tauri';
 import { resetPlaybackGuard } from '../../lib/playGuard';
-import type { Channel } from '../../types';
+import type { Channel, Playlist } from '../../types';
 
 vi.mock('../../lib/tauri', () => ({
   playChannel: vi.fn(),
@@ -60,12 +65,9 @@ describe('useChannelPlayback.playLocalEpisodes', () => {
 
 const svt1: Channel = {
   id: 1,
-  playlist_id: 1,
   name: 'SVT1',
-  url: 'http://x',
   content_type: 'live',
   is_favorite: false,
-  sort_order: 0,
 };
 
 describe('useChannelPlayback start guard and failure toast', () => {
@@ -124,5 +126,70 @@ describe('useChannelPlayback start guard and failure toast', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('useChannelPlayback sends ids and episodes, never stream URLs', () => {
+  const xtream: Playlist = {
+    id: 3,
+    name: 'IPTV',
+    url: 'http://p.example:8080/',
+    auto_refresh: false,
+    xtream_username: 'alice',
+    xtream_password: 's3cret',
+  };
+
+  beforeEach(() => {
+    vi.mocked(playChannel).mockReset().mockResolvedValue(undefined);
+    vi.mocked(playEpisodeWithSeason).mockReset().mockResolvedValue(undefined);
+    vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: true, failed: false });
+    resetPlaybackGuard();
+    usePlayerStore.setState({ currentChannel: null, isPlaying: false, toast: null });
+  });
+
+  it('plays a channel by its id', async () => {
+    const { result } = renderHook(() => useChannelPlayback());
+    await act(async () => {
+      await result.current.play(svt1);
+    });
+    expect(playChannel).toHaveBeenCalledWith(1);
+  });
+
+  it('plays a single episode through the episode path, not a URL built here', async () => {
+    const { result } = renderHook(() => useChannelPlayback());
+    await act(async () => {
+      await result.current.playEpisode('901', 'mkv', 'Pilot', xtream);
+    });
+    expect(playChannel).not.toHaveBeenCalled();
+    expect(playEpisodeWithSeason).toHaveBeenCalledWith(
+      'http://p.example:8080/',
+      'alice',
+      's3cret',
+      [{ id: '901', title: 'Pilot', extension: 'mkv' }]
+    );
+    expect(usePlayerStore.getState().currentChannel).toEqual({
+      id: -1,
+      name: 'Pilot',
+      content_type: 'series',
+      is_favorite: false,
+    });
+    expect(usePlayerStore.getState().isPlaying).toBe(true);
+  });
+
+  it('plays the rest of the season when it is known', async () => {
+    const rest = [
+      { id: '901', title: 'Pilot', extension: 'mkv' },
+      { id: '902', title: 'Two', extension: 'mkv' },
+    ];
+    const { result } = renderHook(() => useChannelPlayback());
+    await act(async () => {
+      await result.current.playEpisode('901', 'mkv', 'Pilot', xtream, rest);
+    });
+    expect(playEpisodeWithSeason).toHaveBeenCalledWith(
+      'http://p.example:8080/',
+      'alice',
+      's3cret',
+      rest
+    );
   });
 });

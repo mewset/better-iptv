@@ -135,7 +135,7 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         }
 
         // Play new channel
-        await tauriPlayChannel(channel);
+        await tauriPlayChannel(channel.id);
         setCurrentChannel(channel);
         setIsPlaying(true);
 
@@ -202,33 +202,26 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
 
       if (!beginPlaybackStart()) return;
       try {
-        if (remainingEpisodes && remainingEpisodes.length > 0) {
-          // Play season playlist
-          await playEpisodeWithSeason(
-            playlist.url,
-            playlist.xtream_username,
-            playlist.xtream_password,
-            remainingEpisodes
-          );
-          setIsPlaying(true);
-        } else {
-          // Fallback: play single episode
-          const episodeUrl = `${playlist.url.replace(/\/$/, '')}/series/${playlist.xtream_username}/${playlist.xtream_password}/${episodeId}.${extension}`;
-
-          const episodeChannel: Channel = {
+        // The rest of the season when known, otherwise just this episode;
+        // the backend builds the stream URLs either way.
+        const season = remainingEpisodes !== undefined && remainingEpisodes.length > 0;
+        await playEpisodeWithSeason(
+          playlist.url,
+          playlist.xtream_username,
+          playlist.xtream_password,
+          season ? remainingEpisodes : [{ id: episodeId, title, extension }]
+        );
+        // As before, a single episode gets a dock entry as a virtual channel
+        // and a season playlist does not.
+        if (!season) {
+          setCurrentChannel({
             id: -1, // Virtual channel
-            playlist_id: playlist.id || 0,
             name: title,
-            url: episodeUrl,
             content_type: 'series',
             is_favorite: false,
-            sort_order: 0,
-          };
-
-          await tauriPlayChannel(episodeChannel);
-          setCurrentChannel(episodeChannel);
-          setIsPlaying(true);
+          });
         }
+        setIsPlaying(true);
       } catch (err) {
         logger.error('Failed to play episode:', err);
         showToast(`Couldn't start ${title}.`);
@@ -248,12 +241,9 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         await playSeriesEpisodes(episodeIds);
         setCurrentChannel({
           id: -1, // Virtual channel: the row ids belong to series_episodes, not channels
-          playlist_id: 0,
           name: title,
-          url: '',
           content_type: 'series',
           is_favorite: false,
-          sort_order: 0,
         });
         setIsPlaying(true);
         setCurrentProgram(null);

@@ -15,26 +15,19 @@ export interface Playlist {
 }
 
 /**
- * Channel data input (before creation, without id)
+ * A channel as `get_channels` lists it: what cards, filters and the hero
+ * read. The stream URL stays in the backend (for Xtream it carries the
+ * account's credentials), so playback goes by id. Absent optional fields
+ * are left out rather than sent as null.
  */
-export interface ChannelInput {
-  playlist_id: number;
+export interface Channel {
+  id: number;
   name: string;
-  url: string;
   logo?: string;
   group_name?: string;
   epg_id?: string;
-  tvg_name?: string;
   content_type: 'live' | 'vod' | 'series';
   is_favorite: boolean;
-  sort_order: number;
-}
-
-/**
- * Channel with required id (after creation/from database)
- */
-export interface Channel extends ChannelInput {
-  id: number;
   created_at?: string;
 }
 

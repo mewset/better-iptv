@@ -5,12 +5,9 @@ import type { Channel } from '../../types';
 function movie(id: number, created_at?: string): Channel {
   return {
     id,
-    playlist_id: 1,
     name: `Movie ${id}`,
-    url: `http://x/${id}`,
     content_type: 'vod',
     is_favorite: false,
-    sort_order: 0,
     created_at,
   };
 }

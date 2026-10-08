@@ -20,13 +20,10 @@ function item(channel_id: number, title: string) {
 
 const pickChannel: Channel = {
   id: 9,
-  playlist_id: 1,
   name: 'Pick.Movie.2021.1080p',
-  url: 'http://example.invalid/movie/9.mkv',
   group_name: 'Movies',
   content_type: 'vod',
   is_favorite: false,
-  sort_order: 0,
   created_at: '2026-09-01T00:00:00Z',
 };
 const pickCard = { ...item(9, 'Pick Movie'), genres: ['Drama'] };
