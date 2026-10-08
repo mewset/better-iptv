@@ -293,6 +293,7 @@ dependencies = [
  "anyhow",
  "argon2",
  "backoff",
+ "bytes",
  "chrono",
  "flate2",
  "lazy_static",

@@ -259,7 +259,8 @@ pub async fn run_epg_refresh(state: &AppState) -> Result<EpgRefreshResult, AppEr
     {
         Ok(p) => p,
         Err(e) => {
-            warn!("Failed to fetch EPG: {}", e);
+            // Full chain for diagnosis; the log formatter masks credentials
+            warn!("Failed to fetch EPG: {:#}", e);
             return Ok(EpgRefreshResult {
                 success: false,
                 programs_loaded: 0,

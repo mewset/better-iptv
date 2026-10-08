@@ -1,5 +1,5 @@
 use crate::epg_domain::normalize_epg_id;
-use crate::http::get_http_client;
+use crate::http::{download_error, ensure_success, get_http_client};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use flate2::read::GzDecoder;
@@ -9,8 +9,8 @@ use quick_xml::Reader;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::Read;
-use std::time::Instant;
+use std::io::{BufRead, BufReader};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EpgProgram {
@@ -22,13 +22,57 @@ pub struct EpgProgram {
     pub category: Option<String>,
 }
 
+/// Shown when a feed downloads fine but holds no programmes: an empty file
+/// or a page that is not XMLTV. Nothing is stored and `epg_last_fetched` is
+/// left alone, so the next attempt is not pushed back by a refresh interval.
+pub const EMPTY_GUIDE_MESSAGE: &str =
+    "The EPG server sent a program guide without any programmes, so the current guide was kept";
+
 /// Fetch and parse XMLTV EPG data from a URL (async part)
 pub async fn fetch_and_parse_epg(url: &str, user_agent: Option<&str>) -> Result<Vec<EpgProgram>> {
     let start = Instant::now();
     info!("Fetching EPG from: {}", crate::utils::mask_credentials(url));
 
-    // Download EPG file using shared HTTP client
-    let request = get_http_client().get(url);
+    let bytes = download_epg(
+        get_http_client(),
+        url,
+        user_agent,
+        crate::http::BULK_DOWNLOAD_TIMEOUT,
+    )
+    .await?;
+    debug!(
+        "EPG fetch completed in {:?}: {} bytes",
+        start.elapsed(),
+        bytes.len()
+    );
+
+    let parse_start = Instant::now();
+    let programs = parse_epg_off_runtime(bytes).await?;
+    debug!(
+        "EPG parse completed in {:?}: {} programs",
+        parse_start.elapsed(),
+        programs.len()
+    );
+
+    if programs.is_empty() {
+        anyhow::bail!(EMPTY_GUIDE_MESSAGE);
+    }
+
+    info!("Parsed {} EPG programs from XMLTV", programs.len());
+    Ok(programs)
+}
+
+/// Download the raw EPG file. `deadline` overrides the client's total
+/// timeout; the client's stall timeout still ends a dead connection early.
+async fn download_epg(
+    client: &reqwest::Client,
+    url: &str,
+    user_agent: Option<&str>,
+    deadline: Duration,
+) -> Result<bytes::Bytes> {
+    const SERVER: &str = "EPG server";
+    let started = Instant::now();
+    let request = client.get(url).timeout(deadline);
     let request = if let Some(ua) = user_agent.filter(|ua| !ua.trim().is_empty()) {
         request.header(reqwest::header::USER_AGENT, ua)
     } else {
@@ -38,31 +82,52 @@ pub async fn fetch_and_parse_epg(url: &str, user_agent: Option<&str>) -> Result<
     let response = request
         .send()
         .await
-        .context("Failed to download EPG file")?;
-
-    let bytes = response
+        .map_err(|e| download_error(e, SERVER, started, deadline))?;
+    let response = ensure_success(response, SERVER)?;
+    response
         .bytes()
         .await
-        .context("Failed to read EPG response")?;
+        .map_err(|e| download_error(e, SERVER, started, deadline))
+}
 
-    // Check if it's gzipped based on URL or magic bytes
-    let xml_content = if url.ends_with(".gz") || is_gzipped(&bytes) {
-        decompress_gzip(&bytes)?
+/// Decompress and parse on the blocking pool: a large feed takes over a
+/// second of CPU, which would otherwise stall a tokio worker and every task
+/// queued on it.
+async fn parse_epg_off_runtime(bytes: bytes::Bytes) -> Result<Vec<EpgProgram>> {
+    tokio::task::spawn_blocking(move || parse_epg_bytes(&bytes))
+        .await
+        .context("EPG parse task failed")?
+}
+
+/// Parse a downloaded EPG file, gzipped or plain.
+///
+/// A gzip stream is decompressed while it is parsed, so the XML text is never
+/// held in memory as a whole (that halves peak memory). When the XML breaks
+/// off, the rest of the stream is drained first, so gzip's length and CRC
+/// check still runs: a damaged download fails as a whole, while malformed XML
+/// in an intact file keeps the programmes read before the fault.
+pub(crate) fn parse_epg_bytes(bytes: &[u8]) -> Result<Vec<EpgProgram>> {
+    if is_gzipped(bytes) {
+        let reader = BufReader::with_capacity(64 * 1024, GzDecoder::new(bytes));
+        finish_parse(parse_xmltv(reader), "Failed to decompress gzipped EPG")
     } else {
-        String::from_utf8(bytes.to_vec()).context("Invalid UTF-8 in EPG file")?
-    };
+        finish_parse(parse_xmltv(bytes), "Failed to read EPG")
+    }
+}
 
-    debug!("EPG fetch completed in {:?}", start.elapsed());
-
-    let parse_start = Instant::now();
-    let programs = parse_xmltv(&xml_content)?;
-    debug!(
-        "EPG parse completed in {:?}: {} programs",
-        parse_start.elapsed(),
-        programs.len()
-    );
-
-    info!("Parsed {} EPG programs from XMLTV", programs.len());
+fn finish_parse<R: BufRead>(parsed: ParsedXmltv<R>, read_failure: &str) -> Result<Vec<EpgProgram>> {
+    let ParsedXmltv {
+        programs,
+        error,
+        mut rest,
+    } = parsed;
+    if let Some(e) = error {
+        if let quick_xml::Error::Io(io) = &e {
+            anyhow::bail!("{read_failure}: {io}");
+        }
+        std::io::copy(&mut rest, &mut std::io::sink()).context(read_failure.to_string())?;
+        warn!("XML parsing error: {}", e);
+    }
     Ok(programs)
 }
 
@@ -84,19 +149,22 @@ fn is_gzipped(bytes: &[u8]) -> bool {
     bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b
 }
 
-/// Decompress gzip data
-fn decompress_gzip(bytes: &[u8]) -> Result<String> {
-    let mut decoder = GzDecoder::new(bytes);
-    let mut decompressed = String::new();
-    decoder
-        .read_to_string(&mut decompressed)
-        .context("Failed to decompress gzipped EPG")?;
-    Ok(decompressed)
+/// What `parse_xmltv` read before it stopped, and why it stopped early.
+struct ParsedXmltv<R> {
+    programs: Vec<EpgProgram>,
+    /// The XML or read error that ended parsing before `</tv>`, if any
+    error: Option<quick_xml::Error>,
+    /// The unread rest of the source, for `finish_parse` to drain
+    rest: R,
 }
 
-/// Parse XMLTV format
-fn parse_xmltv(xml: &str) -> Result<Vec<EpgProgram>> {
-    let mut reader = Reader::from_str(xml);
+/// Parse XMLTV format from any buffered source.
+///
+/// Text is decoded per field: a programme whose title is not valid UTF-8
+/// gets an empty title and is skipped, instead of one stray byte rejecting
+/// the whole guide.
+fn parse_xmltv<R: BufRead>(source: R) -> ParsedXmltv<R> {
+    let mut reader = Reader::from_reader(source);
     reader.config_mut().trim_text(true);
 
     // Pre-allocate with estimated capacity (typical EPG has 5k-50k programs)
@@ -174,15 +242,22 @@ fn parse_xmltv(xml: &str) -> Result<Vec<EpgProgram>> {
             },
             Ok(Event::Eof) => break,
             Err(e) => {
-                warn!("XML parsing error: {}", e);
-                break;
+                return ParsedXmltv {
+                    programs,
+                    error: Some(e),
+                    rest: reader.into_inner(),
+                };
             }
             _ => {}
         }
         buf.clear();
     }
 
-    Ok(programs)
+    ParsedXmltv {
+        programs,
+        error: None,
+        rest: reader.into_inner(),
+    }
 }
 
 /// Parse XMLTV timestamp format (YYYYMMDDHHmmss +ZZZZ)
@@ -598,7 +673,7 @@ mod tests {
   </programme>
 </tv>"#;
 
-        let programs = parse_xmltv(xml).unwrap();
+        let programs = parse_epg_bytes(xml.as_bytes()).unwrap();
 
         assert_eq!(programs.len(), 1, "programmes without a title are skipped");
         let p = &programs[0];
@@ -608,6 +683,155 @@ mod tests {
         assert_eq!(p.category.as_deref(), Some("News"));
         assert_eq!(p.start_time.to_rfc3339(), "2026-09-02T18:00:00+00:00");
         assert_eq!(p.end_time.to_rfc3339(), "2026-09-02T18:30:00+00:00");
+    }
+
+    // ---- Download and parse pipeline ----
+
+    fn feed(programmes: usize) -> Vec<u8> {
+        let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<tv>\n");
+        for i in 0..programmes {
+            xml += &format!(
+                "<programme start=\"20261010{h:02}0000 +0200\" stop=\"20261010{h:02}5900 +0200\" channel=\"kanal{c}.se\">\
+                 <title>Program {i}</title><desc>Avsnitt {i} med å, ä och ö</desc><category>Nyheter</category></programme>\n",
+                h = i % 24,
+                c = i % 40
+            );
+        }
+        xml += "</tv>\n";
+        xml.into_bytes()
+    }
+
+    fn gzip(bytes: &[u8]) -> Vec<u8> {
+        use flate2::{write::GzEncoder, Compression};
+        use std::io::Write;
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(bytes).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    fn summary(programs: &[EpgProgram]) -> Vec<(String, String, Option<String>, String)> {
+        programs
+            .iter()
+            .map(|p| {
+                (
+                    p.channel_id.clone(),
+                    p.title.clone(),
+                    p.description.clone(),
+                    p.start_time.to_rfc3339(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn gzipped_and_plain_feeds_parse_to_the_same_programmes() {
+        let xml = feed(500);
+        let plain = parse_epg_bytes(&xml).unwrap();
+        let gzipped = parse_epg_bytes(&gzip(&xml)).unwrap();
+        assert_eq!(plain.len(), 500);
+        assert_eq!(summary(&plain), summary(&gzipped));
+    }
+
+    #[test]
+    fn a_damaged_gzip_download_fails_as_a_whole_instead_of_giving_half_a_guide() {
+        let gz = gzip(&feed(2000));
+        let truncated = &gz[..gz.len() / 2];
+        let mut flipped = gz.clone();
+        let middle = flipped.len() / 2;
+        flipped[middle] ^= 0xff;
+
+        assert!(parse_epg_bytes(truncated).is_err(), "truncated gzip parsed");
+        assert!(parse_epg_bytes(&flipped).is_err(), "corrupted gzip parsed");
+    }
+
+    #[test]
+    fn malformed_xml_keeps_the_programmes_before_the_fault_gzipped_or_not() {
+        let mut xml = feed(1000);
+        let cut = xml.len() / 2;
+        xml.splice(cut..cut, b"</oops>".iter().copied());
+
+        let plain = parse_epg_bytes(&xml).unwrap();
+        let gzipped = parse_epg_bytes(&gzip(&xml)).unwrap();
+
+        assert!(
+            !plain.is_empty() && plain.len() < 1000,
+            "got {}",
+            plain.len()
+        );
+        assert_eq!(summary(&plain), summary(&gzipped));
+    }
+
+    #[test]
+    fn one_badly_encoded_title_drops_that_programme_not_the_guide() {
+        let mut xml = feed(100);
+        let at = xml.windows(9).position(|w| w == b"Program 5").unwrap();
+        xml[at + 1] = 0xE5; // a Latin-1 byte inside a UTF-8 feed
+
+        for bytes in [xml.clone(), gzip(&xml)] {
+            let programs = parse_epg_bytes(&bytes).unwrap();
+            assert_eq!(programs.len(), 99);
+            assert!(programs.iter().all(|p| p.title != "Program 5"));
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn parsing_leaves_the_runtime_free_for_other_tasks() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        // On a current-thread runtime a sibling task only runs while the
+        // parse future is pending. A parse on the runtime thread never
+        // yields, so the ticker would stay at zero.
+        let ticks = Arc::new(AtomicUsize::new(0));
+        let counter = ticks.clone();
+        let ticker = tokio::spawn(async move {
+            loop {
+                counter.fetch_add(1, Ordering::Relaxed);
+                tokio::task::yield_now().await;
+            }
+        });
+        tokio::task::yield_now().await;
+        let before = ticks.load(Ordering::Relaxed);
+
+        let programs = parse_epg_off_runtime(bytes::Bytes::from(gzip(&feed(20_000))))
+            .await
+            .unwrap();
+
+        let during = ticks.load(Ordering::Relaxed) - before;
+        ticker.abort();
+        assert_eq!(programs.len(), 20_000);
+        assert!(
+            during > 0,
+            "the runtime thread was blocked for the whole parse"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_feed_without_programmes_is_an_error_not_an_empty_success() {
+        use crate::http::test_server::{respond, serve};
+        let server = serve(vec![respond("200 OK", b"<?xml version=\"1.0\"?><tv></tv>")]).await;
+
+        let err = fetch_and_parse_epg(&format!("{}/xmltv.php", server.base), None)
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.to_string(), EMPTY_GUIDE_MESSAGE);
+    }
+
+    #[tokio::test]
+    async fn an_error_page_is_reported_by_status_not_parsed_as_an_empty_guide() {
+        use crate::http::test_server::{respond, serve};
+        let server = serve(vec![respond(
+            "403 Forbidden",
+            b"<html><body>Forbidden</body></html>",
+        )])
+        .await;
+
+        let err = fetch_and_parse_epg(&format!("{}/xmltv.php", server.base), None)
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.to_string(), "The EPG server answered 403 Forbidden");
     }
 
     #[test]
