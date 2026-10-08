@@ -198,6 +198,7 @@ pub fn run() {
             get_channel_epg,
             get_channels_epg,
             get_guide,
+            get_guide_epg_ids,
             get_epg_status,
             force_refresh_epg,
             // Parental controls commands

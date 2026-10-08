@@ -224,6 +224,11 @@ export async function getGuide(
   return await invoke('get_guide', { epgIds, from, to });
 }
 
+/** EPG ids with programmes between `from` and `to` (RFC 3339, at most seven days), normalized. */
+export async function getGuideEpgIds(from: string, to: string): Promise<string[]> {
+  return await invoke('get_guide_epg_ids', { from, to });
+}
+
 export interface EpgStatus {
   has_url: boolean;
   last_fetched: string | null;

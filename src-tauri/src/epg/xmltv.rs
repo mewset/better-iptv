@@ -534,6 +534,20 @@ pub fn get_guide(
     Ok(result)
 }
 
+/// The EPG ids with at least one programme overlapping `from`-`to`, each once.
+/// Ids are stored normalized, so the answer is normalized too. The guide uses
+/// it to list only channels that have something to show.
+pub fn get_guide_epg_ids(conn: &Connection, from: &str, to: &str) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT DISTINCT channel_epg_id FROM epg_programs
+         WHERE end_time > ?1 AND start_time < ?2",
+    )?;
+    let ids = stmt
+        .query_map(rusqlite::params![from, to], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(ids)
+}
+
 // Builder struct for constructing programs
 struct EpgProgramBuilder {
     channel_id: String,
@@ -919,6 +933,55 @@ mod tests {
         let epg = map.get("tv4.se").unwrap();
         assert!(epg.current.is_none() && epg.current_start.is_none() && epg.current_end.is_none());
         assert_eq!(epg.next.as_deref(), Some("Later"));
+    }
+
+    #[test]
+    fn guide_epg_ids_lists_each_id_with_an_overlapping_programme_once() {
+        let conn = setup_test_db();
+        let from = Utc::now();
+        let to = from + Duration::days(5);
+
+        store_epg_programs(
+            &conn,
+            &[
+                programme("svt1.se", "Rapport", from + Duration::hours(1), 30),
+                programme("svt1.se", "Aktuellt", from + Duration::hours(3), 30),
+                // Overlaps the start of the range.
+                programme("tv4.se", "Nyheterna", from - Duration::minutes(10), 30),
+                // Ends exactly at `from` / starts exactly at `to`: not inside.
+                programme("kanal5.se", "Ended", from - Duration::minutes(30), 30),
+                programme("tv6.se", "Later", to, 30),
+            ],
+        )
+        .unwrap();
+
+        let mut ids = get_guide_epg_ids(&conn, &from.to_rfc3339(), &to.to_rfc3339()).unwrap();
+        ids.sort();
+        assert_eq!(ids, vec!["svt1.se".to_string(), "tv4.se".to_string()]);
+    }
+
+    #[test]
+    fn guide_epg_ids_returns_the_stored_normalized_form() {
+        let conn = setup_test_db();
+        let from = Utc::now();
+        store_epg_programs(
+            &conn,
+            &[programme(
+                " SVT1.se ",
+                "Rapport",
+                from + Duration::hours(1),
+                30,
+            )],
+        )
+        .unwrap();
+
+        let ids = get_guide_epg_ids(
+            &conn,
+            &from.to_rfc3339(),
+            &(from + Duration::days(1)).to_rfc3339(),
+        )
+        .unwrap();
+        assert_eq!(ids, vec!["svt1.se".to_string()]);
     }
 
     #[test]
