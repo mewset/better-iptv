@@ -9,6 +9,10 @@ A simple overview of new features and improvements.
 ### Fixes
 
 - Fixed a minor bug that could cause login details to be written in plain text to the app's log file
+- Large program guides and playlists on slow connections no longer fail to download after 30 seconds
+- Importing a provider playlist now retries when the channel list download stalls
+- A failed program guide update now says why it failed, instead of reporting success with an empty guide
+- Fixed a bug where a small error in a provider's program guide could throw away the whole guide
 
 ## Version 3.0.0 (September 27, 2026)
 

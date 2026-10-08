@@ -17,6 +17,20 @@ This file is a developer-changelog, aimed towards development changes.
   - `import_xtream_playlist` in `commands/playlist.rs` and `Setup.tsx` no longer log the Xtream username at info level, and `Setup.tsx` logs the imported playlist's id instead of the whole `Playlist` (which carries the password) at debug level
   - `test_from_reqwest_error_masks_credentials` dials an ephemeral port it has just released instead of port 9, so it cannot hang on a host with a `discard` service
   - The log builder's `timezone_strategy` call is gone: `.format()` replaced the formatter it installed, and the closure already prints local time
+- **EPG parsing off the async runtime, with half the memory** - the XMLTV parse and gzip decompression in `epg/xmltv.rs` ran on a tokio worker: 0.1-0.2 s for a 40k-programme feed in a release build and 1.3-2.4 s for a 430k one, stalling every task queued on that worker
+  - `fetch_and_parse_epg` is split into `download_epg` (async), `parse_epg_bytes` (pure, sync) and `parse_epg_off_runtime` (`spawn_blocking`)
+  - gzip is decoded while it is parsed (`parse_xmltv` takes any `BufRead`) instead of into one `String` first: extra peak memory 45 -> 21 MB for 40k programmes, 431 -> 207 MB for 430k, parse about 20 % faster
+  - When the XML breaks off, `finish_parse` drains the rest of the gzip stream so its length and CRC check still runs. Without that, a damaged download parsed into half a guide; with it a damaged download fails as before, and malformed XML in an intact file keeps the programmes read before the fault, as before
+  - Text is decoded per field, so a programme whose title is not valid UTF-8 is skipped; before, one Latin-1 byte rejected the whole feed (`Invalid UTF-8 in EPG file`)
+  - gzip is detected by its magic bytes only; the `.gz` URL suffix check is gone
+  - `parsing_leaves_the_runtime_free_for_other_tasks` runs a ticker beside the parse on a current-thread runtime and fails if the parse blocks the runtime again
+- **Large downloads get time, stalled ones are caught, and errors say why** - the shared client's 30 s total timeout also covered reading the body, so a large EPG or playlist on a slow line failed at 30 s while still downloading
+  - `http.rs`: the client gets a 30 s `read_timeout` (`STALL_TIMEOUT`, no data at all, headers included) next to its 30 s total (`REQUEST_TIMEOUT`); the EPG download, M3U download and Xtream API calls set `BULK_DOWNLOAD_TIMEOUT` (10 min) per request. No request can time out earlier than before
+  - `http::download_error` builds the message from the error kind (`The EPG server stopped sending data`, `took longer than 10 minutes`, `Could not connect to …`), never from reqwest's text, which carries the credentialed URL; the reqwest error stays in the chain for `{:#}` in the log
+  - `http::ensure_success`: the EPG and M3U downloads check the status, so a 403 page is no longer parsed. For the EPG that page became a successful refresh with 0 programmes that set `epg_last_fetched` and postponed the next attempt; for M3U it read as "the provider returned no channels"
+  - A feed that parses to no programmes is an error (`EMPTY_GUIDE_MESSAGE`) and leaves `epg_last_fetched` alone, matching the existing empty-refresh guard for playlists
+  - `xtream.rs`: reqwest reports a body read that timed out as a decode error (`is_decode()`), and `fetch_json_with_retry` treated every decode error as permanent, so a stalled `get_live_streams`/`get_vod_streams`/`get_series` ended the import on the first attempt. `fetch_json_once` now reads the body and decodes it separately: read failures are transient, a body that does not decode is permanent. Decoding moves to `spawn_blocking`
+  - Tests run against `http::test_server`, a scripted local server (slow body, stall, status, refused connection) on a clock scaled 1:60
 
 ## [3.0.0] - 2026-09-27
 
