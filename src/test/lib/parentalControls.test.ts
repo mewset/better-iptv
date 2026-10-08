@@ -39,12 +39,9 @@ describe('isAdultContent', () => {
 describe('shouldBlockChannel', () => {
   const channel = (overrides: Partial<Channel>): Channel => ({
     id: 1,
-    playlist_id: 1,
     name: 'Ch',
-    url: 'http://x',
     content_type: 'live',
     is_favorite: false,
-    sort_order: 0,
     ...overrides,
   });
   const base = {

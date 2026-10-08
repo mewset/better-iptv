@@ -38,13 +38,10 @@ const cabin: Playlist = {
 
 const theBear: Channel = {
   id: 42,
-  playlist_id: 1,
   name: 'The Bear',
-  url: 'http://home.example/series/user/pass/777.mkv',
   content_type: 'series',
   is_favorite: false,
-  sort_order: 0,
-} as Channel;
+};
 
 const seriesInfo = {
   info: { name: 'The Bear', plot: 'A chef.', genre: 'Drama' },
@@ -63,6 +60,8 @@ describe('MainScreen: switching profile with a series open', () => {
     mockedInvoke.mockReset();
     mockedInvoke.mockImplementation(async (cmd: string) => {
       switch (cmd) {
+        case 'get_xtream_series_id':
+          return 777;
         case 'get_series_info':
         case 'get_local_series_info':
           return seriesInfo;

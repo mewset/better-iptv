@@ -182,6 +182,7 @@ pub fn run() {
             get_favorites,
             // Series commands
             get_series_info,
+            get_xtream_series_id,
             play_episode_with_season,
             get_local_series_info,
             play_series_episodes,

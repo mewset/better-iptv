@@ -16,21 +16,17 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 
 const movie: Channel = {
   id: 9,
-  playlist_id: 1,
   name: 'Shutter Island (2010)',
-  url: 'http://x/9.mkv',
   group_name: 'Thriller',
   logo: 'http://img/logo.jpg',
   content_type: 'vod',
   is_favorite: false,
-  sort_order: 0,
 };
 const series: Channel = {
   ...movie,
   id: 10,
   name: 'Breaking Bad',
   content_type: 'series',
-  url: 'http://x/series/10.mkv',
 };
 
 const matched: TmdbDetails = {

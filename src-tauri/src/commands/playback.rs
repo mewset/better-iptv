@@ -1,5 +1,5 @@
 use crate::commands::with_db;
-use crate::db::{models::Channel, queries};
+use crate::db::queries;
 use crate::error::AppError;
 use crate::playback::{self, PlaybackSettings};
 use crate::state::{AppState, CurrentChannel};
@@ -78,10 +78,15 @@ pub async fn check_mpv_installed() -> Result<bool, AppError> {
 }
 
 #[tauri::command]
-pub async fn play_channel(state: State<'_, AppState>, channel: Channel) -> Result<(), AppError> {
-    let title = channel.name.clone();
-    let settings = with_db(&state.pool, move |conn| {
-        build_playback_options(conn, Some(&title))
+/// Plays a channel from the database. The frontend sends only the id: the
+/// stream URL never leaves the backend, so the webview cannot hand MPV an
+/// address of its own.
+pub async fn play_channel(state: State<'_, AppState>, channel_id: i64) -> Result<(), AppError> {
+    let (channel, settings) = with_db(&state.pool, move |conn| {
+        let channel = queries::get_channel_by_id(conn, channel_id)?
+            .ok_or(AppError::ChannelNotFound(channel_id))?;
+        let settings = build_playback_options(conn, Some(&channel.name))?;
+        Ok((channel, settings))
     })
     .await?;
 

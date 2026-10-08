@@ -11,7 +11,7 @@ vi.mock('../../lib/tauri', () => ({
 const mockedGetGuide = vi.mocked(getGuide);
 
 const ch = (id: number, epg_id: string | null): Channel =>
-  ({ id, name: `C${id}`, url: 'http://x', content_type: 'live', epg_id }) as Channel;
+  ({ id, name: `C${id}`, content_type: 'live', epg_id }) as Channel;
 
 const programme = {
   title: 'News',

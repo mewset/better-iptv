@@ -6,6 +6,7 @@ import {
   getStalePlaylistIds,
   getChannels,
   getSeriesInfo,
+  getXtreamSeriesId,
   getLocalSeriesInfo,
   getTmdbStatus,
   type TmdbDetails,
@@ -44,13 +45,6 @@ import { useHomeRows } from '../hooks/useHomeRows';
 import type { HomePickView } from './HomeView';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { newestTitles } from '../lib/newestTitle';
-
-/** Xtream series URLs end in `/SERIES_ID.ext`; returns null when that is not the case. */
-function parseXtreamSeriesId(url: string): number | null {
-  const last = url.split('/').pop() ?? '';
-  const id = parseInt(last.replace(/\.\w+$/, ''), 10);
-  return Number.isNaN(id) ? null : id;
-}
 
 const SECTION_TITLES: Record<Section, string> = {
   home: 'Home',
@@ -577,9 +571,9 @@ export default function MainScreen() {
     const username = currentPlaylist?.xtream_username;
     const password = currentPlaylist?.xtream_password;
     if (url && username && password) {
-      const seriesId = parseXtreamSeriesId(detailChannel.url);
+      const seriesId = await getXtreamSeriesId(detailChannel.id);
       if (seriesId === null) {
-        logger.error('Failed to parse series ID from URL:', detailChannel.url);
+        logger.error('No Xtream series id in the URL of channel', detailChannel.id);
         throw new Error('Failed to load series: Invalid URL format');
       }
       return getSeriesInfo(url, username, password, seriesId);

@@ -35,12 +35,9 @@ const profile: Playlist = {
 
 const channel = (id: number, name: string): Channel => ({
   id,
-  playlist_id: 1,
   name,
-  url: `http://x/${id}`,
   content_type: 'live',
   is_favorite: false,
-  sort_order: id,
 });
 
 describe('ProfileManager refresh of the active profile', () => {

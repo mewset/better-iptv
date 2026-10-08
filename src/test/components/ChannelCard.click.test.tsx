@@ -15,12 +15,9 @@ import type { Channel } from '../../types';
 
 const channel: Channel = {
   id: 1,
-  playlist_id: 1,
   name: 'SVT1',
-  url: 'http://example.test/svt1',
   content_type: 'live',
   is_favorite: false,
-  sort_order: 0,
 };
 
 function renderCard(props: Partial<React.ComponentProps<typeof ChannelCard>> = {}) {

@@ -82,7 +82,7 @@ describe('blockGeometry', () => {
 
 describe('guideChannels', () => {
   const ch = (id: number, epg_id: string | null | undefined): Channel =>
-    ({ id, name: `C${id}`, url: 'http://x', content_type: 'live', epg_id }) as Channel;
+    ({ id, name: `C${id}`, content_type: 'live', epg_id }) as Channel;
 
   it('keeps only channels with a non-blank epg_id', () => {
     const list = [ch(1, 'a'), ch(2, null), ch(3, '  '), ch(4, undefined), ch(5, ' b ')];

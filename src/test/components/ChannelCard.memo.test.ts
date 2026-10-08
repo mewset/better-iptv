@@ -41,11 +41,8 @@ describe('ChannelCard memo stability', () => {
       {
         id: 1,
         name: 'Ch1',
-        url: 'http://test',
-        playlist_id: 1,
         content_type: 'live',
         is_favorite: false,
-        sort_order: 0,
       },
     ]);
 

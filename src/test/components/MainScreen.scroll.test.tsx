@@ -38,13 +38,10 @@ const home: Playlist = { id: 1, name: 'Home', url: 'http://home.example', auto_r
 function channel(id: number, name: string, content_type: Channel['content_type']): Channel {
   return {
     id,
-    playlist_id: 1,
     name,
-    url: `http://home.example/${id}`,
     group_name: 'G',
     content_type,
     is_favorite: false,
-    sort_order: id,
   };
 }
 

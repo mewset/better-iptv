@@ -370,6 +370,15 @@ pub fn validate_episodes(episodes: &[PlaylistEpisode]) -> Result<(), AppError> {
 ///
 /// # Returns
 /// Vector of formatted URLs, one per episode in the same order
+/// The Xtream series id at the end of a series row's URL (`.../SERIES_ID.ext`
+/// or `.../SERIES_ID`), or None when the last segment is not a number.
+pub fn parse_xtream_series_id(url: &str) -> Option<i64> {
+    let last = url.trim_end_matches('/').rsplit('/').next()?;
+    let stem = last.split('?').next()?;
+    let stem = stem.split_once('.').map_or(stem, |(id, _)| id);
+    stem.parse().ok()
+}
+
 pub fn build_episode_urls(
     server_url: &str,
     username: &str,
@@ -451,6 +460,36 @@ pub fn get_first_episode_title(episodes: &[PlaylistEpisode]) -> String {
         .first()
         .map(|ep| ep.title.clone())
         .unwrap_or_else(|| "Unknown Episode".to_string())
+}
+
+#[cfg(test)]
+mod xtream_series_id_tests {
+    use super::parse_xtream_series_id;
+
+    #[test]
+    fn reads_the_id_from_the_last_segment() {
+        assert_eq!(
+            parse_xtream_series_id("http://p.example:8080/series/alice/s3cret/1234.mkv"),
+            Some(1234)
+        );
+        assert_eq!(
+            parse_xtream_series_id("http://p.example/series/a/b/99"),
+            Some(99)
+        );
+    }
+
+    #[test]
+    fn rejects_a_segment_that_is_not_a_number() {
+        assert_eq!(
+            parse_xtream_series_id("http://p.example/get.php?type=m3u"),
+            None
+        );
+        assert_eq!(
+            parse_xtream_series_id("http://p.example/series/a/b/show.mkv"),
+            None
+        );
+        assert_eq!(parse_xtream_series_id(""), None);
+    }
 }
 
 #[cfg(test)]

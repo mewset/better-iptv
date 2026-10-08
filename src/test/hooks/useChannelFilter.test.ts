@@ -7,11 +7,8 @@ import type { Channel } from '../../types';
 const makeChannel = (overrides: Partial<Channel>): Channel => ({
   id: 1,
   name: 'Test',
-  url: 'http://test',
-  playlist_id: 1,
   content_type: 'live',
   is_favorite: false,
-  sort_order: 0,
   ...overrides,
 });
 

@@ -1,6 +1,6 @@
 use crate::channel_domain;
 use crate::commands::with_db;
-use crate::db::models::Channel;
+use crate::db::models::ChannelSummary;
 use crate::db::{mutations, queries};
 use crate::error::AppError;
 use crate::state::AppState;
@@ -11,7 +11,7 @@ use tauri::State;
 pub async fn get_channels(
     state: State<'_, AppState>,
     playlist_id: Option<i64>,
-) -> Result<Vec<Channel>, AppError> {
+) -> Result<Vec<ChannelSummary>, AppError> {
     if let Some(id) = playlist_id {
         channel_domain::validate_playlist_id(id)?;
     }
@@ -25,7 +25,7 @@ pub async fn get_channels(
         playlist_id,
         channels.len()
     );
-    Ok(channels)
+    Ok(channels.into_iter().map(ChannelSummary::from).collect())
 }
 
 #[tauri::command]
@@ -71,8 +71,8 @@ pub async fn toggle_favorite(state: State<'_, AppState>, channel_id: i64) -> Res
 }
 
 #[tauri::command]
-pub async fn get_favorites(state: State<'_, AppState>) -> Result<Vec<Channel>, AppError> {
+pub async fn get_favorites(state: State<'_, AppState>) -> Result<Vec<ChannelSummary>, AppError> {
     let channels = with_db(&state.pool, |conn| Ok(queries::get_favorites(conn)?)).await?;
     debug!("get_favorites -> {} channels", channels.len());
-    Ok(channels)
+    Ok(channels.into_iter().map(ChannelSummary::from).collect())
 }

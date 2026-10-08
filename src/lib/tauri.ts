@@ -7,8 +7,9 @@ export async function checkMpvInstalled(): Promise<boolean> {
   return await invoke('check_mpv_installed');
 }
 
-export async function playChannel(channel: Channel): Promise<void> {
-  await invoke('play_channel', { channel });
+/** Plays a channel by id; the backend looks up its stream URL. */
+export async function playChannel(channelId: number): Promise<void> {
+  await invoke('play_channel', { channelId });
 }
 
 export async function stopPlayback(): Promise<void> {
@@ -111,6 +112,11 @@ export interface PlaylistEpisode {
   id: string;
   title: string;
   extension: string;
+}
+
+/** The Xtream series id behind a series row, or null when its URL has none. */
+export async function getXtreamSeriesId(channelId: number): Promise<number | null> {
+  return await invoke('get_xtream_series_id', { channelId });
 }
 
 export async function getSeriesInfo(
