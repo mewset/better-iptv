@@ -7,6 +7,11 @@ import { formatClock } from '../../lib/epgTime';
 import type { GuideProgram } from '../../lib/tauri';
 import type { Channel } from '../../types';
 
+// useGuide listens for `epg-refreshed`; there is no Tauri runtime here.
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(async () => () => {}),
+}));
+
 const mockedInvoke = vi.mocked(invoke);
 
 const at = (min: number) => new Date(Date.now() + min * 60_000).toISOString();
