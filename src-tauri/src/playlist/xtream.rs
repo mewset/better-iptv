@@ -1,11 +1,12 @@
 use crate::db::models::Channel;
-use crate::http::get_http_client;
+use crate::http::{download_error, get_http_client, BULK_DOWNLOAD_TIMEOUT};
 use anyhow::{Context, Result};
 use backoff::{future::retry, ExponentialBackoff};
 use log::warn;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 // ---------------------------------------------------------------------------
 // Lenient scalar parsing
@@ -320,7 +321,7 @@ fn is_retryable_status(status: reqwest::StatusCode) -> bool {
 }
 
 /// Fetch JSON from URL with retry logic
-async fn fetch_json_with_retry<T: for<'de> Deserialize<'de>>(
+async fn fetch_json_with_retry<T: DeserializeOwned + Send + 'static>(
     url: &str,
     action: &str,
     user_agent: Option<&str>,
@@ -334,50 +335,87 @@ async fn fetch_json_with_retry<T: for<'de> Deserialize<'de>>(
         let action = action.clone();
         let user_agent = user_agent.clone();
         async move {
-            let request = get_http_client().get(&url);
-            let request = if let Some(ua) = user_agent.as_deref() {
-                request.header(reqwest::header::USER_AGENT, ua)
-            } else {
-                request
-            };
-
-            // Connection failures and timeouts: transient.
-            let response = request.send().await.map_err(|e| {
-                warn!("Xtream API {} failed, retrying: {}", action, e);
-                backoff::Error::transient(anyhow::anyhow!("Request failed: {}", e))
-            })?;
-
-            let status = response.status();
-            if !status.is_success() {
-                let err = anyhow::anyhow!("HTTP error: {}", status);
-                return Err(if is_retryable_status(status) {
-                    warn!("Xtream API {} returned status {}, retrying", action, status);
-                    backoff::Error::transient(err)
-                } else {
-                    warn!(
-                        "Xtream API {} returned status {}, giving up",
-                        action, status
-                    );
-                    backoff::Error::permanent(err)
-                });
-            }
-
-            // A body that does not decode as the expected JSON will not decode
-            // next time either; a body read that was cut off might.
-            response.json::<T>().await.map_err(|e| {
-                let err = anyhow::anyhow!("Parse failed: {}", e);
-                if e.is_decode() {
-                    warn!("Failed to parse {} response, giving up: {}", action, e);
-                    backoff::Error::permanent(err)
-                } else {
-                    warn!("Failed to read {} response, retrying: {}", action, e);
-                    backoff::Error::transient(err)
-                }
-            })
+            fetch_json_once(
+                get_http_client(),
+                &url,
+                &action,
+                user_agent.as_deref(),
+                BULK_DOWNLOAD_TIMEOUT,
+            )
+            .await
         }
     })
     .await
-    .with_context(|| format!("Failed to fetch {} from Xtream API after retries", action))
+    .map_err(|e| {
+        let message = format!("Could not load the {action} from the provider: {e}");
+        e.context(message)
+    })
+}
+
+/// One attempt at an Xtream API call, classified for `backoff`.
+///
+/// The body is read and decoded in two separate steps on purpose. reqwest
+/// reports a body read that timed out as a decode error, so with `json()` a
+/// stalled stream list looked like malformed JSON and was never retried.
+/// Here every failure while reading is transient and only a body that does
+/// not decode is permanent. The stream lists run to tens of megabytes, so
+/// decoding happens on the blocking pool.
+async fn fetch_json_once<T: DeserializeOwned + Send + 'static>(
+    client: &reqwest::Client,
+    url: &str,
+    action: &str,
+    user_agent: Option<&str>,
+    deadline: Duration,
+) -> std::result::Result<T, backoff::Error<anyhow::Error>> {
+    const SERVER: &str = "provider";
+    let started = Instant::now();
+    let request = client.get(url).timeout(deadline);
+    let request = if let Some(ua) = user_agent {
+        request.header(reqwest::header::USER_AGENT, ua)
+    } else {
+        request
+    };
+
+    // Connection failures and timeouts: transient.
+    let response = request.send().await.map_err(|e| {
+        let err = download_error(e, SERVER, started, deadline);
+        warn!("Xtream API {} failed, retrying: {:#}", action, err);
+        backoff::Error::transient(err)
+    })?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let err = anyhow::anyhow!("The {SERVER} answered {status}");
+        return Err(if is_retryable_status(status) {
+            warn!("Xtream API {} returned status {}, retrying", action, status);
+            backoff::Error::transient(err)
+        } else {
+            warn!(
+                "Xtream API {} returned status {}, giving up",
+                action, status
+            );
+            backoff::Error::permanent(err)
+        });
+    }
+
+    let body = response.bytes().await.map_err(|e| {
+        let err = download_error(e, SERVER, started, deadline);
+        warn!("Failed to read {} response, retrying: {:#}", action, err);
+        backoff::Error::transient(err)
+    })?;
+
+    // A body that does not decode as the expected JSON will not decode next
+    // time either.
+    tokio::task::spawn_blocking(move || serde_json::from_slice::<T>(&body))
+        .await
+        .map_err(|e| backoff::Error::permanent(anyhow::Error::new(e)))?
+        .map_err(|e| {
+            warn!("Failed to parse {} response, giving up: {}", action, e);
+            backoff::Error::permanent(
+                anyhow::Error::new(e)
+                    .context(format!("The {SERVER} sent {action} that could not be read")),
+            )
+        })
 }
 
 /// Fetch categories from Xtream API
@@ -1040,5 +1078,78 @@ mod user_info_tests {
         // bare error object; nothing to show either way.
         let json = r#"{"error":"unauthorized"}"#;
         assert!(serde_json::from_str::<XtreamUserInfoResponse>(json).is_err());
+    }
+}
+
+#[cfg(test)]
+mod json_fetch_tests {
+    use super::fetch_json_once;
+    use crate::http::build_client;
+    use crate::http::test_server::{head, respond, serve, Step};
+    use std::time::Duration;
+
+    async fn attempt(scripts: Vec<Vec<Step>>) -> Result<Vec<u32>, backoff::Error<anyhow::Error>> {
+        let server = serve(scripts).await;
+        // One second stands for a minute, as in the http tests
+        let client = build_client(Duration::from_millis(500), Duration::from_millis(500));
+        fetch_json_once::<Vec<u32>>(
+            &client,
+            &format!("{}/player_api.php?action=get_live_streams", server.base),
+            "live streams",
+            None,
+            Duration::from_secs(10),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn a_stream_list_that_stalls_mid_body_is_retried() {
+        // reqwest calls this a decode error; it used to end the import
+        let result = attempt(vec![vec![
+            head("200 OK", 1000),
+            Step::Write(b"[1,2,".to_vec()),
+            Step::Hang,
+        ]])
+        .await;
+        match result {
+            Err(backoff::Error::Transient { err, .. }) => {
+                assert_eq!(err.to_string(), "The provider stopped sending data")
+            }
+            other => panic!("expected a transient error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_body_that_is_not_the_expected_json_is_not_retried() {
+        let result = attempt(vec![respond("200 OK", b"<html>Login</html>")]).await;
+        match result {
+            Err(backoff::Error::Permanent(err)) => {
+                assert_eq!(
+                    err.to_string(),
+                    "The provider sent live streams that could not be read"
+                )
+            }
+            other => panic!("expected a permanent error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn statuses_keep_their_classification() {
+        assert!(matches!(
+            attempt(vec![respond("503 Service Unavailable", b"")]).await,
+            Err(backoff::Error::Transient { .. })
+        ));
+        assert!(matches!(
+            attempt(vec![respond("403 Forbidden", b"")]).await,
+            Err(backoff::Error::Permanent(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_complete_list_decodes() {
+        assert_eq!(
+            attempt(vec![respond("200 OK", b"[1,2,3]")]).await.unwrap(),
+            vec![1, 2, 3]
+        );
     }
 }

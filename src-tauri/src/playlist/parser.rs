@@ -1,27 +1,34 @@
 use crate::db::models::Channel;
-use crate::http::get_http_client;
+use crate::http::{download_error, ensure_success, get_http_client, BULK_DOWNLOAD_TIMEOUT};
 use anyhow::{Context, Result};
 use reqwest::header::USER_AGENT;
 use std::collections::HashMap;
+use std::time::Instant;
 
 /// Simple M3U playlist parser
 pub async fn parse_m3u(source: &str, user_agent: Option<&str>) -> Result<Vec<Channel>> {
     let content = if source.starts_with("http://") || source.starts_with("https://") {
-        // Download from URL using shared HTTP client
-        let request = get_http_client().get(source);
+        // Download from URL using shared HTTP client. A large playlist can
+        // take minutes on a slow line; the client's stall timeout still ends
+        // a dead connection early.
+        const SERVER: &str = "playlist server";
+        let deadline = BULK_DOWNLOAD_TIMEOUT;
+        let started = Instant::now();
+        let request = get_http_client().get(source).timeout(deadline);
         let request = if let Some(ua) = user_agent.filter(|ua| !ua.trim().is_empty()) {
             request.header(USER_AGENT, ua)
         } else {
             request
         };
 
-        request
+        let response = request
             .send()
             .await
-            .context("Failed to download M3U playlist")?
+            .map_err(|e| download_error(e, SERVER, started, deadline))?;
+        ensure_success(response, SERVER)?
             .text()
             .await
-            .context("Failed to read M3U content")?
+            .map_err(|e| download_error(e, SERVER, started, deadline))?
     } else {
         // Read from file without blocking the async worker
         tokio::fs::read_to_string(source)
@@ -191,5 +198,41 @@ http://stream.test.com/channel2.m3u8
             determine_content_type(&None, "http://test.com/vod/movie.m3u8"),
             "vod"
         );
+    }
+
+    #[tokio::test]
+    async fn an_error_page_is_reported_by_status_not_parsed_as_an_empty_playlist() {
+        use crate::http::test_server::{respond, serve};
+        let server = serve(vec![respond(
+            "403 Forbidden",
+            b"<html>Account expired</html>",
+        )])
+        .await;
+
+        let err = parse_m3u(
+            &format!("{}/get.php?username=john&password=secret", server.base),
+            None,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "The playlist server answered 403 Forbidden"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_downloaded_playlist_is_parsed() {
+        use crate::http::test_server::{respond, serve};
+        let body = b"#EXTM3U\n#EXTINF:-1 group-title=\"News\",SVT1\nhttp://example.com/live/1.ts\n";
+        let server = serve(vec![respond("200 OK", body)]).await;
+
+        let channels = parse_m3u(&format!("{}/list.m3u", server.base), None)
+            .await
+            .unwrap();
+
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].name, "SVT1");
     }
 }
