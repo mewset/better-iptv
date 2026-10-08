@@ -284,8 +284,9 @@ function DetailPanel({ selection, now, dockVisible, playing, onWatch, onClose }:
 export interface GuideViewProps {
   /**
    * The guide section's filtered list (every live channel, narrowed by
-   * category, parental hide and search); rows are its first 100 with an
-   * `epg_id`, after the Favorites chip's own narrowing.
+   * category, parental hide and search). After the Favorites chip's own
+   * narrowing, the rows are every channel in it with programmes in the
+   * guide's five days.
    */
   channels: Channel[];
   playingChannelId: number | null;
@@ -486,7 +487,12 @@ export function GuideView({
 
       <div
         ref={scrollRef}
-        className={cn('flex-1 overflow-y-auto px-10', selection && dockVisible ? 'pb-56' : 'pb-32')}
+        className={cn(
+          // relative: the table's offsetTop (the virtualizer's scrollMargin) is
+          // then measured from this scroll container, not from the chip row above.
+          'relative flex-1 overflow-y-auto px-10',
+          selection && dockVisible ? 'pb-56' : 'pb-32'
+        )}
       >
         {rowsLoading ? (
           <p className="py-16 text-center text-text-muted">Loading guide…</p>
