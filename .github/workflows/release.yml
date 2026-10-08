@@ -162,8 +162,21 @@ jobs:
           # Download appimagetool. The maintained one, not the archived AppImageKit
           # build: that one swaps Tauri's static runtime for the old libfuse2 one
           # and packs with gzip instead of zstd (84 MB -> 93 MB).
+          #
+          # Both the tool and the runtime it embeds are pinned to a release and
+          # checked against a sha256, so a release is built by exactly the same
+          # bits until these lines change. The tool otherwise fetches the runtime
+          # from a rolling "continuous" tag at pack time. Verified 2026-10-08:
+          # appimagetool 1.9.1 and the continuous build pack a byte-identical
+          # AppImage; between runtime 20251108 and continuous lies one change,
+          # a 0700 extraction directory for APPIMAGE_EXTRACT_AND_RUN.
           echo "📥 Downloading appimagetool..."
-          curl -L -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          curl -fL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          curl -fL -o runtime-x86_64 https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+          sha256sum --check --strict <<'SUMS'
+          ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  appimagetool
+          2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d  runtime-x86_64
+          SUMS
           chmod +x appimagetool
           # Unpack instead of mounting, so the runner needs no FUSE for it
           export APPIMAGE_EXTRACT_AND_RUN=1
@@ -176,7 +189,7 @@ jobs:
           # repack the regular AppImage in place before the -arch build below.
           echo "🔧 Fixing file permissions in the regular AppImage..."
           chmod -R a+rX squashfs-root
-          ARCH=x86_64 ./appimagetool squashfs-root "$APPIMAGE"
+          ARCH=x86_64 ./appimagetool --runtime-file runtime-x86_64 squashfs-root "$APPIMAGE"
 
           # Drop the bundled Ubuntu library stack entirely and run against the
           # system one, the same way the AUR package does. That is what makes this
@@ -240,10 +253,10 @@ jobs:
           # Repack as Arch-compatible AppImage
           ARCH_APPIMAGE="${APPIMAGE%.AppImage}-arch.AppImage"
           echo "📦 Repacking as: $ARCH_APPIMAGE"
-          ARCH=x86_64 ./appimagetool squashfs-root "$ARCH_APPIMAGE"
+          ARCH=x86_64 ./appimagetool --runtime-file runtime-x86_64 squashfs-root "$ARCH_APPIMAGE"
 
           # Cleanup
-          rm -rf squashfs-root appimagetool
+          rm -rf squashfs-root appimagetool runtime-x86_64
 
           echo "✅ Arch-compatible AppImage created: $ARCH_APPIMAGE"
           ls -la "$ARCH_APPIMAGE"
