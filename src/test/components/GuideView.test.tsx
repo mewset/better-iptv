@@ -42,11 +42,13 @@ const later: GuideProgram = {
 };
 
 let guide: Record<string, GuideProgram[]>;
+let guideIds: string[];
 let hasUrl: boolean;
 
 function setupInvoke() {
   mockedInvoke.mockImplementation(async (cmd: string) => {
     if (cmd === 'get_guide') return guide;
+    if (cmd === 'get_guide_epg_ids') return guideIds;
     if (cmd === 'get_epg_status')
       return { has_url: hasUrl, last_fetched: null, program_count: hasUrl ? 10 : 0 };
     return null;
@@ -73,6 +75,7 @@ describe('GuideView', () => {
   beforeEach(() => {
     mockedInvoke.mockReset();
     guide = { 'svt1.se': [airing, later], 'tv4.se': [] };
+    guideIds = ['svt1.se', 'tv4.se'];
     hasUrl = true;
     setupInvoke();
     usePlayerStore.setState({ categories: [], categoryFilter: null });
@@ -227,6 +230,7 @@ describe('GuideView', () => {
   it('survives a rejected guide request with "No guide data" rows', async () => {
     mockedInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'get_guide') throw new Error('invalid epg id');
+      if (cmd === 'get_guide_epg_ids') return ['svt1.se', 'tv4.se'];
       if (cmd === 'get_epg_status') return { has_url: true, last_fetched: null, program_count: 1 };
       return null;
     });

@@ -3,7 +3,7 @@ import { CalendarRange, Lock, Play, X } from 'lucide-react';
 import { usePlayerStore } from '../stores/player-store';
 import type { Channel } from '../types';
 import { getEpgStatus, type GuideProgram } from '../lib/tauri';
-import { GUIDE_DAY_COUNT, blockGeometry, guideChannels } from '../lib/guideLayout';
+import { GUIDE_DAY_COUNT, blockGeometry, normalizeEpgId } from '../lib/guideLayout';
 import { formatClock, minutesLeft, progressPercent } from '../lib/epgTime';
 import { logger } from '../lib/logger';
 import { cn } from '../lib/utils';
@@ -334,8 +334,7 @@ export function GuideView({
     () => (favoritesOnly ? channels.filter((c) => c.is_favorite) : channels),
     [channels, favoritesOnly]
   );
-  const rows = useMemo(() => guideChannels(listed, null), [listed]);
-  const { programs, window: win, loading } = useGuide(listed, dayOffset);
+  const { rows, programs, window: win, loading } = useGuide(listed, dayOffset);
 
   // Escape closes the detail panel before anything else sees it. A bubble
   // listener on document runs before useKeyboardShortcuts' window listener
@@ -495,7 +494,7 @@ export function GuideView({
                   <GuideRow
                     key={channel.id}
                     channel={channel}
-                    programmes={programs[channel.epg_id!.trim()]}
+                    programmes={programs[normalizeEpgId(channel.epg_id!)]}
                     from={win.from}
                     to={win.to}
                     now={now}

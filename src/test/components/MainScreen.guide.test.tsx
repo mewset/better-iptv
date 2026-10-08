@@ -61,6 +61,8 @@ function setupInvoke() {
           visibility: 'hide',
           auto_detect: false,
         };
+      case 'get_guide_epg_ids':
+        return ['svt1.se'];
       case 'get_tmdb_status':
         return {
           enabled: true,
