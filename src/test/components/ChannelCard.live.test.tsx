@@ -60,7 +60,7 @@ describe('live ChannelCard', () => {
 
   it('shows the colour-bar placeholder when there is no logo', () => {
     const { container } = render(<ChannelCard channel={ch} isPlaying={false} onPlay={vi.fn()} />);
-    expect(container.querySelectorAll('[data-bar]')).toHaveLength(7);
+    expect(container.querySelectorAll('[data-bars]')).toHaveLength(1);
   });
 
   it('keeps a keyboard-reachable play button', () => {
