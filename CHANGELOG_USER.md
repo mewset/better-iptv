@@ -8,7 +8,10 @@ A simple overview of new features and improvements.
 
 ### Improvements
 
-- Switching between Live TV, Movies and Series is quicker with large playlists
+**Big performance improvements for large playlists**
+
+- Switching between Live TV, Movies and Series is much quicker, with no flash of the wrong list
+- Movies and Series stay smooth while posters and ratings load in the background
 
 ### Fixes
 
