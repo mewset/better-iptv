@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 
 export interface GridConfig {
   columns: number;
@@ -86,43 +86,27 @@ export function calculateGridConfig(width: number, _height: number, kind: GridKi
 }
 
 export function useResponsiveGrid(kind: GridKind = 'live'): GridConfig {
-  const [gridConfig, setGridConfig] = useState<GridConfig>(() => {
-    // Initial calculation based on window size (or defaults for SSR)
-    if (typeof window !== 'undefined') {
-      return calculateGridConfig(window.innerWidth, window.innerHeight, kind);
-    }
-    return {
-      columns: 4,
-      cardHeight: LIVE_CARD_HEIGHT,
-      estimatedRowHeight: LIVE_CARD_HEIGHT + GAP,
-      gap: GAP,
-    };
-  });
-
-  const handleResize = useCallback(() => {
-    const newConfig = calculateGridConfig(window.innerWidth, window.innerHeight, kind);
-    setGridConfig((prev) => {
-      // Only update if values changed to prevent unnecessary re-renders
-      if (
-        prev.columns !== newConfig.columns ||
-        prev.cardHeight !== newConfig.cardHeight ||
-        prev.estimatedRowHeight !== newConfig.estimatedRowHeight
-      ) {
-        return newConfig;
-      }
-      return prev;
-    });
-  }, [kind]);
+  // Only the viewport lives in state; the config is derived during render.
+  // Updating the config in an effect laid out one render of a new section
+  // with the previous kind's columns, which mounted every visible card twice.
+  const [size, setSize] = useState(() =>
+    typeof window !== 'undefined'
+      ? { width: window.innerWidth, height: window.innerHeight }
+      : { width: 1024, height: 768 }
+  );
 
   useEffect(() => {
-    // Initial calculation (also re-runs when `kind` changes)
-    handleResize();
-
     // Debounced resize handler
     let timeoutId: ReturnType<typeof setTimeout>;
     const debouncedResize = () => {
       clearTimeout(timeoutId);
-      timeoutId = setTimeout(handleResize, 100);
+      timeoutId = setTimeout(() => {
+        setSize((prev) =>
+          prev.width === window.innerWidth && prev.height === window.innerHeight
+            ? prev
+            : { width: window.innerWidth, height: window.innerHeight }
+        );
+      }, 100);
     };
 
     window.addEventListener('resize', debouncedResize);
@@ -130,9 +114,9 @@ export function useResponsiveGrid(kind: GridKind = 'live'): GridConfig {
       window.removeEventListener('resize', debouncedResize);
       clearTimeout(timeoutId);
     };
-  }, [handleResize]);
+  }, []);
 
-  return gridConfig;
+  return useMemo(() => calculateGridConfig(size.width, size.height, kind), [size, kind]);
 }
 
 // Utility to generate Tailwind grid classes based on columns
