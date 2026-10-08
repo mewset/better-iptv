@@ -1,11 +1,40 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { GuideView } from '../../components/GuideView';
 import { usePlayerStore } from '../../stores/player-store';
 import { formatClock } from '../../lib/epgTime';
 import type { GuideProgram } from '../../lib/tauri';
 import type { Channel } from '../../types';
+
+// jsdom has no layout, so the real virtualizer renders no rows. This stand-in
+// renders every row unless a test narrows `visible`, and records the offset
+// each time rows are asked for.
+const virtualiser = vi.hoisted(() => ({
+  scrollOffset: 0 as number | null,
+  visible: null as null | [number, number],
+  offsetsAsked: [] as Array<number | null>,
+}));
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: ({ count }: { count: number }) =>
+    Object.assign(virtualiser, {
+      getVirtualItems: () => {
+        virtualiser.offsetsAsked.push(virtualiser.scrollOffset);
+        const [first, last] = virtualiser.visible ?? [0, count - 1];
+        return Array.from(
+          { length: Math.max(0, Math.min(last, count - 1) - first + 1) },
+          (_, i) => ({
+            index: first + i,
+            key: first + i,
+            start: (first + i) * 64,
+            size: 64,
+          })
+        );
+      },
+      getTotalSize: () => count * 64,
+      measure: () => {},
+    }),
+}));
 
 // useGuide listens for `epg-refreshed`; there is no Tauri runtime here.
 vi.mock('@tauri-apps/api/event', () => ({
@@ -81,6 +110,9 @@ describe('GuideView', () => {
     mockedInvoke.mockReset();
     guide = { 'svt1.se': [airing, later], 'tv4.se': [] };
     guideIds = ['svt1.se', 'tv4.se'];
+    virtualiser.scrollOffset = 0;
+    virtualiser.visible = null;
+    virtualiser.offsetsAsked = [];
     hasUrl = true;
     setupInvoke();
     usePlayerStore.setState({ categories: [], categoryFilter: null });
@@ -280,5 +312,88 @@ describe('GuideView', () => {
     );
     expect(within(row).getByText('Locked')).toBeInTheDocument();
     expect(within(row).queryByText('Rapport')).toBeNull();
+  });
+  it('lists only channels with guide data, matching ids regardless of case and spacing', async () => {
+    guideIds = ['svt1.se'];
+    renderGuide({ channels: [channel(1, 'SVT1', ' SVT1.se '), tv4] });
+    const row = await screen.findByRole('row', { name: 'SVT1' });
+    expect(screen.queryByRole('row', { name: 'TV4' })).toBeNull();
+    // Programmes come back keyed by the normalized id and still reach the row.
+    expect(
+      await within(row).findByRole('button', { name: blockName(airing, 'SVT1') })
+    ).toBeInTheDocument();
+  });
+
+  it('tells assistive technology how many rows there are and where each sits', async () => {
+    renderGuide();
+    const table = await screen.findByRole('table', { name: 'TV guide' });
+    await waitFor(() => expect(table).toHaveAttribute('aria-rowcount', '2'));
+    expect(screen.getByRole('row', { name: 'SVT1' })).toHaveAttribute('aria-rowindex', '1');
+    expect(screen.getByRole('row', { name: 'TV4' })).toHaveAttribute('aria-rowindex', '2');
+  });
+
+  it('shows "Loading guide…" until it knows which channels have data', async () => {
+    let answer!: (ids: string[]) => void;
+    mockedInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_guide_epg_ids') return new Promise<string[]>((r) => (answer = r));
+      if (cmd === 'get_guide') return guide;
+      if (cmd === 'get_epg_status') return { has_url: true, last_fetched: null, program_count: 1 };
+      return null;
+    });
+    renderGuide();
+    expect(await screen.findByText('Loading guide…')).toBeInTheDocument();
+    expect(screen.queryByText('None of these channels has guide data')).toBeNull();
+    await act(async () => answer(['svt1.se', 'tv4.se']));
+    expect(await screen.findByRole('row', { name: 'SVT1' })).toBeInTheDocument();
+    expect(screen.queryByText('Loading guide…')).toBeNull();
+  });
+
+  it('says none of the channels has guide data when the lookup finds nothing', async () => {
+    guideIds = [];
+    renderGuide();
+    expect(await screen.findByText('None of these channels has guide data')).toBeInTheDocument();
+    expect(screen.queryByText('Loading guide…')).toBeNull();
+  });
+
+  it('keeps the scroll position on a day change and starts at the top for a new list', async () => {
+    renderGuide();
+    await screen.findByRole('row', { name: 'SVT1' });
+    virtualiser.scrollOffset = 640;
+    virtualiser.offsetsAsked = [];
+
+    fireEvent.click(within(screen.getByRole('tablist', { name: 'Day' })).getAllByRole('tab')[1]);
+    await waitFor(() =>
+      expect(mockedInvoke.mock.calls.filter((c) => c[0] === 'get_guide')).toHaveLength(2)
+    );
+    expect(virtualiser.offsetsAsked.every((o) => o === 640)).toBe(true);
+
+    virtualiser.offsetsAsked = [];
+    fireEvent.click(screen.getByRole('button', { name: 'Favorites' }));
+    expect(virtualiser.offsetsAsked[0]).toBe(0);
+  });
+
+  it('clicking the day already shown keeps the selected programme open', async () => {
+    renderGuide();
+    const row = await screen.findByRole('row', { name: 'SVT1' });
+    fireEvent.click(await within(row).findByRole('button', { name: blockName(airing, 'SVT1') }));
+    fireEvent.click(within(screen.getByRole('tablist', { name: 'Day' })).getAllByRole('tab')[0]);
+    expect(screen.getByRole('region', { name: 'Selected programme' })).toBeInTheDocument();
+  });
+
+  it('keeps the detail panel when the selected row scrolls out of view', async () => {
+    renderGuide();
+    const row = await screen.findByRole('row', { name: 'SVT1' });
+    fireEvent.click(await within(row).findByRole('button', { name: blockName(airing, 'SVT1') }));
+    expect(screen.getByRole('region', { name: 'Selected programme' })).toBeInTheDocument();
+
+    // Only TV4's row is rendered now; SVT1 has scrolled away. Any store change
+    // GuideView reads re-renders it with the narrower range.
+    virtualiser.visible = [1, 1];
+    act(() => usePlayerStore.setState({ categoryFilter: 'Sweden' }));
+    await waitFor(() => expect(screen.queryByRole('row', { name: 'SVT1' })).toBeNull());
+    expect(screen.getByRole('region', { name: 'Selected programme' })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('region', { name: 'Selected programme' })).toBeNull();
   });
 });
