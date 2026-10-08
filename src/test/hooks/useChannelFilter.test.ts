@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { usePlayerStore } from '../../stores/player-store';
 import { useChannelFilter } from '../../hooks/useChannelFilter';
 import type { Channel } from '../../types';
@@ -19,7 +19,6 @@ describe('channel filtering logic', () => {
   beforeEach(() => {
     usePlayerStore.setState({
       channels: [],
-      filteredChannels: [],
       liveChannels: [],
       vodChannels: [],
       seriesChannels: [],
@@ -111,5 +110,46 @@ describe('channel filtering logic', () => {
 
     expect(result.current).toHaveLength(1);
     expect(result.current[0].name).toBe('Live 1');
+  });
+
+  it("returns the new section's list in the same render the section changes", () => {
+    // Filtering in an effect committed one render of the new section with the
+    // old list: posters for live channels, and cards mounted twice.
+    usePlayerStore
+      .getState()
+      .setChannels([
+        makeChannel({ id: 1, name: 'Live 1', content_type: 'live' }),
+        makeChannel({ id: 2, name: 'Movie 1', content_type: 'vod' }),
+      ]);
+    const seen: Array<{ section: string; types: string[] }> = [];
+    renderHook(() => {
+      const list = useChannelFilter('');
+      seen.push({
+        section: usePlayerStore.getState().contentTypeFilter,
+        types: list.map((c) => c.content_type),
+      });
+      return list;
+    });
+
+    act(() => usePlayerStore.getState().setContentTypeFilter('vod'));
+
+    const vodRenders = seen.filter((r) => r.section === 'vod');
+    expect(vodRenders.length).toBeGreaterThan(0);
+    for (const r of vodRenders) expect(r.types).toEqual(['vod']);
+  });
+
+  it('applies a category chip in the same render', () => {
+    usePlayerStore
+      .getState()
+      .setChannels([
+        makeChannel({ id: 1, name: 'A', group_name: 'Sweden' }),
+        makeChannel({ id: 2, name: 'B', group_name: 'Norway' }),
+      ]);
+    const { result } = renderHook(() => useChannelFilter(''));
+    expect(result.current).toHaveLength(2);
+
+    act(() => usePlayerStore.getState().setCategoryFilter('Norway'));
+
+    expect(result.current.map((c) => c.name)).toEqual(['B']);
   });
 });

@@ -35,7 +35,6 @@ interface PlayerState {
 
   // Channels
   channels: Channel[];
-  filteredChannels: Channel[];
   currentChannel: Channel | null;
   // Pre-filtered channels by type (for instant tab switching)
   liveChannels: Channel[];
@@ -43,7 +42,6 @@ interface PlayerState {
   seriesChannels: Channel[];
   favoriteChannels: Channel[];
   setChannels: (channels: Channel[]) => void;
-  setFilteredChannels: (channels: Channel[]) => void;
   setCurrentChannel: (channel: Channel | null) => void;
   toggleChannelFavorite: (channelId: number) => Promise<void>;
 
@@ -73,7 +71,8 @@ interface PlayerState {
 
   // EPG data for all channels (channelId -> EpgEntry)
   channelEpgData: Map<number, EpgEntry>;
-  setChannelEpg: (channelId: number, entry: EpgEntry | null) => void;
+  /** Stores a whole fetch at once: one new Map and one notification, not one per channel. */
+  setChannelEpgs: (entries: Array<[number, EpgEntry]>) => void;
   clearAllEpg: () => void;
   epgRefreshTrigger: number;
   triggerEpgRefresh: () => void;
@@ -131,7 +130,6 @@ export const usePlayerStore = create<PlayerState>((set) => ({
 
   // Channels
   channels: [],
-  filteredChannels: [],
   currentChannel: null,
   liveChannels: [],
   vodChannels: [],
@@ -146,14 +144,12 @@ export const usePlayerStore = create<PlayerState>((set) => ({
 
     set({
       channels,
-      filteredChannels: channels,
       liveChannels,
       vodChannels,
       seriesChannels,
       favoriteChannels,
     });
   },
-  setFilteredChannels: (channels) => set({ filteredChannels: channels }),
   setCurrentChannel: (channel) => set({ currentChannel: channel }),
 
   toggleChannelFavorite: async (channelId) => {
@@ -172,9 +168,6 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       const result: Partial<PlayerState> = {
         channels: updatedChannels,
         favoriteChannels: updatedChannels.filter((c) => c.is_favorite),
-        filteredChannels: state.filteredChannels.map((c) =>
-          c.id === channelId ? { ...c, is_favorite: !c.is_favorite } : c
-        ),
       };
 
       // Only rebuild the specific content type array that contains this channel
@@ -216,14 +209,11 @@ export const usePlayerStore = create<PlayerState>((set) => ({
 
   // EPG data for all channels
   channelEpgData: new Map(),
-  setChannelEpg: (channelId, entry) =>
+  setChannelEpgs: (entries) =>
     set((state) => {
+      if (entries.length === 0) return {};
       const newMap = new Map(state.channelEpgData);
-      if (entry) {
-        newMap.set(channelId, entry);
-      } else {
-        newMap.delete(channelId);
-      }
+      for (const [channelId, entry] of entries) newMap.set(channelId, entry);
       return { channelEpgData: newMap };
     }),
   clearAllEpg: () => set({ channelEpgData: new Map() }),

@@ -31,6 +31,31 @@ This file is a developer-changelog, aimed towards development changes.
   - A feed that parses to no programmes is an error (`EMPTY_GUIDE_MESSAGE`) and leaves `epg_last_fetched` alone, matching the existing empty-refresh guard for playlists
   - `xtream.rs`: reqwest reports a body read that timed out as a decode error (`is_decode()`), and `fetch_json_with_retry` treated every decode error as permanent, so a stalled `get_live_streams`/`get_vod_streams`/`get_series` ended the import on the first attempt. `fetch_json_once` now reads the body and decodes it separately: read failures are transient, a body that does not decode is permanent. Decoding moves to `spawn_blocking`
   - Tests run against `http::test_server`, a scripted local server (slow body, stall, status, refused connection) on a clock scaled 1:60
+- **Channel cards further down long lists get their programme guide** - `useEpgData` was given the whole filtered list and fetched it 100 channels at a time in list order, moving on only when the cache changed. Channels without guide data were never cached, so they stayed first in line, and once 100 of them had piled up the walk stopped for good. On a real 15,310-channel list it stopped after 7 calls: 64 of the 1,035 channels with guide data got it, the first one left out sat at list position 190, and every card with guide data checked further down showed "No guide data" (70 of 70 in a headless-browser run)
+  - `MainScreen` passes the cards in view (virtual rows plus overscan) instead of `filteredChannels`; the TMDB lookup reuses the same visible set
+  - A channel the guide had nothing for waits `EMPTY_RETRY` (5 min) before it is asked again, and `epg-refreshed` forgets those misses. A stale cached entry is refetched for every card in view, not only for the playing channel
+  - A batch that had to leave channels out (`MAX_CHANNELS`) bumps a pass counter, so the next batch runs even when the first stored nothing
+  - `setChannelEpgs` stores a batch with one Map copy and one store update; `setChannelEpg` copied the whole Map once per channel (100 copies of a 15,000-entry Map is 128 ms)
+
+### Performance
+
+- **Large lists: no render with stale derived state, less work per TMDB card** - measured in headless Chromium against the frontend with mocked IPC serving a 26,049-channel playlist, React profiling build
+  - `useChannelFilter` filters in a `useMemo` instead of a `useEffect` that wrote to the store. The render that switched section held the previous section's list: Live TV -> Movies committed 90 `PosterCard`s for live channels, Movies -> Live TV 112 `ChannelCard`s for movies. `filteredChannels`/`setFilteredChannels` had no other reader and are removed from the store
+  - `useResponsiveGrid` keeps only the viewport size in state and derives the config with `useMemo`. Updating it in an effect laid out one render with the other kind's column count, so every visible card moved to another row parent and mounted twice
+  - The scroll reset on a new list (section, category, search) sets the virtualiser's `scrollOffset` to 0 during render and resets the DOM in a `useLayoutEffect`. The `useEffect` reset let the first render pick rows at the previous list's depth
+  - Together: Live TV -> Movies 202 -> 64 card mounts, 77 -> 20 ms React time, long tasks 137 + 72 ms -> none; Movies -> Live TV 262 -> 60 mounts, 31 -> 7 ms
+  - The Recently added hero ranks its ten candidates in a memo over the list and only re-checks them when `tmdbCards` changes. Before, every card (up to five a second from the background scan) filtered and sorted the whole section, about 9 ms for 7,677 movies: a 40-batch card stream went from 364 to 22 ms React time
+  - `isAdultContent` tests one combined pattern on the name and the group instead of nine on their concatenation: 16 -> 4 ms over 26,049 channels, same 618 matches. `parentalControls` gets its first tests
+  - `ColorBars` is one element with a hard-stop gradient instead of a wrapper and seven bars. 63 % of the live channels in the test playlist have no logo: 1,464 -> 1,044 DOM nodes in a 1080p Live TV grid and about 30 % less layout time while scrolling. A pixel comparison differs only in the anti-aliasing of two band edges
+
+Measured on the 26,049-channel playlist (15,310 live), headless Chromium, React profiling build, `main` at 86dddd4 against this work:
+
+| Scenario | Before | After |
+|---|---|---|
+| Cards with guide data showing "No guide data" | 70 of 70 | 0 of 70 |
+| Live TV -> Movies | 202 card mounts, 77 ms React, long tasks 137 + 72 ms | 64 mounts, 20 ms, no long task |
+| Movies -> Live TV | 262 card mounts, 31 ms React | 60 mounts, 7 ms |
+| TMDB card stream (40 batches) | 364 ms React | 22 ms |
 
 ## [3.0.0] - 2026-09-27
 

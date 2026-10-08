@@ -141,7 +141,7 @@ describe('NowPlayingBar', () => {
 
   it('shows the colour-bar placeholder when the channel has no logo', () => {
     const { container } = render(<NowPlayingBar channel={ch} onStop={vi.fn()} />);
-    expect(container.querySelectorAll('[data-bar]')).toHaveLength(7);
+    expect(container.querySelectorAll('[data-bars]')).toHaveLength(1);
   });
 
   it('resets the failed-logo state when the playing channel changes', () => {
@@ -153,7 +153,7 @@ describe('NowPlayingBar', () => {
     expect(img).not.toBeNull();
     fireEvent.error(img!);
     // Channel A's logo failed: falls back to ColorBars.
-    expect(container.querySelectorAll('[data-bar]')).toHaveLength(7);
+    expect(container.querySelectorAll('[data-bars]')).toHaveLength(1);
 
     rerender(<NowPlayingBar channel={chB} onStop={vi.fn()} />);
 
@@ -162,7 +162,7 @@ describe('NowPlayingBar', () => {
     const imgB = container.querySelector('img');
     expect(imgB).not.toBeNull();
     expect(imgB).toHaveAttribute('src', 'http://x/bbc.png');
-    expect(container.querySelectorAll('[data-bar]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-bars]')).toHaveLength(0);
   });
 
   it('truncates the name, programme and time-range instead of overflowing', () => {

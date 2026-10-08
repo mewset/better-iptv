@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, within, fireEvent, waitFor } from '@testing-library/react';
+import { newestTitles } from '../../lib/newestTitle';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
@@ -20,6 +21,12 @@ vi.mock('@tanstack/react-virtual', () => ({
     measure: () => {},
   }),
 }));
+
+// Passes through, but counts how often the section is ranked.
+vi.mock('../../lib/newestTitle', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/newestTitle')>();
+  return { ...actual, newestTitles: vi.fn(actual.newestTitles) };
+});
 
 const home: Playlist = {
   id: 1,
@@ -226,6 +233,20 @@ describe('MainScreen: Movies hero', () => {
       expect(screen.getByRole('heading', { name: 'Newest Movie' })).toBeInTheDocument()
     );
     expect(screen.queryByRole('heading', { name: 'Blocked Newest' })).not.toBeInTheDocument();
+  });
+
+  it('does not re-rank the whole section when a TMDB card arrives', async () => {
+    // Every card used to re-sort the section to find the hero; the background
+    // scan sends up to five a second, ~9 ms each on a 7,677-title library.
+    render(<MainScreen />);
+    await screen.findByRole('region', { name: 'Recently added' });
+    const ranked = vi.mocked(newestTitles).mock.calls.length;
+
+    act(() => usePlayerStore.getState().setTmdbCards([tmdbCard(77)]));
+    act(() => usePlayerStore.getState().setTmdbCards([tmdbCard(78)]));
+
+    expect(vi.mocked(newestTitles).mock.calls.length).toBe(ranked);
+    expect(screen.getByRole('heading', { name: 'Newest Movie' })).toBeInTheDocument();
   });
 
   it('shows no hero until the newest title has a TMDB match', async () => {

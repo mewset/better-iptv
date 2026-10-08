@@ -6,6 +6,13 @@ A simple overview of new features and improvements.
 
 ## Unreleased
 
+### Improvements
+
+**Big performance improvements for large playlists**
+
+- Switching between Live TV, Movies and Series is much quicker, with no flash of the wrong list
+- Movies and Series stay smooth while posters and ratings load in the background
+
 ### Fixes
 
 - Fixed a minor bug that could cause login details to be written in plain text to the app's log file
@@ -13,6 +20,7 @@ A simple overview of new features and improvements.
 - Importing a provider playlist now retries when the channel list download stalls
 - A failed program guide update now says why it failed, instead of reporting success with an empty guide
 - Fixed a bug where a small error in a provider's program guide could throw away the whole guide
+- Channels further down a long list now show what's on, instead of "No guide data"
 
 ## Version 3.0.0 (September 27, 2026)
 
