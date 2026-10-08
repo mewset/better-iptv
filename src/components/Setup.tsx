@@ -127,9 +127,9 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
         logger.info('Importing M3U playlist...');
         playlist = await importPlaylist(playlistName, playlistUrl);
       } else {
-        logger.info('Importing Xtream playlist...', { serverUrl, username });
+        logger.info('Importing Xtream playlist...', { serverUrl });
         playlist = await importXtreamPlaylist(playlistName, serverUrl, username, password);
-        logger.debug('Xtream import result:', playlist);
+        logger.debug('Xtream import result: playlist id', playlist.id);
       }
 
       logger.debug('Fetching channels for playlist:', playlist.id);

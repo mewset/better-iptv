@@ -25,7 +25,7 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use state::AppState;
 use tauri::Manager;
-use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
+use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
 
 /// PRAGMA initializer for each new connection in the pool
 #[derive(Debug)]
@@ -72,9 +72,7 @@ pub fn run() {
                 ])
                 .max_file_size(10_000_000) // 10 MB
                 .rotation_strategy(RotationStrategy::KeepOne)
-                .timezone_strategy(TimezoneStrategy::UseLocal)
-                // Same line layout as the plugin default (which timezone_strategy sets), plus a
-                // last line of defence: mask playlist/EPG credentials in every record, from Rust
+                // Same line layout as the plugin default (local time), plus a last line of defence: mask playlist/EPG credentials in every record, from Rust
                 // and from the frontend alike, before it reaches the log file or the console
                 .format(|out, message, record| {
                     out.finish(format_args!(

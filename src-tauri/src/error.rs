@@ -163,9 +163,17 @@ mod tests {
     }
 
     async fn failing_request_with_credentials() -> reqwest::Error {
-        // Port 9 (discard) is closed on a normal machine, so this fails fast without network
+        // Bind an ephemeral port and release it again: nothing listens there, so the request
+        // is refused at once instead of depending on port 9 being closed on this machine
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
         reqwest::Client::new()
-            .get("http://127.0.0.1:9/xmltv.php?username=john&password=secret")
+            .get(format!(
+                "http://127.0.0.1:{port}/xmltv.php?username=john&password=secret"
+            ))
             .send()
             .await
             .expect_err("request to a closed local port should fail")

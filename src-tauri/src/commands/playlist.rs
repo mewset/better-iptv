@@ -107,10 +107,7 @@ pub async fn import_xtream_playlist(
     playlist_domain::validate_playlist_name(&name)?;
     playlist_domain::validate_xtream_credentials(&server_url, &username)?;
 
-    info!(
-        "Xtream import started: server={}, username={}",
-        server_url, username
-    );
+    info!("Xtream import started: server={}", server_url);
 
     let creds = XtreamCredentials {
         server_url: server_url.clone(),

@@ -4,25 +4,35 @@ use lazy_static::lazy_static;
 use regex::Regex;
 
 lazy_static! {
-    // Query parameter patterns: ?username=X or &username=X
-    static ref USERNAME_QUERY_RE: Regex = Regex::new(r"([?&]username=)[^&]*").unwrap();
-    static ref PASSWORD_QUERY_RE: Regex = Regex::new(r"([?&]password=)[^&]*").unwrap();
+    // Key/value pairs: `?username=X`, `&password=X`, but also `username=X` in a free-form log
+    // line. The value stops at the next separator or closing bracket so that text after a URL
+    // (user agent, attempt counter, reqwest's closing parenthesis) survives
+    static ref KEY_VALUE_RE: Regex =
+        Regex::new(r#"(?i)(username|password)=[^&\s,;)\]}'"]*"#).unwrap();
 
-    // Path-based patterns for Xtream URLs: /live/USER/PASS/ or /series/USER/PASS/ or /movie/USER/PASS/
-    static ref PATH_CREDENTIALS_RE: Regex = Regex::new(r"/(live|series|movie)/[^/]+/[^/]+/").unwrap();
+    // The same pair as JSON fields, e.g. a serialised Playlist with `"xtream_password":"secret"`
+    static ref JSON_FIELD_RE: Regex =
+        Regex::new(r#"(?i)("(?:xtream_)?(?:username|password)"\s*:\s*)"[^"]*""#).unwrap();
 
-    // Userinfo in the authority: scheme://USER:PASS@host
-    static ref USERINFO_RE: Regex = Regex::new(r"(://)[^/@\s:]+:[^/@\s]*@").unwrap();
+    // Path-based Xtream URLs: scheme://host/live|series|movie/USER/PASS/ — anchored to the URL
+    // authority so that filesystem paths with a `movie` or `series` folder are left alone
+    static ref PATH_CREDENTIALS_RE: Regex =
+        Regex::new(r"(://[^/\s]+)/(live|series|movie)/[^/\s]+/[^/\s]+/").unwrap();
+
+    // Userinfo in the authority: scheme://USER:PASS@host or scheme://USER@host
+    static ref USERINFO_RE: Regex = Regex::new(r"(://)[^/@\s:]+(:[^/@\s]*)?@").unwrap();
 }
 
 /// Mask credentials in URLs for safe logging
 ///
-/// Handles three credential formats:
-/// 1. Query parameters: `?username=X&password=Y`
-/// 2. Path-based (Xtream): `/series/USERNAME/PASSWORD/12345.mp4`
-/// 3. Userinfo: `http://USERNAME:PASSWORD@server.com/`
+/// Handles these credential formats:
+/// 1. Query parameters or key/value pairs: `?username=X&password=Y`, `username=X`
+/// 2. JSON fields: `"xtream_password":"Y"`
+/// 3. Path-based (Xtream): `/series/USERNAME/PASSWORD/12345.mp4`
+/// 4. Userinfo: `http://USERNAME:PASSWORD@server.com/`
 ///
-/// Also safe to run on whole log lines or error messages that embed a URL.
+/// Also safe to run on whole log lines or error messages that embed a URL; the log formatter
+/// in `lib.rs` runs it on every record, so it only allocates when something matched.
 ///
 /// # Examples
 ///
@@ -34,26 +44,11 @@ lazy_static! {
 /// - `http://server.com/series/john/secret/12345.mp4`
 /// - becomes: `http://server.com/series/****/****/12345.mp4`
 pub fn mask_credentials(url: &str) -> String {
-    let mut result = url.to_string();
-
-    // Mask query parameters
-    result = USERNAME_QUERY_RE
-        .replace_all(&result, "${1}****")
-        .to_string();
-    result = PASSWORD_QUERY_RE
-        .replace_all(&result, "${1}****")
-        .to_string();
-
-    // Mask path-based credentials (Xtream format: /live|series|movie/user/pass/)
-    result = PATH_CREDENTIALS_RE
-        .replace_all(&result, "/$1/****/****/")
-        .to_string();
-
-    result = USERINFO_RE
-        .replace_all(&result, "${1}****:****@")
-        .to_string();
-
-    result
+    let masked = KEY_VALUE_RE.replace_all(url, "${1}=****");
+    let masked = JSON_FIELD_RE.replace_all(&masked, "${1}\"****\"");
+    let masked = PATH_CREDENTIALS_RE.replace_all(&masked, "$1/$2/****/****/");
+    let masked = USERINFO_RE.replace_all(&masked, "${1}****:****@");
+    masked.into_owned()
 }
 
 /// Country code configuration for EPG ID generation
@@ -241,6 +236,66 @@ mod tests {
             mask_credentials("http://server.com:8080/list.m3u"),
             "http://server.com:8080/list.m3u"
         );
+        // Username-only userinfo (password prompted or sent in a header)
+        assert_eq!(
+            mask_credentials("http://john@server.com/get.php?type=m3u"),
+            "http://****:****@server.com/get.php?type=m3u"
+        );
+    }
+
+    #[test]
+    fn test_mask_credentials_keeps_text_after_url() {
+        // The formatter runs on whole log lines; the value must stop at the URL's end
+        assert_eq!(
+            mask_credentials(
+                "Fetching EPG from: http://h/xmltv.php?username=j&password=s with UA VLC/3.0 (attempt 2 of 3)"
+            ),
+            "Fetching EPG from: http://h/xmltv.php?username=****&password=**** with UA VLC/3.0 (attempt 2 of 3)"
+        );
+        assert_eq!(
+            mask_credentials("error sending request for url (http://h/x.php?password=secret)"),
+            "error sending request for url (http://h/x.php?password=****)"
+        );
+    }
+
+    #[test]
+    fn test_mask_credentials_key_value_outside_query() {
+        assert_eq!(
+            mask_credentials("Xtream import started: server=http://h, username=john"),
+            "Xtream import started: server=http://h, username=****"
+        );
+        assert_eq!(
+            mask_credentials("Importing {\"serverUrl\":\"http://h\",\"username\":\"john\"}"),
+            "Importing {\"serverUrl\":\"http://h\",\"username\":\"****\"}"
+        );
+    }
+
+    #[test]
+    fn test_mask_credentials_json_fields() {
+        assert_eq!(
+            mask_credentials(
+                "Xtream import result: {\"id\":1,\"xtream_username\":\"john\",\"xtream_password\":\"secret\",\"name\":\"Home\"}"
+            ),
+            "Xtream import result: {\"id\":1,\"xtream_username\":\"****\",\"xtream_password\":\"****\",\"name\":\"Home\"}"
+        );
+    }
+
+    #[test]
+    fn test_mask_credentials_leaves_filesystem_paths() {
+        assert_eq!(
+            mask_credentials("Failed to read /home/m0s/movie/a/b/x.m3u"),
+            "Failed to read /home/m0s/movie/a/b/x.m3u"
+        );
+        assert_eq!(
+            mask_credentials("Failed to read C:\\Users\\me\\series\\a\\b\\x.m3u"),
+            "Failed to read C:\\Users\\me\\series\\a\\b\\x.m3u"
+        );
+    }
+
+    #[test]
+    fn test_mask_credentials_plain_line_untouched() {
+        let line = "Fetched 10432 channels for playlist 3";
+        assert_eq!(mask_credentials(line), line);
     }
 
     #[test]

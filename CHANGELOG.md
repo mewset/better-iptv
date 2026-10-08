@@ -13,6 +13,10 @@ This file is a developer-changelog, aimed towards development changes.
   - `mask_credentials` also masks userinfo (`scheme://user:pass@host`), which a pasted M3U URL can carry
   - The `tauri_plugin_log` formatter in `lib.rs` runs every record through `mask_credentials` before any target (file, stdout, webview), so frontend `logger` calls and future log lines are covered too. It keeps the plugin's default line layout
   - `Settings.tsx` no longer passes the EPG URL to `logger.info` on save; the backend logs it masked
+  - Follow-ups from the code review of the fix: the `username=`/`password=` pattern no longer requires a leading `?`/`&` and stops at whitespace, `,`, `;`, `)`, `]`, `}` and quotes, so free-form log lines keep the text after the URL (user agent, attempt counter, reqwest's closing parenthesis) and `key=value` pairs outside a query string are masked too; JSON fields (`"xtream_password":"…"`, as the frontend logger serialises objects) are masked; the Xtream path pattern is anchored to the URL authority so filesystem paths with a `movie`/`series` folder are left intact; username-only userinfo (`http://user@host/`) is masked; `mask_credentials` only allocates when something matched, since it now runs on every record
+  - `import_xtream_playlist` in `commands/playlist.rs` and `Setup.tsx` no longer log the Xtream username at info level, and `Setup.tsx` logs the imported playlist's id instead of the whole `Playlist` (which carries the password) at debug level
+  - `test_from_reqwest_error_masks_credentials` dials an ephemeral port it has just released instead of port 9, so it cannot hang on a host with a `discard` service
+  - The log builder's `timezone_strategy` call is gone: `.format()` replaced the formatter it installed, and the closure already prints local time
 
 ## [3.0.0] - 2026-09-27
 
