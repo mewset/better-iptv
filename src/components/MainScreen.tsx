@@ -360,17 +360,24 @@ export default function MainScreen() {
       ].map((c) => c.id),
     [vodChannels, seriesChannels]
   );
-  const heroChannel = useMemo(() => {
+  // The candidates depend on the list alone. Each arriving TMDB card (up to
+  // five a second during the background scan) only re-checks these ten
+  // instead of re-ranking the whole section.
+  const heroCandidates = useMemo(() => {
     if (
       (contentTypeFilter !== 'vod' && contentTypeFilter !== 'series') ||
       categoryFilter ||
       trimmedQuery !== ''
     ) {
-      return null;
+      return [];
     }
     const eligible = filteredChannels.filter((c) => !blockedMap.get(c.id!) && heroSafe(c));
-    return newestTitles(eligible, HERO_CANDIDATES).find((c) => tmdbCards.has(c.id)) ?? null;
-  }, [contentTypeFilter, categoryFilter, trimmedQuery, filteredChannels, blockedMap, tmdbCards]);
+    return newestTitles(eligible, HERO_CANDIDATES);
+  }, [contentTypeFilter, categoryFilter, trimmedQuery, filteredChannels, blockedMap]);
+  const heroChannel = useMemo(
+    () => heroCandidates.find((c) => tmdbCards.has(c.id)) ?? null,
+    [heroCandidates, tmdbCards]
+  );
   const showHero = heroChannel !== null;
 
   // Virtual scrolling setup - virtualize by rows (dynamic items per row).

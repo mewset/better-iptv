@@ -1,24 +1,15 @@
 import type { Channel } from '../types';
 
-// Regex patterns for detecting adult content
-const ADULT_PATTERNS = [
-  /\+18/i,
-  /18\+/i,
-  /xxx/i,
-  /adult/i,
-  /porn/i,
-  /erotic/i,
-  /\(18\+\)/i,
-  /\[18\+\]/i,
-  /\{18\+\}/i,
-];
+// Adult-content markers: +18, 18+ (bare or inside (), [] or {}), xxx, adult,
+// porn, erotic. One pattern, tested on the name and the group separately:
+// it runs over every title of a library on each parental or hero pass.
+const ADULT_PATTERN = /\+18|18\+|xxx|adult|porn|erotic/i;
 
 /**
  * Detect if a channel contains adult content based on name and category
  */
 export function isAdultContent(channelName: string, groupName?: string): boolean {
-  const text = `${channelName} ${groupName || ''}`.toLowerCase();
-  return ADULT_PATTERNS.some((pattern) => pattern.test(text));
+  return ADULT_PATTERN.test(channelName) || (groupName ? ADULT_PATTERN.test(groupName) : false);
 }
 
 /**
