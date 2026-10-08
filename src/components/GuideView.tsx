@@ -1,9 +1,10 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { CalendarRange, Lock, Play, X } from 'lucide-react';
 import { usePlayerStore } from '../stores/player-store';
 import type { Channel } from '../types';
 import { getEpgStatus, type GuideProgram } from '../lib/tauri';
-import { blockGeometry, guideChannels } from '../lib/guideLayout';
+import { GUIDE_DAY_COUNT, blockGeometry, normalizeEpgId } from '../lib/guideLayout';
 import { formatClock, minutesLeft, progressPercent } from '../lib/epgTime';
 import { logger } from '../lib/logger';
 import { cn } from '../lib/utils';
@@ -11,16 +12,16 @@ import { useGuide } from '../hooks/useGuide';
 import { CategoryBar } from './CategoryBar';
 import { ColorBars } from './ColorBars';
 
-const DAY_COUNT = 5;
 const HALF_HOUR = 30 * 60_000;
 const NOW_TICK_MS = 30_000;
+const ROW_HEIGHT = 64; // h-16
 
 const weekdayShort = new Intl.DateTimeFormat(undefined, { weekday: 'short' });
 
 /** "Today", then "Fri 25"-style labels for the next four days. */
 function dayLabels(now: number): string[] {
   const base = new Date(now);
-  return Array.from({ length: DAY_COUNT }, (_, i) => {
+  return Array.from({ length: GUIDE_DAY_COUNT }, (_, i) => {
     if (i === 0) return 'Today';
     const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
     return `${weekdayShort.format(d)} ${d.getDate()}`;
@@ -89,6 +90,8 @@ interface Selection {
 
 interface GuideRowProps {
   channel: Channel;
+  /** 1-based position among all rows, for aria-rowindex. */
+  rowIndex: number;
   programmes: GuideProgram[] | undefined;
   from: number;
   to: number;
@@ -102,6 +105,7 @@ interface GuideRowProps {
 
 const GuideRow = memo(function GuideRow({
   channel,
+  rowIndex,
   programmes,
   from,
   to,
@@ -124,7 +128,12 @@ const GuideRow = memo(function GuideRow({
   }, [programmes, from, to]);
 
   return (
-    <div role="row" aria-label={channel.name} className="flex h-16 items-center gap-4">
+    <div
+      role="row"
+      aria-label={channel.name}
+      aria-rowindex={rowIndex}
+      className="flex h-16 items-center gap-4"
+    >
       <div role="rowheader" className="flex w-[184px] shrink-0 items-center gap-3">
         <LogoTile channel={channel} showLogo={!blocked} className="h-9 w-11 rounded-lg" />
         <span className="min-w-0 truncate text-[13px] font-semibold text-text">{channel.name}</span>
@@ -275,8 +284,9 @@ function DetailPanel({ selection, now, dockVisible, playing, onWatch, onClose }:
 export interface GuideViewProps {
   /**
    * The guide section's filtered list (every live channel, narrowed by
-   * category, parental hide and search); rows are its first 100 with an
-   * `epg_id`, after the Favorites chip's own narrowing.
+   * category, parental hide and search). After the Favorites chip's own
+   * narrowing, the rows are every channel in it with programmes in the
+   * guide's five days.
    */
   channels: Channel[];
   playingChannelId: number | null;
@@ -335,8 +345,40 @@ export function GuideView({
     () => (favoritesOnly ? channels.filter((c) => c.is_favorite) : channels),
     [channels, favoritesOnly]
   );
-  const rows = useMemo(() => guideChannels(listed), [listed]);
-  const { programs, window: win, loading } = useGuide(listed, dayOffset);
+  const { rows, programs, window: win, loading, rowsLoading } = useGuide(listed, dayOffset);
+
+  // Rows are virtualized: a guide can list over a thousand channels, and only
+  // the rows in view (plus overscan) are in the DOM. Fixed height, so no
+  // measuring. `scrollMargin` is the table's offset below the sticky time
+  // header inside the scroll container.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 8,
+    scrollMargin,
+  });
+  const hasTable = rows.length > 0;
+  useLayoutEffect(() => {
+    setScrollMargin(tableRef.current?.offsetTop ?? 0);
+  }, [hasTable]);
+
+  // A new list (category, Favorites chip, search) starts at the top; a day
+  // change keeps the place, since the rows are the same. The offset is reset
+  // during render so the first render of the new list already picks its top
+  // rows; the DOM follows before paint.
+  const [shownList, setShownList] = useState({ channels, favoritesOnly, version: 0 });
+  if (shownList.channels !== channels || shownList.favoritesOnly !== favoritesOnly) {
+    setShownList({ channels, favoritesOnly, version: shownList.version + 1 });
+    rowVirtualizer.scrollOffset = 0;
+  }
+  useLayoutEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [shownList.version]);
+  const virtualRows = rowVirtualizer.getVirtualItems();
 
   // Escape closes the detail panel before anything else sees it. A bubble
   // listener on document runs before useKeyboardShortcuts' window listener
@@ -358,7 +400,9 @@ export function GuideView({
     setSelection({ channel, program });
   }, []);
 
+  // Clicking the day already shown keeps the selection.
   const handleDay = (offset: number) => {
+    if (offset === dayOffset) return;
     setDayOffset(offset);
     setSelection(null);
   };
@@ -442,9 +486,17 @@ export function GuideView({
       </div>
 
       <div
-        className={cn('flex-1 overflow-y-auto px-10', selection && dockVisible ? 'pb-56' : 'pb-32')}
+        ref={scrollRef}
+        className={cn(
+          // relative: the table's offsetTop (the virtualizer's scrollMargin) is
+          // then measured from this scroll container, not from the chip row above.
+          'relative flex-1 overflow-y-auto px-10',
+          selection && dockVisible ? 'pb-56' : 'pb-32'
+        )}
       >
-        {rows.length === 0 ? (
+        {rowsLoading ? (
+          <p className="py-16 text-center text-text-muted">Loading guide…</p>
+        ) : rows.length === 0 ? (
           <p className="py-16 text-center text-text-muted">
             {listed.length === 0
               ? favoritesOnly
@@ -476,7 +528,14 @@ export function GuideView({
               </div>
             </div>
 
-            <div role="table" aria-label="TV guide" className="relative">
+            <div
+              ref={tableRef}
+              role="table"
+              aria-label="TV guide"
+              aria-rowcount={rows.length}
+              className="relative"
+              style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+            >
               {/* Before the rows so blocks paint over it: the line shows through
                   translucent blocks and never cuts through a title. */}
               {nowPct !== null && (
@@ -492,23 +551,32 @@ export function GuideView({
                 </div>
               )}
               <div role="rowgroup">
-                {rows.map((channel) => (
-                  <GuideRow
-                    key={channel.id}
-                    channel={channel}
-                    programmes={programs[channel.epg_id!.trim()]}
-                    from={win.from}
-                    to={win.to}
-                    now={now}
-                    loading={loading}
-                    playing={playingChannelId === channel.id}
-                    blocked={blockedMap?.get(channel.id) ?? false}
-                    selectedStart={
-                      selection?.channel.id === channel.id ? selection.program.start_time : null
-                    }
-                    onSelect={handleSelect}
-                  />
-                ))}
+                {virtualRows.map((virtualRow) => {
+                  const channel = rows[virtualRow.index];
+                  return (
+                    <div
+                      key={channel.id}
+                      className="absolute inset-x-0 top-0"
+                      style={{ transform: `translateY(${virtualRow.start - scrollMargin}px)` }}
+                    >
+                      <GuideRow
+                        channel={channel}
+                        rowIndex={virtualRow.index + 1}
+                        programmes={programs[normalizeEpgId(channel.epg_id!)]}
+                        from={win.from}
+                        to={win.to}
+                        now={now}
+                        loading={loading}
+                        playing={playingChannelId === channel.id}
+                        blocked={blockedMap?.get(channel.id) ?? false}
+                        selectedStart={
+                          selection?.channel.id === channel.id ? selection.program.start_time : null
+                        }
+                        onSelect={handleSelect}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </>

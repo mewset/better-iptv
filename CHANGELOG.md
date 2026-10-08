@@ -66,6 +66,12 @@ Measured on the 26,049-channel playlist (15,310 live), headless Chromium, React 
   - `play_channel` takes `channel_id` and reads the row, so the webview cannot hand MPV a URL of its own. `get_xtream_series_id` replaces the frontend's `parseXtreamSeriesId`; `series_domain::parse_xtream_series_id` gives `None` for a last segment that is not a number, where `parseInt` accepted a numeric prefix
   - A single Xtream episode plays through `play_episode_with_season` instead of a virtual channel whose URL the frontend built from the credentials. Space no longer tries to resume a virtual episode channel (id -1), which has no row to play
 
+- **TV Guide lists every channel with guide data, virtualized** - the guide showed the first 100 channels with an `epg_id` (`GUIDE_CHANNEL_CAP`, `MAX_GUIDE_CHANNELS`). On a 15,310-channel list with 13,718 ids, 1,069 channels have programmes in the guide's five days
+  - `get_guide_epg_ids` (`epg/xmltv.rs`) returns the ids with a programme from today 00:00 to five days later (`validate_guide_ids_window`, at most 168 h). `guideChannels(channels, ids)` keeps those channels in list order, matched with `normalizeEpgId`; a failed lookup falls back to every channel with an id
+  - `get_guide` takes up to `GUIDE_MAX_IDS` (5,000) ids. `useGuide` sends all row ids per window, split into requests of that size, after each lookup answer, on a day change and every 5 minutes; the lookup runs again on `epg-refreshed` and on a new calendar day. The programmes in state carry the request they answer, so rows no longer flash "No guide data" between a new set of ids and its request
+  - `GuideView` virtualizes the rows (fixed 64 px, overscan 8) with `aria-rowcount`/`aria-rowindex`; a new list starts at the top, a day change keeps the place, the detail panel stays when its row scrolls away, and "Loading guide…" shows until the lookup answers. Clicking the day already shown no longer closes the selected programme
+  - Measured with the perf harness (headless Chromium, real export): opening the guide renders 21 rows instead of 100 (1,069 in the guide), layout 38 -> 17 ms, longest task 69 -> 57 ms; scrolling 60 wheel steps through it has no long task and no frame over 16.8 ms, with 32 rows in the DOM
+
 ## [3.0.0] - 2026-09-27
 
 ### Added

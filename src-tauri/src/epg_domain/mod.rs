@@ -103,6 +103,14 @@ pub fn normalize_epg_id(id: &str) -> String {
     id.trim().to_ascii_lowercase()
 }
 
+/// Longest range the "which channels have guide data" lookup may span: the
+/// guide's five days fit with room for a day boundary in any time zone.
+pub const GUIDE_IDS_MAX_WINDOW_HOURS: i64 = 168;
+
+/// Most EPG ids one `get_guide` request may name. The frontend asks for every
+/// row with guide data at once and splits larger sets into requests of this size.
+pub const GUIDE_MAX_IDS: usize = 5000;
+
 /// Validate and normalise a guide request's time window.
 ///
 /// Parses `from` and `to` as RFC 3339, requires `to` to be strictly after
@@ -112,6 +120,15 @@ pub fn normalize_epg_id(id: &str) -> String {
 /// `store_epg_programs` writes, keeping the boundary string comparison in
 /// `get_guide`'s SQL correct regardless of the caller's offset.
 pub fn validate_guide_window(from: &str, to: &str) -> Result<(String, String), AppError> {
+    validate_window(from, to, GUIDE_MAX_WINDOW_HOURS)
+}
+
+/// `validate_guide_window` for the id lookup, which spans the guide's days.
+pub fn validate_guide_ids_window(from: &str, to: &str) -> Result<(String, String), AppError> {
+    validate_window(from, to, GUIDE_IDS_MAX_WINDOW_HOURS)
+}
+
+fn validate_window(from: &str, to: &str, max_hours: i64) -> Result<(String, String), AppError> {
     let from_dt = DateTime::parse_from_rfc3339(from)
         .map_err(|e| AppError::InvalidInput(format!("Invalid 'from' timestamp: {}", e)))?
         .with_timezone(&Utc);
@@ -125,14 +142,25 @@ pub fn validate_guide_window(from: &str, to: &str) -> Result<(String, String), A
         ));
     }
 
-    if to_dt - from_dt > chrono::Duration::hours(GUIDE_MAX_WINDOW_HOURS) {
+    if to_dt - from_dt > chrono::Duration::hours(max_hours) {
         return Err(AppError::InvalidInput(format!(
             "Guide window cannot exceed {} hours",
-            GUIDE_MAX_WINDOW_HOURS
+            max_hours
         )));
     }
 
     Ok((from_dt.to_rfc3339(), to_dt.to_rfc3339()))
+}
+
+/// Reject a guide request naming more than `GUIDE_MAX_IDS` ids.
+pub fn validate_guide_id_count(count: usize) -> Result<(), AppError> {
+    if count > GUIDE_MAX_IDS {
+        return Err(AppError::InvalidInput(format!(
+            "At most {} EPG ids per guide request",
+            GUIDE_MAX_IDS
+        )));
+    }
+    Ok(())
 }
 
 /// How old `epg_last_fetched` may be before the background task refreshes.
@@ -352,7 +380,9 @@ mod tests {
     }
 
     mod guide_window {
-        use super::super::validate_guide_window;
+        use super::super::{
+            validate_guide_id_count, validate_guide_ids_window, validate_guide_window,
+        };
         use crate::error::AppError;
         use chrono::{Duration, Utc};
 
@@ -411,6 +441,41 @@ mod tests {
             let from = Utc::now();
             let to = from + Duration::hours(48);
             assert!(validate_guide_window(&from.to_rfc3339(), &to.to_rfc3339()).is_ok());
+        }
+
+        #[test]
+        fn ids_window_accepts_seven_days_and_rejects_more() {
+            let from = Utc::now();
+            let week = from + Duration::hours(168);
+            assert!(validate_guide_ids_window(&from.to_rfc3339(), &week.to_rfc3339()).is_ok());
+            let longer = week + Duration::minutes(1);
+            assert!(validate_guide_ids_window(&from.to_rfc3339(), &longer.to_rfc3339()).is_err());
+        }
+
+        #[test]
+        fn ids_window_rejects_unparsable_and_inverted_bounds() {
+            let now = Utc::now();
+            assert!(validate_guide_ids_window("nope", &now.to_rfc3339()).is_err());
+            let earlier = (now - Duration::hours(1)).to_rfc3339();
+            assert!(validate_guide_ids_window(&now.to_rfc3339(), &earlier).is_err());
+        }
+
+        #[test]
+        fn ids_window_returns_utc_bounds() {
+            let (from, to) =
+                validate_guide_ids_window("2026-10-08T00:00:00+02:00", "2026-10-13T00:00:00+02:00")
+                    .unwrap();
+            assert_eq!(from, "2026-10-07T22:00:00+00:00");
+            assert_eq!(to, "2026-10-12T22:00:00+00:00");
+        }
+
+        #[test]
+        fn guide_id_count_allows_5000_and_rejects_5001() {
+            assert!(validate_guide_id_count(5000).is_ok());
+            assert!(matches!(
+                validate_guide_id_count(5001),
+                Err(AppError::InvalidInput(_))
+            ));
         }
     }
 }

@@ -159,9 +159,6 @@ pub async fn get_channels_epg(
     Ok(result)
 }
 
-/// Upper bound on channels per guide request; the guide shows at most 100 rows.
-const MAX_GUIDE_CHANNELS: usize = 100;
-
 #[tauri::command]
 pub async fn get_guide(
     state: State<'_, AppState>,
@@ -169,12 +166,7 @@ pub async fn get_guide(
     from: String,
     to: String,
 ) -> Result<HashMap<String, Vec<GuideProgram>>, AppError> {
-    if epg_ids.len() > MAX_GUIDE_CHANNELS {
-        return Err(AppError::InvalidInput(format!(
-            "At most {} EPG ids per guide request",
-            MAX_GUIDE_CHANNELS
-        )));
-    }
+    epg_domain::validate_guide_id_count(epg_ids.len())?;
 
     for id in &epg_ids {
         epg_domain::validate_channel_epg_id(id)?;
@@ -184,6 +176,21 @@ pub async fn get_guide(
 
     with_db(&state.pool, move |conn| {
         Ok(crate::epg::get_guide(conn, &epg_ids, &from, &to)?)
+    })
+    .await
+}
+
+/// EPG ids with programmes between `from` and `to` (at most seven days): the
+/// guide lists only channels whose id is in this answer.
+#[tauri::command]
+pub async fn get_guide_epg_ids(
+    state: State<'_, AppState>,
+    from: String,
+    to: String,
+) -> Result<Vec<String>, AppError> {
+    let (from, to) = epg_domain::validate_guide_ids_window(&from, &to)?;
+    with_db(&state.pool, move |conn| {
+        Ok(crate::epg::get_guide_epg_ids(conn, &from, &to)?)
     })
     .await
 }
