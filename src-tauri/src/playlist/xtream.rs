@@ -409,19 +409,46 @@ async fn fetch_json_once<T: DeserializeOwned + Send + 'static>(
     // time either. That includes a refusal: a provider that turns a busy or
     // blocked line away answers the same way again, and every extra request
     // counts against its rate limit.
+    let action_for_decode = action.to_string();
     tokio::task::spawn_blocking(move || {
-        serde_json::from_slice::<T>(&body)
-            .map_err(|e| (e, UnreadableBody::of(&body), describe_body(&body)))
+        let body = gunzip_if_gzipped(&body).map_err(|e| {
+            warn!(
+                "Failed to decompress {} response ({}), giving up: {}",
+                action_for_decode,
+                describe_body(&body),
+                e
+            );
+            anyhow::Error::new(e).context(format!(
+                "The {SERVER} sent a damaged compressed answer instead of the {action_for_decode}"
+            ))
+        })?;
+        serde_json::from_slice::<T>(&body).map_err(|e| {
+            warn!(
+                "Failed to parse {} response ({}), giving up: {}",
+                action_for_decode,
+                describe_body(&body),
+                e
+            );
+            anyhow::Error::new(e)
+                .context(UnreadableBody::of(&body).message(SERVER, &action_for_decode))
+        })
     })
     .await
     .map_err(|e| backoff::Error::permanent(anyhow::Error::new(e)))?
-    .map_err(|(e, kind, described)| {
-        warn!(
-            "Failed to parse {} response ({}), giving up: {}",
-            action, described, e
-        );
-        backoff::Error::permanent(anyhow::Error::new(e).context(kind.message(SERVER, action)))
-    })
+    .map_err(backoff::Error::permanent)
+}
+
+/// The body itself, or its decompressed form when it starts with the gzip
+/// magic bytes. reqwest decompresses an answer marked `Content-Encoding:
+/// gzip`; some providers send gzip without saying so, and the stream lists
+/// then reached the JSON decoder still compressed.
+fn gunzip_if_gzipped(body: &[u8]) -> std::io::Result<std::borrow::Cow<'_, [u8]>> {
+    if body.len() < 2 || body[0] != 0x1f || body[1] != 0x8b {
+        return Ok(std::borrow::Cow::Borrowed(body));
+    }
+    let mut out = Vec::with_capacity(body.len() * 8);
+    std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(body), &mut out)?;
+    Ok(std::borrow::Cow::Owned(out))
 }
 
 /// What a 200 answer that is not the expected JSON looks like, so the
@@ -540,7 +567,10 @@ pub async fn fetch_user_info(
         return Err(anyhow::anyhow!("HTTP error: {}", response.status()));
     }
 
-    let parsed: XtreamUserInfoResponse = response.json().await.context("Malformed account info")?;
+    let body = response.bytes().await.context("Request failed")?;
+    let body = gunzip_if_gzipped(&body).context("Malformed account info")?;
+    let parsed: XtreamUserInfoResponse =
+        serde_json::from_slice(&body).context("Malformed account info")?;
     Ok(parsed.user_info)
 }
 
@@ -1116,6 +1146,24 @@ mod retry_tests {
 mod user_info_tests {
     use super::XtreamUserInfoResponse;
 
+    #[tokio::test]
+    async fn account_info_sent_as_unmarked_gzip_is_read() {
+        use crate::http::test_server::{respond, serve};
+        use std::io::Write;
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder
+            .write_all(br#"{"user_info":{"exp_date":"1773532800"}}"#)
+            .unwrap();
+        let server = serve(vec![respond("200 OK", &encoder.finish().unwrap())]).await;
+        let creds = super::XtreamCredentials {
+            server_url: server.base.clone(),
+            username: "u".into(),
+            password: "p".into(),
+        };
+        let info = super::fetch_user_info(&creds, None).await.unwrap();
+        assert_eq!(info.exp_date.as_deref(), Some("1773532800"));
+    }
+
     #[test]
     fn an_expiry_sent_as_a_string_is_read() {
         let json = r#"{"user_info":{"username":"u","status":"Active","exp_date":"1773532800"}}"#;
@@ -1218,6 +1266,50 @@ mod json_fetch_tests {
             Duration::from_secs(10),
         )
         .await
+    }
+
+    fn gzip(bytes: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(bytes).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_list_marked_content_encoding_gzip_is_decompressed() {
+        let body = gzip(b"[1,2,3]");
+        let mut steps = vec![Step::Write(
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .into_bytes(),
+        )];
+        steps.push(Step::Write(body));
+        assert_eq!(attempt(vec![steps]).await.unwrap(), vec![1, 2, 3]);
+    }
+
+    #[tokio::test]
+    async fn an_unmarked_gzip_list_is_decompressed_too() {
+        // The provider of the 2026-10-08 refresh failure sent gzip (1f 8b ...)
+        // that reached the JSON decoder as is.
+        assert_eq!(
+            attempt(vec![respond("200 OK", &gzip(b"[4,5]"))])
+                .await
+                .unwrap(),
+            vec![4, 5]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_damaged_gzip_body_says_so_and_is_not_retried() {
+        match attempt(vec![respond("200 OK", b"\x1f\x8b\x08\x00garbage")]).await {
+            Err(backoff::Error::Permanent(err)) => assert_eq!(
+                err.to_string(),
+                "The provider sent a damaged compressed answer instead of the live streams"
+            ),
+            other => panic!("expected a permanent error, got {other:?}"),
+        }
     }
 
     #[tokio::test]
