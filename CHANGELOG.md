@@ -48,6 +48,15 @@ This file is a developer-changelog, aimed towards development changes.
   - `isAdultContent` tests one combined pattern on the name and the group instead of nine on their concatenation: 16 -> 4 ms over 26,049 channels, same 618 matches. `parentalControls` gets its first tests
   - `ColorBars` is one element with a hard-stop gradient instead of a wrapper and seven bars. 63 % of the live channels in the test playlist have no logo: 1,464 -> 1,044 DOM nodes in a 1080p Live TV grid and about 30 % less layout time while scrolling. A pixel comparison differs only in the anti-aliasing of two band edges
 
+Measured on the 26,049-channel playlist (15,310 live), headless Chromium, React profiling build, `main` at 86dddd4 against this work:
+
+| Scenario | Before | After |
+|---|---|---|
+| Cards with guide data showing "No guide data" | 70 of 70 | 0 of 70 |
+| Live TV -> Movies | 202 card mounts, 77 ms React, long tasks 137 + 72 ms | 64 mounts, 20 ms, no long task |
+| Movies -> Live TV | 262 card mounts, 31 ms React | 60 mounts, 7 ms |
+| TMDB card stream (40 batches) | 364 ms React | 22 ms |
+
 ## [3.0.0] - 2026-09-27
 
 ### Added
