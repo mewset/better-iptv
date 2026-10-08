@@ -13,6 +13,7 @@ A simple overview of new features and improvements.
 - Switching between Live TV, Movies and Series is much quicker, with no flash of the wrong list
 - Movies and Series stay smooth while posters and ratings load in the background
 - Large playlists load faster when the app starts and when you switch profile
+- The TV Guide now lists every channel that has a programme guide, not just the first 100
 
 ### Fixes
 
