@@ -57,12 +57,12 @@ This file is a developer-changelog, aimed towards development changes.
 
 Measured on the 26,049-channel playlist (15,310 live), headless Chromium, React profiling build, `main` at 86dddd4 against this work:
 
-| Scenario | Before | After |
-|---|---|---|
-| Cards with guide data showing "No guide data" | 70 of 70 | 0 of 70 |
-| Live TV -> Movies | 202 card mounts, 77 ms React, long tasks 137 + 72 ms | 64 mounts, 20 ms, no long task |
-| Movies -> Live TV | 262 card mounts, 31 ms React | 60 mounts, 7 ms |
-| TMDB card stream (40 batches) | 364 ms React | 22 ms |
+| Scenario                                      | Before                                               | After                          |
+| --------------------------------------------- | ---------------------------------------------------- | ------------------------------ |
+| Cards with guide data showing "No guide data" | 70 of 70                                             | 0 of 70                        |
+| Live TV -> Movies                             | 202 card mounts, 77 ms React, long tasks 137 + 72 ms | 64 mounts, 20 ms, no long task |
+| Movies -> Live TV                             | 262 card mounts, 31 ms React                         | 60 mounts, 7 ms                |
+| TMDB card stream (40 batches)                 | 364 ms React                                         | 22 ms                          |
 
 - **Channel list without stream URLs; playback by id** - `get_channels` serialized every `Channel` column: 9.66 MB of JSON for 26,049 channels on each start and profile switch. The stream URL was a quarter of it and, for Xtream, carries the account's username and password
   - `get_channels` and `get_favorites` return `ChannelSummary` (`db/models.rs`): id, name, logo, group_name, epg_id, content_type, is_favorite, created_at, `None` fields skipped. `tvg_name`, `category_order`, `playlist_id` and `sort_order` had no reader in the frontend. 9.66 -> 5.30 MB (-45 %), `JSON.parse` 32 -> 22 ms (V8). The TS `Channel` type follows; `ChannelInput` is gone
