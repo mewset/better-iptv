@@ -60,65 +60,30 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Pinned to an official mpv release. Nightly master builds pulled in the
+          # libcurl network backend, which on HLS streams whose first segments 404
+          # waited for the next playlist reload: 8-12 s before the picture showed.
+          # To bump: change both values; the checksum is the release zip's SHA256.
+          MPV_VERSION: v0.41.0
+          MPV_SHA256: a49811c0752c108b8260636f9c6f6fcb97406641c98b30f1e7b500dfb20177de
         run: |
-          echo "📥 Downloading MPV Windows build from shinchiro..."
+          MPV_ZIP="mpv-${MPV_VERSION}-x86_64-w64-mingw32.zip"
+          MPV_URL="https://github.com/mpv-player/mpv/releases/download/${MPV_VERSION}/${MPV_ZIP}"
+          echo "📥 Downloading MPV ${MPV_VERSION}: $MPV_URL"
+          curl -fL "$MPV_URL" -o "$MPV_ZIP"
 
-          # Get latest MPV release from shinchiro's GitHub releases
-          # Use GITHUB_TOKEN to avoid API rate limiting on runners
-          MPV_URL=$(curl -sH "Authorization: token $GITHUB_TOKEN" \
-            https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest | \
-            grep "browser_download_url.*mpv-x86_64.*7z\"" | \
-            head -1 | \
-            cut -d '"' -f 4)
+          echo "${MPV_SHA256}  ${MPV_ZIP}" | sha256sum -c -
 
-          if [ -z "$MPV_URL" ]; then
-            echo "❌ Error: Could not find MPV download URL (API rate limited?)"
-            exit 1
-          fi
-
-          echo "Found MPV URL: $MPV_URL"
-
-          # Download MPV
-          curl -L "$MPV_URL" -o mpv-windows.7z
-
-          # Verify download size (should be >30MB)
-          FILE_SIZE=$(stat -c%s mpv-windows.7z 2>/dev/null || stat -f%z mpv-windows.7z)
-          echo "Downloaded file size: $FILE_SIZE bytes"
-          if [ "$FILE_SIZE" -lt 30000000 ]; then
-            echo "❌ Error: Downloaded file is too small (likely not a valid archive)"
-            exit 1
-          fi
-
-          # Extract with 7z (pre-installed on Windows runners)
-          7z x mpv-windows.7z -o"./resources-temp"
-
-          # Debug: Show what was extracted
-          echo "📂 Contents of resources-temp:"
-          ls -la ./resources-temp/ || true
-
-          # Move extracted content to resources/mpv
-          # The archive structure varies - mpv.exe may be directly in root or in a subfolder
+          # The release zip wraps a second zip holding mpv.exe and its DLLs
+          7z x "$MPV_ZIP" -o"./mpv-outer"
+          INNER_ZIP=$(ls ./mpv-outer/mpv-*.zip | head -1)
           mkdir -p resources/mpv
-          if [ -f "./resources-temp/mpv.exe" ]; then
-            # mpv.exe is directly in resources-temp (current shinchiro structure)
-            echo "Found mpv.exe directly in resources-temp"
-            # Copy contents (not the folder itself) to resources/mpv
-            cp -r ./resources-temp/* ./resources/mpv/
-          elif ls -d ./resources-temp/mpv-x86_64-* 1>/dev/null 2>&1; then
-            # mpv.exe is in a subfolder like mpv-x86_64-YYYYMMDD
-            echo "Found mpv-x86_64-* folder"
-            MPV_FOLDER=$(ls -d ./resources-temp/mpv-x86_64-* | head -1)
-            cp -r "$MPV_FOLDER"/* ./resources/mpv/
-          else
-            echo "❌ Error: Could not find mpv.exe in extracted files"
-            ls -laR ./resources-temp/
-            exit 1
-          fi
+          7z x "$INNER_ZIP" -o"./resources/mpv"
 
           # Verify
           ls -la ./resources/mpv/mpv.exe
-          echo "✅ MPV bundled for Windows build"
+          ./resources/mpv/mpv.com --version | head -1
+          echo "✅ MPV ${MPV_VERSION} bundled for Windows build"
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
