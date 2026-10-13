@@ -60,9 +60,11 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: bash
         env:
-          # Pinned to an official mpv release. Nightly master builds pulled in the
-          # libcurl network backend, which on HLS streams whose first segments 404
-          # waited for the next playlist reload: 8-12 s before the picture showed.
+          # Pinned to an official mpv release. Nightly master builds since mpv
+          # 13a4bfbc1 (2026-09-11) resolve HLS segment URLs against the playlist URL
+          # from before the provider's redirect, so the first segments 404 and the
+          # picture waits for the next playlist reload: 8-12 s.
+          # Before bumping, check that a redirected HLS channel starts promptly.
           # To bump: change both values; the checksum is the release zip's SHA256.
           MPV_VERSION: v0.41.0
           MPV_SHA256: a49811c0752c108b8260636f9c6f6fcb97406641c98b30f1e7b500dfb20177de
