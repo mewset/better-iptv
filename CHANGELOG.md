@@ -3,6 +3,15 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## Unreleased
+
+### Fixed
+
+- **Windows ships mpv 0.41.0 instead of a nightly build** - `release.yml` bundled shinchiro's latest daily build of mpv master, which carries the libcurl network backend (`stream_curl`, merged 2026-05-16, plus `demux_lavf: route nested HTTP opens through the curl backend`, so HLS segments go through it too). When a provider answered 404 on the first segments of a live playlist, that build skipped them and waited about 9 s for the next playlist reload, so a channel took 8-12 s to show a picture. mpv 0.41.0 on Arch starts the same channels promptly
+  - The step downloads `mpv-v0.41.0-x86_64-w64-mingw32.zip` from the mpv release page, checks it against a pinned SHA256 and unpacks the nested zip into `resources/mpv/`. Version and checksum sit next to each other in the step's `env`
+  - shinchiro keeps only its last 30 or so builds, so a pin there would have broken within weeks; the official release URL stays
+  - The build no longer asks the GitHub API for the latest release, which removes the rate-limit failure path
+
 ## [3.1.0] - 2026-10-11
 
 ### Fixed

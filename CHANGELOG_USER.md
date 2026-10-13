@@ -4,6 +4,12 @@ A simple overview of new features and improvements.
 
 ---
 
+## Unreleased
+
+### Fixes
+
+- Channels on Windows start playing much faster
+
 ## Version 3.1.0 (October 11, 2026)
 
 ### Improvements
