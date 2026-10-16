@@ -121,6 +121,28 @@ describe('Settings as a view', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled());
   });
 
+  it('save is disabled and writes nothing when loading failed', async () => {
+    let calls = 0;
+    vi.mocked(getSetting).mockImplementation(async () => {
+      calls += 1;
+      if (calls === 3) throw new Error('db locked');
+      return null;
+    });
+    render(<WithShortcuts onClose={vi.fn()} />);
+
+    await screen.findByText(/could not be loaded/i);
+    const save = screen.getByRole('button', { name: 'Save changes' });
+    expect(save).toBeDisabled();
+    expect(screen.getByText(/reopening settings/i)).toBeInTheDocument();
+
+    fireEvent.click(save);
+    // Save has no keyboard shortcut; Ctrl+S must not reach a write either.
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(setSetting).not.toHaveBeenCalled();
+  });
+
   it('renders seven section triggers with their descriptions', async () => {
     await renderSettings();
 

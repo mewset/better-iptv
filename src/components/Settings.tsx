@@ -82,6 +82,8 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   // UI state
   const [activeTab, setActiveTab] = useState(initialTab);
   const [isLoading, setIsLoading] = useState(true);
+  // A failed load leaves the state at its defaults; saving then would overwrite real values.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // General tab state
@@ -319,8 +321,10 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
         setBlockedCategories(parentalSettings.blocked_categories);
         setParentalAutoDetect(parentalSettings.auto_detect);
         setParentalVisibility(parentalSettings.visibility);
+        setLoadFailed(false);
       } catch (err) {
         logger.error('Failed to load settings:', err);
+        setLoadFailed(true);
       } finally {
         setIsLoading(false);
       }
@@ -483,6 +487,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
 
   // Save handler
   const handleSave = async () => {
+    if (loadFailed) return;
     try {
       setIsSaving(true);
       await setSetting('epg_url', epgUrl);
@@ -741,6 +746,11 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
         ref={footerRef}
         className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-border bg-bg/90 px-10 py-6 backdrop-blur"
       >
+        {loadFailed && (
+          <p role="alert" className="mr-auto text-sm text-danger">
+            Settings could not be loaded, so saving is off. Reopening Settings retries.
+          </p>
+        )}
         <button
           onClick={onClose}
           className="rounded-lg px-4 py-2 text-text-muted transition-colors hover:bg-surface-hover"
@@ -749,7 +759,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
         </button>
         <button
           onClick={handleSave}
-          disabled={isSaving || isLoading}
+          disabled={isSaving || isLoading || loadFailed}
           className="rounded-lg bg-accent px-4 py-2 text-on-accent transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isSaving ? 'Saving...' : 'Save changes'}
