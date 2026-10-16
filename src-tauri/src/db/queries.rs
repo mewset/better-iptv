@@ -176,6 +176,23 @@ pub fn get_channel_summaries(
     }
 }
 
+/// The vod and series rows of a playlist, with only the columns the Home
+/// rows and pick use. Order is irrelevant: the lowest id wins a shared title.
+pub fn get_library_channels(conn: &Connection, playlist_id: i64) -> Result<Vec<LibraryChannel>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, content_type FROM channels \
+         WHERE playlist_id = ?1 AND content_type IN ('vod', 'series')",
+    )?;
+    let rows = stmt.query_map(params![playlist_id], |row| {
+        Ok(LibraryChannel {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            content_type: row.get(2)?,
+        })
+    })?;
+    rows.collect()
+}
+
 pub fn get_favorites(conn: &Connection) -> Result<Vec<Channel>> {
     let sql = format!(
         "SELECT {} FROM channels WHERE is_favorite = 1 ORDER BY name",
@@ -586,6 +603,56 @@ mod tests {
                 serde_json::to_vec(&expected).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn library_channels_exclude_live_and_other_playlists() {
+        let conn = setup_test_db();
+        let p1 = create_test_playlist(&conn, "Playlist 1");
+        let p2 = create_test_playlist(&conn, "Playlist 2");
+        let mut ids = HashMap::new();
+        for (pid, name, ct) in [
+            (p1, "Live A", "live"),
+            (p1, "Movie B", "vod"),
+            (p1, "Series C", "series"),
+            (p2, "Live D", "live"),
+            (p2, "Movie E", "vod"),
+            (p2, "Series F", "series"),
+        ] {
+            let ch = Channel {
+                id: None,
+                playlist_id: pid,
+                name: name.to_string(),
+                url: "http://x".to_string(),
+                logo: None,
+                group_name: None,
+                epg_id: None,
+                tvg_name: None,
+                content_type: ct.to_string(),
+                is_favorite: false,
+                sort_order: 0,
+                category_order: 0,
+                created_at: None,
+            };
+            ids.insert(name, create_channel(&conn, &ch).unwrap());
+        }
+        let mut got = get_library_channels(&conn, p1).unwrap();
+        got.sort_by_key(|c| c.id);
+        assert_eq!(
+            got,
+            vec![
+                LibraryChannel {
+                    id: ids["Movie B"],
+                    name: "Movie B".into(),
+                    content_type: "vod".into()
+                },
+                LibraryChannel {
+                    id: ids["Series C"],
+                    name: "Series C".into(),
+                    content_type: "series".into()
+                },
+            ]
+        );
     }
 
     #[test]

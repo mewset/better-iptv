@@ -41,6 +41,15 @@ pub struct Channel {
     pub created_at: Option<String>,
 }
 
+/// What the Home rows and pick read of a vod or series channel: the id,
+/// the title to match against the TMDB cache, and which kind it is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibraryChannel {
+    pub id: i64,
+    pub name: String,
+    pub content_type: String,
+}
+
 /// A channel as the frontend lists it: what cards, filters and the hero
 /// read, nothing more. The stream URL stays in the backend (for Xtream it
 /// carries the account's username and password; play goes by id), and

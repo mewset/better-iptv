@@ -2,7 +2,9 @@
 //! HTTP in `tmdb`, persistence in `db`.
 
 use crate::commands::with_db;
-use crate::db::models::{Channel, TmdbEpisodeRow, TmdbHomeCandidate, TmdbKey, TmdbRow};
+use crate::db::models::{
+    Channel, LibraryChannel, TmdbEpisodeRow, TmdbHomeCandidate, TmdbKey, TmdbRow,
+};
 use crate::db::{mutations, queries};
 use crate::error::AppError;
 use crate::state::AppState;
@@ -104,13 +106,13 @@ fn home_item(channel_id: i64, c: &TmdbHomeCandidate) -> HomeItem {
 /// the same film in two categories is one slide), then the day's plan.
 pub fn build_home_rows(
     date: NaiveDate,
-    channels: &[Channel],
+    channels: &[LibraryChannel],
     candidates: &HashMap<TmdbKey, TmdbHomeCandidate>,
 ) -> Vec<HomeRow> {
     let mut chosen: HashMap<&TmdbKey, i64> = HashMap::new();
     for channel in channels {
-        let Some(id) = channel.id else { continue };
-        let Some((key, _, _)) = cache_key_for(channel) else {
+        let id = channel.id;
+        let Some((key, _, _)) = cache_key_for_parts(&channel.name, &channel.content_type) else {
             continue;
         };
         let Some(cand) = candidates.get(&key) else {
@@ -159,13 +161,13 @@ pub const HOME_TRENDING_IDS_KEY: &str = "home_trending_ids";
 
 /// One channel per cache key (lowest id wins), joined to the candidates.
 fn library_titles<'a>(
-    channels: &[Channel],
+    channels: &[LibraryChannel],
     candidates: &'a HashMap<TmdbKey, TmdbHomeCandidate>,
 ) -> Vec<(i64, &'a TmdbHomeCandidate)> {
     let mut chosen: HashMap<&TmdbKey, i64> = HashMap::new();
     for channel in channels {
-        let Some(id) = channel.id else { continue };
-        let Some((key, _, _)) = cache_key_for(channel) else {
+        let id = channel.id;
+        let Some((key, _, _)) = cache_key_for_parts(&channel.name, &channel.content_type) else {
             continue;
         };
         let Some(cand) = candidates.get(&key) else {
@@ -186,7 +188,7 @@ fn library_titles<'a>(
 /// library, else the best rated. `None` when nothing qualifies.
 pub fn build_home_pick(
     trending: &[(String, i64)],
-    channels: &[Channel],
+    channels: &[LibraryChannel],
     candidates: &HashMap<TmdbKey, TmdbHomeCandidate>,
 ) -> Option<HomePick> {
     let titles = library_titles(channels, candidates);
@@ -283,7 +285,7 @@ pub async fn get_home_pick(
                 .collect();
         Ok((
             true,
-            queries::get_channels(conn, Some(playlist_id))?,
+            queries::get_library_channels(conn, playlist_id)?,
             candidates,
         ))
     })
@@ -314,7 +316,7 @@ pub async fn get_home_rows(
                 .into_iter()
                 .map(|c| (c.key.clone(), c))
                 .collect();
-        let channels = queries::get_channels(conn, Some(playlist_id))?;
+        let channels = queries::get_library_channels(conn, playlist_id)?;
         Ok(build_home_rows(today, &channels, &candidates))
     })
     .await
@@ -322,15 +324,21 @@ pub async fn get_home_rows(
 
 /// Cache key, search query and TMDB kind for a channel; `None` for live TV.
 pub fn cache_key_for(channel: &Channel) -> Option<(TmdbKey, Normalized, Kind)> {
-    let kind = Kind::from_content_type(&channel.content_type)?;
-    let query = normalize_title(&channel.name, Utc::now().year());
+    cache_key_for_parts(&channel.name, &channel.content_type)
+}
+
+/// `cache_key_for` from just the name and content type, for callers that
+/// hold a `LibraryChannel` instead of a full row.
+pub fn cache_key_for_parts(name: &str, content_type: &str) -> Option<(TmdbKey, Normalized, Kind)> {
+    let kind = Kind::from_content_type(content_type)?;
+    let query = normalize_title(name, Utc::now().year());
     if query.title.is_empty() {
         return None;
     }
     let key = TmdbKey {
         title: query.cache_title(),
         year: query.cache_year(),
-        content_type: channel.content_type.clone(),
+        content_type: content_type.to_string(),
     };
     Some((key, query, kind))
 }
@@ -947,7 +955,15 @@ pub async fn delete_tmdb_cache(state: State<'_, AppState>) -> Result<usize, AppE
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::models::{Channel, TmdbHomeCandidate, TmdbKey, TmdbRow};
+    use crate::db::models::{Channel, LibraryChannel, TmdbHomeCandidate, TmdbKey, TmdbRow};
+
+    fn library(id: i64, name: &str, content_type: &str) -> LibraryChannel {
+        LibraryChannel {
+            id,
+            name: name.into(),
+            content_type: content_type.into(),
+        }
+    }
 
     fn channel(id: i64, name: &str, content_type: &str) -> Channel {
         Channel {
@@ -989,14 +1005,14 @@ mod tests {
     #[test]
     fn home_rows_join_channels_to_candidates_and_dedupe_shared_titles() {
         let names = ["alpha", "bravo", "charlie", "delta", "echo"];
-        let mut channels: Vec<Channel> = names
+        let mut channels: Vec<LibraryChannel> = names
             .iter()
             .enumerate()
-            .map(|(i, n)| channel(i as i64 + 1, n, "vod"))
+            .map(|(i, n)| library(i as i64 + 1, n, "vod"))
             .collect();
-        // The same film again under another category, and a live channel.
-        channels.push(channel(50, "Alpha", "vod"));
-        channels.push(channel(51, "SVT1", "live"));
+        // The same film again under another category. (Live rows never get
+        // here: get_library_channels leaves them out.)
+        channels.push(library(50, "Alpha", "vod"));
         let candidates: HashMap<TmdbKey, TmdbHomeCandidate> = names
             .iter()
             .map(|n| {
@@ -1029,9 +1045,9 @@ mod tests {
     #[test]
     fn home_pick_prefers_a_trending_title_and_falls_back_to_the_best_rated() {
         let channels = vec![
-            channel(1, "alpha", "vod"),
-            channel(2, "bravo", "series"),
-            channel(3, "Alpha", "vod"),
+            library(1, "alpha", "vod"),
+            library(2, "bravo", "series"),
+            library(3, "Alpha", "vod"),
         ];
         let mut alpha = candidate("alpha", "vod", &[28]);
         alpha.rating = Some(6.0);
@@ -1060,9 +1076,46 @@ mod tests {
 
     #[test]
     fn home_rows_are_empty_without_candidates() {
-        let channels = vec![channel(1, "alpha", "vod")];
+        let channels = vec![library(1, "alpha", "vod")];
         let date = chrono::NaiveDate::from_ymd_opt(2026, 9, 26).unwrap();
         assert!(build_home_rows(date, &channels, &HashMap::new()).is_empty());
+    }
+
+    #[test]
+    fn home_rows_and_pick_empty_without_library() {
+        use crate::db::test_helpers::{create_test_channel, create_test_playlist, setup_test_db};
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        create_test_channel(&conn, pid, "SVT1");
+        create_test_channel(&conn, pid, "SVT2");
+        let channels = queries::get_library_channels(&conn, pid).unwrap();
+        assert!(channels.is_empty());
+        let candidates: HashMap<TmdbKey, TmdbHomeCandidate> = [candidate("svt1", "vod", &[28])]
+            .into_iter()
+            .map(|c| (c.key.clone(), c))
+            .collect();
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 9, 26).unwrap();
+        assert!(build_home_rows(date, &channels, &candidates).is_empty());
+        assert!(build_home_pick(&[], &channels, &candidates).is_none());
+    }
+
+    #[test]
+    fn cache_key_for_parts_matches_cache_key_for() {
+        for (name, ct) in [
+            ("SE| Shutter.Island.2010.1080p", "vod"),
+            ("Fullt Hus", "series"),
+            ("SVT1", "live"),
+        ] {
+            let full = cache_key_for(&channel(1, name, ct));
+            let parts = cache_key_for_parts(name, ct);
+            assert_eq!(full.is_some(), parts.is_some(), "{name}");
+            if let (Some((k1, q1, kind1)), Some((k2, q2, kind2))) = (full, parts) {
+                assert_eq!(k1, k2);
+                assert_eq!(q1.title, q2.title);
+                assert_eq!(kind1, kind2);
+            }
+        }
+        assert!(cache_key_for_parts("SVT1", "live").is_none());
     }
 
     #[test]
