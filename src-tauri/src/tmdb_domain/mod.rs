@@ -7,6 +7,44 @@ use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use regex::Regex;
 use std::collections::HashSet;
 
+/// Shortest gap between two library-scan progress events.
+pub const PROGRESS_MIN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Decides which scan-progress events reach the frontend. Pure: the caller
+/// passes the clock so tests control time.
+#[derive(Debug, Default)]
+pub struct ProgressThrottle {
+    last: Option<std::time::Instant>,
+}
+
+impl ProgressThrottle {
+    /// True for the first event, for the final event (`!running` or
+    /// `done == total`, which the frontend reloads Home on), and once
+    /// `PROGRESS_MIN_INTERVAL` has passed since the last emitted event.
+    pub fn should_emit(
+        &mut self,
+        now: std::time::Instant,
+        done: usize,
+        total: usize,
+        running: bool,
+    ) -> bool {
+        let emit = match self.last {
+            None => true,
+            Some(_) if !running || done == total => true,
+            Some(last) => now.saturating_duration_since(last) >= PROGRESS_MIN_INTERVAL,
+        };
+        if emit {
+            self.last = Some(now);
+        }
+        emit
+    }
+
+    /// Forget the last emit, so the first event of a new scan always passes.
+    pub fn reset(&mut self) {
+        self.last = None;
+    }
+}
+
 /// A provider title reduced to what TMDB can search for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Normalized {
@@ -1135,5 +1173,47 @@ mod home_tests {
             cached_trending(Some("2026-09-26"), None, "2026-09-26"),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod progress_throttle_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    fn after_first_emit() -> (ProgressThrottle, Instant) {
+        let t0 = Instant::now();
+        let mut throttle = ProgressThrottle::default();
+        assert!(throttle.should_emit(t0, 0, 10, true), "first event passes");
+        (throttle, t0)
+    }
+
+    #[test]
+    fn throttle_always_emits_the_final_event() {
+        let (mut throttle, t0) = after_first_emit();
+        let soon = t0 + Duration::from_millis(100);
+        assert!(throttle.should_emit(soon, 10, 10, true));
+        assert!(throttle.should_emit(soon, 9, 10, false));
+    }
+
+    #[test]
+    fn throttle_drops_events_inside_the_interval() {
+        let (mut throttle, t0) = after_first_emit();
+        assert!(!throttle.should_emit(t0 + Duration::from_millis(200), 3, 10, true));
+        assert!(throttle.should_emit(t0 + PROGRESS_MIN_INTERVAL, 4, 10, true));
+    }
+
+    #[test]
+    fn throttle_measures_from_the_last_emit_not_the_last_drop() {
+        let (mut throttle, t0) = after_first_emit();
+        assert!(!throttle.should_emit(t0 + Duration::from_millis(900), 3, 10, true));
+        assert!(throttle.should_emit(t0 + Duration::from_millis(1000), 4, 10, true));
+    }
+
+    #[test]
+    fn reset_lets_the_next_event_through() {
+        let (mut throttle, t0) = after_first_emit();
+        throttle.reset();
+        assert!(throttle.should_emit(t0 + Duration::from_millis(10), 0, 10, true));
     }
 }

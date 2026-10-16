@@ -3,6 +3,7 @@
 //! (visible rows first, the whole-library scan behind them).
 
 use crate::tmdb::enrich::EnrichJob;
+use crate::tmdb_domain::ProgressThrottle;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -58,6 +59,8 @@ pub struct TmdbSession {
     shared_key_rejected: AtomicBool,
     shared_rejections: Mutex<SharedRejections>,
     shared_fetch_failed_at: Mutex<Option<Instant>>,
+    /// Shared by every progress emit so a scan reports at most once a second.
+    progress_throttle: Mutex<ProgressThrottle>,
     /// Held while one caller fetches the shared key, so a burst of jobs
     /// sends one GET and the rest read the stored key afterwards.
     shared_fetch_lock: tokio::sync::Mutex<()>,
@@ -94,6 +97,7 @@ impl Default for TmdbSession {
             shared_key_rejected: AtomicBool::new(false),
             shared_rejections: Mutex::new(SharedRejections::default()),
             shared_fetch_failed_at: Mutex::new(None),
+            progress_throttle: Mutex::new(ProgressThrottle::default()),
             shared_fetch_lock: tokio::sync::Mutex::new(()),
             in_flight: Mutex::new(HashSet::new()),
             queue_tx: tx,
@@ -300,6 +304,27 @@ impl TmdbSession {
     #[cfg(test)]
     pub fn background_permits_available(&self) -> usize {
         self.bg_permits.available_permits()
+    }
+
+    /// Whether a progress event may go out now (see `ProgressThrottle`).
+    pub fn progress_may_emit(&self, progress: &BackgroundProgress) -> bool {
+        self.progress_throttle
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .should_emit(
+                Instant::now(),
+                progress.done as usize,
+                progress.total as usize,
+                progress.running,
+            )
+    }
+
+    /// Called when a scan starts, so its first event is never throttled.
+    pub fn reset_progress_throttle(&self) {
+        self.progress_throttle
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .reset();
     }
 
     /// `None` until the first scan of the session starts (or after a cancel).

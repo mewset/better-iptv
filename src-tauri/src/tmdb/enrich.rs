@@ -117,7 +117,10 @@ pub async fn search_and_store(
     Ok(final_row)
 }
 
-fn emit_progress(app: &AppHandle, progress: BackgroundProgress) {
+fn emit_progress(app: &AppHandle, session: &TmdbSession, progress: BackgroundProgress) {
+    if !session.progress_may_emit(&progress) {
+        return;
+    }
     if let Err(e) = app.emit(BACKGROUND_PROGRESS_EVENT, progress) {
         warn!("TMDB: failed to emit {BACKGROUND_PROGRESS_EVENT}: {e}");
     }
@@ -196,6 +199,7 @@ async fn run_background_job(
     let (done, total) = session.note_background_done();
     emit_progress(
         app,
+        session,
         BackgroundProgress {
             done,
             total,
@@ -269,7 +273,7 @@ pub fn spawn_worker(app: AppHandle) {
                     let job = match background_step(&session, job) {
                         BackgroundStep::Stale => continue,
                         BackgroundStep::AlreadyClaimed { done, total } => {
-                            emit_progress(&app, BackgroundProgress { done, total, running: done < total });
+                            emit_progress(&app, &session, BackgroundProgress { done, total, running: done < total });
                             continue;
                         }
                         BackgroundStep::Run(job) => job,
@@ -394,8 +398,9 @@ async fn run_library_scan(app: &AppHandle) -> Result<(), AppError> {
     );
     let queued = queue_scan(&session, jobs);
     info!("TMDB library scan: {queued} titles queued");
+    session.reset_progress_throttle();
     if let Some(progress) = session.background_progress() {
-        emit_progress(app, progress);
+        emit_progress(app, &session, progress);
     }
     Ok(())
 }
