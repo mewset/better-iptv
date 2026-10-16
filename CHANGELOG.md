@@ -28,6 +28,7 @@ This file is a developer-changelog, aimed towards development changes.
 - **Live TV cards refetch their guide when a channel's EPG id changes** - `useEpgData.ts` cached misses (`emptyAtRef`, 5 min) and entries (`channelEpgData`) by channel id only. After a playlist refresh changed an id (e.g. the Xtream fix above: `Kanal 5.se` -> `kanal5.se`), the card kept showing no guide for up to five minutes while the TV Guide already had it. Both caches now remember which `epg_id` they were filled for, and a different id refetches at once. Found in the smoke test of this branch
 - **New channels get their EPG id on import** - generated ids were only assigned by the per-boot pass, so channels added by an import or refresh showed no guide until the next restart
 - **Corrupt blocked lists leave a trace** - `get_parental_settings` turned unparsable `parental_blocked_channels` / `parental_blocked_categories` JSON into an empty list silently. It still returns an empty list but now logs a `warn!` with the key and the parse position (never the value)
+- **TMDB scan progress is emitted in decision order** - `emit_progress` asked the throttle (`progress_may_emit`) and emitted after releasing its lock, so two threads could emit a non-final event after the final one. New `TmdbSession::emit_progress_if_due(progress, emit)` takes the decision and runs the emit under one lock (`AppHandle::emit` is synchronous and never re-enters the throttle); `progress_may_emit` is gone. Tested without Tauri with a closure that records the order
 
 ### Removed
 

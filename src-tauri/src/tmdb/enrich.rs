@@ -118,12 +118,13 @@ pub async fn search_and_store(
 }
 
 fn emit_progress(app: &AppHandle, session: &TmdbSession, progress: BackgroundProgress) {
-    if !session.progress_may_emit(&progress) {
-        return;
-    }
-    if let Err(e) = app.emit(BACKGROUND_PROGRESS_EVENT, progress) {
-        warn!("TMDB: failed to emit {BACKGROUND_PROGRESS_EVENT}: {e}");
-    }
+    // Throttle decision and emit under one lock, so order is decision order.
+    // `emit` only evaluates JS in the webviews; it never reaches the throttle.
+    session.emit_progress_if_due(&progress, || {
+        if let Err(e) = app.emit(BACKGROUND_PROGRESS_EVENT, progress) {
+            warn!("TMDB: failed to emit {BACKGROUND_PROGRESS_EVENT}: {e}");
+        }
+    });
 }
 
 /// Search one job, release its claim, and push the card to the frontend.

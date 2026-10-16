@@ -306,17 +306,23 @@ impl TmdbSession {
         self.bg_permits.available_permits()
     }
 
-    /// Whether a progress event may go out now (see `ProgressThrottle`).
-    pub fn progress_may_emit(&self, progress: &BackgroundProgress) -> bool {
-        self.progress_throttle
+    /// Runs `emit` if the throttle lets this progress event out. The decision
+    /// and the emit are one critical section, so a throttled-in event can
+    /// never be emitted after a later one (in particular after the final
+    /// one). `emit` must not call back into this session's throttle.
+    pub fn emit_progress_if_due(&self, progress: &BackgroundProgress, emit: impl FnOnce()) {
+        let mut throttle = self
+            .progress_throttle
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .should_emit(
-                Instant::now(),
-                progress.done as usize,
-                progress.total as usize,
-                progress.running,
-            )
+            .unwrap_or_else(|e| e.into_inner());
+        if throttle.should_emit(
+            Instant::now(),
+            progress.done as usize,
+            progress.total as usize,
+            progress.running,
+        ) {
+            emit();
+        }
     }
 
     /// Called when a scan starts, so its first event is never throttled.
@@ -344,6 +350,52 @@ impl TmdbSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn progress_decision_and_emit_are_one_critical_section() {
+        use std::sync::Arc;
+        let s = Arc::new(TmdbSession::default());
+        let seen = Arc::new(std::sync::Mutex::new(Vec::<u64>::new()));
+        let first = BackgroundProgress {
+            done: 0,
+            total: 100,
+            running: true,
+        };
+        let last = BackgroundProgress {
+            done: 100,
+            total: 100,
+            running: false,
+        };
+        // While the first emit runs, the final event must wait for the lock,
+        // so it is emitted strictly after the first one.
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let (s2, seen2) = (s.clone(), seen.clone());
+        let t = std::thread::spawn(move || {
+            rx.recv().unwrap();
+            s2.emit_progress_if_due(&last, || seen2.lock().unwrap().push(100));
+        });
+        s.emit_progress_if_due(&first, || {
+            tx.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            seen.lock().unwrap().push(0);
+        });
+        t.join().unwrap();
+        assert_eq!(*seen.lock().unwrap(), vec![0, 100]);
+    }
+
+    #[test]
+    fn throttled_progress_does_not_run_the_emit_closure() {
+        let s = TmdbSession::default();
+        let p = BackgroundProgress {
+            done: 1,
+            total: 100,
+            running: true,
+        };
+        let mut calls = 0;
+        s.emit_progress_if_due(&p, || calls += 1);
+        s.emit_progress_if_due(&p, || calls += 1);
+        assert_eq!(calls, 1);
+    }
 
     #[test]
     fn in_flight_claims_are_exclusive_until_released() {
