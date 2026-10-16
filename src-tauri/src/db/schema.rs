@@ -284,6 +284,12 @@ fn backfill_channel_epg_ids(conn: &Connection) -> Result<()> {
     if crate::db::queries::get_setting(conn, EPG_IDS_BACKFILLED_KEY)?.is_some() {
         return Ok(());
     }
+    // The series migration turns some rows into live channels. Backfilling
+    // before it has run would set the key and leave those rows without ids.
+    if crate::db::queries::get_setting(conn, M3U_SERIES_GROUPED_KEY)?.is_none() {
+        log::debug!("EPG id backfill deferred until the M3U series migration has run");
+        return Ok(());
+    }
     crate::db::mutations::update_channel_epg_ids(conn)?;
     crate::db::mutations::set_setting(conn, EPG_IDS_BACKFILLED_KEY, "1")?;
     Ok(())
@@ -451,6 +457,31 @@ mod tests {
             r.get(0)
         })
         .unwrap()
+    }
+
+    #[test]
+    fn backfill_waits_for_the_m3u_series_migration() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        // Simulate an upgrade boot where the series migration did not complete.
+        for key in [super::EPG_IDS_BACKFILLED_KEY, super::M3U_SERIES_GROUPED_KEY] {
+            conn.execute("DELETE FROM settings WHERE key = ?1", [key])
+                .unwrap();
+        }
+        seed_null_live_channel(&conn, "SVT1 HD SE");
+
+        super::backfill_channel_epg_ids(&conn).unwrap();
+        assert!(
+            crate::db::queries::get_setting(&conn, super::EPG_IDS_BACKFILLED_KEY)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(epg_id_of(&conn, "SVT1 HD SE"), None);
+
+        // Once the series migration has run, the backfill goes through.
+        crate::db::mutations::set_setting(&conn, super::M3U_SERIES_GROUPED_KEY, "1").unwrap();
+        super::backfill_channel_epg_ids(&conn).unwrap();
+        assert_eq!(epg_id_of(&conn, "SVT1 HD SE").as_deref(), Some("SVT1.se"));
     }
 
     #[test]
