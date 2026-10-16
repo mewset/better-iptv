@@ -69,10 +69,3 @@ pub async fn toggle_favorite(state: State<'_, AppState>, channel_id: i64) -> Res
     debug!("toggle_favorite channel_id={}", channel_id);
     Ok(())
 }
-
-#[tauri::command]
-pub async fn get_favorites(state: State<'_, AppState>) -> Result<Vec<ChannelSummary>, AppError> {
-    let channels = with_db(&state.pool, |conn| Ok(queries::get_favorites(conn)?)).await?;
-    debug!("get_favorites -> {} channels", channels.len());
-    Ok(channels.into_iter().map(ChannelSummary::from).collect())
-}

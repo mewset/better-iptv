@@ -193,20 +193,6 @@ pub fn get_library_channels(conn: &Connection, playlist_id: i64) -> Result<Vec<L
     rows.collect()
 }
 
-pub fn get_favorites(conn: &Connection) -> Result<Vec<Channel>> {
-    let sql = format!(
-        "SELECT {} FROM channels WHERE is_favorite = 1 ORDER BY name",
-        CHANNEL_SELECT_COLUMNS
-    );
-    let mut stmt = conn.prepare(&sql)?;
-
-    let channels = stmt
-        .query_map([], map_channel_row)?
-        .collect::<Result<Vec<_>>>()?;
-
-    Ok(channels)
-}
-
 pub fn get_channel_by_id(conn: &Connection, id: i64) -> Result<Option<Channel>> {
     let sql = format!(
         "SELECT {} FROM channels WHERE id = ?1",
@@ -509,7 +495,7 @@ pub fn get_tmdb_home_candidates(
 mod tests {
     use super::*;
     use crate::db::models::{TmdbKey, TmdbRow};
-    use crate::db::mutations::{create_channel, set_setting, toggle_favorite, upsert_tmdb_search};
+    use crate::db::mutations::{create_channel, set_setting, upsert_tmdb_search};
     use crate::db::test_helpers::{create_test_channel, create_test_playlist, setup_test_db};
 
     // ========== Playlist Tests ==========
@@ -653,20 +639,6 @@ mod tests {
                 },
             ]
         );
-    }
-
-    #[test]
-    fn test_get_favorites() {
-        let conn = setup_test_db();
-        let playlist_id = create_test_playlist(&conn, "Test Playlist");
-        let channel1 = create_test_channel(&conn, playlist_id, "Channel 1");
-        let _channel2 = create_test_channel(&conn, playlist_id, "Channel 2");
-
-        toggle_favorite(&conn, channel1).unwrap();
-
-        let favorites = get_favorites(&conn).unwrap();
-        assert_eq!(favorites.len(), 1);
-        assert_eq!(favorites[0].name, "Channel 1");
     }
 
     // ========== Settings Tests ==========

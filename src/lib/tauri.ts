@@ -95,10 +95,6 @@ export async function toggleFavorite(channelId: number): Promise<void> {
   await invoke('toggle_favorite', { channelId });
 }
 
-export async function getFavorites(): Promise<Channel[]> {
-  return await invoke('get_favorites');
-}
-
 export async function getChannelGroups(
   playlistId: number,
   contentType?: string

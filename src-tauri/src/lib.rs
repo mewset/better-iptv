@@ -169,7 +169,6 @@ pub fn run() {
             get_channels,
             get_channel_groups,
             toggle_favorite,
-            get_favorites,
             // Series commands
             get_series_info,
             get_xtream_series_id,
