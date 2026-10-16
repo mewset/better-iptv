@@ -77,6 +77,8 @@ interface PlayerState {
   channelEpgData: Map<number, EpgEntry>;
   /** Stores a whole fetch at once: one new Map and one notification, not one per channel. */
   setChannelEpgs: (entries: Array<[number, EpgEntry]>) => void;
+  /** Drops the stored entries of these channels (their EPG id has no data). */
+  removeChannelEpgs: (ids: number[]) => void;
   clearAllEpg: () => void;
   epgRefreshTrigger: number;
   triggerEpgRefresh: () => void;
@@ -222,6 +224,13 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       if (entries.length === 0) return {};
       const newMap = new Map(state.channelEpgData);
       for (const [channelId, entry] of entries) newMap.set(channelId, entry);
+      return { channelEpgData: newMap };
+    }),
+  removeChannelEpgs: (ids) =>
+    set((state) => {
+      if (!ids.some((id) => state.channelEpgData.has(id))) return {};
+      const newMap = new Map(state.channelEpgData);
+      for (const id of ids) newMap.delete(id);
       return { channelEpgData: newMap };
     }),
   clearAllEpg: () => set({ channelEpgData: new Map() }),

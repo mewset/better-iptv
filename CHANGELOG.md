@@ -29,6 +29,7 @@ This file is a developer-changelog, aimed towards development changes.
 - **New channels get their EPG id on import** - generated ids were only assigned by the per-boot pass, so channels added by an import or refresh showed no guide until the next restart
 - **Corrupt blocked lists leave a trace** - `get_parental_settings` turned unparsable `parental_blocked_channels` / `parental_blocked_categories` JSON into an empty list silently. It still returns an empty list but now logs a `warn!` with the key and the parse position (never the value)
 - **TMDB scan progress is emitted in decision order** - `emit_progress` asked the throttle (`progress_may_emit`) and emitted after releasing its lock, so two threads could emit a non-final event after the final one. New `TmdbSession::emit_progress_if_due(progress, emit)` takes the decision and runs the emit under one lock (`AppHandle::emit` is synchronous and never re-enters the throttle); `progress_may_emit` is gone. Tested without Tauri with a closure that records the order
+- **Old programme no longer stays on a card whose new EPG id has no data** - when a channel's EPG id changed and the fetch for the new id missed, `useEpgData` kept the entry fetched for the old id, so the card went on showing the old programme. The hook now drops it through the new `removeChannelEpgs` store action when a channel misses while `fetchedEpgIdRef` says its stored entry was fetched for a different id
 
 ### Removed
 

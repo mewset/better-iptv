@@ -53,6 +53,7 @@ export function useEpgData(
   const setChannelEpgs = usePlayerStore((s) => s.setChannelEpgs);
   const epgRefreshTrigger = usePlayerStore((s) => s.epgRefreshTrigger);
   const triggerEpgRefresh = usePlayerStore((s) => s.triggerEpgRefresh);
+  const removeChannelEpgs = usePlayerStore((s) => s.removeChannelEpgs);
   const clearAllEpg = usePlayerStore((s) => s.clearAllEpg);
 
   // Track if we're currently fetching to avoid duplicate requests
@@ -128,6 +129,8 @@ export function useEpgData(
 
         const now = Date.now();
         const entries: Array<[number, EpgEntry]> = [];
+        // Channels that missed while their stored entry belongs to another EPG id.
+        const outdated: number[] = [];
         for (const channel of channelsWithEpg) {
           const raw = epgById[channel.epg_id!];
           // A channel between broadcasts has no current programme but still a
@@ -146,6 +149,11 @@ export function useEpgData(
           // only re-trigger the refetch above in a loop): remember the miss.
           if (!entry || isEpgEntryStale(entry, now)) {
             emptyAtRef.current.set(channel.id, { at: now, epgId: channel.epg_id! });
+            const fetchedFor = fetchedEpgIdRef.current.get(channel.id);
+            if (fetchedFor !== undefined && fetchedFor !== channel.epg_id) {
+              outdated.push(channel.id);
+              fetchedEpgIdRef.current.delete(channel.id);
+            }
             continue;
           }
           emptyAtRef.current.delete(channel.id);
@@ -153,6 +161,7 @@ export function useEpgData(
           entries.push([channel.id, entry]);
         }
         setChannelEpgs(entries);
+        if (outdated.length > 0) removeChannelEpgs(outdated);
         if (leftOver) setPass((p) => p + 1);
       } catch (err) {
         logger.debug('Failed to fetch EPG batch:', err);
@@ -161,7 +170,7 @@ export function useEpgData(
         abortControllerRef.current = null;
       }
     },
-    [channelEpgData, setChannelEpgs]
+    [channelEpgData, setChannelEpgs, removeChannelEpgs]
   );
 
   // Debounced fetch when channels change

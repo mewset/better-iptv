@@ -189,6 +189,35 @@ describe('useEpgData', () => {
     );
   });
 
+  it('drops the old programme when the new EPG id has no guide data', async () => {
+    const hit = {
+      current: 'Gammal',
+      current_start: '2099-09-24T18:00:00Z',
+      current_end: '2099-09-24T18:30:00Z',
+      next: null,
+      next_start: null,
+    };
+    vi.mocked(getChannelsEpg).mockImplementation(
+      async (ids: string[]): Promise<Record<string, ChannelEpg>> =>
+        ids.includes('Kanal 5.se') ? { 'Kanal 5.se': hit } : {}
+    );
+
+    const { rerender } = renderHook(({ list }) => useEpgData(list), {
+      initialProps: { list: [makeChannel({ id: 1, epg_id: 'Kanal 5.se' })] },
+    });
+    await waitFor(
+      () => expect(usePlayerStore.getState().channelEpgData.get(1)?.current).toBe('Gammal'),
+      { timeout: 2000 }
+    );
+
+    rerender({ list: [makeChannel({ id: 1, epg_id: 'kanal5.se' })] });
+
+    await waitFor(() => expect(getChannelsEpg).toHaveBeenCalledWith(['kanal5.se']), {
+      timeout: 2000,
+    });
+    await waitFor(() => expect(usePlayerStore.getState().channelEpgData.has(1)).toBe(false));
+  });
+
   it('stores a whole batch with one store update', async () => {
     const entry = {
       current: 'P',
