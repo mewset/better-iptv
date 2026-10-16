@@ -8,7 +8,7 @@ lazy_static! {
     // line. The value stops at the next separator or closing bracket so that text after a URL
     // (user agent, attempt counter, reqwest's closing parenthesis) survives
     static ref KEY_VALUE_RE: Regex =
-        Regex::new(r#"(?i)(username|password)=[^&\s,;)\]}'"]*"#).unwrap();
+        Regex::new(r#"(?i)(username|password|api_key)=[^&\s,;)\]}'"]*"#).unwrap();
 
     // The same pair as JSON fields, e.g. a serialised Playlist with `"xtream_password":"secret"`
     static ref JSON_FIELD_RE: Regex =
@@ -188,6 +188,16 @@ mod tests {
         assert_eq!(
             mask_credentials("http://server.com/api?username=john&format=xml"),
             "http://server.com/api?username=****&format=xml"
+        );
+    }
+
+    #[test]
+    fn test_mask_credentials_api_key() {
+        assert_eq!(
+            mask_credentials(
+                "GET https://api.themoviedb.org/3/search/movie?api_key=abc123&query=x"
+            ),
+            "GET https://api.themoviedb.org/3/search/movie?api_key=****&query=x"
         );
     }
 
