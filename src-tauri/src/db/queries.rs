@@ -139,6 +139,43 @@ pub fn get_channels(conn: &Connection, playlist_id: Option<i64>) -> Result<Vec<C
     }
 }
 
+/// The channel list as the frontend reads it: only the `ChannelSummary`
+/// columns, so the stream URLs are never read. Same rows and ORDER BY as
+/// `get_channels`, mapped exactly as `ChannelSummary::from(Channel)` does.
+pub fn get_channel_summaries(
+    conn: &Connection,
+    playlist_id: Option<i64>,
+) -> Result<Vec<ChannelSummary>> {
+    fn map_row(row: &Row) -> rusqlite::Result<ChannelSummary> {
+        Ok(ChannelSummary {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            logo: row.get(2)?,
+            group_name: row.get(3)?,
+            epg_id: row.get(4)?,
+            content_type: row.get(5)?,
+            is_favorite: row.get(6)?,
+            created_at: row.get(7)?,
+        })
+    }
+    const COLUMNS: &str =
+        "id, name, logo, group_name, epg_id, content_type, is_favorite, created_at";
+
+    if let Some(pid) = playlist_id {
+        let sql = format!(
+            "SELECT {COLUMNS} FROM channels WHERE playlist_id = ?1 ORDER BY sort_order, name"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![pid], map_row)?;
+        rows.collect()
+    } else {
+        let sql = format!("SELECT {COLUMNS} FROM channels ORDER BY sort_order, name");
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], map_row)?;
+        rows.collect()
+    }
+}
+
 pub fn get_favorites(conn: &Connection) -> Result<Vec<Channel>> {
     let sql = format!(
         "SELECT {} FROM channels WHERE is_favorite = 1 ORDER BY name",
@@ -487,6 +524,68 @@ mod tests {
 
         assert_eq!(channels1.len(), 2);
         assert_eq!(channels2.len(), 1);
+    }
+
+    #[test]
+    fn channel_summaries_equal_summary_of_full_rows() {
+        let conn = setup_test_db();
+        let p1 = create_test_playlist(&conn, "Playlist 1");
+        let p2 = create_test_playlist(&conn, "Playlist 2");
+
+        let rows = [
+            (
+                p1,
+                "Live A",
+                "live",
+                Some("http://l/a.png"),
+                Some("News"),
+                Some("a.epg"),
+            ),
+            (p1, "Movie B", "vod", None, None, None),
+            (p1, "Series C", "series", Some("http://l/c.png"), None, None),
+            (p2, "Live D", "live", None, Some("Sport"), Some("d.epg")),
+            (
+                p2,
+                "Movie E",
+                "vod",
+                Some("http://l/e.png"),
+                Some("Drama"),
+                None,
+            ),
+        ];
+        for (i, (pid, name, ct, logo, group, epg)) in rows.iter().enumerate() {
+            let ch = Channel {
+                id: None,
+                playlist_id: *pid,
+                name: name.to_string(),
+                url: format!("http://example.com/{name}.m3u8"),
+                logo: logo.map(String::from),
+                group_name: group.map(String::from),
+                epg_id: epg.map(String::from),
+                tvg_name: None,
+                content_type: ct.to_string(),
+                is_favorite: i % 2 == 0,
+                sort_order: (i % 3) as i32,
+                category_order: 0,
+                created_at: None,
+            };
+            create_channel(&conn, &ch).unwrap();
+        }
+
+        for scope in [Some(p1), Some(p2), None] {
+            let expected: Vec<ChannelSummary> = get_channels(&conn, scope)
+                .unwrap()
+                .into_iter()
+                .map(ChannelSummary::from)
+                .collect();
+            let actual = get_channel_summaries(&conn, scope).unwrap();
+            assert!(!actual.is_empty());
+            assert_eq!(actual, expected);
+            assert_eq!(
+                serde_json::to_vec(&actual).unwrap(),
+                serde_json::to_vec(&expected).unwrap()
+            );
+        }
     }
 
     #[test]

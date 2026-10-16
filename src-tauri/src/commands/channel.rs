@@ -17,7 +17,7 @@ pub async fn get_channels(
     }
 
     let channels = with_db(&state.pool, move |conn| {
-        Ok(queries::get_channels(conn, playlist_id)?)
+        Ok(queries::get_channel_summaries(conn, playlist_id)?)
     })
     .await?;
     debug!(
@@ -25,7 +25,7 @@ pub async fn get_channels(
         playlist_id,
         channels.len()
     );
-    Ok(channels.into_iter().map(ChannelSummary::from).collect())
+    Ok(channels)
 }
 
 #[tauri::command]
