@@ -21,6 +21,7 @@ This file is a developer-changelog, aimed towards development changes.
 ### Fixed
 
 - **Xtream channels prefer the provider's EPG id** - `playlist/xtream.rs` let the Swedish name heuristic (`generate_epg_id_swedish`) override the provider's `epg_channel_id`. On the reporting provider, 68 of 162 channels named `... SE` lost their guide: the heuristic builds `Kanal 5.se` while the provider's own `xmltv.php` uses `kanal5.se`. The provider id now comes first and the heuristic is only a fallback (`channel_domain::effective_epg_id`), which gives guide data to 103 of those channels instead of 35. This reverses the 2.8.0 ordering (eb0bde1) that favoured external Swedish XMLTV feeds. Existing rows get the provider id on the next playlist refresh
+- **Live TV cards refetch their guide when a channel's EPG id changes** - `useEpgData.ts` cached misses (`emptyAtRef`, 5 min) and entries (`channelEpgData`) by channel id only. After a playlist refresh changed an id (e.g. the Xtream fix above: `Kanal 5.se` -> `kanal5.se`), the card kept showing no guide for up to five minutes while the TV Guide already had it. Both caches now remember which `epg_id` they were filled for, and a different id refetches at once. Found in the smoke test of this branch
 - **New channels get their EPG id on import** - generated ids were only assigned by the per-boot pass, so channels added by an import or refresh showed no guide until the next restart
 
 ### Removed
