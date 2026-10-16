@@ -15,6 +15,7 @@ vi.mock('../../lib/tauri', async (importOriginal) => ({
 }));
 
 import { getChannelsEpg } from '../../lib/tauri';
+import type { ChannelEpg } from '../../lib/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { useEpgData } from '../../hooks/useEpgData';
 
@@ -83,21 +84,22 @@ describe('useEpgData', () => {
     const channels = Array.from({ length: 150 }, (_, i) =>
       makeChannel({ id: i + 1, name: `C${i}`, epg_id: `c${i}` })
     );
-    vi.mocked(getChannelsEpg).mockImplementation(async (ids: string[]) =>
-      Object.fromEntries(
-        ids
-          .filter((id) => Number(id.slice(1)) >= 120)
-          .map((id) => [
-            id,
-            {
-              current: `Show ${id}`,
-              current_start: null,
-              current_end: null,
-              next: null,
-              next_start: null,
-            },
-          ])
-      )
+    vi.mocked(getChannelsEpg).mockImplementation(
+      async (ids: string[]): Promise<Record<string, ChannelEpg>> =>
+        Object.fromEntries(
+          ids
+            .filter((id) => Number(id.slice(1)) >= 120)
+            .map((id) => [
+              id,
+              {
+                current: `Show ${id}`,
+                current_start: null,
+                current_end: null,
+                next: null,
+                next_start: null,
+              },
+            ])
+        )
     );
 
     renderHook(() => useEpgData(channels));
@@ -134,8 +136,9 @@ describe('useEpgData', () => {
       next: null,
       next_start: null,
     };
-    vi.mocked(getChannelsEpg).mockImplementation(async (ids: string[]) =>
-      ids.includes('kanal5.se') ? { 'kanal5.se': hit } : {}
+    vi.mocked(getChannelsEpg).mockImplementation(
+      async (ids: string[]): Promise<Record<string, ChannelEpg>> =>
+        ids.includes('kanal5.se') ? { 'kanal5.se': hit } : {}
     );
 
     const { rerender } = renderHook(({ list }) => useEpgData(list), {
@@ -165,8 +168,9 @@ describe('useEpgData', () => {
       next: null,
       next_start: null,
     });
-    vi.mocked(getChannelsEpg).mockImplementation(async (ids: string[]) =>
-      ids.includes('kanal5.se') ? { 'kanal5.se': entry('Ny') } : { 'Kanal 5.se': entry('Gammal') }
+    vi.mocked(getChannelsEpg).mockImplementation(
+      async (ids: string[]): Promise<Record<string, ChannelEpg>> =>
+        ids.includes('kanal5.se') ? { 'kanal5.se': entry('Ny') } : { 'Kanal 5.se': entry('Gammal') }
     );
 
     const { rerender } = renderHook(({ list }) => useEpgData(list), {
