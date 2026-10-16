@@ -1,5 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { importPlaylist, importXtreamPlaylist, getChannels, checkMpvInstalled } from '../lib/tauri';
+import {
+  importPlaylist,
+  importXtreamPlaylist,
+  getChannels,
+  checkMpvInstalled,
+  getPlaylists,
+  setActiveProfileId as persistActiveProfileId,
+} from '../lib/tauri';
 import { usePlayerStore } from '../stores/player-store';
 import { listen } from '@tauri-apps/api/event';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -45,8 +52,15 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
   const m3uTabRef = useRef<globalThis.HTMLButtonElement>(null);
   const xtreamTabRef = useRef<globalThis.HTMLButtonElement>(null);
 
-  const { setIsSetupComplete, setChannels, setIsLoading, setCurrentPlaylist, isLoading } =
-    usePlayerStore();
+  const {
+    setIsSetupComplete,
+    setChannels,
+    setIsLoading,
+    setCurrentPlaylist,
+    setPlaylists,
+    setActiveProfileId,
+    isLoading,
+  } = usePlayerStore();
 
   // Check whether MPV is available so the status line can tell the user
   // before they import a playlist they can't play back yet.
@@ -142,7 +156,24 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
         return; // Don't set setup complete, parent handles state
       }
 
-      // Normal mode (initial setup)
+      // Normal mode (initial setup): App.checkSetup is not run again, so put
+      // the profile where Settings > Profiles and the switcher read it, and
+      // make it the active one (the backend has no active profile yet, and
+      // the EPG commands need one).
+      let allPlaylists: Playlist[];
+      try {
+        allPlaylists = await getPlaylists();
+      } catch (err) {
+        logger.warn('Failed to reload playlists after the first import:', err);
+        allPlaylists = [playlist];
+      }
+      setPlaylists(allPlaylists);
+      setActiveProfileId(playlist.id!);
+      try {
+        await persistActiveProfileId(playlist.id!);
+      } catch (err) {
+        logger.warn('Failed to save the active profile:', err);
+      }
       setCurrentPlaylist(playlist);
       setChannels(channels);
       setIsSetupComplete(true);

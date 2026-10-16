@@ -12,6 +12,7 @@ A simple overview of new features and improvements.
 
 ### Fixes
 
+- A profile added on first start shows up in Settings → Profiles right away
 - Settings no longer reset to defaults when they could not be loaded
 - Refreshing a playlist a second time from Settings refreshes it again instead of showing the previous result
 - More channels from Xtream providers show their TV guide after the next playlist refresh
