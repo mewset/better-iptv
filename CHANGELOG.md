@@ -3,6 +3,30 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## Unreleased
+
+### Performance
+
+- **Faster start: no full-table scans in `setup()`** - `init_schema` ran three one-time EPG migrations on every start: the 2.8.0 duplicate collapse and the two 3.0.0 `lower()` passes. Each read the whole `epg_programs` table and changed nothing once `idx_epg_programs_unique` existed. `update_channel_epg_ids` also re-selected every live channel with a NULL `epg_id`. All of it ran on the main thread before the window maps: ~20 MB of reads and ~100 ms with a warm page cache, and ~465 ms on a normal first start of the day when the DB pages are not cached (strace: ~4,900 page reads on the main thread)
+  - `migrate_epg_programs` (`db/schema.rs`) runs the three statements once in one transaction and records `epg_programs_normalized`. The guard is written last, so a failure retries on the next start
+  - EPG ids are generated where rows are written: `channel_domain::effective_epg_id` is bound in `create_channels_batch` and in the INSERT and UPDATE of `merge_channels`. A one-time `backfill_channel_epg_ids` (key `epg_ids_backfilled`) covers existing rows. The calls in `lib.rs` setup and in both EPG refresh paths (`commands/epg.rs`) are gone
+  - Measured with the installed-style boot harness (real DB layout, 5 runs, before/after back to back): window shown 792 -> 351 ms with the DB not in the page cache and 503 -> 362 ms with it cached; `setup()` 465 -> 9 ms; Rust reads at boot 44 -> 28 MB. The first start after the upgrade pays the old cost once
+- **Home reads only what it uses** - `get_home_rows` and `get_home_pick` each loaded all 26k channel rows with all 13 columns to use id, name and type of the vod/series rows. New `queries::get_library_channels` returns `LibraryChannel { id, name, content_type }` for vod and series only, and `build_home_rows`, `build_home_pick` and `library_titles` take it. `cache_key_for` delegates to the new `cache_key_for_parts`. Bench: rows 118 -> 78 ms, pick 113 -> 72 ms, the concurrent pair at boot 208 -> 143 ms
+- **`get_channels` selects only the summary columns** - new `queries::get_channel_summaries` reads the eight `ChannelSummary` columns instead of all 13 (the stream URLs alone are ~2 MB for 26k rows). Bench: DB 58 -> 46 ms, Rust allocations 26 -> 12.5 MB, output byte-identical (5,297,182 B)
+- **Start section decided before the first paint** - `App.tsx` fetches playlists, the active profile and `get_tmdb_status` in parallel and switches to Home before `MainScreen` mounts (`tmdbStatus` now lives in the player store, `homeGateOpen` in `src/lib/tmdb.ts`). Boot no longer renders the Live grid first and no longer fetches `get_channel_groups('live')` for it. Home is painted 1,873 -> 1,245 ms after launch (DB not cached) and 1,556 -> 1,279 ms (cached); boot CPU 3.3 -> 2.7 s; RSS 566 -> 520 MB
+- **TMDB scan progress throttled to one event per second** - `tmdb-background-progress` fired per job, up to 5 Hz for the whole library scan, and Home re-rendered on each. `ProgressThrottle` (`tmdb_domain`) on `TmdbSession` drops events inside one second; the final event (`!running` or `done == total`) always passes, and a new scan resets the throttle
+- **Parental settings load the blocked list once** - `loadParentalSettings` and the Settings loader take `blocked_channels` from `get_parental_settings` instead of a second `get_blocked_channels` call
+- **Settings loads its 17 settings in parallel** - one `Promise.all` instead of 17 sequential `getSetting` round trips
+
+### Fixed
+
+- **Xtream channels prefer the provider's EPG id** - `playlist/xtream.rs` let the Swedish name heuristic (`generate_epg_id_swedish`) override the provider's `epg_channel_id`. On the reporting provider, 68 of 162 channels named `... SE` lost their guide: the heuristic builds `Kanal 5.se` while the provider's own `xmltv.php` uses `kanal5.se`. The provider id now comes first and the heuristic is only a fallback (`channel_domain::effective_epg_id`), which gives guide data to 103 of those channels instead of 35. This reverses the 2.8.0 ordering (eb0bde1) that favoured external Swedish XMLTV feeds. Existing rows get the provider id on the next playlist refresh
+- **New channels get their EPG id on import** - generated ids were only assigned by the per-boot pass, so channels added by an import or refresh showed no guide until the next restart
+
+### Removed
+
+- **`get_favorites` command** - registered and wrapped in `src/lib/tauri.ts` but never called. `toggle_favorite` and favourites in the channel list are unchanged
+
 ## [3.1.1] - 2026-10-13
 
 ### Fixed
