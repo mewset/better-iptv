@@ -105,6 +105,22 @@ describe('Settings as a view', () => {
     });
   });
 
+  it('loads every setting before any of them resolves', async () => {
+    const release: Array<() => void> = [];
+    vi.mocked(getSetting).mockImplementation(
+      () =>
+        new Promise<string | null>((resolve) => {
+          release.push(() => resolve(null));
+        })
+    );
+    render(<Settings onClose={vi.fn()} />);
+
+    // Sequential loading would show exactly one pending call here.
+    await waitFor(() => expect(release).toHaveLength(17));
+    release.forEach((r) => r());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled());
+  });
+
   it('renders seven section triggers with their descriptions', async () => {
     await renderSettings();
 

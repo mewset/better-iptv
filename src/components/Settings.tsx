@@ -207,19 +207,43 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   useEffect(() => {
     async function loadSettings() {
       try {
-        const savedEpgUrl = await getSetting('epg_url');
-        const savedTheme = await getSetting('theme');
-        const savedAudioIso = await getSetting('audio_language');
-        const savedSubtitleIso = await getSetting('subtitle_language');
-        const savedPlaylistUserAgentMode = await getSetting('playlist_user_agent_mode');
-        const savedPlaylistUserAgentCustom = await getSetting('playlist_user_agent_custom');
-        const savedVideoOutput = await getSetting('mpv_video_output');
-        const savedDeinterlace = await getSetting('mpv_deinterlace');
-        const savedStartFullscreen = await getSetting('mpv_start_fullscreen');
-        const savedCacheSecs = await getSetting('mpv_cache_secs');
-        const savedStartVolume = await getSetting('mpv_start_volume');
-        const savedHwAccel = await getSetting('mpv_hardware_acceleration');
-        const savedUpdateCheck = await getSetting('update_check_enabled');
+        const [
+          savedEpgUrl,
+          savedTheme,
+          savedAudioIso,
+          savedSubtitleIso,
+          savedPlaylistUserAgentMode,
+          savedPlaylistUserAgentCustom,
+          savedVideoOutput,
+          savedDeinterlace,
+          savedStartFullscreen,
+          savedCacheSecs,
+          savedStartVolume,
+          savedHwAccel,
+          savedUpdateCheck,
+          savedTmdbEnabled,
+          savedTmdbKey,
+          savedTmdbLanguage,
+          savedTmdbBackgroundEnrich,
+        ] = await Promise.all([
+          getSetting('epg_url'),
+          getSetting('theme'),
+          getSetting('audio_language'),
+          getSetting('subtitle_language'),
+          getSetting('playlist_user_agent_mode'),
+          getSetting('playlist_user_agent_custom'),
+          getSetting('mpv_video_output'),
+          getSetting('mpv_deinterlace'),
+          getSetting('mpv_start_fullscreen'),
+          getSetting('mpv_cache_secs'),
+          getSetting('mpv_start_volume'),
+          getSetting('mpv_hardware_acceleration'),
+          getSetting('update_check_enabled'),
+          getSetting('tmdb_enabled'),
+          getSetting('tmdb_api_key'),
+          getSetting('tmdb_language'),
+          getSetting('tmdb_background_enrich'),
+        ]);
 
         if (savedEpgUrl) {
           setEpgUrl(savedEpgUrl);
@@ -262,10 +286,6 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
         }
 
         // Metadata (TMDB): absent enabled means on, absent language means en-US.
-        const savedTmdbEnabled = await getSetting('tmdb_enabled');
-        const savedTmdbKey = await getSetting('tmdb_api_key');
-        const savedTmdbLanguage = await getSetting('tmdb_language');
-        const savedTmdbBackgroundEnrich = await getSetting('tmdb_background_enrich');
         setTmdbBackgroundEnrich(savedTmdbBackgroundEnrich === '1');
         const enabledValue = savedTmdbEnabled !== '0';
         setTmdbEnabled(enabledValue);
