@@ -41,4 +41,20 @@ describe('RefreshModal', () => {
 
     await waitFor(() => expect(refreshPlaylist).toHaveBeenCalledTimes(2));
   });
+
+  it('does not show the previous result while a reopened dialog refreshes again', async () => {
+    const { rerender } = render(<RefreshModal {...props} isOpen={true} />);
+    await screen.findByText('Refresh complete');
+
+    // The second refresh stays pending, so only a stale result could be on screen
+    vi.mocked(refreshPlaylist).mockReturnValueOnce(new Promise(() => {}) as never);
+
+    rerender(<RefreshModal {...props} isOpen={false} />);
+    rerender(<RefreshModal {...props} isOpen={true} />);
+
+    await waitFor(() => expect(refreshPlaylist).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Refreshing "Home"...')).toBeInTheDocument();
+    expect(screen.queryByText('Refresh complete')).not.toBeInTheDocument();
+    expect(screen.queryByText('New')).not.toBeInTheDocument();
+  });
 });
