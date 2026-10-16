@@ -98,10 +98,6 @@ pub async fn fetch_epg_data(
         .map_err(|e| AppError::Epg(e.to_string()))?;
 
     with_db(&state.pool, move |conn| {
-        let updated = crate::db::mutations::update_channel_epg_ids(conn)?;
-        if updated > 0 {
-            debug!("Updated EPG IDs for {} channels", updated);
-        }
         let count = crate::epg::store_epg_programs(conn, &programs)?;
         crate::db::mutations::set_setting(
             conn,
@@ -278,11 +274,6 @@ pub async fn run_epg_refresh(state: &AppState) -> Result<EpgRefreshResult, AppEr
     };
 
     let (count, timestamp) = with_db(&state.pool, move |conn| {
-        let updated = crate::db::mutations::update_channel_epg_ids(conn)?;
-        if updated > 0 {
-            debug!("Updated EPG IDs for {} channels", updated);
-        }
-
         let count = crate::epg::store_epg_programs(conn, &programs)?;
 
         let timestamp = chrono::Utc::now().to_rfc3339();

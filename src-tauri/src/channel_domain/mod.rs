@@ -9,6 +9,20 @@ use crate::error::AppError;
 /// Valid content types for channels
 const VALID_CONTENT_TYPES: &[&str] = &["live", "vod", "series"];
 
+// ========== EPG ids ==========
+
+/// The EPG id a channel row is stored with: the provider's id when it has a
+/// non-blank one, otherwise (live channels only) the id generated from the name.
+pub fn effective_epg_id(epg_id: Option<&str>, name: &str, content_type: &str) -> Option<String> {
+    if let Some(id) = epg_id.filter(|id| !id.trim().is_empty()) {
+        return Some(id.to_string());
+    }
+    if content_type == "live" {
+        return crate::utils::generate_epg_id_swedish(name);
+    }
+    None
+}
+
 // ========== Validation Functions ==========
 
 /// Validate content type
@@ -273,6 +287,32 @@ pub fn get_epg_identifier(channel: &Channel) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn effective_epg_id_keeps_provider_id() {
+        assert_eq!(
+            effective_epg_id(Some("svt1.se"), "SVT1 HD SE", "live"),
+            Some("svt1.se".to_string())
+        );
+    }
+
+    #[test]
+    fn effective_epg_id_generates_for_live() {
+        assert_eq!(
+            effective_epg_id(None, "SVT1 HD SE", "live"),
+            Some("SVT1.se".to_string())
+        );
+        assert_eq!(
+            effective_epg_id(Some("  "), "SVT1 HD SE", "live"),
+            Some("SVT1.se".to_string())
+        );
+    }
+
+    #[test]
+    fn effective_epg_id_never_for_vod_or_series() {
+        assert_eq!(effective_epg_id(None, "SVT1 HD SE", "vod"), None);
+        assert_eq!(effective_epg_id(None, "SVT1 HD SE", "series"), None);
+    }
 
     fn mock_channel(name: &str, content_type: &str, is_favorite: bool) -> Channel {
         Channel {

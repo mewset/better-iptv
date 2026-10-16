@@ -1,4 +1,5 @@
 use super::models::*;
+use crate::channel_domain::effective_epg_id;
 use crate::series_domain::{EpisodeInput, SeriesGroup};
 use crate::utils::generate_epg_id_swedish;
 use log::{debug, warn};
@@ -93,13 +94,18 @@ pub fn create_channels_batch(conn: &Connection, channels: &[Channel]) -> Result<
         )?;
 
         for channel in channels {
+            let epg_id = effective_epg_id(
+                channel.epg_id.as_deref(),
+                &channel.name,
+                &channel.content_type,
+            );
             stmt.execute(params![
                 channel.playlist_id,
                 channel.name,
                 channel.url,
                 channel.logo,
                 channel.group_name,
-                channel.epg_id,
+                epg_id,
                 channel.tvg_name,
                 channel.content_type,
                 channel.sort_order,
@@ -329,13 +335,15 @@ pub fn merge_channels(
                     .or_else(|| lookup.get(&format!("name:{}", ch.name)))
             };
 
+            let epg_id = effective_epg_id(ch.epg_id.as_deref(), &ch.name, &ch.content_type);
+
             if let Some(&(db_id, _is_favorite)) = matched {
                 // Update existing channel (preserve is_favorite)
                 update_stmt.execute(params![
                     ch.url,
                     ch.logo,
                     ch.group_name,
-                    ch.epg_id,
+                    epg_id,
                     ch.tvg_name,
                     ch.sort_order,
                     ch.category_order,
@@ -352,7 +360,7 @@ pub fn merge_channels(
                     ch.url,
                     ch.logo,
                     ch.group_name,
-                    ch.epg_id,
+                    epg_id,
                     ch.tvg_name,
                     ch.content_type,
                     false, // new channels start unfavorited
@@ -662,6 +670,79 @@ mod tests {
     use super::*;
     use crate::db::queries::*;
     use crate::db::test_helpers::{create_test_channel, create_test_playlist, setup_test_db};
+
+    fn live_channel(playlist_id: i64, name: &str, epg_id: Option<&str>, url: &str) -> Channel {
+        Channel {
+            id: None,
+            playlist_id,
+            name: name.to_string(),
+            url: url.to_string(),
+            logo: None,
+            group_name: Some("G".to_string()),
+            epg_id: epg_id.map(|s| s.to_string()),
+            tvg_name: None,
+            content_type: "live".to_string(),
+            is_favorite: false,
+            sort_order: 0,
+            category_order: 0,
+            created_at: None,
+        }
+    }
+
+    fn stored_epg_id(conn: &Connection, name: &str) -> Option<String> {
+        conn.query_row("SELECT epg_id FROM channels WHERE name = ?1", [name], |r| {
+            r.get(0)
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn create_channels_batch_fills_missing_epg_id() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        let ch = live_channel(pid, "TV4 HD SE", None, "http://x/1");
+        create_channels_batch(&conn, &[ch]).unwrap();
+        assert_eq!(stored_epg_id(&conn, "TV4 HD SE").as_deref(), Some("TV4.se"));
+    }
+
+    #[test]
+    fn merge_channels_keeps_generated_id_when_provider_drops_it() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        conn.execute(
+            "INSERT INTO channels (playlist_id, name, url, group_name, epg_id, content_type)
+             VALUES (?1, 'TV4 HD SE', 'http://x/1', 'G', 'TV4.se', 'live')",
+            [pid],
+        )
+        .unwrap();
+        let ch = live_channel(pid, "TV4 HD SE", None, "http://x/1");
+        merge_channels(&conn, pid, &[ch], false).unwrap();
+        assert_eq!(stored_epg_id(&conn, "TV4 HD SE").as_deref(), Some("TV4.se"));
+    }
+
+    #[test]
+    fn merge_channels_provider_id_wins() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        conn.execute(
+            "INSERT INTO channels (playlist_id, name, url, group_name, epg_id, content_type)
+             VALUES (?1, 'TV4 HD SE', 'http://x/1', 'G', 'TV4.se', 'live')",
+            [pid],
+        )
+        .unwrap();
+        let ch = live_channel(pid, "TV4 HD SE", Some("tv4.se"), "http://x/1");
+        merge_channels(&conn, pid, &[ch], false).unwrap();
+        assert_eq!(stored_epg_id(&conn, "TV4 HD SE").as_deref(), Some("tv4.se"));
+    }
+
+    #[test]
+    fn merge_channels_inserts_with_generated_id() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        let ch = live_channel(pid, "TV4 HD SE", None, "http://x/9");
+        merge_channels(&conn, pid, &[ch], false).unwrap();
+        assert_eq!(stored_epg_id(&conn, "TV4 HD SE").as_deref(), Some("TV4.se"));
+    }
 
     // ========== Playlist Tests ==========
 

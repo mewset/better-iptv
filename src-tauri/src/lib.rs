@@ -20,7 +20,7 @@ pub use error::{AppError, AppResult};
 
 use commands::*;
 use db::schema::{ensure_active_profile, init_schema};
-use log::{info, warn};
+use log::info;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use state::AppState;
@@ -121,16 +121,6 @@ pub fn run() {
 
                 // Run migration for active profile setting
                 ensure_active_profile(&conn).expect("Failed to ensure active profile setting");
-
-                // Update EPG IDs for existing channels (for migration)
-                match db::mutations::update_channel_epg_ids(&conn) {
-                    Ok(count) => {
-                        if count > 0 {
-                            info!("Updated EPG IDs for {} channels", count);
-                        }
-                    }
-                    Err(e) => warn!("Failed to update EPG IDs: {}", e),
-                }
             }
 
             // Create and manage app state

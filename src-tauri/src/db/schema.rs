@@ -267,6 +267,25 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         log::error!("M3U series migration failed, will retry next start: {}", e);
     }
 
+    if let Err(e) = backfill_channel_epg_ids(conn) {
+        log::error!("EPG id backfill failed, will retry next start: {}", e);
+    }
+
+    Ok(())
+}
+
+/// Settings key that records the one-time EPG id backfill.
+pub const EPG_IDS_BACKFILLED_KEY: &str = "epg_ids_backfilled";
+
+/// Channels written before EPG ids were generated on write may have NULL ids.
+/// Fill them once. `update_channel_epg_ids` has its own transaction and is
+/// idempotent, so losing the key write only costs a repeat pass next start.
+fn backfill_channel_epg_ids(conn: &Connection) -> Result<()> {
+    if crate::db::queries::get_setting(conn, EPG_IDS_BACKFILLED_KEY)?.is_some() {
+        return Ok(());
+    }
+    crate::db::mutations::update_channel_epg_ids(conn)?;
+    crate::db::mutations::set_setting(conn, EPG_IDS_BACKFILLED_KEY, "1")?;
     Ok(())
 }
 
@@ -412,6 +431,46 @@ pub fn ensure_active_profile(conn: &Connection) -> Result<()> {
 mod tests {
     use super::{init_schema, EPG_PROGRAMS_NORMALIZED_KEY};
     use rusqlite::Connection;
+
+    fn seed_null_live_channel(conn: &Connection, name: &str) {
+        conn.execute(
+            "INSERT OR IGNORE INTO playlists (id, name) VALUES (1, 'P')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO channels (playlist_id, name, url, content_type)
+             VALUES (1, ?1, 'http://x/s', 'live')",
+            [name],
+        )
+        .unwrap();
+    }
+
+    fn epg_id_of(conn: &Connection, name: &str) -> Option<String> {
+        conn.query_row("SELECT epg_id FROM channels WHERE name = ?1", [name], |r| {
+            r.get(0)
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn backfill_runs_once() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        // Simulate a pre-existing database: guard not yet set.
+        conn.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            [super::EPG_IDS_BACKFILLED_KEY],
+        )
+        .unwrap();
+        seed_null_live_channel(&conn, "SVT1 HD SE");
+        init_schema(&conn).unwrap();
+        assert_eq!(epg_id_of(&conn, "SVT1 HD SE").as_deref(), Some("SVT1.se"));
+
+        seed_null_live_channel(&conn, "TV4 HD SE");
+        init_schema(&conn).unwrap();
+        assert_eq!(epg_id_of(&conn, "TV4 HD SE"), None);
+    }
 
     /// Databases created before 2.8.0 have no unique key on epg_programs and
     /// accumulated one copy of every future programme per EPG refresh.
