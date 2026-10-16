@@ -219,6 +219,23 @@ pub fn run() {
 mod desktop_entry_tests {
     const TEMPLATE: &str = include_str!("../templates/better-iptv.desktop");
     const CONFIG: &str = include_str!("../tauri.conf.json");
+    const CAPABILITY: &str = include_str!("../capabilities/default.json");
+
+    /// Without a `log:` permission every `plugin:log|log` call from
+    /// `src/lib/logger.ts` is denied and the frontend never reaches the log file.
+    #[test]
+    fn default_capability_allows_frontend_logging() {
+        let capability: serde_json::Value =
+            serde_json::from_str(CAPABILITY).expect("capability must be valid JSON");
+        let permissions = capability["permissions"]
+            .as_array()
+            .expect("capability must list permissions");
+
+        assert!(
+            permissions.iter().any(|p| p == "log:default"),
+            "the main window needs log:default for frontend log records"
+        );
+    }
 
     /// The Linux desktop entry must announce the same string the window
     /// reports as its class, or KDE's taskbar and GNOME Shell fall back to a
