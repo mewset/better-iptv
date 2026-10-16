@@ -65,10 +65,15 @@ export function useEpgData(
   // over channelEpgData) as long as epgRefreshTrigger stayed > 0 - an
   // infinite forced-refetch loop.
   const lastHandledTriggerRef = useRef(0);
-  // Channel id -> when a fetch last came back without a usable entry for it.
-  // Without this, channels the guide knows nothing about would be asked for
-  // again on every pass, and a hundred of them in a row would fill every batch.
-  const emptyAtRef = useRef<Map<number, number>>(new Map());
+  // Channel id -> when a fetch last came back without a usable entry for it,
+  // and for which EPG id. Without this, channels the guide knows nothing about
+  // would be asked for again on every pass, and a hundred of them in a row
+  // would fill every batch. A miss recorded for another EPG id (a playlist
+  // refresh renamed it) says nothing about the current one.
+  const emptyAtRef = useRef<Map<number, { at: number; epgId: string }>>(new Map());
+  // Channel id -> the EPG id its stored entry was fetched for, so an entry
+  // for an old id is not taken as fresh for the new one.
+  const fetchedEpgIdRef = useRef<Map<number, string>>(new Map());
   // Bumped after a batch that had to leave channels out, so the rest get
   // their turn even when the batch stored nothing (all misses).
   const [pass, setPass] = useState(0);
@@ -93,8 +98,12 @@ export function useEpgData(
       if (!forceRefresh) {
         const now = Date.now();
         channelsWithEpg = channelsWithEpg.filter((c) => {
-          const emptyAt = emptyAtRef.current.get(c.id);
-          if (emptyAt !== undefined && now - emptyAt < EPG_CONFIG.EMPTY_RETRY) return false;
+          const miss = emptyAtRef.current.get(c.id);
+          if (miss && miss.epgId === c.epg_id && now - miss.at < EPG_CONFIG.EMPTY_RETRY) {
+            return false;
+          }
+          const fetchedFor = fetchedEpgIdRef.current.get(c.id);
+          if (fetchedFor !== undefined && fetchedFor !== c.epg_id) return true;
           const cached = channelEpgData.get(c.id);
           return !cached || isEpgEntryStale(cached, now);
         });
@@ -136,10 +145,11 @@ export function useEpgData(
           // Nothing usable, or an entry that is already stale (storing it would
           // only re-trigger the refetch above in a loop): remember the miss.
           if (!entry || isEpgEntryStale(entry, now)) {
-            emptyAtRef.current.set(channel.id, now);
+            emptyAtRef.current.set(channel.id, { at: now, epgId: channel.epg_id! });
             continue;
           }
           emptyAtRef.current.delete(channel.id);
+          fetchedEpgIdRef.current.set(channel.id, channel.epg_id!);
           entries.push([channel.id, entry]);
         }
         setChannelEpgs(entries);
@@ -203,6 +213,7 @@ export function useEpgData(
   useEffect(() => {
     const unlisten = listen('epg-refreshed', () => {
       emptyAtRef.current = new Map();
+      fetchedEpgIdRef.current = new Map();
       clearAllEpg();
       triggerEpgRefresh();
     });
