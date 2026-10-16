@@ -12,6 +12,8 @@ const formatArgs = (message: string, ...args: unknown[]): string => {
   const formatted = args
     .map((arg) => {
       if (typeof arg === 'string') return arg;
+      // JSON.stringify(new Error('x')) is '{}', which would drop the message
+      if (arg instanceof Error) return `${arg.name}: ${arg.message}`;
       try {
         return JSON.stringify(arg);
       } catch {
