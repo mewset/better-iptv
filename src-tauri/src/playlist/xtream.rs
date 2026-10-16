@@ -642,8 +642,7 @@ async fn fetch_series(
     ))
 }
 
-// Use shared EPG ID generation from utils module
-use crate::utils::generate_epg_id_swedish;
+use crate::channel_domain::effective_epg_id;
 
 /// Convert Xtream streams to our Channel format
 fn convert_streams_to_channels(
@@ -671,11 +670,11 @@ fn convert_streams_to_channels(
                 safe_container_extension(stream.container_extension.as_deref()),
             );
 
-            // Generate EPG ID for live channels. The Swedish name heuristic
-            // comes first so existing external-XMLTV setups keep matching;
-            // the provider id fills in every channel the heuristic skips.
+            // Live channels use the provider's own EPG id first: it is the id the
+            // provider's xmltv.php uses, so it matches its guide. The Swedish name
+            // heuristic is only a fallback for channels the provider gave no id.
             let epg_id = if content_type == "live" {
-                generate_epg_id_swedish(&stream.name).or(stream.epg_channel_id)
+                effective_epg_id(stream.epg_channel_id.as_deref(), &stream.name, "live")
             } else {
                 None
             };
@@ -1085,10 +1084,25 @@ mod epg_id_tests {
     }
 
     #[test]
-    fn swedish_name_heuristic_still_wins_over_provider_id() {
-        // Users pointing epg_url at an external Swedish XMLTV feed rely on these ids.
-        let json = r#"{"name":"SVT1 HD SE","stream_id":1,"epg_channel_id":"svt1.provider"}"#;
-        assert_eq!(convert(json, "live").as_deref(), Some("SVT1.se"));
+    fn xtream_live_prefers_provider_epg_id() {
+        let json = r#"{"name":"Kanal 5 HD SE","stream_id":1,"epg_channel_id":"kanal5.se"}"#;
+        assert_eq!(convert(json, "live").as_deref(), Some("kanal5.se"));
+    }
+
+    #[test]
+    fn xtream_live_falls_back_to_generated_epg_id() {
+        for json in [
+            r#"{"name":"nickelodeon FHD SE","stream_id":6}"#,
+            r#"{"name":"nickelodeon FHD SE","stream_id":6,"epg_channel_id":null}"#,
+            r#"{"name":"nickelodeon FHD SE","stream_id":6,"epg_channel_id":""}"#,
+            r#"{"name":"nickelodeon FHD SE","stream_id":6,"epg_channel_id":"  "}"#,
+        ] {
+            assert_eq!(
+                convert(json, "live").as_deref(),
+                Some("nickelodeon.se"),
+                "{json}"
+            );
+        }
     }
 
     #[test]
@@ -1098,7 +1112,7 @@ mod epg_id_tests {
     }
 
     #[test]
-    fn empty_or_missing_provider_id_leaves_epg_id_unset() {
+    fn empty_or_missing_provider_id_without_a_heuristic_match_leaves_epg_id_unset() {
         assert_eq!(
             convert(
                 r#"{"name":"BBC One","stream_id":3,"epg_channel_id":""}"#,
@@ -1110,7 +1124,7 @@ mod epg_id_tests {
     }
 
     #[test]
-    fn vod_and_series_never_get_an_epg_id() {
+    fn xtream_vod_has_no_epg_id() {
         let json = r#"{"name":"Some Movie","stream_id":5,"epg_channel_id":"movie.id"}"#;
         assert_eq!(convert(json, "vod"), None);
         assert_eq!(convert(json, "series"), None);
