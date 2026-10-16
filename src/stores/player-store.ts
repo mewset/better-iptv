@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Channel, Playlist, SeriesInfo } from '../types';
 import { getParentalSettings, getBlockedChannels, toggleFavorite } from '../lib/tauri';
-import type { TmdbCard } from '../lib/tauri';
+import type { TmdbCard, TmdbStatus } from '../lib/tauri';
 
 /**
  * A section of the app the user is browsing: the destinations behind the
@@ -52,6 +52,10 @@ interface PlayerState {
   // Content Type Filter
   contentTypeFilter: Section;
   setContentTypeFilter: (filter: Section) => void;
+
+  // TMDB status, fetched once at boot so the start section is known before MainScreen mounts
+  tmdbStatus: TmdbStatus | null;
+  setTmdbStatus: (status: TmdbStatus | null) => void;
 
   // Category Filter (provider categories like "Sweden", "Norway", etc.)
   categoryFilter: string | null;
@@ -190,6 +194,10 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   // Content Type Filter
   contentTypeFilter: 'live',
   setContentTypeFilter: (filter) => set({ contentTypeFilter: filter, categoryFilter: null }),
+
+  // TMDB status
+  tmdbStatus: null,
+  setTmdbStatus: (status) => set({ tmdbStatus: status }),
 
   // Category Filter
   categoryFilter: null,

@@ -10,7 +10,6 @@ import {
   getLocalSeriesInfo,
   getTmdbStatus,
   type TmdbDetails,
-  type TmdbStatus,
 } from '../lib/tauri';
 import { CategoryBar } from './CategoryBar';
 import { GuideView } from './GuideView';
@@ -29,7 +28,7 @@ import PinEntryModal from './modals/PinEntryModal';
 import ConfirmationModal from './modals/ConfirmationModal';
 import RefreshModal from './modals/RefreshModal';
 import TmdbMatchModal from './modals/TmdbMatchModal';
-import { cardFromDetails } from '../lib/tmdb';
+import { cardFromDetails, homeGateOpen } from '../lib/tmdb';
 import type { Channel, SeriesInfo } from '../types';
 import { logger } from '../lib/logger';
 import { useResponsiveGrid, getGridClasses } from '../hooks/useResponsiveGrid';
@@ -129,22 +128,31 @@ export default function MainScreen() {
   const loadParentalSettings = usePlayerStore((s) => s.loadParentalSettings);
 
   // TMDB status drives the Home gate: feature on, own key, background scan on.
-  const [tmdbStatus, setTmdbStatus] = useState<TmdbStatus | null>(null);
+  // The first status comes from the store (App fetched it during boot); this
+  // component only refreshes it afterwards.
+  const tmdbStatus = usePlayerStore((s) => s.tmdbStatus);
+  const setTmdbStatus = usePlayerStore((s) => s.setTmdbStatus);
   const refreshTmdbStatus = useCallback(() => {
     getTmdbStatus()
       .then(setTmdbStatus)
       .catch((err) => logger.warn('Failed to read TMDB status:', err));
-  }, []);
+  }, [setTmdbStatus]);
+  // App already holds a status when it mounts us: skip the first fetch, and
+  // the start section is already decided.
+  const hadStatusOnMount = useRef(tmdbStatus !== null);
+  const skipFirstRefresh = useRef(hadStatusOnMount.current);
   useEffect(() => {
+    if (skipFirstRefresh.current) {
+      skipFirstRefresh.current = false;
+      return;
+    }
     refreshTmdbStatus();
   }, [refreshTmdbStatus, currentPlaylist?.id]);
-  const homeAvailable = Boolean(
-    tmdbStatus?.enabled && tmdbStatus.has_user_key && tmdbStatus.background_enrich
-  );
+  const homeAvailable = homeGateOpen(tmdbStatus);
 
   // Start on Home once, when the first status arrives and the user is still
   // on the default section. Any later status change only closes the gate.
-  const startSectionDecided = useRef(false);
+  const startSectionDecided = useRef(hadStatusOnMount.current);
   useEffect(() => {
     if (startSectionDecided.current || tmdbStatus === null) return;
     startSectionDecided.current = true;

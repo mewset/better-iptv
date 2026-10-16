@@ -3,7 +3,8 @@ import Setup from './components/Setup';
 import MainScreen from './components/MainScreen';
 import ErrorBoundary from './components/ErrorBoundary';
 import { usePlayerStore } from './stores/player-store';
-import { getPlaylists, getChannels, getActiveProfileId } from './lib/tauri';
+import { getPlaylists, getChannels, getActiveProfileId, getTmdbStatus } from './lib/tauri';
+import { homeGateOpen } from './lib/tmdb';
 import { logger } from './lib/logger';
 
 export default function App() {
@@ -14,6 +15,8 @@ export default function App() {
     setChannels,
     setCurrentPlaylist,
     setActiveProfileId,
+    setTmdbStatus,
+    setContentTypeFilter,
   } = usePlayerStore();
   const [isCheckingSetup, setIsCheckingSetup] = useState(true);
 
@@ -21,19 +24,28 @@ export default function App() {
     // Check if user has any playlists on app start
     async function checkSetup() {
       try {
-        const playlists = await getPlaylists();
+        const [playlists, activeId, tmdbStatus] = await Promise.all([
+          getPlaylists(),
+          getActiveProfileId(),
+          getTmdbStatus().catch(() => null),
+        ]);
 
         if (playlists.length > 0) {
           setPlaylists(playlists);
 
           // Load active profile instead of first playlist
-          const activeId = await getActiveProfileId();
           const activePlaylist = activeId
             ? playlists.find((p) => p.id === activeId) || playlists[0]
             : playlists[0];
 
           setActiveProfileId(activePlaylist.id!);
           setCurrentPlaylist(activePlaylist);
+
+          // Decide the start section now, so MainScreen mounts on it directly.
+          setTmdbStatus(tmdbStatus);
+          if (homeGateOpen(tmdbStatus) && usePlayerStore.getState().contentTypeFilter === 'live') {
+            setContentTypeFilter('home');
+          }
 
           const channels = await getChannels(activePlaylist.id);
           setChannels(channels);
@@ -47,7 +59,15 @@ export default function App() {
     }
 
     checkSetup();
-  }, [setIsSetupComplete, setPlaylists, setChannels, setCurrentPlaylist, setActiveProfileId]);
+  }, [
+    setIsSetupComplete,
+    setPlaylists,
+    setChannels,
+    setCurrentPlaylist,
+    setActiveProfileId,
+    setTmdbStatus,
+    setContentTypeFilter,
+  ]);
 
   if (isCheckingSetup) {
     return (

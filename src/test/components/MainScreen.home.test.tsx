@@ -136,6 +136,7 @@ function seedStore() {
     activeProfileId: 1,
     currentPlaylist: profile,
     contentTypeFilter: 'live',
+    tmdbStatus: null,
     categoryFilter: null,
     searchQuery: '',
     isPlaying: false,
@@ -294,5 +295,29 @@ describe('MainScreen: Home', () => {
     render(<MainScreen />);
     await screen.findByRole('region', { name: 'Action Movies' });
     expect(screen.queryByRole('region', { name: 'Our pick of the day' })).toBeNull();
+  });
+
+  it('a profile switch after boot does not return to Home', async () => {
+    setupInvoke(true);
+    // What App leaves behind after boot: status in the store, Home chosen.
+    usePlayerStore.setState({
+      playlists: [profile, { ...profile, id: 2, name: 'Cabin' }],
+      tmdbStatus: status(true),
+      contentTypeFilter: 'home',
+    });
+    render(<MainScreen />);
+    await screen.findByRole('region', { name: 'Action Movies' });
+    fireEvent.click(rail().getByRole('button', { name: 'Movies' }));
+    await waitFor(() => expect(usePlayerStore.getState().contentTypeFilter).toBe('vod'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch profile' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Cabin' }));
+    await waitFor(() => expect(usePlayerStore.getState().activeProfileId).toBe(2));
+    // The status is re-read for the new profile; give a wrongful jump time.
+    await waitFor(() =>
+      expect(mockedInvoke.mock.calls.filter((c) => c[0] === 'get_tmdb_status').length).toBe(1)
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(usePlayerStore.getState().contentTypeFilter).toBe('vod');
   });
 });

@@ -1,4 +1,4 @@
-import type { TmdbCard, TmdbDetails } from './tauri';
+import type { TmdbCard, TmdbDetails, TmdbStatus } from './tauri';
 
 export const TMDB_CARD_EVENT = 'tmdb-card';
 export const TMDB_BACKGROUND_PROGRESS_EVENT = 'tmdb-background-progress';
@@ -64,4 +64,9 @@ export function cardFromDetails(channelId: number, d: TmdbDetails): TmdbCard | n
     backdrop_url: d.backdrop_url,
     genres: d.genres,
   };
+}
+
+/** Home is available when TMDB is on, has the user's own key and scans in the background. */
+export function homeGateOpen(status: TmdbStatus | null): boolean {
+  return Boolean(status?.enabled && status.has_user_key && status.background_enrich);
 }
