@@ -10,9 +10,9 @@ lazy_static! {
     static ref KEY_VALUE_RE: Regex =
         Regex::new(r#"(?i)(username|password|api_key)=[^&\s,;)\]}'"]*"#).unwrap();
 
-    // The same pair as JSON fields, e.g. a serialised Playlist with `"xtream_password":"secret"`
+    // The same pair, plus api_key, as JSON fields, e.g. a serialised Playlist with `"xtream_password":"secret"`
     static ref JSON_FIELD_RE: Regex =
-        Regex::new(r#"(?i)("(?:xtream_)?(?:username|password)"\s*:\s*)"[^"]*""#).unwrap();
+        Regex::new(r#"(?i)("(?:xtream_|tmdb_)?(?:username|password|api_key)"\s*:\s*)"[^"]*""#).unwrap();
 
     // Path-based Xtream URLs: scheme://host/live|series|movie/USER/PASS/ — anchored to the URL
     // authority so that filesystem paths with a `movie` or `series` folder are left alone
@@ -287,6 +287,18 @@ mod tests {
                 "Xtream import result: {\"id\":1,\"xtream_username\":\"john\",\"xtream_password\":\"secret\",\"name\":\"Home\"}"
             ),
             "Xtream import result: {\"id\":1,\"xtream_username\":\"****\",\"xtream_password\":\"****\",\"name\":\"Home\"}"
+        );
+    }
+
+    #[test]
+    fn test_mask_credentials_json_api_key_fields() {
+        assert_eq!(
+            mask_credentials("Settings: {\"tmdb_api_key\":\"abc123\",\"x\":1}"),
+            "Settings: {\"tmdb_api_key\":\"****\",\"x\":1}"
+        );
+        assert_eq!(
+            mask_credentials("{\"api_key\": \"abc123\",\"name\":\"Home\"}"),
+            "{\"api_key\": \"****\",\"name\":\"Home\"}"
         );
     }
 
