@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { RefreshCw, CheckCircle, X } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { refreshPlaylist } from '../../lib/tauri';
@@ -31,6 +31,9 @@ export default function RefreshModal({
   const [progress, setProgress] = useState<FetchProgress | null>(null);
   const [result, setResult] = useState<MergeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Marks a refresh as started for the current opening. State guards read a
+  // stale closure when StrictMode re-runs the effect, a ref does not.
+  const startedRef = useRef(false);
 
   // Listen for progress events
   useEffect(() => {
@@ -47,7 +50,15 @@ export default function RefreshModal({
 
   // Start refresh when modal opens
   useEffect(() => {
-    if (!isOpen || isRefreshing || result || error) return;
+    if (!isOpen) {
+      // Closed: forget the finished run so the next opening refreshes again
+      startedRef.current = false;
+      setResult(null);
+      setError(null);
+      return;
+    }
+    if (startedRef.current) return;
+    startedRef.current = true;
 
     setIsRefreshing(true);
     setProgress(null);
