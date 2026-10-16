@@ -12,7 +12,7 @@ A simple overview of new features and improvements.
 
 ### Fixes
 
-- Several Swedish channels from Xtream providers, such as Kanal 5, Kanal 9 and Kanal 11, now show their TV guide
+- Several Swedish channels from Xtream providers, such as Kanal 5, Kanal 9 and Kanal 11, now show their TV guide after the next playlist refresh
 - New channels show their TV guide right after an import instead of after a restart
 
 ## Version 3.1.1 (October 13, 2026)
