@@ -1,5 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { invoke } from '@tauri-apps/api/core';
 import { usePlayerStore } from '../../stores/player-store';
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 describe('usePlayerStore', () => {
   beforeEach(() => {
@@ -285,6 +288,33 @@ describe('usePlayerStore', () => {
 
       usePlayerStore.getState().setActiveProfileId(42);
       expect(usePlayerStore.getState().activeProfileId).toBe(42);
+    });
+  });
+
+  describe('loadParentalSettings', () => {
+    it('invokes get_parental_settings once and not get_blocked_channels', async () => {
+      vi.mocked(invoke).mockReset();
+      vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+        if (cmd === 'get_parental_settings') {
+          return {
+            enabled: true,
+            has_pin: true,
+            auto_detect: false,
+            blocked_channels: [3, 5],
+            blocked_categories: ['News'],
+            unlock_duration: '0',
+            visibility: 'hide',
+          };
+        }
+        throw new Error(`unexpected command ${cmd}`);
+      });
+
+      await usePlayerStore.getState().loadParentalSettings();
+
+      const commands = vi.mocked(invoke).mock.calls.map((c) => c[0]);
+      expect(commands).toEqual(['get_parental_settings']);
+      expect(usePlayerStore.getState().blockedChannelIds).toEqual(new Set([3, 5]));
+      expect(usePlayerStore.getState().blockedCategories).toEqual(['News']);
     });
   });
 });

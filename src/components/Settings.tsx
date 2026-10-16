@@ -290,13 +290,12 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
         setEpgStatus(status);
 
         // Load parental controls settings
-        const { getParentalSettings, getBlockedChannels } = await import('../lib/tauri');
+        const { getParentalSettings } = await import('../lib/tauri');
         const parentalSettings = await getParentalSettings();
-        const blockedIds = await getBlockedChannels();
 
         setParentalEnabled(parentalSettings.enabled);
         setHasPin(parentalSettings.has_pin);
-        setBlockedChannelIds(new Set(blockedIds));
+        setBlockedChannelIds(new Set(parentalSettings.blocked_channels));
         setBlockedCategories(parentalSettings.blocked_categories);
         setParentalAutoDetect(parentalSettings.auto_detect);
         setParentalVisibility(parentalSettings.visibility);

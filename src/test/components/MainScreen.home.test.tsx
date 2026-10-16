@@ -106,6 +106,7 @@ function setupInvoke(
         return {
           enabled: parental.enabled,
           has_pin: parental.enabled,
+          blocked_channels: parental.blocked,
           blocked_categories: [],
           visibility: 'hide',
           auto_detect: false,

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Channel, Playlist, SeriesInfo } from '../types';
-import { getParentalSettings, getBlockedChannels, toggleFavorite } from '../lib/tauri';
+import { getParentalSettings, toggleFavorite } from '../lib/tauri';
 import type { TmdbCard, TmdbStatus } from '../lib/tauri';
 
 /**
@@ -280,11 +280,10 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   loadParentalSettings: async () => {
     try {
       const settings = await getParentalSettings();
-      const blockedIds = await getBlockedChannels();
 
       set({
         parentalEnabled: settings.enabled,
-        blockedChannelIds: new Set(blockedIds),
+        blockedChannelIds: new Set(settings.blocked_channels),
         blockedCategories: settings.blocked_categories,
         parentalVisibility: settings.visibility,
         parentalAutoDetect: settings.auto_detect,
