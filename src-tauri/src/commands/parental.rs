@@ -107,6 +107,29 @@ pub async fn set_blocked_channels(
     Ok(())
 }
 
+/// Parse a stored JSON list. Describes a failure without echoing the value.
+fn try_parse_stored_list<T: serde::de::DeserializeOwned>(raw: &str) -> Result<Vec<T>, String> {
+    serde_json::from_str(raw).map_err(|e| {
+        format!(
+            "{:?} at line {} column {}",
+            e.classify(),
+            e.line(),
+            e.column()
+        )
+    })
+}
+
+/// A missing setting is an empty list; an unparsable one is too, but is logged.
+fn parse_stored_list<T: serde::de::DeserializeOwned>(key: &str, raw: Option<&str>) -> Vec<T> {
+    let Some(raw) = raw else {
+        return Vec::new();
+    };
+    try_parse_stored_list(raw).unwrap_or_else(|reason| {
+        warn!("Stored setting {key} cannot be parsed, treating it as empty: {reason}");
+        Vec::new()
+    })
+}
+
 #[tauri::command]
 pub async fn get_parental_settings(
     state: State<'_, AppState>,
@@ -127,15 +150,19 @@ pub async fn get_parental_settings(
     })
     .await?;
 
-    let blocked_channels: Vec<i64> = settings
-        .get("parental_blocked_channels")
-        .and_then(|s| serde_json::from_str(s).ok())
-        .unwrap_or_default();
+    let blocked_channels: Vec<i64> = parse_stored_list(
+        "parental_blocked_channels",
+        settings
+            .get("parental_blocked_channels")
+            .map(String::as_str),
+    );
 
-    let blocked_categories: Vec<String> = settings
-        .get("parental_blocked_categories")
-        .and_then(|s| serde_json::from_str(s).ok())
-        .unwrap_or_default();
+    let blocked_categories: Vec<String> = parse_stored_list(
+        "parental_blocked_categories",
+        settings
+            .get("parental_blocked_categories")
+            .map(String::as_str),
+    );
 
     let result = serde_json::json!({
         "enabled": settings.get("parental_enabled").map(|s| s == "true").unwrap_or(false),
@@ -148,4 +175,27 @@ pub async fn get_parental_settings(
     });
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_stored_list_reads_valid_json() {
+        let ids: Vec<i64> = parse_stored_list("k", Some("[1,2,3]"));
+        assert_eq!(ids, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn parse_stored_list_gives_empty_for_missing_or_corrupt() {
+        assert!(parse_stored_list::<i64>("k", None).is_empty());
+        assert!(parse_stored_list::<i64>("k", Some("[1,")).is_empty());
+    }
+
+    #[test]
+    fn stored_list_error_names_the_problem_not_the_value() {
+        let err = try_parse_stored_list::<i64>("[1, secret-value").unwrap_err();
+        assert!(!err.contains("secret-value"));
+    }
 }
