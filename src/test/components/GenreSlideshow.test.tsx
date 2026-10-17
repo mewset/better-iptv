@@ -133,7 +133,7 @@ describe('GenreSlideshow', () => {
     const onOpen = vi.fn();
     render(<GenreSlideshow row={row} onOpen={onOpen} />);
     fireEvent.click(screen.getByRole('button', { name: 'First, open details' }));
-    expect(onOpen).toHaveBeenCalledWith(1);
+    expect(onOpen).toHaveBeenCalledWith(row.items[0].channel);
   });
 
   it('falls back to colour bars when the backdrop fails to load', () => {

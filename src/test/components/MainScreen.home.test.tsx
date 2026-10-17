@@ -44,9 +44,13 @@ function movie(id: number, name: string, extra: Partial<Channel> = {}): Channel 
 
 const channels = [1, 2, 3, 4, 5].map((id) => movie(id, `Title ${id}`));
 
+const seriesChannels = [6, 7, 8].map((id) => movie(id, `Title ${id}`, { content_type: 'series' }));
+
 function item(channel_id: number) {
+  const channel = [...channels, ...seriesChannels].find((c) => c.id === channel_id)!;
   return {
     channel_id,
+    channel,
     tmdb_id: channel_id,
     title: `Title ${channel_id}`,
     year: 2020,
@@ -60,7 +64,6 @@ function item(channel_id: number) {
 
 const rows = [{ genre: 'Action', content_type: 'vod', items: [1, 2, 3, 4, 5].map(item) }];
 
-const seriesChannels = [6, 7, 8].map((id) => movie(id, `Title ${id}`, { content_type: 'series' }));
 const rowsWithSurvivor = [
   { genre: 'Action', content_type: 'vod', items: [1, 2, 3, 4, 5].map(item) },
   { genre: 'Comedy', content_type: 'series', items: [6, 7, 8].map(item) },
@@ -209,6 +212,40 @@ describe('MainScreen: Home', () => {
     );
     expect(screen.queryByRole('region', { name: 'Action Movies' })).toBeNull();
     expect(await screen.findByRole('region', { name: 'Comedy Series' })).toBeInTheDocument();
+  });
+
+  it('shows the slideshow and the pick before the channel list has loaded', async () => {
+    setupInvoke(true);
+    usePlayerStore.getState().setChannels([]);
+    render(<MainScreen />);
+    expect(await screen.findByRole('region', { name: 'Action Movies' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Our pick of the day' })).toHaveTextContent(
+      'Title 1'
+    );
+  });
+
+  it('drops blocked titles before the channel list has loaded', async () => {
+    setupInvoke(true, { enabled: true, blocked: [1, 2, 3] }, rowsWithSurvivor);
+    usePlayerStore.setState({
+      parentalEnabled: true,
+      parentalVisibility: 'lock',
+      blockedChannelIds: new Set([1, 2, 3]),
+    });
+    usePlayerStore.getState().setChannels([]);
+    render(<MainScreen />);
+    await rail().findByRole('button', { name: 'Home' });
+    expect(await screen.findByRole('region', { name: 'Comedy Series' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Action Movies' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Our pick of the day' })).toBeNull();
+  });
+
+  it('opens the detail view from a slide before the channel list has loaded', async () => {
+    setupInvoke(true);
+    usePlayerStore.getState().setChannels([]);
+    render(<MainScreen />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Title 1, open details' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Action Movies' })).toBeNull());
+    expect(screen.getAllByText('Title 1').length).toBeGreaterThan(0);
   });
 
   it('leaves Home for Live TV when the gate closes', async () => {

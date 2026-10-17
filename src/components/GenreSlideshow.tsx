@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { HomeRow } from '../lib/tauri';
+import type { Channel } from '../types';
 import { heroMetaLine } from '../lib/tmdb';
 import { ColorBars } from './ColorBars';
 
@@ -8,7 +9,7 @@ export const SLIDE_INTERVAL_MS = 8000;
 
 interface GenreSlideshowProps {
   row: HomeRow;
-  onOpen: (channelId: number) => void;
+  onOpen: (channel: Channel) => void;
 }
 
 function prefersReducedMotion(): boolean {
@@ -127,7 +128,7 @@ export function GenreSlideshow({ row, onOpen }: GenreSlideshowProps) {
 
         <button
           type="button"
-          onClick={() => onOpen(current.channel_id)}
+          onClick={() => onOpen(current.channel)}
           aria-label={`${current.title}, open details`}
           className="absolute inset-0 flex flex-col justify-end gap-2 p-10 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
         >

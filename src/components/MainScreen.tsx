@@ -275,18 +275,12 @@ export default function MainScreen() {
     blockedCategories,
   ]);
 
-  const channels = usePlayerStore((s) => s.channels);
   const {
     rows: homeRows,
     pick: homePick,
     loading: homeLoading,
     progress: homeProgress,
   } = useHomeRows(currentPlaylist?.id ?? null, homeAvailable && contentTypeFilter === 'home');
-  const channelById = useMemo(() => {
-    const map = new Map<number, Channel>();
-    for (const c of channels) if (c.id) map.set(c.id, c);
-    return map;
-  }, [channels]);
   // Same rule as the hero: `isAdultContent` regardless of the parental
   // settings, plus the parental block. The backend sends twelve per row so
   // eight usually survive; a row under three is dropped.
@@ -306,24 +300,19 @@ export default function MainScreen() {
         ...row,
         items: row.items
           .filter((item) => {
-            const c = channelById.get(item.channel_id);
-            return (
-              c !== undefined &&
-              !isAdultContent(c.name, c.group_name) &&
-              !shouldBlockChannel(c, homeParental)
-            );
+            const c = item.channel;
+            return !isAdultContent(c.name, c.group_name) && !shouldBlockChannel(c, homeParental);
           })
           .slice(0, HOME_SLIDES),
       }))
       .filter((row) => row.items.length >= HOME_MIN_SLIDES);
-  }, [homeRows, channelById, homeParental]);
-  // The pick goes through the same parental rule as the rows; a blocked or
-  // unknown title means no hero rather than a fallback.
+  }, [homeRows, homeParental]);
+  // The pick goes through the same parental rule as the rows; a blocked
+  // title means no hero rather than a fallback.
   const homePickView = useMemo<HomePickView | null>(() => {
     if (!homePick) return null;
-    const channel = channelById.get(homePick.item.channel_id);
+    const channel = homePick.item.channel;
     if (
-      !channel ||
       isAdultContent(channel.name, channel.group_name) ||
       shouldBlockChannel(channel, homeParental)
     ) {
@@ -335,7 +324,7 @@ export default function MainScreen() {
       note:
         homePick.source === 'trending' ? 'Trending on TMDB today' : 'Highest rated in your library',
     };
-  }, [homePick, channelById, homeParental]);
+  }, [homePick, homeParental]);
 
   // The "Recently added" hero: the newest title of the Movies or Series
   // section, shown only while browsing it unfiltered (no category, no
@@ -494,14 +483,6 @@ export default function MainScreen() {
       openDetail(channel);
     },
     [openDetail]
-  );
-
-  const handleOpenHomeItem = useCallback(
-    (channelId: number) => {
-      const channel = channelById.get(channelId);
-      if (channel) handleOpenTitle(channel);
-    },
-    [channelById, handleOpenTitle]
   );
 
   const handlePlayChannel = useCallback(
@@ -845,7 +826,7 @@ export default function MainScreen() {
             rows={homeVisibleRows}
             loading={homeLoading}
             progress={homeProgress ?? tmdbStatus?.background_progress ?? null}
-            onOpen={handleOpenHomeItem}
+            onOpen={handleOpenTitle}
           />
         ) : contentTypeFilter === 'guide' ? (
           <GuideView

@@ -23,7 +23,7 @@ interface HomeViewProps {
   rows: HomeRow[];
   loading: boolean;
   progress: TmdbBackgroundProgress | null;
-  onOpen: (channelId: number) => void;
+  onOpen: (channel: Channel) => void;
 }
 
 const dateFormat = new Intl.DateTimeFormat(undefined, {
