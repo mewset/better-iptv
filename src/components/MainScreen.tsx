@@ -757,10 +757,13 @@ export default function MainScreen() {
       ? guideSubtitle(new Date())
       : contentTypeFilter === 'home'
         ? ''
-        : countLabel(
-            filteredChannels.length,
-            trimmedQuery ? RESULT_NOUNS : SECTION_COUNT_NOUNS[contentTypeFilter]
-          );
+        : loadStatus !== 'loaded'
+          ? // No count until the list is whole; the nbsp keeps the line's height
+            '\u00A0'
+          : countLabel(
+              filteredChannels.length,
+              trimmedQuery ? RESULT_NOUNS : SECTION_COUNT_NOUNS[contentTypeFilter]
+            );
   if (view === 'settings') {
     title = 'Settings';
     subtitle = 'Ctrl+1–7 switches sections';

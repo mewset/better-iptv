@@ -160,4 +160,31 @@ describe('MainScreen: channel load placeholders', () => {
     expect(screen.getByText('SVT1')).toBeInTheDocument();
     expect(screen.queryByTestId('channel-load-error')).toBeNull();
   });
+
+  it('shows no channel count in the header while live channels load', () => {
+    render(<MainScreen />);
+    expect(screen.queryByText(/\d+ channels?/)).toBeNull();
+  });
+
+  it('shows no count above the error state on Movies', () => {
+    usePlayerStore.setState({
+      contentTypeFilter: 'vod',
+      channels: [svt1],
+      liveChannels: [svt1],
+      channelLoad: { live: 'loaded', library: 'error' },
+    });
+    render(<MainScreen />);
+    expect(screen.getByTestId('channel-load-error')).toBeInTheDocument();
+    expect(screen.queryByText(/\d+ titles?/)).toBeNull();
+  });
+
+  it('shows the count once loaded', () => {
+    usePlayerStore.setState({
+      channels: [svt1],
+      liveChannels: [svt1],
+      channelLoad: { live: 'loaded', library: 'loaded' },
+    });
+    render(<MainScreen />);
+    expect(screen.getByText('1 channel')).toBeInTheDocument();
+  });
 });
