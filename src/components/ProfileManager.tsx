@@ -218,6 +218,8 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
     if (refreshTarget?.id && refreshTarget.id === currentPlaylist?.id) {
       try {
         const freshChannels = await getChannels(refreshTarget.id);
+        // A switch while the fetch was in flight: these are the old profile's channels
+        if (usePlayerStore.getState().currentPlaylist?.id !== refreshTarget.id) return;
         setChannels(freshChannels);
       } catch (err) {
         logger.error('Failed to reload channels after refresh:', err);

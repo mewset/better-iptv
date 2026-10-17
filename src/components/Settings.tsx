@@ -849,6 +849,8 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
             if (currentPlaylist.id) {
               try {
                 const freshChannels = await getChannels(currentPlaylist.id);
+                // A switch while the fetch was in flight: these are the old profile's channels
+                if (usePlayerStore.getState().currentPlaylist?.id !== currentPlaylist.id) return;
                 setChannels(freshChannels);
               } catch (err) {
                 logger.error('Failed to reload channels after refresh:', err);
