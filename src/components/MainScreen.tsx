@@ -206,7 +206,8 @@ export default function MainScreen() {
       : 'live';
   const { columns, estimatedRowHeight } = useResponsiveGrid(kind);
 
-  // Load parental settings on mount
+  // Boot (App.tsx) already loaded the settings; this covers the first-run Setup path
+  // and a remount
   useEffect(() => {
     loadParentalSettings();
   }, [loadParentalSettings]);

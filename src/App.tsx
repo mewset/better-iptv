@@ -3,7 +3,7 @@ import Setup from './components/Setup';
 import MainScreen from './components/MainScreen';
 import ErrorBoundary from './components/ErrorBoundary';
 import { usePlayerStore } from './stores/player-store';
-import { getPlaylists, getChannels, getActiveProfileId, getTmdbStatus } from './lib/tauri';
+import { getPlaylists, getActiveProfileId, getTmdbStatus } from './lib/tauri';
 import { homeGateOpen } from './lib/tmdb';
 import { logger } from './lib/logger';
 
@@ -12,7 +12,8 @@ export default function App() {
     isSetupComplete,
     setIsSetupComplete,
     setPlaylists,
-    setChannels,
+    loadChannels,
+    loadParentalSettings,
     setCurrentPlaylist,
     setActiveProfileId,
     setTmdbStatus,
@@ -24,10 +25,13 @@ export default function App() {
     // Check if user has any playlists on app start
     async function checkSetup() {
       try {
+        // Parental settings are in before MainScreen mounts, so a blocked title never renders
+        // unfiltered. loadParentalSettings swallows its own errors.
         const [playlists, activeId, tmdbStatus] = await Promise.all([
           getPlaylists(),
           getActiveProfileId(),
           getTmdbStatus().catch(() => null),
+          loadParentalSettings(),
         ]);
 
         if (playlists.length > 0) {
@@ -47,9 +51,9 @@ export default function App() {
             setContentTypeFilter('home');
           }
 
-          const channels = await getChannels(activePlaylist.id);
-          setChannels(channels);
           setIsSetupComplete(true);
+          // Not awaited: MainScreen mounts now and the store reports channelLoad
+          void loadChannels(activePlaylist.id!);
         }
       } catch (err) {
         logger.error('Failed to check setup:', err);
@@ -62,7 +66,8 @@ export default function App() {
   }, [
     setIsSetupComplete,
     setPlaylists,
-    setChannels,
+    loadChannels,
+    loadParentalSettings,
     setCurrentPlaylist,
     setActiveProfileId,
     setTmdbStatus,
@@ -70,14 +75,7 @@ export default function App() {
   ]);
 
   if (isCheckingSetup) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-bg">
-        <div className="text-center">
-          <div className="mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4 border-accent border-t-transparent"></div>
-          <p className="text-lg font-medium text-text-muted">Loading playlist...</p>
-        </div>
-      </div>
-    );
+    return <div className="min-h-screen bg-bg" />;
   }
 
   return <ErrorBoundary>{isSetupComplete ? <MainScreen /> : <Setup />}</ErrorBoundary>;
