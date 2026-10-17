@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { CalendarRange, Lock, Play, X } from 'lucide-react';
-import { usePlayerStore } from '../stores/player-store';
+import { usePlayerStore, type ChannelLoadStatus } from '../stores/player-store';
 import type { Channel } from '../types';
 import { getEpgStatus, type GuideProgram } from '../lib/tauri';
 import { GUIDE_DAY_COUNT, blockGeometry, normalizeEpgId } from '../lib/guideLayout';
@@ -11,6 +11,7 @@ import { cn } from '../lib/utils';
 import { useGuide } from '../hooks/useGuide';
 import { CategoryBar } from './CategoryBar';
 import { ColorBars } from './ColorBars';
+import { ChannelLoadError } from './ChannelLoadError';
 
 const HALF_HOUR = 30 * 60_000;
 const NOW_TICK_MS = 30_000;
@@ -297,6 +298,9 @@ export interface GuideViewProps {
   dockVisible: boolean;
   /** Parental blocking per channel id (lock/blur modes); hide mode already filtered. */
   blockedMap?: Map<number, boolean>;
+  /** Live part of the channel list; the empty states wait for 'loaded'. */
+  loadStatus: ChannelLoadStatus;
+  onRetry: () => void;
 }
 
 /**
@@ -311,6 +315,8 @@ export function GuideView({
   onOpenEpgSettings,
   dockVisible,
   blockedMap,
+  loadStatus,
+  onRetry,
 }: GuideViewProps) {
   const [dayOffset, setDayOffset] = useState(0);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -494,7 +500,9 @@ export function GuideView({
           selection && dockVisible ? 'pb-56' : 'pb-32'
         )}
       >
-        {rowsLoading ? (
+        {loadStatus === 'error' ? (
+          <ChannelLoadError onRetry={onRetry} />
+        ) : loadStatus === 'loading' || rowsLoading ? (
           <p className="py-16 text-center text-text-muted">Loading guide…</p>
         ) : rows.length === 0 ? (
           <p className="py-16 text-center text-text-muted">

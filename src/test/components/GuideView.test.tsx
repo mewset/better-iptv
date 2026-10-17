@@ -96,6 +96,8 @@ function renderGuide(overrides: Partial<React.ComponentProps<typeof GuideView>> 
     onPlay: vi.fn(),
     onOpenEpgSettings: vi.fn(),
     dockVisible: false,
+    loadStatus: 'loaded' as const,
+    onRetry: vi.fn(),
     ...overrides,
   };
   render(<GuideView {...props} />);
@@ -116,6 +118,21 @@ describe('GuideView', () => {
     hasUrl = true;
     setupInvoke();
     usePlayerStore.setState({ categories: [], categoryFilter: null });
+  });
+
+  it('shows Loading guide instead of "No channels in this list" while live channels load', async () => {
+    renderGuide({ channels: [], loadStatus: 'loading' });
+    expect(await screen.findByText('Loading guide…')).toBeInTheDocument();
+    expect(screen.queryByText('No channels in this list')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+  });
+
+  it('shows the error state with Retry when they failed', async () => {
+    const props = renderGuide({ channels: [], loadStatus: 'error' });
+    expect(await screen.findByTestId('channel-load-error')).toBeInTheDocument();
+    expect(screen.queryByText('No channels in this list')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(props.onRetry).toHaveBeenCalledTimes(1);
   });
 
   it('a Favorites chip narrows the rows to favourites and All restores every channel', async () => {

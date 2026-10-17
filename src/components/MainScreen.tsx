@@ -13,6 +13,9 @@ import {
 } from '../lib/tauri';
 import { CategoryBar } from './CategoryBar';
 import { GuideView } from './GuideView';
+import { ChannelGridPlaceholder } from './ChannelGridPlaceholder';
+import { ChannelLoadError } from './ChannelLoadError';
+import { sectionLoadStatus } from '../lib/channelLoad';
 import { HomeView } from './HomeView';
 import { ChannelCard } from './ChannelCard';
 import { PosterCard } from './PosterCard';
@@ -205,6 +208,9 @@ export default function MainScreen() {
       ? 'poster'
       : 'live';
   const { columns, estimatedRowHeight } = useResponsiveGrid(kind);
+  const channelLoad = usePlayerStore((s) => s.channelLoad);
+  const retryChannels = usePlayerStore((s) => s.retryChannels);
+  const loadStatus = sectionLoadStatus(contentTypeFilter, trimmedQuery !== '', channelLoad);
 
   // Boot (App.tsx) already loaded the settings; this covers the first-run Setup path
   // and a remount
@@ -837,6 +843,8 @@ export default function MainScreen() {
             onOpenEpgSettings={() => openSettings('epg')}
             dockVisible={Boolean(currentChannel)}
             blockedMap={blockedMap}
+            loadStatus={loadStatus}
+            onRetry={retryChannels}
           />
         ) : (
           <>
@@ -852,7 +860,11 @@ export default function MainScreen() {
               role="region"
               aria-label="Channel list"
             >
-              {filteredChannels.length === 0 ? (
+              {loadStatus === 'loading' ? (
+                <ChannelGridPlaceholder kind={kind} columns={columns} />
+              ) : loadStatus === 'error' ? (
+                <ChannelLoadError onRetry={retryChannels} />
+              ) : filteredChannels.length === 0 ? (
                 <div className="flex flex-col items-center gap-3 py-16 text-center text-text-muted">
                   {trimmedQuery ? (
                     <>
