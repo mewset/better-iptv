@@ -212,8 +212,9 @@ export default function MainScreen() {
   const retryChannels = usePlayerStore((s) => s.retryChannels);
   const loadStatus = sectionLoadStatus(contentTypeFilter, trimmedQuery !== '', channelLoad);
 
-  // Boot (App.tsx) already loaded the settings; this covers the first-run Setup path
-  // and a remount
+  // Boot (App.tsx) normally has the settings in before this mounts; this covers the
+  // first-run Setup path, a remount, and a boot load that failed (which leaves the
+  // defaults in place until this retry succeeds)
   useEffect(() => {
     loadParentalSettings();
   }, [loadParentalSettings]);
@@ -436,6 +437,8 @@ export default function MainScreen() {
   const virtualItems = rowVirtualizer.getVirtualItems();
   const visibleChannels = useMemo(() => {
     const out: Channel[] = [];
+    // Placeholders are on screen until the section is loaded: no lookups for hidden cards
+    if (loadStatus !== 'loaded') return out;
     for (const row of virtualItems) {
       if (showHero && row.index === 0) continue;
       const start = (showHero ? row.index - 1 : row.index) * columns;
@@ -444,7 +447,7 @@ export default function MainScreen() {
       }
     }
     return out;
-  }, [virtualItems, showHero, columns, filteredChannels]);
+  }, [virtualItems, showHero, columns, filteredChannels, loadStatus]);
 
   // EPG for the live cards in view. The playing channel always rides along so
   // the dock stays fresh, also in sections without a grid.
@@ -1045,6 +1048,8 @@ export default function MainScreen() {
             if (currentPlaylist.id) {
               try {
                 const freshChannels = await getChannels(currentPlaylist.id);
+                // A switch while the fetch was in flight: these are the old profile's channels
+                if (usePlayerStore.getState().currentPlaylist?.id !== currentPlaylist.id) return;
                 setChannels(freshChannels);
               } catch (err) {
                 logger.error('Failed to reload channels after refresh:', err);

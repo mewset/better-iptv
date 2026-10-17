@@ -133,6 +133,26 @@ describe('MainScreen: channel load placeholders', () => {
     expect(screen.queryByTestId('channel-grid-placeholder')).toBeNull();
   });
 
+  it('requests no EPG while the section shows placeholders', async () => {
+    usePlayerStore.setState({
+      channels: [svt1],
+      liveChannels: [svt1],
+      channelLoad: { live: 'loaded', library: 'loading' },
+    });
+    render(<MainScreen />);
+    // A search needs the library too: SVT1 matches but its card is not shown yet
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'SVT' } });
+    expect(await screen.findByTestId('channel-grid-placeholder')).toBeInTheDocument();
+    // Longer than the hook's 500 ms debounce
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    const epgCalls = () => mockedInvoke.mock.calls.filter((c) => c[0] === 'get_channels_epg');
+    expect(epgCalls()).toHaveLength(0);
+
+    // Once the card is on screen the lookup runs
+    usePlayerStore.setState({ channelLoad: { live: 'loaded', library: 'loaded' } });
+    await waitFor(() => expect(epgCalls().length).toBeGreaterThan(0), { timeout: 3000 });
+  });
+
   it('shows the error state on Movies when the library failed, and Retry reloads', async () => {
     const retryChannels = vi.fn(async () => {});
     usePlayerStore.setState({
