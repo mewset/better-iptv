@@ -145,6 +145,7 @@ pub fn get_channels(conn: &Connection, playlist_id: Option<i64>) -> Result<Vec<C
 pub fn get_channel_summaries(
     conn: &Connection,
     playlist_id: Option<i64>,
+    content_types: Option<&[String]>,
 ) -> Result<Vec<ChannelSummary>> {
     fn map_row(row: &Row) -> rusqlite::Result<ChannelSummary> {
         Ok(ChannelSummary {
@@ -161,19 +162,31 @@ pub fn get_channel_summaries(
     const COLUMNS: &str =
         "id, name, logo, group_name, epg_id, content_type, is_favorite, created_at";
 
+    let mut conditions: Vec<String> = Vec::new();
+    let mut values: Vec<rusqlite::types::Value> = Vec::new();
     if let Some(pid) = playlist_id {
-        let sql = format!(
-            "SELECT {COLUMNS} FROM channels WHERE playlist_id = ?1 ORDER BY sort_order, name"
-        );
-        let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![pid], map_row)?;
-        rows.collect()
-    } else {
-        let sql = format!("SELECT {COLUMNS} FROM channels ORDER BY sort_order, name");
-        let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map([], map_row)?;
-        rows.collect()
+        values.push(pid.into());
+        conditions.push(format!("playlist_id = ?{}", values.len()));
     }
+    if let Some(types) = content_types {
+        let placeholders: Vec<String> = types
+            .iter()
+            .map(|t| {
+                values.push(t.clone().into());
+                format!("?{}", values.len())
+            })
+            .collect();
+        conditions.push(format!("content_type IN ({})", placeholders.join(", ")));
+    }
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", conditions.join(" AND "))
+    };
+    let sql = format!("SELECT {COLUMNS} FROM channels{where_clause} ORDER BY sort_order, name");
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(values), map_row)?;
+    rows.collect()
 }
 
 /// The vod and series rows of a playlist, with only the columns the Home
@@ -529,11 +542,10 @@ mod tests {
         assert_eq!(channels2.len(), 1);
     }
 
-    #[test]
-    fn channel_summaries_equal_summary_of_full_rows() {
-        let conn = setup_test_db();
-        let p1 = create_test_playlist(&conn, "Playlist 1");
-        let p2 = create_test_playlist(&conn, "Playlist 2");
+    /// Two playlists with mixed content types and sort orders 0..2.
+    fn seed_summary_fixture(conn: &Connection) -> (i64, i64) {
+        let p1 = create_test_playlist(conn, "Playlist 1");
+        let p2 = create_test_playlist(conn, "Playlist 2");
 
         let rows = [
             (
@@ -572,8 +584,15 @@ mod tests {
                 category_order: 0,
                 created_at: None,
             };
-            create_channel(&conn, &ch).unwrap();
+            create_channel(conn, &ch).unwrap();
         }
+        (p1, p2)
+    }
+
+    #[test]
+    fn channel_summaries_without_filter_unchanged() {
+        let conn = setup_test_db();
+        let (p1, p2) = seed_summary_fixture(&conn);
 
         for scope in [Some(p1), Some(p2), None] {
             let expected: Vec<ChannelSummary> = get_channels(&conn, scope)
@@ -581,13 +600,37 @@ mod tests {
                 .into_iter()
                 .map(ChannelSummary::from)
                 .collect();
-            let actual = get_channel_summaries(&conn, scope).unwrap();
+            let actual = get_channel_summaries(&conn, scope, None).unwrap();
             assert!(!actual.is_empty());
             assert_eq!(actual, expected);
             assert_eq!(
                 serde_json::to_vec(&actual).unwrap(),
                 serde_json::to_vec(&expected).unwrap()
             );
+        }
+    }
+
+    #[test]
+    fn channel_summaries_filter_by_type_keeps_order() {
+        let conn = setup_test_db();
+        let (p1, p2) = seed_summary_fixture(&conn);
+
+        let filters: [Vec<String>; 2] = [
+            vec!["live".to_string()],
+            vec!["vod".to_string(), "series".to_string()],
+        ];
+        for scope in [Some(p1), Some(p2), None] {
+            let all = get_channel_summaries(&conn, scope, None).unwrap();
+            for filter in &filters {
+                let expected: Vec<ChannelSummary> = all
+                    .iter()
+                    .filter(|c| filter.contains(&c.content_type))
+                    .cloned()
+                    .collect();
+                let actual = get_channel_summaries(&conn, scope, Some(filter)).unwrap();
+                assert!(!actual.is_empty());
+                assert_eq!(actual, expected);
+            }
         }
     }
 

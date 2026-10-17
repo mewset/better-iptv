@@ -87,8 +87,14 @@ export async function getPlaylistChannelCounts(): Promise<Record<number, number>
 
 // ========== Channel Commands ==========
 
-export async function getChannels(playlistId?: number): Promise<Channel[]> {
-  return await invoke('get_channels', { playlistId });
+export const LIVE_TYPES = ['live'] as const;
+export const LIBRARY_TYPES = ['vod', 'series'] as const;
+
+export async function getChannels(
+  playlistId?: number,
+  contentTypes?: ReadonlyArray<'live' | 'vod' | 'series'>
+): Promise<Channel[]> {
+  return await invoke('get_channels', { playlistId, contentTypes });
 }
 
 export async function toggleFavorite(channelId: number): Promise<void> {

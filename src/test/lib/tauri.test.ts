@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { getPlaylistChannelCounts } from '../../lib/tauri';
+import { getChannels, getPlaylistChannelCounts } from '../../lib/tauri';
 
 const mockedInvoke = vi.mocked(invoke);
 
@@ -29,5 +29,33 @@ describe('getPlaylistChannelCounts', () => {
     const counts = await getPlaylistChannelCounts();
 
     expect(counts).toEqual({});
+  });
+});
+
+describe('getChannels', () => {
+  beforeEach(() => {
+    mockedInvoke.mockReset();
+  });
+
+  it('passes the content types to get_channels', async () => {
+    mockedInvoke.mockResolvedValueOnce([]);
+
+    await getChannels(3, ['live']);
+
+    expect(mockedInvoke).toHaveBeenCalledWith('get_channels', {
+      playlistId: 3,
+      contentTypes: ['live'],
+    });
+  });
+
+  it('leaves contentTypes undefined when no filter is given', async () => {
+    mockedInvoke.mockResolvedValueOnce([]);
+
+    await getChannels(3);
+
+    expect(mockedInvoke).toHaveBeenCalledWith('get_channels', {
+      playlistId: 3,
+      contentTypes: undefined,
+    });
   });
 });
