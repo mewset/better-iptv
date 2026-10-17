@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { useProfileSwitch } from '../../hooks/useProfileSwitch';
 import { usePlayerStore } from '../../stores/player-store';
@@ -33,7 +33,7 @@ describe('useProfileSwitch', () => {
     });
   });
 
-  it('activates the profile in the backend, loads its channels and updates the store', async () => {
+  it('activates the profile and loads its channels in the background', async () => {
     mockedInvoke.mockImplementation(async (cmd: string) =>
       cmd === 'get_channels' ? cabinChannels : undefined
     );
@@ -43,21 +43,39 @@ describe('useProfileSwitch', () => {
       await result.current.switchTo(cabin);
     });
 
-    expect(mockedInvoke.mock.calls.map((c) => c[0])).toEqual([
-      'set_active_profile_id',
-      'get_channels',
-    ]);
     expect(mockedInvoke).toHaveBeenNthCalledWith(1, 'set_active_profile_id', { profileId: 2 });
-    expect(mockedInvoke).toHaveBeenNthCalledWith(2, 'get_channels', { playlistId: 2 });
+    expect(mockedInvoke.mock.calls.slice(1).every((c) => c[0] === 'get_channels')).toBe(true);
+    expect(mockedInvoke.mock.calls.length).toBeGreaterThan(1);
+
+    await waitFor(() => expect(usePlayerStore.getState().channelLoad.live).toBe('loaded'));
+    const state = usePlayerStore.getState();
+    expect(state.activeProfileId).toBe(2);
+    expect(state.currentPlaylist).toEqual(cabin);
+    expect(state.liveChannels).toEqual(cabinChannels);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('activates the profile and switches before its channels load', async () => {
+    let release: (v: Channel[]) => void = () => {};
+    mockedInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_channels') return new Promise<Channel[]>((r) => (release = r));
+      return undefined;
+    });
+
+    const { result } = renderHook(() => useProfileSwitch());
+    await act(async () => {
+      await result.current.switchTo(cabin);
+    });
 
     const state = usePlayerStore.getState();
     expect(state.activeProfileId).toBe(2);
     expect(state.currentPlaylist).toEqual(cabin);
-    expect(state.channels).toEqual(cabinChannels);
-    expect(result.current.error).toBeNull();
+    expect(state.channelLoad.live).toBe('loading');
+
+    await act(async () => release([]));
   });
 
-  it('keeps the error and leaves the active profile alone when loading channels fails', async () => {
+  it('stays on the new profile with a load error when its channels fail', async () => {
     mockedInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'get_channels') throw new Error('provider unreachable');
       return undefined;
@@ -68,11 +86,29 @@ describe('useProfileSwitch', () => {
       await result.current.switchTo(cabin);
     });
 
-    expect(result.current.error).toMatch(/provider unreachable/);
+    await waitFor(() => expect(usePlayerStore.getState().channelLoad.live).toBe('error'));
+    const state = usePlayerStore.getState();
+    expect(state.activeProfileId).toBe(2);
+    expect(state.currentPlaylist).toEqual(cabin);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('keeps the old profile when activating it in the backend fails', async () => {
+    mockedInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'set_active_profile_id') throw new Error('db locked');
+      return undefined;
+    });
+
+    const { result } = renderHook(() => useProfileSwitch());
+    await act(async () => {
+      await result.current.switchTo(cabin);
+    });
+
+    expect(result.current.error).toMatch(/db locked/);
     const state = usePlayerStore.getState();
     expect(state.activeProfileId).toBe(1);
     expect(state.currentPlaylist).toEqual(home);
-    expect(state.channels).toEqual([]);
+    expect(mockedInvoke.mock.calls.map((c) => c[0])).toEqual(['set_active_profile_id']);
 
     act(() => result.current.clearError());
     expect(result.current.error).toBeNull();
