@@ -139,6 +139,22 @@ pub fn get_channels(conn: &Connection, playlist_id: Option<i64>) -> Result<Vec<C
     }
 }
 
+const SUMMARY_COLUMNS: &str =
+    "id, name, logo, group_name, epg_id, content_type, is_favorite, created_at";
+
+fn map_summary_row(row: &Row) -> rusqlite::Result<ChannelSummary> {
+    Ok(ChannelSummary {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        logo: row.get(2)?,
+        group_name: row.get(3)?,
+        epg_id: row.get(4)?,
+        content_type: row.get(5)?,
+        is_favorite: row.get(6)?,
+        created_at: row.get(7)?,
+    })
+}
+
 /// The channel list as the frontend reads it: only the `ChannelSummary`
 /// columns, so the stream URLs are never read. Same rows and ORDER BY as
 /// `get_channels`, mapped exactly as `ChannelSummary::from(Channel)` does.
@@ -147,21 +163,6 @@ pub fn get_channel_summaries(
     playlist_id: Option<i64>,
     content_types: Option<&[String]>,
 ) -> Result<Vec<ChannelSummary>> {
-    fn map_row(row: &Row) -> rusqlite::Result<ChannelSummary> {
-        Ok(ChannelSummary {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            logo: row.get(2)?,
-            group_name: row.get(3)?,
-            epg_id: row.get(4)?,
-            content_type: row.get(5)?,
-            is_favorite: row.get(6)?,
-            created_at: row.get(7)?,
-        })
-    }
-    const COLUMNS: &str =
-        "id, name, logo, group_name, epg_id, content_type, is_favorite, created_at";
-
     let mut conditions: Vec<String> = Vec::new();
     let mut values: Vec<rusqlite::types::Value> = Vec::new();
     if let Some(pid) = playlist_id {
@@ -183,10 +184,32 @@ pub fn get_channel_summaries(
     } else {
         format!(" WHERE {}", conditions.join(" AND "))
     };
-    let sql = format!("SELECT {COLUMNS} FROM channels{where_clause} ORDER BY sort_order, name");
+    let sql =
+        format!("SELECT {SUMMARY_COLUMNS} FROM channels{where_clause} ORDER BY sort_order, name");
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(rusqlite::params_from_iter(values), map_row)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(values), map_summary_row)?;
     rows.collect()
+}
+
+/// The summaries of the given channel ids, keyed by id. Ids that no longer
+/// exist are absent from the map. No query for an empty slice.
+pub fn get_channel_summaries_by_ids(
+    conn: &Connection,
+    ids: &[i64],
+) -> Result<HashMap<i64, ChannelSummary>> {
+    let mut out = HashMap::with_capacity(ids.len());
+    // SQLite's variable limit is 32766 on current builds; stay well under it.
+    for chunk in ids.chunks(500) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let sql = format!("SELECT {SUMMARY_COLUMNS} FROM channels WHERE id IN ({placeholders})");
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk), map_summary_row)?;
+        for row in rows {
+            let summary = row?;
+            out.insert(summary.id, summary);
+        }
+    }
+    Ok(out)
 }
 
 /// The vod and series rows of a playlist, with only the columns the Home
@@ -632,6 +655,27 @@ mod tests {
                 assert_eq!(actual, expected);
             }
         }
+    }
+
+    #[test]
+    fn summaries_by_ids_returns_only_requested() {
+        let conn = setup_test_db();
+        seed_summary_fixture(&conn);
+        let all = get_channel_summaries(&conn, None, None).unwrap();
+        assert!(all.len() >= 5);
+        let wanted: Vec<i64> = all.iter().take(5).step_by(2).map(|c| c.id).collect();
+        assert_eq!(wanted.len(), 3);
+
+        let map = get_channel_summaries_by_ids(&conn, &wanted).unwrap();
+        assert_eq!(map.len(), 3);
+        for id in &wanted {
+            let expected = all.iter().find(|c| c.id == *id).unwrap();
+            assert_eq!(&map[id], expected);
+        }
+        assert!(get_channel_summaries_by_ids(&conn, &[]).unwrap().is_empty());
+        assert!(get_channel_summaries_by_ids(&conn, &[999_999])
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

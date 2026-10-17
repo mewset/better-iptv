@@ -14,6 +14,12 @@ function item(channel_id: number, title: string) {
     backdrop_url: `https://image.tmdb.org/t/p/w1280/${channel_id}.jpg`,
     genres: ['Action', 'Thriller'],
     overview: `${title} plot`,
+    channel: {
+      id: channel_id,
+      name: title,
+      content_type: 'vod' as const,
+      is_favorite: false,
+    },
   };
 }
 

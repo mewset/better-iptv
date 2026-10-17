@@ -397,6 +397,8 @@ export interface HomeItem {
   backdrop_url: string | null;
   genres: string[];
   overview: string | null;
+  /** The channel row behind the slide; the backend never sends an item without it. */
+  channel: Channel;
 }
 
 /** One Home slideshow: a genre of movies or of series. */

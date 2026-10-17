@@ -15,6 +15,12 @@ function item(channel_id: number, title: string) {
     backdrop_url: null,
     genres: ['Comedy'],
     overview: null,
+    channel: {
+      id: channel_id,
+      name: title,
+      content_type: 'vod' as const,
+      is_favorite: false,
+    },
   };
 }
 

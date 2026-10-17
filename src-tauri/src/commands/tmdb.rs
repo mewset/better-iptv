@@ -3,7 +3,7 @@
 
 use crate::commands::with_db;
 use crate::db::models::{
-    Channel, LibraryChannel, TmdbEpisodeRow, TmdbHomeCandidate, TmdbKey, TmdbRow,
+    Channel, ChannelSummary, LibraryChannel, TmdbEpisodeRow, TmdbHomeCandidate, TmdbKey, TmdbRow,
 };
 use crate::db::{mutations, queries};
 use crate::error::AppError;
@@ -68,6 +68,9 @@ pub struct HomeItem {
     pub backdrop_url: Option<String>,
     pub genres: Vec<String>,
     pub overview: Option<String>,
+    /// The channel row behind the slide, so Home renders without the full
+    /// channel list. Set by `attach_channels`/`attach_pick_channel`.
+    pub channel: Option<ChannelSummary>,
 }
 
 /// One Home slideshow: a genre of movies or of series.
@@ -98,7 +101,39 @@ fn home_item(channel_id: i64, c: &TmdbHomeCandidate) -> HomeItem {
             .map(String::from)
             .collect(),
         overview: c.overview.clone(),
+        channel: None,
     }
+}
+
+/// Fills each item's `channel` from `summaries` and drops items whose
+/// channel is gone. Rows stay; the frontend drops rows that end up short.
+pub fn attach_channels(
+    rows: Vec<HomeRow>,
+    summaries: &HashMap<i64, ChannelSummary>,
+) -> Vec<HomeRow> {
+    rows.into_iter()
+        .map(|mut row| {
+            row.items = row
+                .items
+                .into_iter()
+                .filter_map(|mut item| {
+                    item.channel = Some(summaries.get(&item.channel_id)?.clone());
+                    Some(item)
+                })
+                .collect();
+            row
+        })
+        .collect()
+}
+
+/// `attach_channels` for the hero: `None` when the pick's channel is gone.
+pub fn attach_pick_channel(
+    pick: Option<HomePick>,
+    summaries: &HashMap<i64, ChannelSummary>,
+) -> Option<HomePick> {
+    let mut pick = pick?;
+    pick.item.channel = Some(summaries.get(&pick.item.channel_id)?.clone());
+    Some(pick)
 }
 
 /// The pure half of `get_home_rows`: the profile's channels joined to the
@@ -294,7 +329,15 @@ pub async fn get_home_pick(
         return Ok(None);
     }
     let trending = trending_for_today(&state, &today.format("%Y-%m-%d").to_string()).await?;
-    Ok(build_home_pick(&trending, &channels, &candidates))
+    let Some(pick) = build_home_pick(&trending, &channels, &candidates) else {
+        return Ok(None);
+    };
+    let id = pick.item.channel_id;
+    let summaries = with_db(&state.pool, move |conn| {
+        Ok(queries::get_channel_summaries_by_ids(conn, &[id])?)
+    })
+    .await?;
+    Ok(attach_pick_channel(Some(pick), &summaries))
 }
 
 /// The Home page's rows for the active profile. Empty when the gate (feature
@@ -317,7 +360,13 @@ pub async fn get_home_rows(
                 .map(|c| (c.key.clone(), c))
                 .collect();
         let channels = queries::get_library_channels(conn, playlist_id)?;
-        Ok(build_home_rows(today, &channels, &candidates))
+        let rows = build_home_rows(today, &channels, &candidates);
+        let ids: Vec<i64> = rows
+            .iter()
+            .flat_map(|r| r.items.iter().map(|i| i.channel_id))
+            .collect();
+        let summaries = queries::get_channel_summaries_by_ids(conn, &ids)?;
+        Ok(attach_channels(rows, &summaries))
     })
     .await
 }
@@ -981,6 +1030,58 @@ mod tests {
             category_order: 0,
             created_at: None,
         }
+    }
+
+    fn summary(id: i64) -> ChannelSummary {
+        ChannelSummary::from(channel(id, &format!("Title {id}"), "vod"))
+    }
+
+    fn item(channel_id: i64) -> HomeItem {
+        let c = candidate("t", "vod", &[]);
+        home_item(channel_id, &c)
+    }
+
+    fn home_row(ids: &[i64]) -> HomeRow {
+        HomeRow {
+            genre: "Action".into(),
+            content_type: "vod".into(),
+            items: ids.iter().map(|&i| item(i)).collect(),
+        }
+    }
+
+    #[test]
+    fn attach_channels_fills_and_drops_missing() {
+        let summaries: HashMap<i64, ChannelSummary> =
+            [1, 2, 4].into_iter().map(|i| (i, summary(i))).collect();
+        let rows = attach_channels(vec![home_row(&[1, 2, 3]), home_row(&[4])], &summaries);
+        assert_eq!(rows.len(), 2);
+        let ids: Vec<i64> = rows[0].items.iter().map(|i| i.channel_id).collect();
+        assert_eq!(ids, vec![1, 2]);
+        for it in rows.iter().flat_map(|r| &r.items) {
+            assert_eq!(it.channel.as_ref(), Some(&summaries[&it.channel_id]));
+        }
+    }
+
+    #[test]
+    fn attach_pick_channel_none_when_missing() {
+        let pick = HomePick {
+            item: item(7),
+            source: PickSource::Trending,
+        };
+        let summaries: HashMap<i64, ChannelSummary> = [(1, summary(1))].into();
+        assert!(attach_pick_channel(Some(pick), &summaries).is_none());
+        assert!(attach_pick_channel(None, &summaries).is_none());
+    }
+
+    #[test]
+    fn attach_pick_channel_fills_when_present() {
+        let pick = HomePick {
+            item: item(7),
+            source: PickSource::Trending,
+        };
+        let summaries: HashMap<i64, ChannelSummary> = [(7, summary(7))].into();
+        let got = attach_pick_channel(Some(pick), &summaries).unwrap();
+        assert_eq!(got.item.channel.as_ref(), Some(&summaries[&7]));
     }
 
     fn candidate(title: &str, content_type: &str, genre_ids: &[i32]) -> TmdbHomeCandidate {
