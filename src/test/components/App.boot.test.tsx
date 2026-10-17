@@ -121,10 +121,10 @@ describe('App boot', () => {
     const { queryByTestId, findByTestId } = render(<App />);
     await waitFor(() => expect(calls('get_parental_settings')).toHaveLength(1));
     await waitFor(() => expect(calls('get_playlists')).toHaveLength(1));
-    await act(async () => {
-      await Promise.resolve();
-    });
+    // A full macrotask, so every other boot request has settled while parental is pending
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(queryByTestId('main-screen')).not.toBeInTheDocument();
+    expect(calls('get_channels')).toHaveLength(0);
     release();
     await findByTestId('main-screen');
     expect(usePlayerStore.getState().parentalEnabled).toBe(true);

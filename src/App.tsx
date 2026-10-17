@@ -25,8 +25,9 @@ export default function App() {
     // Check if user has any playlists on app start
     async function checkSetup() {
       try {
-        // Parental settings are in before MainScreen mounts, so a blocked title never renders
-        // unfiltered. loadParentalSettings swallows its own errors.
+        // Parental settings are awaited before MainScreen mounts, so the first render already
+        // filters. loadParentalSettings swallows its own errors: if it fails, the defaults
+        // (parental off) apply until a later load succeeds.
         const [playlists, activeId, tmdbStatus] = await Promise.all([
           getPlaylists(),
           getActiveProfileId(),
