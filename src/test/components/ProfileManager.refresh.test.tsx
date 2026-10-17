@@ -9,6 +9,8 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 
 vi.mock('../../lib/tauri', () => ({
+  LIVE_TYPES: ['live'],
+  LIBRARY_TYPES: ['vod', 'series'],
   setActiveProfileId: vi.fn(),
   deletePlaylist: vi.fn(),
   renamePlaylist: vi.fn(),
@@ -40,6 +42,14 @@ const channel = (id: number, name: string): Channel => ({
   is_favorite: false,
 });
 
+function deferred() {
+  let resolve!: (value: Channel[]) => void;
+  const promise = new Promise<Channel[]>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 describe('ProfileManager refresh of the active profile', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -67,5 +77,36 @@ describe('ProfileManager refresh of the active profile', () => {
     );
     expect(await screen.findByText(/Refreshed today/)).toBeInTheDocument();
     expect(screen.queryByText('Older than a week')).toBeNull();
+  });
+  it("a refresh during a boot load wins over the boot load's late result", async () => {
+    const live = deferred();
+    const library = deferred();
+    const fresh = [channel(1, 'SVT1'), channel(2, 'SVT2')];
+    vi.mocked(getChannels).mockImplementation(async (_id, types) => {
+      if (types === undefined) return fresh;
+      return types.includes('live') ? live.promise : library.promise;
+    });
+
+    // Boot load is in flight: both parts wait on their deferred responses
+    const boot = usePlayerStore.getState().loadChannels(1);
+    expect(usePlayerStore.getState().channelLoad).toEqual({ live: 'loading', library: 'loading' });
+
+    render(<ProfileManager onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() =>
+      expect(usePlayerStore.getState().liveChannels.map((c) => c.name)).toContain('SVT2')
+    );
+    expect(usePlayerStore.getState().channelLoad).toEqual({ live: 'loaded', library: 'loaded' });
+
+    // The boot load's responses arrive late and must be dropped
+    live.resolve([channel(9, 'Stale live')]);
+    library.resolve([{ ...channel(10, 'Stale movie'), content_type: 'vod' }]);
+    await boot;
+
+    const state = usePlayerStore.getState();
+    expect(state.channels).toEqual(fresh);
+    expect(state.liveChannels).toEqual(fresh);
+    expect(state.vodChannels).toEqual([]);
+    expect(state.channelLoad).toEqual({ live: 'loaded', library: 'loaded' });
   });
 });
