@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { error as logError } from '@tauri-apps/plugin-log';
+import { error as logError, warn as logWarn } from '@tauri-apps/plugin-log';
 import { usePlayerStore } from '../../stores/player-store';
 import type { Channel } from '../../types';
 
@@ -370,6 +370,7 @@ describe('usePlayerStore', () => {
         return d.promise;
       });
       vi.mocked(logError).mockClear();
+      vi.mocked(logWarn).mockClear();
       usePlayerStore.setState({
         currentPlaylist: playlist(1),
         favoriteChannels: [],
@@ -475,6 +476,21 @@ describe('usePlayerStore', () => {
       expect(state.channelLoad).toEqual({ live: 'loading', library: 'loading' });
     });
 
+    it('loadChannels for a non-current playlist leaves the store untouched and warns', async () => {
+      const fresh = [ch(7, 'live'), ch(8, 'vod')];
+      usePlayerStore.getState().setChannels(fresh);
+      usePlayerStore.setState({ currentPlaylist: playlist(2) });
+
+      await usePlayerStore.getState().loadChannels(1);
+
+      const state = usePlayerStore.getState();
+      expect(state.channels).toBe(fresh);
+      expect(state.channelLoad).toEqual({ live: 'loaded', library: 'loaded' });
+      expect(vi.mocked(invoke)).not.toHaveBeenCalled();
+      expect(logWarn).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(logWarn).mock.calls[0][0]).toMatch(/\b1\b.*\b2\b/);
+    });
+
     it('drops a load overtaken by setChannels', async () => {
       const load = usePlayerStore.getState().loadChannels(1);
       const fresh = [ch(7, 'live'), ch(8, 'series')];
@@ -545,6 +561,71 @@ describe('usePlayerStore', () => {
       await retry;
 
       expect(usePlayerStore.getState().channels.map((c) => c.id)).toEqual([30]);
+      expect(usePlayerStore.getState().channelLoad).toEqual({ live: 'loaded', library: 'loaded' });
+    });
+
+    // Loads playlist 1 with live ok and the library failing; returns the live array in state
+    const loadWithLibraryError = async () => {
+      const load = usePlayerStore.getState().loadChannels(1);
+      call('1:live').resolve([ch(1, 'live', true), ch(2, 'live')]);
+      await flush();
+      call('1:vod,series').reject(new Error('db locked'));
+      await load;
+      expect(usePlayerStore.getState().channelLoad).toEqual({ live: 'loaded', library: 'error' });
+      vi.mocked(invoke).mockClear();
+      pending.clear();
+      return usePlayerStore.getState().liveChannels;
+    };
+
+    it('retry after a library-only error keeps Live and refetches only the library', async () => {
+      const liveRef = await loadWithLibraryError();
+
+      const retry = usePlayerStore.getState().retryChannels();
+      let state = usePlayerStore.getState();
+      expect(state.channelLoad).toEqual({ live: 'loaded', library: 'loading' });
+      expect(state.liveChannels).toBe(liveRef);
+      expect(state.channels.map((c) => c.id)).toEqual([1, 2]);
+
+      call('1:vod,series').resolve([ch(4, 'series'), ch(3, 'vod', true)]);
+      await retry;
+
+      state = usePlayerStore.getState();
+      const calls = vi.mocked(invoke).mock.calls;
+      expect(calls).toHaveLength(1);
+      expect(calls[0][1]).toEqual({ playlistId: 1, contentTypes: ['vod', 'series'] });
+      expect(state.liveChannels).toBe(liveRef);
+      expect(state.channels.map((c) => c.id)).toEqual([1, 2, 3, 4]);
+      expect(state.vodChannels.map((c) => c.id)).toEqual([3]);
+      expect(state.seriesChannels.map((c) => c.id)).toEqual([4]);
+      expect(state.favoriteChannels.map((c) => c.id)).toEqual([1, 3]);
+      expect(state.channelLoad).toEqual({ live: 'loaded', library: 'loaded' });
+    });
+
+    it('retry after a library-only error that fails again stays on library error with Live intact', async () => {
+      const liveRef = await loadWithLibraryError();
+
+      const retry = usePlayerStore.getState().retryChannels();
+      call('1:vod,series').reject(new Error('still locked'));
+      await expect(retry).resolves.toBeUndefined();
+
+      const state = usePlayerStore.getState();
+      expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1);
+      expect(state.channelLoad).toEqual({ live: 'loaded', library: 'error' });
+      expect(state.liveChannels).toBe(liveRef);
+      expect(state.channels.map((c) => c.id)).toEqual([1, 2]);
+      expect(state.favoriteChannels.map((c) => c.id)).toEqual([1]);
+    });
+
+    it('drops a library retry overtaken by setChannels', async () => {
+      await loadWithLibraryError();
+
+      const retry = usePlayerStore.getState().retryChannels();
+      const fresh = [ch(7, 'live')];
+      usePlayerStore.getState().setChannels(fresh);
+      call('1:vod,series').resolve([ch(3, 'vod')]);
+      await retry;
+
+      expect(usePlayerStore.getState().channels).toBe(fresh);
       expect(usePlayerStore.getState().channelLoad).toEqual({ live: 'loaded', library: 'loaded' });
     });
 

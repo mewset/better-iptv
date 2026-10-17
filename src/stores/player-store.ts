@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { StoreApi } from 'zustand';
 import type { Channel, Playlist, SeriesInfo } from '../types';
 import {
   getChannels,
@@ -26,6 +27,49 @@ export type ChannelLoadStatus = 'loading' | 'loaded' | 'error';
  * current was superseded and drops its results, including its status.
  */
 let channelLoadToken = 0;
+
+/** Starts a load: takes a new token and returns the guard that says whether it may still write. */
+function beginChannelLoad(playlistId: number): () => boolean {
+  const token = ++channelLoadToken;
+  return () =>
+    token === channelLoadToken && usePlayerStore.getState().currentPlaylist?.id === playlistId;
+}
+
+/**
+ * Fetches the library part (vod + series) and merges it after the live part
+ * in state. Shared by loadChannels and the library-only retry.
+ */
+async function loadLibraryPart(
+  playlistId: number,
+  isCurrent: () => boolean,
+  set: StoreApi<PlayerState>['setState']
+): Promise<void> {
+  let library: Channel[];
+  try {
+    library = await getChannels(playlistId, LIBRARY_TYPES);
+  } catch (error) {
+    if (!isCurrent()) return;
+    logger.error('Failed to load library channels:', error);
+    set({ channelLoad: { live: 'loaded', library: 'error' } });
+    return;
+  }
+  if (!isCurrent()) return;
+  const vodChannels = library.filter((c) => c.content_type === 'vod');
+  const seriesChannels = library.filter((c) => c.content_type === 'series');
+
+  // Merge onto liveChannels from state, not a response: a favourite toggled
+  // in between must survive, and liveChannels keeps its identity
+  set((state) => {
+    const channels = [...state.liveChannels, ...vodChannels, ...seriesChannels];
+    return {
+      channels,
+      vodChannels,
+      seriesChannels,
+      favoriteChannels: channels.filter((c) => c.is_favorite),
+      channelLoad: { live: 'loaded', library: 'loaded' },
+    };
+  });
+}
 
 /**
  * Current/next programme for one channel, with optional start/end times.
@@ -62,7 +106,7 @@ interface PlayerState {
   setChannels: (channels: Channel[]) => void;
   /** Fetches live channels, then the library, and merges them. Never rejects. */
   loadChannels: (playlistId: number) => Promise<void>;
-  /** loadChannels for the current playlist, if there is one. */
+  /** Refetches only the library after a library-only error, else loadChannels for the current playlist. */
   retryChannels: () => Promise<void>;
   setCurrentChannel: (channel: Channel | null) => void;
   toggleChannelFavorite: (channelId: number) => Promise<void>;
@@ -185,8 +229,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   loadChannels: async (playlistId) => {
-    const token = ++channelLoadToken;
-    const isCurrent = () => token === channelLoadToken && get().currentPlaylist?.id === playlistId;
+    const currentId = get().currentPlaylist?.id;
+    if (playlistId !== currentId) {
+      logger.warn(`loadChannels skipped: playlist ${playlistId} is not the current ${currentId}`);
+      return;
+    }
+    const isCurrent = beginChannelLoad(playlistId);
 
     set({
       channels: [],
@@ -214,36 +262,22 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       channelLoad: { live: 'loaded', library: 'loading' },
     });
 
-    let library: Channel[];
-    try {
-      library = await getChannels(playlistId, LIBRARY_TYPES);
-    } catch (error) {
-      if (!isCurrent()) return;
-      logger.error('Failed to load library channels:', error);
-      set({ channelLoad: { live: 'loaded', library: 'error' } });
-      return;
-    }
-    if (!isCurrent()) return;
-    const vodChannels = library.filter((c) => c.content_type === 'vod');
-    const seriesChannels = library.filter((c) => c.content_type === 'series');
-
-    // Merge onto liveChannels from state, not the response: a favourite toggled
-    // in between must survive, and liveChannels keeps its identity
-    set((state) => {
-      const channels = [...state.liveChannels, ...vodChannels, ...seriesChannels];
-      return {
-        channels,
-        vodChannels,
-        seriesChannels,
-        favoriteChannels: channels.filter((c) => c.is_favorite),
-        channelLoad: { live: 'loaded', library: 'loaded' },
-      };
-    });
+    await loadLibraryPart(playlistId, isCurrent, set);
   },
 
   retryChannels: async () => {
-    const playlistId = get().currentPlaylist?.id;
-    if (playlistId !== undefined) await get().loadChannels(playlistId);
+    const { currentPlaylist, channelLoad } = get();
+    const playlistId = currentPlaylist?.id;
+    if (playlistId === undefined) return;
+    if (channelLoad.live !== 'loaded' || channelLoad.library !== 'error') {
+      await get().loadChannels(playlistId);
+      return;
+    }
+
+    // Live is fine: keep it on screen and fetch only the library again
+    const isCurrent = beginChannelLoad(playlistId);
+    set({ channelLoad: { live: 'loaded', library: 'loading' } });
+    await loadLibraryPart(playlistId, isCurrent, set);
   },
 
   setCurrentChannel: (channel) => set({ currentChannel: channel }),
