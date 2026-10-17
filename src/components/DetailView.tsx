@@ -19,7 +19,7 @@ interface DetailViewProps {
     title: string,
     remainingEpisodes?: Array<{ id: string; title: string; extension: string }>
   ) => void;
-  onToggleFavorite: (channelId: number) => void;
+  onToggleFavorite: (channelId: number, currentValue?: boolean) => void;
   isPlaying: boolean;
   /** Opens the manual re-match flow. Absent: the button is not shown. */
   onFixMatch?: (channel: Channel, details: TmdbDetails) => void;
@@ -73,8 +73,12 @@ export default function DetailView({
 }: DetailViewProps) {
   const isSeries = channel.content_type === 'series';
   // The channel prop is a snapshot; favourite state lives in the store.
+  // A title not in the store yet (library still loading) may have a pending toggle.
   const isFavorite = usePlayerStore(
-    (s) => s.channels.find((c) => c.id === channel.id)?.is_favorite ?? channel.is_favorite
+    (s) =>
+      s.channels.find((c) => c.id === channel.id)?.is_favorite ??
+      s.pendingFavorites.get(channel.id) ??
+      channel.is_favorite
   );
 
   // ----- TMDB details -----
@@ -317,7 +321,7 @@ export default function DetailView({
             <button
               type="button"
               aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-              onClick={() => onToggleFavorite(channel.id)}
+              onClick={() => onToggleFavorite(channel.id, isFavorite)}
               className="flex h-11 w-11 items-center justify-center rounded-xl border border-border-strong hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-accent"
             >
               <Star

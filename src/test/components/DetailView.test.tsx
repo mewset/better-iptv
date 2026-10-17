@@ -13,6 +13,7 @@ vi.mock('../../lib/tauri', async (importOriginal) => ({
 }));
 import { getTmdbDetails, getTmdbSeason } from '../../lib/tauri';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { invoke } from '@tauri-apps/api/core';
 
 const movie: Channel = {
   id: 9,
@@ -119,7 +120,20 @@ describe('DetailView for a movie', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Trailer' }));
     expect(openUrl).toHaveBeenCalledWith(matched.trailer_url);
     fireEvent.click(screen.getByRole('button', { name: 'Add to favorites' }));
-    expect(props.onToggleFavorite).toHaveBeenCalledWith(9);
+    expect(props.onToggleFavorite).toHaveBeenCalledWith(9, false);
+  });
+
+  it('toggling a title that is not loaded yet flips it in DetailView', async () => {
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    usePlayerStore.setState({ channels: [], pendingFavorites: new Map() });
+    renderMovie(matched, { onToggleFavorite: usePlayerStore.getState().toggleChannelFavorite });
+    await screen.findByText('A marshal investigates.');
+    fireEvent.click(screen.getByRole('button', { name: 'Add to favorites' }));
+    expect(
+      await screen.findByRole('button', { name: 'Remove from favorites' })
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove from favorites' }));
+    expect(await screen.findByRole('button', { name: 'Add to favorites' })).toBeInTheDocument();
   });
 
   it('offers "Wrong title?" only when a handler is given and TMDB is available', async () => {

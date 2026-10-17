@@ -54,8 +54,14 @@ async function loadLibraryPart(
     return;
   }
   if (!isCurrent()) return;
-  const vodChannels = library.filter((c) => c.content_type === 'vod');
-  const seriesChannels = library.filter((c) => c.content_type === 'series');
+  // Favourites toggled while these titles were not in state yet win over the response
+  const pending = usePlayerStore.getState().pendingFavorites;
+  const withPending = (c: Channel): Channel => {
+    const value = pending.get(c.id);
+    return value === undefined || value === c.is_favorite ? c : { ...c, is_favorite: value };
+  };
+  const vodChannels = library.filter((c) => c.content_type === 'vod').map(withPending);
+  const seriesChannels = library.filter((c) => c.content_type === 'series').map(withPending);
 
   // Merge onto liveChannels from state, not a response: a favourite toggled
   // in between must survive, and liveChannels keeps its identity
@@ -66,6 +72,7 @@ async function loadLibraryPart(
       vodChannels,
       seriesChannels,
       favoriteChannels: channels.filter((c) => c.is_favorite),
+      pendingFavorites: new Map<number, boolean>(),
       channelLoad: { live: 'loaded', library: 'loaded' },
     };
   });
@@ -101,6 +108,12 @@ interface PlayerState {
   vodChannels: Channel[];
   seriesChannels: Channel[];
   favoriteChannels: Channel[];
+  /**
+   * Favourite values set for titles that were not in `channels` yet (Home can
+   * open a vod/series title before the library part arrives). The library
+   * merge applies them; setChannels and loadChannels clear them.
+   */
+  pendingFavorites: Map<number, boolean>;
   /** Live and library status; setChannels marks both loaded. */
   channelLoad: { live: ChannelLoadStatus; library: ChannelLoadStatus };
   setChannels: (channels: Channel[]) => void;
@@ -109,7 +122,11 @@ interface PlayerState {
   /** Refetches only the library after a library-only error, else loadChannels for the current playlist. */
   retryChannels: () => Promise<void>;
   setCurrentChannel: (channel: Channel | null) => void;
-  toggleChannelFavorite: (channelId: number) => Promise<void>;
+  /**
+   * `currentValue` is the caller's view of the favourite state; it is only used
+   * for a title that is not in `channels` yet.
+   */
+  toggleChannelFavorite: (channelId: number, currentValue?: boolean) => Promise<void>;
 
   // Search
   searchQuery: string;
@@ -207,19 +224,24 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   vodChannels: [],
   seriesChannels: [],
   favoriteChannels: [],
+  pendingFavorites: new Map<number, boolean>(),
   channelLoad: { live: 'loading', library: 'loading' },
   setChannels: (channels) => {
     // Supersedes a load in flight (refresh flows and Setup)
     channelLoadToken++;
 
-    // Pre-filter channels by type for instant tab switching
+    // Pre-filter channels by type for instant tab switching. `channels` is
+    // grouped live, vod, series (stable within each type), the same order the
+    // two-part load produces, so every path agrees.
     const liveChannels = channels.filter((c) => c.content_type === 'live');
     const vodChannels = channels.filter((c) => c.content_type === 'vod');
     const seriesChannels = channels.filter((c) => c.content_type === 'series');
-    const favoriteChannels = channels.filter((c) => c.is_favorite);
+    const grouped = [...liveChannels, ...vodChannels, ...seriesChannels];
+    const favoriteChannels = grouped.filter((c) => c.is_favorite);
 
     set({
-      channels,
+      channels: grouped,
+      pendingFavorites: new Map(),
       liveChannels,
       vodChannels,
       seriesChannels,
@@ -242,6 +264,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       vodChannels: [],
       seriesChannels: [],
       favoriteChannels: [],
+      pendingFavorites: new Map(),
       channelLoad: { live: 'loading', library: 'loading' },
     });
 
@@ -282,12 +305,19 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   setCurrentChannel: (channel) => set({ currentChannel: channel }),
 
-  toggleChannelFavorite: async (channelId) => {
+  toggleChannelFavorite: async (channelId, currentValue) => {
     // Call backend IPC to persist the favorite toggle
     await toggleFavorite(channelId);
 
     // Update local state: rebuild only affected arrays
     set((state) => {
+      if (!state.channels.some((c) => c.id === channelId)) {
+        // Not loaded yet: remember the new value for the library merge
+        const next = !(state.pendingFavorites.get(channelId) ?? currentValue ?? false);
+        const pendingFavorites = new Map(state.pendingFavorites);
+        pendingFavorites.set(channelId, next);
+        return { pendingFavorites };
+      }
       const updatedChannels = state.channels.map((c) =>
         c.id === channelId ? { ...c, is_favorite: !c.is_favorite } : c
       );

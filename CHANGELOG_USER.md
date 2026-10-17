@@ -8,8 +8,7 @@ A simple overview of new features and improvements.
 
 ### Improvements
 
-- Better IPTV starts faster and opens Home sooner
-- Better IPTV starts faster: no more loading screen while your channels load
+- Better IPTV starts faster and opens Home sooner, with no loading screen while your channels load
 
 ### Fixes
 

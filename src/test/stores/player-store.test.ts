@@ -442,6 +442,41 @@ describe('usePlayerStore', () => {
       expect(state.channels.map((c) => c.id)).toEqual([1, 2, 3]);
     });
 
+    it('a toggle made before the library arrives survives the merge even if the response carries the old value', async () => {
+      const load = usePlayerStore.getState().loadChannels(1);
+      call('1:live').resolve([ch(1, 'live')]);
+      await flush();
+
+      // Title 3 is not in state yet (library still loading)
+      await usePlayerStore.getState().toggleChannelFavorite(3, false);
+      expect(usePlayerStore.getState().pendingFavorites.get(3)).toBe(true);
+
+      call('1:vod,series').resolve([ch(3, 'vod', false)]);
+      await load;
+
+      const state = usePlayerStore.getState();
+      expect(state.channels.find((c) => c.id === 3)?.is_favorite).toBe(true);
+      expect(state.vodChannels.find((c) => c.id === 3)?.is_favorite).toBe(true);
+      expect(state.favoriteChannels.map((c) => c.id)).toEqual([3]);
+      expect(state.pendingFavorites.size).toBe(0);
+    });
+
+    it('setChannels groups live, vod, series like the two-part load', () => {
+      usePlayerStore
+        .getState()
+        .setChannels([
+          ch(1, 'series', true),
+          ch(2, 'vod'),
+          ch(3, 'live'),
+          ch(4, 'vod', true),
+          ch(5, 'live', true),
+          ch(6, 'series'),
+        ]);
+      const state = usePlayerStore.getState();
+      expect(state.channels.map((c) => c.id)).toEqual([3, 5, 2, 4, 1, 6]);
+      expect(state.favoriteChannels.map((c) => c.id)).toEqual([5, 4, 1]);
+    });
+
     it('drops results of a superseded load', async () => {
       const loadA = usePlayerStore.getState().loadChannels(1);
       usePlayerStore.setState({ currentPlaylist: playlist(2) });
@@ -484,7 +519,7 @@ describe('usePlayerStore', () => {
       await usePlayerStore.getState().loadChannels(1);
 
       const state = usePlayerStore.getState();
-      expect(state.channels).toBe(fresh);
+      expect(state.channels).toEqual(fresh);
       expect(state.channelLoad).toEqual({ live: 'loaded', library: 'loaded' });
       expect(vi.mocked(invoke)).not.toHaveBeenCalled();
       expect(logWarn).toHaveBeenCalledTimes(1);
@@ -501,7 +536,7 @@ describe('usePlayerStore', () => {
       await load;
 
       const state = usePlayerStore.getState();
-      expect(state.channels).toBe(fresh);
+      expect(state.channels).toEqual(fresh);
       expect(state.channelLoad).toEqual({ live: 'loaded', library: 'loaded' });
     });
 
@@ -515,7 +550,7 @@ describe('usePlayerStore', () => {
       call('1:vod,series').reject(new Error('boom'));
       await load;
 
-      expect(usePlayerStore.getState().channels).toBe(fresh);
+      expect(usePlayerStore.getState().channels).toEqual(fresh);
       expect(usePlayerStore.getState().channelLoad).toEqual({ live: 'loaded', library: 'loaded' });
     });
 
@@ -625,7 +660,7 @@ describe('usePlayerStore', () => {
       call('1:vod,series').resolve([ch(3, 'vod')]);
       await retry;
 
-      expect(usePlayerStore.getState().channels).toBe(fresh);
+      expect(usePlayerStore.getState().channels).toEqual(fresh);
       expect(usePlayerStore.getState().channelLoad).toEqual({ live: 'loaded', library: 'loaded' });
     });
 
