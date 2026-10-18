@@ -9,10 +9,10 @@ This file is a developer-changelog, aimed towards development changes.
 
 - **Channel logo fallback from iptv-org** - live channels whose logo is missing or broken get one from the open iptv-org database
   - `get_channel_summaries` returns `COALESCE(logo_override, logo)`, so the override reaches every list without touching the stored `logo`. Overrides come from the `logo_fallbacks` table; `dead_logo_urls` holds the URLs the UI reported as broken
-  - A background job starts 45 s after startup and then weekly (ETag, so an unchanged database costs a 304). It fetches the iptv-org channel and logo data, matches it to channels and writes `logo_fallbacks`
-  - A logo URL counts as dead only after it was reported in two separate sessions, and the mark expires after 7 days. `report_dead_logos` takes the batches the frontend sends
+  - A background job runs once per start, 45 s in, and downloads only when the last download is 7 or more days old (with an ETag, so an unchanged list costs a 304). It fetches iptv-org's `logos.json`, picks one logo per EPG channel id and writes `logo_fallbacks`
+  - A logo URL counts as dead only after it was reported in two separate sessions, and the mark expires after 7 days. `report_dead_logos` takes the batches the frontend sends (at most 200 items; items with a blank or over-2048-byte URL are dropped, not the batch)
   - `useChannelLogo` (`src/lib/logoFallback.ts` holds the session map, queue and timer) swaps in the fallback when an image fails and batches the reports. Cards, Now Playing and the guide use it
-  - Setting `logo_fallback_enabled` (`"1"`/`"0"`, absent = on) under Settings > Metadata > Channel logos. Off clears all overrides; on recomputes them and starts the job. Saving a changed value calls `resetLogoFallbackSession` and reloads the profile's channels with `loadChannels`
+  - Setting `logo_fallback_enabled` (`"1"`/`"0"`, absent = on) under Settings > Metadata > Channel logos. Switching it off clears all overrides; switching it on recomputes them and starts the job; saving an unchanged value does neither. The recompute reads the setting in its own statement, so a switch-off during a running job sticks. Saving a changed value calls `resetLogoFallbackSession` and reloads the profile's channels with `loadChannels`
   - Broken-image fixes in the guide's programme panel, `MoviesHero` and `DetailView`, which now fall back instead of showing a broken image
 
 ## [3.1.2] - 2026-10-18
