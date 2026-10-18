@@ -124,8 +124,9 @@ export default function DetailView({
   const [seriesLoading, setSeriesLoading] = useState(isSeries);
   const [seriesError, setSeriesError] = useState('');
   // The URLs that failed to load, not flags: a changed URL gets a fresh try
-  // without an effect. A failed image shows the ColorBars placeholder.
-  const [failedBand, setFailedBand] = useState<string | null>(null);
+  // without an effect. A failed backdrop falls back to the blurred poster; a
+  // failed poster shows the ColorBars placeholder in the band and the frame.
+  const [failedBackdrop, setFailedBackdrop] = useState<string | null>(null);
   const [failedPoster, setFailedPoster] = useState<string | null>(null);
   useEffect(() => {
     if (!isSeries || !loadSeries) return;
@@ -193,8 +194,7 @@ export default function DetailView({
   const overview = details?.overview ?? providerPlot ?? '';
   const poster = details?.poster_url ?? providerCover ?? null;
   const backdrop = details?.backdrop_url ?? null;
-  const bandUrl = backdrop ?? poster;
-  const bandOk = bandUrl !== null && bandUrl !== failedBand;
+  const backdropOk = backdrop !== null && backdrop !== failedBackdrop;
   const posterOk = poster !== null && poster !== failedPoster;
   const eyebrow = `${isSeries ? 'SERIES' : 'MOVIE'}${channel.group_name ? ` · ${channel.group_name}` : ''}`;
   const meta = metaRow(
@@ -234,22 +234,22 @@ export default function DetailView({
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto bg-bg pb-32">
       {/* Backdrop band */}
       <div className="relative h-[280px] shrink-0 overflow-hidden bg-surface-2">
-        {bandOk && backdrop ? (
+        {backdrop && backdropOk ? (
           <img
             src={backdrop}
             alt=""
             aria-hidden="true"
             draggable={false}
-            onError={() => setFailedBand(backdrop)}
+            onError={() => setFailedBackdrop(backdrop)}
             className="h-full w-full object-cover"
           />
-        ) : bandOk && poster ? (
+        ) : poster && posterOk ? (
           <img
             src={poster}
             alt=""
             aria-hidden="true"
             draggable={false}
-            onError={() => setFailedBand(poster)}
+            onError={() => setFailedPoster(poster)}
             className="h-full w-full scale-110 object-cover opacity-30 blur-2xl"
           />
         ) : (

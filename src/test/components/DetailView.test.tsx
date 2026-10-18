@@ -286,4 +286,33 @@ describe('DetailView broken art', () => {
     expect(container.querySelector('img')).toBeNull();
     expect(container.querySelectorAll('[data-bars]')).toHaveLength(2);
   });
+
+  it('a broken backdrop falls back to the blurred poster before ColorBars', async () => {
+    vi.mocked(getTmdbDetails).mockResolvedValue(matched);
+    const { container } = render(
+      <DetailView
+        channel={movie}
+        onBack={vi.fn()}
+        onPlay={vi.fn()}
+        onPlayEpisode={vi.fn()}
+        onToggleFavorite={vi.fn()}
+        isPlaying={false}
+      />
+    );
+    const backdrop = await waitFor(() => {
+      const img = container.querySelector(`img[src="${matched.backdrop_url}"]`);
+      expect(img).not.toBeNull();
+      return img!;
+    });
+    fireEvent.error(backdrop);
+    // The band now shows the poster, blurred, and the frame keeps the sharp one.
+    const posters = container.querySelectorAll(`img[src="${matched.poster_url}"]`);
+    expect(posters).toHaveLength(2);
+    expect(posters[0].className).toContain('blur-2xl');
+    expect(container.querySelectorAll('[data-bars]')).toHaveLength(0);
+
+    fireEvent.error(posters[0]);
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.querySelectorAll('[data-bars]')).toHaveLength(2);
+  });
 });
