@@ -4,7 +4,7 @@ A simple overview of new features and improvements.
 
 ---
 
-## Unreleased
+## Version 3.1.2 (October 18, 2026)
 
 ### Improvements
 
