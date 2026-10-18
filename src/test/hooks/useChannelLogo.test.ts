@@ -63,6 +63,40 @@ describe('useChannelLogo', () => {
     expect(mockedInvoke).toHaveBeenCalledTimes(1);
   });
 
+  it('a remounted card goes straight to the fallback without a new report', async () => {
+    const first = renderHook(() => useChannelLogo(channel(1)));
+    act(() => first.result.current.onError());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REPORT_BATCH_MS);
+    });
+    first.unmount();
+
+    const renders: Array<string | null> = [];
+    const second = renderHook(() => {
+      const r = useChannelLogo(channel(1));
+      renders.push(r.src);
+      return r;
+    });
+    expect(renders[0]).toBe('http://fb/1.png');
+    expect(second.result.current.src).toBe('http://fb/1.png');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REPORT_BATCH_MS * 2);
+    });
+    expect(mockedInvoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('a remounted card without a fallback renders no image', async () => {
+    mockedInvoke.mockResolvedValue({});
+    const first = renderHook(() => useChannelLogo(channel(1)));
+    act(() => first.result.current.onError());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REPORT_BATCH_MS);
+    });
+    first.unmount();
+    const second = renderHook(() => useChannelLogo(channel(1)));
+    expect(second.result.current.src).toBeNull();
+  });
+
   it('treats a blank logo as no logo and never reports it', async () => {
     const { result } = renderHook(() => useChannelLogo(channel(1, '   ')));
     expect(result.current.src).toBeNull();

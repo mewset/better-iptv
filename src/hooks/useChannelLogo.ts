@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { reportLogoFailure, useLogoFallbackStore } from '../lib/logoFallback';
+import { hasReported, reportLogoFailure, useLogoFallbackStore } from '../lib/logoFallback';
 import type { Channel } from '../types';
 
 /**
@@ -10,7 +10,10 @@ import type { Channel } from '../types';
 export function useChannelLogo(channel: Channel): { src: string | null; onError: () => void } {
   const { id, logo } = channel;
   const fallback = useLogoFallbackStore((s) => s.fallbacks[id]);
-  const [providerFailed, setProviderFailed] = useState(false);
+  // A URL this session already saw fail starts as failed, so a remounted
+  // (virtualized) card never requests it again.
+  const knownDead = (url: string | null | undefined) => !!url && hasReported(id, url);
+  const [providerFailed, setProviderFailed] = useState(() => knownDead(logo));
   const [fallbackFailed, setFallbackFailed] = useState(false);
 
   // Reset during render (not in an effect) so a recycled card never paints a stale src.
@@ -18,7 +21,7 @@ export function useChannelLogo(channel: Channel): { src: string | null; onError:
   const currentKey = `${id}|${logo ?? ''}`;
   if (key !== currentKey) {
     setKey(currentKey);
-    setProviderFailed(false);
+    setProviderFailed(knownDead(logo));
     setFallbackFailed(false);
   }
 

@@ -31,6 +31,18 @@ let queue: Array<{ channelId: number; url: string }> = [];
 let timer: ReturnType<typeof setTimeout> | null = null;
 const reported = new Set<string>();
 
+function reportKey(channelId: number, url: string): string {
+  return `${channelId}|${url}`;
+}
+
+/**
+ * Whether this session already saw `url` fail for the channel. A virtualized
+ * card that remounts uses it to skip the known-dead URL.
+ */
+export function hasReported(channelId: number, url: string): boolean {
+  return reported.has(reportKey(channelId, url));
+}
+
 async function flush(): Promise<void> {
   timer = null;
   const items = queue;
@@ -49,7 +61,7 @@ export function reportLogoFailure(channel: Channel, url: string): void {
   if (channel.content_type !== 'live') return;
   if (url.trim() === '' || url.length > MAX_URL_LENGTH) return;
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-  const key = `${channel.id}|${url}`;
+  const key = reportKey(channel.id, url);
   if (reported.has(key)) return;
   reported.add(key);
   queue.push({ channelId: channel.id, url });
