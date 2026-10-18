@@ -2,8 +2,6 @@
 //!
 //! Decides which iptv-org logo to use for an EPG channel id, and when the
 //! logo list is due for a refresh.
-// Later tasks (DB layer, fetch job, commands) consume these items.
-#![allow(dead_code)]
 
 use chrono::{DateTime, Duration, Utc};
 use serde::Deserialize;

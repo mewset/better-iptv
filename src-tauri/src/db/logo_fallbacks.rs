@@ -1,7 +1,5 @@
 //! Storage for the iptv-org logo fallback: the fallback table, the per-channel
 //! override and the dead provider-logo marks. All SQL for the feature lives here.
-// Later tasks (import, background job, command) consume these items.
-#![allow(dead_code)]
 
 use crate::logo_domain::{normalize_epg_key, DEAD_MARK_TTL_DAYS};
 use chrono::{DateTime, SecondsFormat, Utc};

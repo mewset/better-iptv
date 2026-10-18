@@ -2,6 +2,7 @@ use crate::commands::with_db;
 use crate::db::{mutations, queries};
 use crate::error::AppError;
 use crate::http;
+use crate::logo_domain::LOGO_FALLBACK_ENABLED_KEY;
 use crate::playlist::get_xtream_epg_url;
 use crate::playlist::XtreamCredentials;
 use crate::state::AppState;
@@ -43,6 +44,7 @@ pub async fn set_setting(
         "tmdb_language" => validate_tmdb_language(&value)?,
         TMDB_ENABLED_KEY => validate_tmdb_enabled(&value)?,
         TMDB_BACKGROUND_ENRICH_KEY => validate_tmdb_background_enrich(&value)?,
+        LOGO_FALLBACK_ENABLED_KEY => validate_logo_fallback_enabled(&value)?,
         _ => value,
     };
 
@@ -60,6 +62,14 @@ pub async fn set_setting(
     } else if key_for_log == TMDB_BACKGROUND_ENRICH_KEY && value_for_log == "1" {
         schedule_library_scan(app);
     }
+    if key_for_log == LOGO_FALLBACK_ENABLED_KEY && value_for_log == "1" {
+        // Fetch the list only if it is due; a first enable has no stamp yet.
+        tauri::async_runtime::spawn(crate::logo_fallback::run_maintenance(
+            state.pool.clone(),
+            state.logo_fallback_lock.clone(),
+            false,
+        ));
+    }
     debug!("Setting '{}' updated", key_for_log);
     Ok(())
 }
@@ -76,6 +86,10 @@ fn write_setting(conn: &Connection, key: &str, value: String) -> Result<bool, Ap
         _ => value,
     };
     mutations::set_setting(conn, key, &final_value)?;
+    if key == LOGO_FALLBACK_ENABLED_KEY {
+        // Switch every live row's override on or off with the setting.
+        crate::db::logo_fallbacks::recompute_overrides(conn, None, final_value == "1")?;
+    }
     let stops_scan = match key {
         TMDB_BACKGROUND_ENRICH_KEY | TMDB_ENABLED_KEY => final_value == "0",
         TMDB_API_KEY_KEY if final_value.is_empty() => {
@@ -139,6 +153,15 @@ fn validate_tmdb_language(value: &str) -> Result<String, AppError> {
         ));
     }
     Ok(v.to_string())
+}
+
+fn validate_logo_fallback_enabled(value: &str) -> Result<String, AppError> {
+    match value.trim() {
+        v @ ("0" | "1") => Ok(v.to_string()),
+        _ => Err(AppError::InvalidInput(
+            "logo_fallback_enabled must be 0 or 1".to_string(),
+        )),
+    }
 }
 
 fn validate_tmdb_enabled(value: &str) -> Result<String, AppError> {
@@ -352,5 +375,58 @@ mod tmdb_validation {
             queries::get_setting(&conn, TMDB_BACKGROUND_ENRICH_KEY).unwrap(),
             Some("0".into())
         );
+    }
+}
+
+#[cfg(test)]
+mod logo_fallback_setting {
+    use super::*;
+    use crate::db::logo_fallbacks::replace_fallbacks;
+    use crate::db::test_helpers::{create_test_channel, create_test_playlist, setup_test_db};
+    use std::collections::HashMap;
+
+    fn override_of(conn: &Connection, id: i64) -> Option<String> {
+        conn.query_row(
+            "SELECT logo_override FROM channels WHERE id = ?1",
+            [id],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    fn setup() -> (Connection, i64) {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        let id = create_test_channel(&conn, pid, "TV3");
+        conn.execute("UPDATE channels SET epg_id = 'tv3.se' WHERE id = ?1", [id])
+            .unwrap();
+        let fb = HashMap::from([("tv3.se".to_string(), "http://fb/tv3.png".to_string())]);
+        replace_fallbacks(&conn, &fb).unwrap();
+        write_setting(&conn, LOGO_FALLBACK_ENABLED_KEY, "1".into()).unwrap();
+        (conn, id)
+    }
+
+    #[test]
+    fn logo_fallback_enabled_accepts_only_0_and_1() {
+        assert_eq!(validate_logo_fallback_enabled("1").unwrap(), "1");
+        assert_eq!(validate_logo_fallback_enabled(" 0 ").unwrap(), "0");
+        assert!(validate_logo_fallback_enabled("true").is_err());
+        assert!(validate_logo_fallback_enabled("").is_err());
+    }
+
+    #[test]
+    fn turning_off_clears_all_overrides() {
+        let (conn, id) = setup();
+        assert_eq!(override_of(&conn, id).as_deref(), Some("http://fb/tv3.png"));
+        assert!(!write_setting(&conn, LOGO_FALLBACK_ENABLED_KEY, "0".into()).unwrap());
+        assert_eq!(override_of(&conn, id), None);
+    }
+
+    #[test]
+    fn turning_on_restores_them() {
+        let (conn, id) = setup();
+        write_setting(&conn, LOGO_FALLBACK_ENABLED_KEY, "0".into()).unwrap();
+        write_setting(&conn, LOGO_FALLBACK_ENABLED_KEY, "1".into()).unwrap();
+        assert_eq!(override_of(&conn, id).as_deref(), Some("http://fb/tv3.png"));
     }
 }

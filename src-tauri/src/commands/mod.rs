@@ -1,6 +1,7 @@
 // Command modules organized by domain
 pub mod channel;
 pub mod epg;
+pub mod logo_fallback;
 pub mod parental;
 pub mod playback;
 pub mod playlist;
@@ -12,6 +13,7 @@ pub mod update;
 // Re-export all commands for lib.rs
 pub use channel::*;
 pub use epg::*;
+pub use logo_fallback::*;
 pub use parental::*;
 pub use playback::*;
 pub use playlist::*;

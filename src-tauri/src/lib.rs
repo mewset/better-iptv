@@ -189,6 +189,8 @@ pub fn run() {
             // Settings commands
             get_setting,
             set_setting,
+            // Logo fallback
+            report_dead_logos,
             // Profile management commands
             get_active_profile_id,
             set_active_profile_id,

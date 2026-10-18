@@ -49,7 +49,6 @@ pub struct AppState {
     /// Identifies this app launch (milliseconds since the epoch); dead-logo
     /// marks are stamped with it so a mark needs two separate launches to
     /// count as dead.
-    #[allow(dead_code)] // read by the logo report command in a later task
     pub launch_id: i64,
 
     /// Serialises the logo-fallback maintenance runs.
