@@ -5,6 +5,7 @@ mod epg;
 mod epg_domain;
 pub mod error;
 mod http;
+mod logo_domain;
 mod parental_domain;
 mod playback;
 mod playlist;
