@@ -65,13 +65,25 @@ pub fn replace_fallbacks(conn: &Connection, fallbacks: &HashMap<String, String>)
 /// Recompute `logo_override` for the live rows of one playlist (or all). Only
 /// rows whose value changes are written; returns that count.
 pub fn recompute_overrides(conn: &Connection, playlist_id: Option<i64>) -> Result<usize> {
+    match playlist_id {
+        Some(id) => conn.execute(&recompute_sql(true), [id]),
+        None => conn.execute(&recompute_sql(false), []),
+    }
+}
+
+/// Two statements rather than `?1 IS NULL OR playlist_id = ?1`, so the
+/// per-playlist one (`?1` = playlist id) can search a playlist_id index.
+fn recompute_sql(per_playlist: bool) -> String {
     let new = new_override_sql();
-    let sql = format!(
+    let playlist = if per_playlist {
+        " AND playlist_id = ?1"
+    } else {
+        ""
+    };
+    format!(
         "UPDATE channels SET logo_override = {new} \
-         WHERE content_type = 'live' AND (?1 IS NULL OR playlist_id = ?1) \
-           AND logo_override IS NOT ({new})"
-    );
-    conn.execute(&sql, params![playlist_id])
+         WHERE content_type = 'live'{playlist} AND logo_override IS NOT ({new})"
+    )
 }
 
 /// Recompute one playlist's overrides after its channels were written (import
@@ -390,6 +402,29 @@ mod tests {
         let id = seed(&conn, pid, "C", None, Some("Kanal 5.se"));
         assert_eq!(recompute_overrides(&conn, Some(pid)).unwrap(), 0);
         assert_eq!(override_of(&conn, id), None);
+    }
+
+    fn plan(conn: &Connection, sql: &str) -> String {
+        let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        let rows = stmt
+            .query_map([1_i64], |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect::<Vec<_>>();
+        rows.join("\n")
+    }
+
+    #[test]
+    fn per_playlist_recompute_searches_an_index() {
+        let conn = setup_test_db();
+        let per_playlist = plan(&conn, &recompute_sql(true));
+        assert!(
+            per_playlist
+                .lines()
+                .any(|l| l.starts_with("SEARCH channels USING INDEX idx_channels_")),
+            "{per_playlist}"
+        );
+        assert!(!per_playlist.contains("SCAN channels"), "{per_playlist}");
     }
 
     #[test]
