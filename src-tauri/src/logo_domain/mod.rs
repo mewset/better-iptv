@@ -4,7 +4,8 @@
 //! logo list is due for a refresh.
 
 use chrono::{DateTime, Duration, Utc};
-use serde::Deserialize;
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 
 /// Public iptv-org logo list.
@@ -18,20 +19,43 @@ pub const LOGO_FALLBACK_ENABLED_KEY: &str = "logo_fallback_enabled";
 pub const LOGO_FALLBACK_FETCHED_AT_KEY: &str = "logo_fallback_fetched_at";
 pub const LOGO_FALLBACK_ETAG_KEY: &str = "logo_fallback_etag";
 
-/// One entry of iptv-org's `logos.json`; unknown fields are ignored.
+/// One entry of iptv-org's `logos.json`; unknown fields are ignored. Every
+/// field is lenient: a missing, null or wrongly typed value reads as absent,
+/// so one odd entry costs only itself, never the whole list.
 #[derive(Debug, Clone, Deserialize)]
 pub struct IptvOrgLogo {
-    pub channel: String,
+    #[serde(default, deserialize_with = "lenient")]
+    pub channel: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub feed: Option<String>,
-    #[serde(default = "yes")]
+    #[serde(default = "yes", deserialize_with = "lenient_in_use")]
     pub in_use: bool,
-    pub width: Option<u32>,
-    pub height: Option<u32>,
-    pub url: String,
+    #[serde(default, deserialize_with = "lenient")]
+    pub width: Option<f64>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub height: Option<f64>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub url: Option<String>,
 }
 
 fn yes() -> bool {
     true
+}
+
+/// `Some` when the value has the expected type, otherwise `None`.
+fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned>(d: D) -> Result<Option<T>, D::Error> {
+    let value = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(value).ok())
+}
+
+fn lenient_in_use<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(lenient::<D, bool>(d)?.unwrap_or(true))
+}
+
+/// A pixel size as a whole number; negative or NaN counts as 0.
+fn pixels(size: Option<f64>) -> u64 {
+    // `as` saturates: NaN and negatives become 0.
+    size.unwrap_or(0.0) as u64
 }
 
 /// Normalize an EPG channel id for lookup: drop any `@feed` suffix, trim and
@@ -52,18 +76,18 @@ pub fn normalize_epg_key(raw: &str) -> Option<String> {
 pub fn select_fallbacks(logos: Vec<IptvOrgLogo>) -> HashMap<String, String> {
     let mut best: HashMap<String, ((bool, bool, u64), String)> = HashMap::new();
     for logo in logos {
-        if !logo.url.starts_with("https://") {
-            continue;
-        }
-        let Some(key) = normalize_epg_key(&logo.channel) else {
+        let Some(url) = logo.url.filter(|u| u.starts_with("https://")) else {
             continue;
         };
-        let area = u64::from(logo.width.unwrap_or(0)) * u64::from(logo.height.unwrap_or(0));
+        let Some(key) = logo.channel.as_deref().and_then(normalize_epg_key) else {
+            continue;
+        };
+        let area = pixels(logo.width).saturating_mul(pixels(logo.height));
         let rank = (logo.feed.is_none(), logo.in_use, area);
         match best.get(&key) {
             Some((current, _)) if *current >= rank => {}
             _ => {
-                best.insert(key, (rank, logo.url));
+                best.insert(key, (rank, url));
             }
         }
     }
@@ -102,12 +126,12 @@ mod tests {
         url: &str,
     ) -> IptvOrgLogo {
         IptvOrgLogo {
-            channel: channel.into(),
+            channel: Some(channel.into()),
             feed: feed.map(String::from),
             in_use,
-            width: Some(w),
-            height: Some(h),
-            url: url.into(),
+            width: Some(f64::from(w)),
+            height: Some(f64::from(h)),
+            url: Some(url.into()),
         }
     }
 
@@ -204,11 +228,38 @@ mod tests {
         let json = r#"[{"channel":"TV3.se","feed":null,"in_use":true,"tags":[],"width":322,"height":512,"format":"PNG","url":"https://i.imgur.com/oysCIiw.png"}]"#;
         let parsed: Vec<IptvOrgLogo> = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.len(), 1);
-        assert_eq!(parsed[0].channel, "TV3.se");
+        assert_eq!(parsed[0].channel.as_deref(), Some("TV3.se"));
         assert_eq!(parsed[0].feed, None);
         assert!(parsed[0].in_use);
-        assert_eq!(parsed[0].width, Some(322));
-        assert_eq!(parsed[0].height, Some(512));
+        assert_eq!(parsed[0].width, Some(322.0));
+        assert_eq!(parsed[0].height, Some(512.0));
+    }
+
+    #[test]
+    fn one_malformed_entry_does_not_fail_the_list() {
+        let json = r#"[
+            {"channel":"TV3.se","feed":null,"in_use":true,"width":100,"height":100,"url":"https://x/tv3.png"},
+            {"channel":"Bad.se","feed":null,"in_use":true,"width":12.5,"height":null,"url":null},
+            {"channel":null,"feed":7,"in_use":"yes","width":"wide","height":{},"url":"https://x/none.png"},
+            {"channel":"Float.se","feed":null,"in_use":true,"width":64.0,"height":32.5,"url":"https://x/float.png"},
+            {"channel":"SVT1.se","url":"https://x/svt1.png"}
+        ]"#;
+        let parsed: Vec<IptvOrgLogo> = serde_json::from_str(json).unwrap();
+        let map = select_fallbacks(parsed);
+        let mut keys: Vec<_> = map.keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, ["float.se", "svt1.se", "tv3.se"]);
+        assert_eq!(map["float.se"], "https://x/float.png");
+    }
+
+    #[test]
+    fn float_sizes_still_rank_by_area() {
+        let json = r#"[
+            {"channel":"a.se","width":10.5,"height":10,"url":"https://x/small.png"},
+            {"channel":"a.se","width":20.5,"height":20,"url":"https://x/big.png"}
+        ]"#;
+        let parsed: Vec<IptvOrgLogo> = serde_json::from_str(json).unwrap();
+        assert_eq!(select_fallbacks(parsed)["a.se"], "https://x/big.png");
     }
 
     #[test]
