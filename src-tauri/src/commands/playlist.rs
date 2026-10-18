@@ -84,6 +84,8 @@ pub async fn import_playlist(
             );
         }
 
+        crate::db::logo_fallbacks::apply_after_channel_write(&tx, playlist_id)?;
+
         tx.commit()?;
 
         let mut result = playlist;
@@ -193,6 +195,8 @@ pub async fn import_xtream_playlist(
         } else {
             debug!("EPG URL already configured, skipping auto-population");
         }
+
+        crate::db::logo_fallbacks::apply_after_channel_write(&tx, playlist_id)?;
 
         tx.commit()?;
 
@@ -344,6 +348,7 @@ pub async fn refresh_playlist(
         if !is_xtream {
             mutations::replace_series_episodes(conn, playlist_id, &series_groups)?;
         }
+        crate::db::logo_fallbacks::apply_after_channel_write(conn, playlist_id)?;
         mutations::update_playlist_last_updated(conn, playlist_id)?;
         Ok(result)
     })

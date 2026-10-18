@@ -71,6 +71,23 @@ pub fn recompute_overrides(
     conn.execute(&sql, params![enabled, playlist_id])
 }
 
+/// Recompute one playlist's overrides after its channels were written (import
+/// or refresh). Reads the enable setting itself; returns rows changed.
+pub fn apply_after_channel_write(conn: &Connection, playlist_id: i64) -> Result<usize> {
+    let start = std::time::Instant::now();
+    let setting =
+        crate::db::queries::get_setting(conn, crate::logo_domain::LOGO_FALLBACK_ENABLED_KEY)?;
+    let enabled = crate::logo_domain::is_enabled(setting.as_deref());
+    let changed = recompute_overrides(conn, Some(playlist_id), enabled)?;
+    log::debug!(
+        "Logo overrides for playlist {}: {} changed in {:?}",
+        playlist_id,
+        changed,
+        start.elapsed()
+    );
+    Ok(changed)
+}
+
 /// Same as `recompute_overrides`, for specific channel ids (chunked at 500).
 pub fn recompute_overrides_for_channels(
     conn: &Connection,
@@ -471,5 +488,85 @@ mod tests {
         assert_eq!(expire_marks(&conn, now).unwrap(), 1);
         assert_eq!(state_of(&conn, "http://old"), None);
         assert!(state_of(&conn, "http://new").is_some());
+    }
+
+    fn channel(
+        pid: i64,
+        name: &str,
+        url: &str,
+        logo: Option<&str>,
+        epg: Option<&str>,
+    ) -> crate::db::models::Channel {
+        crate::db::models::Channel {
+            id: None,
+            playlist_id: pid,
+            name: name.to_string(),
+            url: url.to_string(),
+            logo: logo.map(String::from),
+            group_name: Some("G".to_string()),
+            epg_id: epg.map(String::from),
+            tvg_name: None,
+            content_type: "live".to_string(),
+            is_favorite: false,
+            sort_order: 0,
+            category_order: 0,
+            created_at: None,
+        }
+    }
+
+    #[test]
+    fn apply_after_write_fills_new_channels() {
+        let (conn, pid) = setup();
+        let ch = channel(pid, "TV3", "http://s/1.m3u8", None, Some("tv3.se"));
+        crate::db::mutations::create_channels_batch(&conn, &[ch]).unwrap();
+        let changed = apply_after_channel_write(&conn, pid).unwrap();
+        assert_eq!(changed, 1);
+        let id: i64 = conn
+            .query_row(
+                "SELECT id FROM channels WHERE playlist_id = ?1",
+                [pid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(override_of(&conn, id).as_deref(), Some("http://fb/tv3.png"));
+    }
+
+    #[test]
+    fn recompute_clears_override_when_provider_url_changes() {
+        let (conn, pid) = setup();
+        let url = "http://s/1.m3u8";
+        let ch = channel(pid, "TV3", url, Some("http://p/a.png"), Some("tv3.se"));
+        crate::db::mutations::create_channels_batch(&conn, &[ch]).unwrap();
+        mark(&conn, "http://p/a.png", "dead", "2999-01-01T00:00:00Z", 1);
+        apply_after_channel_write(&conn, pid).unwrap();
+        let id: i64 = conn
+            .query_row(
+                "SELECT id FROM channels WHERE playlist_id = ?1",
+                [pid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(override_of(&conn, id).as_deref(), Some("http://fb/tv3.png"));
+
+        let fresh = channel(pid, "TV3", url, Some("http://p/b.png"), Some("tv3.se"));
+        crate::db::mutations::merge_channels(&conn, pid, &[fresh], false).unwrap();
+        apply_after_channel_write(&conn, pid).unwrap();
+        assert_eq!(override_of(&conn, id), None);
+        let rows = queries::get_channel_summaries(&conn, Some(pid), None).unwrap();
+        assert_eq!(rows[0].logo.as_deref(), Some("http://p/b.png"));
+    }
+
+    #[test]
+    fn apply_respects_disabled_setting() {
+        let (conn, pid) = setup();
+        let id = seed(&conn, pid, "TV3", None, Some("tv3.se"));
+        crate::db::mutations::set_setting(
+            &conn,
+            crate::logo_domain::LOGO_FALLBACK_ENABLED_KEY,
+            "0",
+        )
+        .unwrap();
+        apply_after_channel_write(&conn, pid).unwrap();
+        assert_eq!(override_of(&conn, id), None);
     }
 }
