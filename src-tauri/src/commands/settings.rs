@@ -88,7 +88,7 @@ fn write_setting(conn: &Connection, key: &str, value: String) -> Result<bool, Ap
     mutations::set_setting(conn, key, &final_value)?;
     if key == LOGO_FALLBACK_ENABLED_KEY {
         // Switch every live row's override on or off with the setting.
-        crate::db::logo_fallbacks::recompute_overrides(conn, None, final_value == "1")?;
+        crate::db::logo_fallbacks::recompute_overrides(conn, None)?;
     }
     let stops_scan = match key {
         TMDB_BACKGROUND_ENRICH_KEY | TMDB_ENABLED_KEY => final_value == "0",

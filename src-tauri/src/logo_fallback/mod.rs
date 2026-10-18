@@ -171,8 +171,10 @@ async fn run_maintenance_with(
         debug!("logo list fetch skipped (enabled: {enabled}, not due or off)");
     }
 
-    match with_db(&pool, move |conn| {
-        Ok(logo_fallbacks::recompute_overrides(conn, None, enabled)?)
+    // The recompute reads the setting itself: a switch-off during the fetch
+    // above must not be undone by the value read before it.
+    match with_db(&pool, |conn| {
+        Ok(logo_fallbacks::recompute_overrides(conn, None)?)
     })
     .await
     {

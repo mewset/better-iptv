@@ -1,7 +1,7 @@
 //! Storage for the iptv-org logo fallback: the fallback table, the per-channel
 //! override and the dead provider-logo marks. All SQL for the feature lives here.
 
-use crate::logo_domain::{normalize_epg_key, DEAD_MARK_TTL_DAYS};
+use crate::logo_domain::{normalize_epg_key, DEAD_MARK_TTL_DAYS, LOGO_FALLBACK_ENABLED_KEY};
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{params, Connection, Result};
 use serde::Deserialize;
@@ -21,12 +21,21 @@ const SQL_EPG_KEY: &str = "lower(trim(CASE WHEN instr(epg_id, '@') > 0 \
      THEN substr(epg_id, 1, instr(epg_id, '@') - 1) ELSE epg_id END, \
      ' ' || char(9) || char(10) || char(11) || char(12) || char(13)))";
 
+/// SQL twin of `logo_domain::is_enabled`: on unless the stored setting is
+/// exactly `'0'` (absent = on). Read inside each recompute statement so a
+/// switch-off that lands while a job or report is in flight is never undone
+/// by a value read earlier.
+fn sql_enabled() -> String {
+    format!("(SELECT value FROM settings WHERE key = '{LOGO_FALLBACK_ENABLED_KEY}') IS NOT '0'")
+}
+
 /// The override a live channel should carry: the fallback for its EPG key when
-/// the feature is on (`?1`) and the provider logo is blank or marked dead,
-/// otherwise NULL.
+/// the feature is on and the provider logo is blank or marked dead, otherwise
+/// NULL.
 fn new_override_sql() -> String {
+    let enabled = sql_enabled();
     format!(
-        "CASE WHEN ?1 AND (logo IS NULL OR trim(logo) = '' OR EXISTS ( \
+        "CASE WHEN {enabled} AND (logo IS NULL OR trim(logo) = '' OR EXISTS ( \
              SELECT 1 FROM dead_logo_urls d WHERE d.url = channels.logo AND d.state = 'dead')) \
          THEN (SELECT f.url FROM logo_fallbacks f WHERE f.epg_key = {SQL_EPG_KEY}) \
          ELSE NULL END"
@@ -55,28 +64,21 @@ pub fn replace_fallbacks(conn: &Connection, fallbacks: &HashMap<String, String>)
 
 /// Recompute `logo_override` for the live rows of one playlist (or all). Only
 /// rows whose value changes are written; returns that count.
-pub fn recompute_overrides(
-    conn: &Connection,
-    playlist_id: Option<i64>,
-    enabled: bool,
-) -> Result<usize> {
+pub fn recompute_overrides(conn: &Connection, playlist_id: Option<i64>) -> Result<usize> {
     let new = new_override_sql();
     let sql = format!(
         "UPDATE channels SET logo_override = {new} \
-         WHERE content_type = 'live' AND (?2 IS NULL OR playlist_id = ?2) \
+         WHERE content_type = 'live' AND (?1 IS NULL OR playlist_id = ?1) \
            AND logo_override IS NOT ({new})"
     );
-    conn.execute(&sql, params![enabled, playlist_id])
+    conn.execute(&sql, params![playlist_id])
 }
 
 /// Recompute one playlist's overrides after its channels were written (import
-/// or refresh). Reads the enable setting itself; returns rows changed.
+/// or refresh); returns rows changed.
 pub fn apply_after_channel_write(conn: &Connection, playlist_id: i64) -> Result<usize> {
     let start = std::time::Instant::now();
-    let setting =
-        crate::db::queries::get_setting(conn, crate::logo_domain::LOGO_FALLBACK_ENABLED_KEY)?;
-    let enabled = crate::logo_domain::is_enabled(setting.as_deref());
-    let changed = recompute_overrides(conn, Some(playlist_id), enabled)?;
+    let changed = recompute_overrides(conn, Some(playlist_id))?;
     log::debug!(
         "Logo overrides for playlist {}: {} changed in {:?}",
         playlist_id,
@@ -87,11 +89,7 @@ pub fn apply_after_channel_write(conn: &Connection, playlist_id: i64) -> Result<
 }
 
 /// Same as `recompute_overrides`, for specific channel ids (chunked at 500).
-pub fn recompute_overrides_for_channels(
-    conn: &Connection,
-    channel_ids: &[i64],
-    enabled: bool,
-) -> Result<usize> {
+pub fn recompute_overrides_for_channels(conn: &Connection, channel_ids: &[i64]) -> Result<usize> {
     let new = new_override_sql();
     let mut changed = 0;
     for chunk in channel_ids.chunks(500) {
@@ -101,9 +99,7 @@ pub fn recompute_overrides_for_channels(
              WHERE content_type = 'live' AND logo_override IS NOT ({new}) \
                AND id IN ({placeholders})"
         );
-        let mut values: Vec<rusqlite::types::Value> = vec![enabled.into()];
-        values.extend(chunk.iter().map(|id| rusqlite::types::Value::from(*id)));
-        changed += conn.execute(&sql, rusqlite::params_from_iter(values))?;
+        changed += conn.execute(&sql, rusqlite::params_from_iter(chunk))?;
     }
     Ok(changed)
 }
@@ -186,7 +182,7 @@ pub fn record_failures(
         accepted.insert(report.channel_id, fallback);
     }
     let ids: Vec<i64> = accepted.keys().copied().collect();
-    recompute_overrides_for_channels(&tx, &ids, true)?;
+    recompute_overrides_for_channels(&tx, &ids)?;
     tx.commit()?;
     Ok(accepted)
 }
@@ -280,7 +276,7 @@ mod tests {
         let (conn, pid) = setup();
         let null = seed(&conn, pid, "N", None, Some("TV3.se"));
         let blank = seed(&conn, pid, "B", Some("  "), Some("TV3.se"));
-        assert_eq!(recompute_overrides(&conn, Some(pid), true).unwrap(), 2);
+        assert_eq!(recompute_overrides(&conn, Some(pid)).unwrap(), 2);
         assert_eq!(
             override_of(&conn, null).as_deref(),
             Some("http://fb/tv3.png")
@@ -295,7 +291,7 @@ mod tests {
     fn working_provider_logo_is_kept() {
         let (conn, pid) = setup();
         let id = seed(&conn, pid, "A", Some("http://p/a.png"), Some("tv3.se"));
-        recompute_overrides(&conn, None, true).unwrap();
+        recompute_overrides(&conn, None).unwrap();
         assert_eq!(override_of(&conn, id), None);
     }
 
@@ -304,7 +300,7 @@ mod tests {
         let (conn, pid) = setup();
         let id = seed(&conn, pid, "A", Some("http://p/a.png"), Some("tv3.se"));
         mark(&conn, "http://p/a.png", "dead", "2026-10-18T00:00:00Z", 1);
-        recompute_overrides(&conn, None, true).unwrap();
+        recompute_overrides(&conn, None).unwrap();
         assert_eq!(override_of(&conn, id).as_deref(), Some("http://fb/tv3.png"));
     }
 
@@ -319,7 +315,7 @@ mod tests {
             "2026-10-18T00:00:00Z",
             1,
         );
-        recompute_overrides(&conn, None, true).unwrap();
+        recompute_overrides(&conn, None).unwrap();
         assert_eq!(override_of(&conn, id), None);
     }
 
@@ -327,10 +323,30 @@ mod tests {
     fn disabled_clears_every_override() {
         let (conn, pid) = setup();
         let id = seed(&conn, pid, "A", None, Some("tv3.se"));
-        recompute_overrides(&conn, None, true).unwrap();
+        recompute_overrides(&conn, None).unwrap();
         assert!(override_of(&conn, id).is_some());
-        assert_eq!(recompute_overrides(&conn, None, false).unwrap(), 1);
+        disable(&conn);
+        assert_eq!(recompute_overrides(&conn, None).unwrap(), 1);
         assert_eq!(override_of(&conn, id), None);
+    }
+
+    /// The job reads the setting before a fetch that can take minutes; the
+    /// recompute after it must use the value stored when it runs.
+    #[test]
+    fn recompute_reads_the_setting_when_it_runs() {
+        let (conn, pid) = setup();
+        let id = seed(&conn, pid, "A", None, Some("tv3.se"));
+        // Absent = on.
+        recompute_overrides(&conn, None).unwrap();
+        assert!(override_of(&conn, id).is_some());
+        // Switched off "during the fetch": the recompute clears, never refills.
+        disable(&conn);
+        recompute_overrides(&conn, Some(pid)).unwrap();
+        recompute_overrides_for_channels(&conn, &[id]).unwrap();
+        assert_eq!(override_of(&conn, id), None);
+        crate::db::mutations::set_setting(&conn, LOGO_FALLBACK_ENABLED_KEY, "1").unwrap();
+        recompute_overrides(&conn, None).unwrap();
+        assert!(override_of(&conn, id).is_some());
     }
 
     #[test]
@@ -342,8 +358,8 @@ mod tests {
             [id],
         )
         .unwrap();
-        recompute_overrides(&conn, None, true).unwrap();
-        recompute_overrides_for_channels(&conn, &[id], true).unwrap();
+        recompute_overrides(&conn, None).unwrap();
+        recompute_overrides_for_channels(&conn, &[id]).unwrap();
         assert_eq!(override_of(&conn, id), None);
     }
 
@@ -360,11 +376,7 @@ mod tests {
             let key = normalize_epg_key(raw).unwrap();
             replace_fallbacks(&conn, &fb(&[(key.as_str(), "http://fb/x.png")])).unwrap();
             let id = seed(&conn, pid, "C", None, Some(raw));
-            assert_eq!(
-                recompute_overrides(&conn, Some(pid), true).unwrap(),
-                1,
-                "{raw:?}"
-            );
+            assert_eq!(recompute_overrides(&conn, Some(pid)).unwrap(), 1, "{raw:?}");
             assert_eq!(
                 override_of(&conn, id).as_deref(),
                 Some("http://fb/x.png"),
@@ -376,7 +388,7 @@ mod tests {
         // No fallback stored under the key: nothing found.
         replace_fallbacks(&conn, &fb(&[("other.se", "http://fb/o.png")])).unwrap();
         let id = seed(&conn, pid, "C", None, Some("Kanal 5.se"));
-        assert_eq!(recompute_overrides(&conn, Some(pid), true).unwrap(), 0);
+        assert_eq!(recompute_overrides(&conn, Some(pid)).unwrap(), 0);
         assert_eq!(override_of(&conn, id), None);
     }
 
@@ -385,8 +397,8 @@ mod tests {
         let (conn, pid) = setup();
         seed(&conn, pid, "A", None, Some("tv3.se"));
         seed(&conn, pid, "B", Some("http://p/b.png"), Some("tv3.se"));
-        assert_eq!(recompute_overrides(&conn, Some(pid), true).unwrap(), 1);
-        assert_eq!(recompute_overrides(&conn, Some(pid), true).unwrap(), 0);
+        assert_eq!(recompute_overrides(&conn, Some(pid)).unwrap(), 1);
+        assert_eq!(recompute_overrides(&conn, Some(pid)).unwrap(), 0);
     }
 
     #[test]
@@ -394,16 +406,10 @@ mod tests {
         let (conn, pid) = setup();
         let a = seed(&conn, pid, "A", None, Some("tv3.se"));
         let b = seed(&conn, pid, "B", None, Some("tv3.se"));
-        assert_eq!(
-            recompute_overrides_for_channels(&conn, &[a], true).unwrap(),
-            1
-        );
+        assert_eq!(recompute_overrides_for_channels(&conn, &[a]).unwrap(), 1);
         assert!(override_of(&conn, a).is_some());
         assert_eq!(override_of(&conn, b), None);
-        assert_eq!(
-            recompute_overrides_for_channels(&conn, &[], true).unwrap(),
-            0
-        );
+        assert_eq!(recompute_overrides_for_channels(&conn, &[]).unwrap(), 0);
     }
 
     #[test]
@@ -412,10 +418,7 @@ mod tests {
         let ids: Vec<i64> = (0..1200)
             .map(|i| seed(&conn, pid, &format!("C{i}"), None, Some("tv3.se")))
             .collect();
-        assert_eq!(
-            recompute_overrides_for_channels(&conn, &ids, true).unwrap(),
-            1200
-        );
+        assert_eq!(recompute_overrides_for_channels(&conn, &ids).unwrap(), 1200);
     }
 
     fn reports(id: i64, url: &str, times: usize) -> Vec<DeadLogoReport> {
@@ -457,7 +460,7 @@ mod tests {
     fn report_for_a_url_that_is_not_the_provider_logo_is_ignored() {
         let (conn, pid) = setup();
         let id = seed(&conn, pid, "A", None, Some("tv3.se"));
-        recompute_overrides(&conn, None, true).unwrap();
+        recompute_overrides(&conn, None).unwrap();
         let got =
             record_failures(&conn, &reports(id, "http://fb/tv3.png", 1), 1, Utc::now()).unwrap();
         assert!(got.is_empty());
@@ -552,6 +555,24 @@ mod tests {
         assert_eq!(override_of(&conn, id), None);
         let rows = queries::get_channel_summaries(&conn, Some(pid), None).unwrap();
         assert_eq!(rows[0].logo.as_deref(), Some("http://p/b.png"));
+    }
+
+    fn disable(conn: &Connection) {
+        crate::db::mutations::set_setting(conn, crate::logo_domain::LOGO_FALLBACK_ENABLED_KEY, "0")
+            .unwrap();
+    }
+
+    #[test]
+    fn record_failures_sets_no_override_while_disabled() {
+        let (conn, pid) = setup();
+        let id = seed(&conn, pid, "A", Some("http://p/a.png"), Some("tv3.se"));
+        let r = reports(id, "http://p/a.png", 1);
+        record_failures(&conn, &r, 1, Utc::now()).unwrap();
+        // Switched off between the command's setting read and its recompute.
+        disable(&conn);
+        record_failures(&conn, &r, 2, Utc::now()).unwrap();
+        assert_eq!(state_of(&conn, "http://p/a.png").as_deref(), Some("dead"));
+        assert_eq!(override_of(&conn, id), None);
     }
 
     #[test]
