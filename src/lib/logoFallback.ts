@@ -9,6 +9,9 @@ export const REPORT_BATCH_MS = 300;
 /** The backend rejects more items than this per call. */
 const MAX_ITEMS_PER_CALL = 200;
 
+/** The backend drops longer URLs; not worth a report. */
+const MAX_URL_LENGTH = 2048;
+
 interface LogoFallbackState {
   fallbacks: Record<number, string>;
   merge: (map: Record<number, string>) => void;
@@ -44,6 +47,7 @@ async function flush(): Promise<void> {
 
 export function reportLogoFailure(channel: Channel, url: string): void {
   if (channel.content_type !== 'live') return;
+  if (url.trim() === '' || url.length > MAX_URL_LENGTH) return;
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
   const key = `${channel.id}|${url}`;
   if (reported.has(key)) return;

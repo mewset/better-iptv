@@ -22,7 +22,9 @@ export function useChannelLogo(channel: Channel): { src: string | null; onError:
     setFallbackFailed(false);
   }
 
-  const showingProvider = !!logo && !providerFailed && key === currentKey;
+  // A blank provider logo is no logo: never an <img> with a blank src.
+  const hasLogo = !!logo && logo.trim() !== '';
+  const showingProvider = hasLogo && !providerFailed && key === currentKey;
   const src = showingProvider ? logo : fallback && !fallbackFailed ? fallback : null;
 
   const onError = useCallback(() => {

@@ -63,6 +63,16 @@ describe('useChannelLogo', () => {
     expect(mockedInvoke).toHaveBeenCalledTimes(1);
   });
 
+  it('treats a blank logo as no logo and never reports it', async () => {
+    const { result } = renderHook(() => useChannelLogo(channel(1, '   ')));
+    expect(result.current.src).toBeNull();
+    act(() => result.current.onError());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REPORT_BATCH_MS * 2);
+    });
+    expect(mockedInvoke).not.toHaveBeenCalled();
+  });
+
   it('resets when the channel changes', async () => {
     const { result, rerender } = renderHook(({ ch }) => useChannelLogo(ch), {
       initialProps: { ch: channel(1) },

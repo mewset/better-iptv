@@ -66,6 +66,17 @@ describe('logo failure batching', () => {
     expect(mockedInvoke).not.toHaveBeenCalled();
   });
 
+  it('skips blank and overlong urls', async () => {
+    reportLogoFailure(channel(1), '   ');
+    reportLogoFailure(channel(2), `http://u/${'a'.repeat(2048)}`);
+    reportLogoFailure(channel(3), 'http://ok');
+    await vi.advanceTimersByTimeAsync(REPORT_BATCH_MS);
+    expect(mockedInvoke).toHaveBeenCalledTimes(1);
+    expect(mockedInvoke.mock.calls[0][1]).toEqual({
+      items: [{ channel_id: 3, url: 'http://ok' }],
+    });
+  });
+
   it('reports each channel and url pair once per session', async () => {
     reportLogoFailure(channel(1), 'http://a');
     reportLogoFailure(channel(2), 'http://a');

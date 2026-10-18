@@ -15,26 +15,19 @@ use tauri::State;
 const MAX_REPORT_ITEMS: usize = 200;
 const MAX_URL_BYTES: usize = 2048;
 
-/// Reject oversized or blank reports before touching the database.
-fn validate_reports(items: &[DeadLogoReport]) -> Result<(), AppError> {
+/// Reject an oversized batch before touching the database, and drop items
+/// whose URL is blank or too long: one odd provider logo must not cost the
+/// rest of the batch.
+fn sanitize_reports(items: Vec<DeadLogoReport>) -> Result<Vec<DeadLogoReport>, AppError> {
     if items.len() > MAX_REPORT_ITEMS {
         return Err(AppError::InvalidInput(format!(
             "At most {MAX_REPORT_ITEMS} logo reports per call"
         )));
     }
-    for item in items {
-        if item.url.trim().is_empty() {
-            return Err(AppError::InvalidInput(
-                "A logo report needs a URL".to_string(),
-            ));
-        }
-        if item.url.len() > MAX_URL_BYTES {
-            return Err(AppError::InvalidInput(format!(
-                "A logo URL is longer than {MAX_URL_BYTES} bytes"
-            )));
-        }
-    }
-    Ok(())
+    Ok(items
+        .into_iter()
+        .filter(|item| !item.url.trim().is_empty() && item.url.len() <= MAX_URL_BYTES)
+        .collect())
 }
 
 /// The database half of `report_dead_logos`: an empty map, without recording
@@ -59,7 +52,7 @@ pub async fn report_dead_logos(
     state: State<'_, AppState>,
     items: Vec<DeadLogoReport>,
 ) -> Result<HashMap<i64, String>, AppError> {
-    validate_reports(&items)?;
+    let items = sanitize_reports(items)?;
     let launch_id = state.launch_id;
     with_db(&state.pool, move |conn| {
         report_dead_logos_db(conn, &items, launch_id, Utc::now())
@@ -120,28 +113,28 @@ mod tests {
     fn report_rejects_more_than_200_items() {
         let items: Vec<_> = (0..201).map(|i| report(i, "http://p/a.png")).collect();
         assert!(matches!(
-            validate_reports(&items),
+            sanitize_reports(items.clone()),
             Err(AppError::InvalidInput(_))
         ));
-        assert!(validate_reports(&items[..200]).is_ok());
+        assert_eq!(sanitize_reports(items[..200].to_vec()).unwrap().len(), 200);
     }
 
     #[test]
-    fn report_rejects_overlong_url() {
+    fn report_drops_overlong_url() {
         let long = format!("http://p/{}", "a".repeat(2048));
-        assert!(matches!(
-            validate_reports(&[report(1, &long)]),
-            Err(AppError::InvalidInput(_))
-        ));
         let ok = "a".repeat(2048);
-        assert!(validate_reports(&[report(1, &ok)]).is_ok());
+        let kept = sanitize_reports(vec![report(1, &long), report(2, &ok)]).unwrap();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].channel_id, 2);
     }
 
     #[test]
-    fn report_rejects_blank_url() {
-        assert!(matches!(
-            validate_reports(&[report(1, "  ")]),
-            Err(AppError::InvalidInput(_))
-        ));
+    fn report_drops_blank_url_and_keeps_the_rest() {
+        let (conn, id) = setup();
+        let items = sanitize_reports(vec![report(99, "  "), report(id, "http://p/a.png")]).unwrap();
+        assert_eq!(items.len(), 1);
+        let got = report_dead_logos_db(&conn, &items, 1, Utc::now()).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got.get(&id).map(String::as_str), Some("http://fb/tv3.png"));
     }
 }
