@@ -2,7 +2,7 @@ use crate::commands::with_db;
 use crate::db::{mutations, queries};
 use crate::error::AppError;
 use crate::http;
-use crate::logo_domain::LOGO_FALLBACK_ENABLED_KEY;
+use crate::logo_domain::{is_enabled, LOGO_FALLBACK_ENABLED_KEY};
 use crate::playlist::get_xtream_epg_url;
 use crate::playlist::XtreamCredentials;
 use crate::state::AppState;
@@ -50,7 +50,10 @@ pub async fn set_setting(
 
     let key_for_log = key.clone();
     let value_for_log = normalized_value.clone();
-    let stops_scan = with_db(&state.pool, move |conn| {
+    let SettingWrite {
+        stops_scan,
+        logo_fallback_changed,
+    } = with_db(&state.pool, move |conn| {
         write_setting(conn, &key, normalized_value)
     })
     .await?;
@@ -62,7 +65,7 @@ pub async fn set_setting(
     } else if key_for_log == TMDB_BACKGROUND_ENRICH_KEY && value_for_log == "1" {
         schedule_library_scan(app);
     }
-    if key_for_log == LOGO_FALLBACK_ENABLED_KEY && value_for_log == "1" {
+    if logo_fallback_changed && value_for_log == "1" {
         // Fetch the list only if it is due; a first enable has no stamp yet.
         tauri::async_runtime::spawn(crate::logo_fallback::run_maintenance(
             state.pool.clone(),
@@ -74,20 +77,37 @@ pub async fn set_setting(
     Ok(())
 }
 
-/// The database half of `set_setting`. Returns whether the write must stop
-/// a running library scan: the flag set to "0", the feature turned off
-/// (the stored flag is left alone), or the own key cleared while the flag
-/// was on (the scan must not fall back to the shared key, so the flag goes
-/// in the same write).
-fn write_setting(conn: &Connection, key: &str, value: String) -> Result<bool, AppError> {
+/// What a settings write means for the background work around it.
+#[derive(Debug)]
+struct SettingWrite {
+    /// The write must stop a running library scan: the flag set to "0", the
+    /// feature turned off (the stored flag is left alone), or the own key
+    /// cleared while the flag was on (the scan must not fall back to the
+    /// shared key, so the flag goes in the same write).
+    stops_scan: bool,
+    /// The logo fallback was switched on or off (absent counts as on), so
+    /// the overrides were recomputed.
+    logo_fallback_changed: bool,
+}
+
+/// The database half of `set_setting`.
+fn write_setting(conn: &Connection, key: &str, value: String) -> Result<SettingWrite, AppError> {
     let final_value = match key {
         "epg_url" if value.trim().is_empty() => get_default_xtream_epg_url(conn).unwrap_or(value),
         TMDB_BACKGROUND_ENRICH_KEY => validate_background_enrich_write(conn, &value)?,
         _ => value,
     };
+    let logo_was_on = if key == LOGO_FALLBACK_ENABLED_KEY {
+        Some(is_enabled(queries::get_setting(conn, key)?.as_deref()))
+    } else {
+        None
+    };
     mutations::set_setting(conn, key, &final_value)?;
-    if key == LOGO_FALLBACK_ENABLED_KEY {
-        // Switch every live row's override on or off with the setting.
+    // Settings Save writes the value every time; only a real switch costs a
+    // recompute of every live row.
+    let logo_fallback_changed =
+        logo_was_on.is_some_and(|was| was != is_enabled(Some(&final_value)));
+    if logo_fallback_changed {
         crate::db::logo_fallbacks::recompute_overrides(conn, None)?;
     }
     let stops_scan = match key {
@@ -102,7 +122,10 @@ fn write_setting(conn: &Connection, key: &str, value: String) -> Result<bool, Ap
         }
         _ => false,
     };
-    Ok(stops_scan)
+    Ok(SettingWrite {
+        stops_scan,
+        logo_fallback_changed,
+    })
 }
 
 /// Turning the scan on needs the user's own key; the shared key must never
@@ -340,8 +363,16 @@ mod tmdb_validation {
         let conn = crate::db::test_helpers::setup_test_db();
         mutations::set_setting(&conn, TMDB_API_KEY_KEY, "own-key").unwrap();
         mutations::set_setting(&conn, TMDB_BACKGROUND_ENRICH_KEY, "1").unwrap();
-        assert!(!write_setting(&conn, TMDB_ENABLED_KEY, "1".into()).unwrap());
-        assert!(write_setting(&conn, TMDB_ENABLED_KEY, "0".into()).unwrap());
+        assert!(
+            !write_setting(&conn, TMDB_ENABLED_KEY, "1".into())
+                .unwrap()
+                .stops_scan
+        );
+        assert!(
+            write_setting(&conn, TMDB_ENABLED_KEY, "0".into())
+                .unwrap()
+                .stops_scan
+        );
         assert_eq!(
             queries::get_setting(&conn, TMDB_BACKGROUND_ENRICH_KEY).unwrap(),
             Some("1".into()),
@@ -355,7 +386,9 @@ mod tmdb_validation {
         mutations::set_setting(&conn, TMDB_API_KEY_KEY, "own-key").unwrap();
         mutations::set_setting(&conn, TMDB_BACKGROUND_ENRICH_KEY, "1").unwrap();
         assert!(
-            !write_setting(&conn, TMDB_API_KEY_KEY, "own-key".into()).unwrap(),
+            !write_setting(&conn, TMDB_API_KEY_KEY, "own-key".into())
+                .unwrap()
+                .stops_scan,
             "a non-empty key turns nothing off"
         );
         assert_eq!(
@@ -364,7 +397,9 @@ mod tmdb_validation {
             "a non-empty key leaves the flag alone"
         );
         assert!(
-            write_setting(&conn, TMDB_API_KEY_KEY, String::new()).unwrap(),
+            write_setting(&conn, TMDB_API_KEY_KEY, String::new())
+                .unwrap()
+                .stops_scan,
             "an emptied key reports the flag turned off"
         );
         assert_eq!(
@@ -403,6 +438,7 @@ mod logo_fallback_setting {
         let fb = HashMap::from([("tv3.se".to_string(), "http://fb/tv3.png".to_string())]);
         replace_fallbacks(&conn, &fb).unwrap();
         write_setting(&conn, LOGO_FALLBACK_ENABLED_KEY, "1".into()).unwrap();
+        crate::db::logo_fallbacks::recompute_overrides(&conn, None).unwrap();
         (conn, id)
     }
 
@@ -418,8 +454,37 @@ mod logo_fallback_setting {
     fn turning_off_clears_all_overrides() {
         let (conn, id) = setup();
         assert_eq!(override_of(&conn, id).as_deref(), Some("http://fb/tv3.png"));
-        assert!(!write_setting(&conn, LOGO_FALLBACK_ENABLED_KEY, "0".into()).unwrap());
+        let w = write_setting(&conn, LOGO_FALLBACK_ENABLED_KEY, "0".into()).unwrap();
+        assert!(!w.stops_scan);
+        assert!(w.logo_fallback_changed);
         assert_eq!(override_of(&conn, id), None);
+    }
+
+    #[test]
+    fn saving_an_unchanged_value_does_no_work() {
+        let (conn, id) = setup();
+        // Wipe the override by hand: only a recompute would bring it back.
+        conn.execute("UPDATE channels SET logo_override = NULL", [])
+            .unwrap();
+        let w = write_setting(&conn, LOGO_FALLBACK_ENABLED_KEY, "1".into()).unwrap();
+        assert!(!w.logo_fallback_changed, "1 over 1 is no change");
+        assert_eq!(override_of(&conn, id), None, "no recompute ran");
+
+        // Absent counts as on, so a first "1" is no change either.
+        let conn = setup_test_db();
+        let w = write_setting(&conn, LOGO_FALLBACK_ENABLED_KEY, "1".into()).unwrap();
+        assert!(!w.logo_fallback_changed);
+        let w = write_setting(&conn, LOGO_FALLBACK_ENABLED_KEY, "0".into()).unwrap();
+        assert!(w.logo_fallback_changed);
+        let w = write_setting(&conn, LOGO_FALLBACK_ENABLED_KEY, "0".into()).unwrap();
+        assert!(!w.logo_fallback_changed);
+    }
+
+    #[test]
+    fn other_keys_never_report_a_logo_change() {
+        let conn = setup_test_db();
+        let w = write_setting(&conn, "tmdb_language", "sv-SE".into()).unwrap();
+        assert!(!w.logo_fallback_changed);
     }
 
     #[test]
