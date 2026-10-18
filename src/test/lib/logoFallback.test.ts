@@ -66,15 +66,19 @@ describe('logo failure batching', () => {
     expect(mockedInvoke).not.toHaveBeenCalled();
   });
 
-  it('reports each url once per session', async () => {
+  it('reports each channel and url pair once per session', async () => {
     reportLogoFailure(channel(1), 'http://a');
     reportLogoFailure(channel(2), 'http://a');
-    await vi.advanceTimersByTimeAsync(REPORT_BATCH_MS);
     reportLogoFailure(channel(1), 'http://a');
+    await vi.advanceTimersByTimeAsync(REPORT_BATCH_MS);
+    reportLogoFailure(channel(2), 'http://a');
     await vi.advanceTimersByTimeAsync(REPORT_BATCH_MS);
     expect(mockedInvoke).toHaveBeenCalledTimes(1);
     expect(mockedInvoke.mock.calls[0][1]).toEqual({
-      items: [{ channel_id: 1, url: 'http://a' }],
+      items: [
+        { channel_id: 1, url: 'http://a' },
+        { channel_id: 2, url: 'http://a' },
+      ],
     });
   });
 

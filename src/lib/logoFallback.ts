@@ -26,7 +26,7 @@ export const useLogoFallbackStore = create<LogoFallbackState>((set) => ({
 
 let queue: Array<{ channelId: number; url: string }> = [];
 let timer: ReturnType<typeof setTimeout> | null = null;
-const reportedUrls = new Set<string>();
+const reported = new Set<string>();
 
 async function flush(): Promise<void> {
   timer = null;
@@ -45,8 +45,9 @@ async function flush(): Promise<void> {
 export function reportLogoFailure(channel: Channel, url: string): void {
   if (channel.content_type !== 'live') return;
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-  if (reportedUrls.has(url)) return;
-  reportedUrls.add(url);
+  const key = `${channel.id}|${url}`;
+  if (reported.has(key)) return;
+  reported.add(key);
   queue.push({ channelId: channel.id, url });
   if (timer === null) timer = setTimeout(() => void flush(), REPORT_BATCH_MS);
 }
@@ -55,6 +56,6 @@ export function resetLogoFallbackSession(): void {
   if (timer !== null) clearTimeout(timer);
   timer = null;
   queue = [];
-  reportedUrls.clear();
+  reported.clear();
   useLogoFallbackStore.getState().clear();
 }
