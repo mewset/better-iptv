@@ -6,6 +6,7 @@ mod epg_domain;
 pub mod error;
 mod http;
 mod logo_domain;
+mod logo_fallback;
 mod parental_domain;
 mod playback;
 mod playlist;
@@ -126,6 +127,8 @@ pub fn run() {
 
             // Create and manage app state
             let state = AppState::new(pool);
+            let logo_pool = state.pool.clone();
+            let logo_lock = state.logo_fallback_lock.clone();
             app.manage(state);
 
             // TMDB enrichment: one search per visible title, plus the opt-in
@@ -147,6 +150,13 @@ pub fn run() {
                     commands::epg::maybe_auto_refresh_epg(&handle).await;
                     tokio::time::sleep(commands::epg::EPG_AUTO_REFRESH_POLL_INTERVAL).await;
                 }
+            });
+
+            // iptv-org logo fallbacks: expire dead marks and refresh the list
+            // weekly, well after startup.
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(logo_fallback::LOGO_FALLBACK_START_DELAY).await;
+                logo_fallback::run_maintenance(logo_pool, logo_lock, false).await;
             });
 
             Ok(())

@@ -131,7 +131,7 @@ pub fn get_http_client() -> &'static Client {
 #[cfg(test)]
 pub(crate) mod test_server {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -171,9 +171,15 @@ pub(crate) mod test_server {
     pub struct Server {
         pub base: String,
         connections: Arc<AtomicUsize>,
+        first_request: Arc<Mutex<Vec<u8>>>,
     }
 
     impl Server {
+        /// The bytes the server read for the first request it received
+        pub fn first_request(&self) -> String {
+            String::from_utf8_lossy(&self.first_request.lock().unwrap()).into_owned()
+        }
+
         pub fn connections(&self) -> usize {
             self.connections.load(Ordering::SeqCst)
         }
@@ -185,6 +191,8 @@ pub(crate) mod test_server {
         let base = format!("http://{}", listener.local_addr().unwrap());
         let connections = Arc::new(AtomicUsize::new(0));
         let counter = connections.clone();
+        let first_request = Arc::new(Mutex::new(Vec::new()));
+        let recorded = first_request.clone();
         tokio::spawn(async move {
             loop {
                 let Ok((mut socket, _)) = listener.accept().await else {
@@ -192,9 +200,13 @@ pub(crate) mod test_server {
                 };
                 let index = counter.fetch_add(1, Ordering::SeqCst);
                 let script = scripts[index.min(scripts.len() - 1)].clone();
+                let recorded = recorded.clone();
                 tokio::spawn(async move {
                     let mut request = [0u8; 4096];
-                    let _ = socket.read(&mut request).await;
+                    let read = socket.read(&mut request).await.unwrap_or(0);
+                    if index == 0 {
+                        *recorded.lock().unwrap() = request[..read].to_vec();
+                    }
                     for step in script {
                         match step {
                             Step::Write(bytes) => {
@@ -209,7 +221,11 @@ pub(crate) mod test_server {
                 });
             }
         });
-        Server { base, connections }
+        Server {
+            base,
+            connections,
+            first_request,
+        }
     }
 }
 

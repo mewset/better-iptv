@@ -45,6 +45,15 @@ pub struct AppState {
 
     /// TMDB session flags and the in-flight enrichment set.
     pub tmdb: Arc<crate::tmdb::session::TmdbSession>,
+
+    /// Identifies this app launch (milliseconds since the epoch); dead-logo
+    /// marks are stamped with it so a mark needs two separate launches to
+    /// count as dead.
+    #[allow(dead_code)] // read by the logo report command in a later task
+    pub launch_id: i64,
+
+    /// Serialises the logo-fallback maintenance runs.
+    pub logo_fallback_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl AppState {
@@ -55,6 +64,8 @@ impl AppState {
             mpv_player: Arc::new(Mutex::new(crate::playback::mpv::MpvPlayer::new())),
             epg_refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
             tmdb: Arc::new(crate::tmdb::session::TmdbSession::default()),
+            launch_id: chrono::Utc::now().timestamp_millis(),
+            logo_fallback_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 }
