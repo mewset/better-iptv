@@ -140,7 +140,7 @@ pub fn get_channels(conn: &Connection, playlist_id: Option<i64>) -> Result<Vec<C
 }
 
 const SUMMARY_COLUMNS: &str =
-    "id, name, logo, group_name, epg_id, content_type, is_favorite, created_at";
+    "id, name, COALESCE(logo_override, logo), group_name, epg_id, content_type, is_favorite, created_at";
 
 fn map_summary_row(row: &Row) -> rusqlite::Result<ChannelSummary> {
     Ok(ChannelSummary {

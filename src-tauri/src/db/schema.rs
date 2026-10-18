@@ -65,6 +65,26 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         [],
     );
 
+    // Migration: fallback logo chosen for a live channel (see db::logo_fallbacks)
+    let _ = conn.execute("ALTER TABLE channels ADD COLUMN logo_override TEXT", []);
+
+    // iptv-org fallback logos, keyed by normalized EPG id
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS logo_fallbacks (epg_key TEXT PRIMARY KEY, url TEXT NOT NULL) WITHOUT ROWID",
+        [],
+    )?;
+
+    // Provider logo URLs that failed to load on screen
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS dead_logo_urls (
+            url TEXT PRIMARY KEY,
+            state TEXT NOT NULL CHECK (state IN ('suspect', 'dead')),
+            marked_at TEXT NOT NULL,      -- RFC 3339
+            launch_id INTEGER NOT NULL    -- the app launch that last marked it
+        ) WITHOUT ROWID",
+        [],
+    )?;
+
     // Series episodes (M3U series are grouped at import; see series_domain::group_series)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS series_episodes (
@@ -875,5 +895,45 @@ mod home_migration_tests {
             .map(|c| c.unwrap())
             .collect();
         assert!(columns.iter().any(|c| c == "vote_count"), "{columns:?}");
+    }
+
+    #[test]
+    fn schema_adds_logo_override_to_an_existing_channels_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE playlists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                url TEXT,
+                file_path TEXT,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                auto_refresh BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE channels (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                playlist_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                url TEXT NOT NULL,
+                logo TEXT,
+                group_name TEXT,
+                epg_id TEXT,
+                tvg_name TEXT,
+                content_type TEXT DEFAULT 'live',
+                is_favorite BOOLEAN DEFAULT 0,
+                sort_order INTEGER DEFAULT 0,
+                category_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );",
+        )
+        .unwrap();
+
+        init_schema(&conn).unwrap();
+
+        conn.prepare("SELECT logo_override FROM channels").unwrap();
+        conn.prepare("SELECT epg_key, url FROM logo_fallbacks")
+            .unwrap();
+        conn.prepare("SELECT url, state, marked_at, launch_id FROM dead_logo_urls")
+            .unwrap();
     }
 }

@@ -1,3 +1,4 @@
+pub mod logo_fallbacks;
 pub mod models;
 pub mod mutations;
 pub mod queries;
