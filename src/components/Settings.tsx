@@ -13,6 +13,7 @@ import {
 import type { EpgStatus, TmdbStatus } from '../lib/tauri';
 import { usePlayerStore } from '../stores/player-store';
 import { logger } from '../lib/logger';
+import { resetLogoFallbackSession } from '../lib/logoFallback';
 import { applyTheme } from '../lib/theme';
 import { cn } from '../lib/utils';
 import ProfileManager from './ProfileManager';
@@ -77,6 +78,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
     currentPlaylist,
     setChannels,
     clearTmdbCards,
+    loadChannels,
   } = usePlayerStore();
 
   // UI state
@@ -117,6 +119,8 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   const [originalTmdbLanguage, setOriginalTmdbLanguage] = useState('');
   const [originalTmdbKey, setOriginalTmdbKey] = useState('');
   const [originalTmdbEnabled, setOriginalTmdbEnabled] = useState(true);
+  const [logoFallbackEnabled, setLogoFallbackEnabled] = useState(true);
+  const [originalLogoFallback, setOriginalLogoFallback] = useState(true);
 
   // Parental tab state
   const [parentalEnabled, setParentalEnabled] = useState(false);
@@ -160,6 +164,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
     tmdbApiKey,
     tmdbLanguage,
     tmdbBackgroundEnrich,
+    logoFallbackEnabled,
     parentalEnabled,
     blockedChannelIds: Array.from(blockedChannelIds).sort((a, b) => a - b),
     blockedCategories,
@@ -227,6 +232,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
           savedTmdbKey,
           savedTmdbLanguage,
           savedTmdbBackgroundEnrich,
+          savedLogoFallback,
         ] = await Promise.all([
           getSetting('epg_url'),
           getSetting('theme'),
@@ -245,6 +251,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
           getSetting('tmdb_api_key'),
           getSetting('tmdb_language'),
           getSetting('tmdb_background_enrich'),
+          getSetting('logo_fallback_enabled'),
         ]);
 
         if (savedEpgUrl) {
@@ -299,6 +306,10 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
           : 'en-US';
         setTmdbLanguage(lang);
         setOriginalTmdbLanguage(lang);
+        // Channel logos: absent means on.
+        const logoFallbackValue = savedLogoFallback !== '0';
+        setLogoFallbackEnabled(logoFallbackValue);
+        setOriginalLogoFallback(logoFallbackValue);
         // Only feeds the status line; a failure must not skip the loads below.
         setTmdbStatus(
           await getTmdbStatus().catch((err) => {
@@ -539,6 +550,15 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
         clearTmdbCards();
       }
 
+      // Channel logos: a changed value drops the session's fallbacks and
+      // reloads the channels, which carry the backend's logo overrides.
+      await setSetting('logo_fallback_enabled', logoFallbackEnabled ? '1' : '0');
+      if (logoFallbackEnabled !== originalLogoFallback) {
+        setOriginalLogoFallback(logoFallbackEnabled);
+        resetLogoFallbackSession();
+        if (currentPlaylist?.id) await loadChannels(currentPlaylist.id);
+      }
+
       // Save MPV playback settings
       await setSetting('mpv_hardware_acceleration', hardwareAcceleration.toString());
       await setSetting('mpv_video_output', videoOutput);
@@ -709,6 +729,8 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
                 }}
                 backgroundEnrich={tmdbBackgroundEnrich}
                 onBackgroundEnrichChange={setTmdbBackgroundEnrich}
+                logoFallbackEnabled={logoFallbackEnabled}
+                onLogoFallbackEnabledChange={setLogoFallbackEnabled}
               />
             </TabsContent>
 

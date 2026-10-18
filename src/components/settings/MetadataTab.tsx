@@ -21,6 +21,8 @@ interface MetadataTabProps {
   onClearCache: () => Promise<void>;
   backgroundEnrich: boolean;
   onBackgroundEnrichChange: (enabled: boolean) => void;
+  logoFallbackEnabled: boolean;
+  onLogoFallbackEnabledChange: (enabled: boolean) => void;
 }
 
 /** The one-line key status, spec §3. */
@@ -53,6 +55,8 @@ export default function MetadataTab({
   onClearCache,
   backgroundEnrich,
   onBackgroundEnrichChange,
+  logoFallbackEnabled,
+  onLogoFallbackEnabledChange,
 }: MetadataTabProps) {
   const [testResult, setTestResult] = useState<string>('');
   const [testing, setTesting] = useState(false);
@@ -224,6 +228,27 @@ export default function MetadataTab({
             </button>
             {cleared && <span className="text-xs text-text-muted">Cache cleared</span>}
           </div>
+        </div>
+      </section>
+
+      <section>
+        <h3 className="mb-4 text-lg font-semibold text-text">Channel logos</h3>
+        <div className="space-y-4">
+          <label className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={logoFallbackEnabled}
+              onChange={(e) => onLogoFallbackEnabledChange(e.target.checked)}
+              className="h-4 w-4 accent-accent"
+            />
+            <span className="text-sm font-medium text-text">
+              Fill in missing channel logos from iptv-org
+            </span>
+          </label>
+          <p className="text-xs text-text-faint">
+            When a live channel&apos;s logo is missing or broken, Better IPTV looks it up in the
+            open iptv-org database (iptv-org.github.io). Nothing about you is sent.
+          </p>
         </div>
       </section>
 

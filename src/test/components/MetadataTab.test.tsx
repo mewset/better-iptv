@@ -46,6 +46,8 @@ function renderTab(extra: Partial<React.ComponentProps<typeof MetadataTab>> = {}
     onClearCache: vi.fn(async () => {}),
     backgroundEnrich: false,
     onBackgroundEnrichChange: vi.fn(),
+    logoFallbackEnabled: true,
+    onLogoFallbackEnabledChange: vi.fn(),
     ...extra,
   };
   const view = render(<MetadataTab {...props} />);
@@ -53,6 +55,22 @@ function renderTab(extra: Partial<React.ComponentProps<typeof MetadataTab>> = {}
 }
 
 describe('MetadataTab', () => {
+  it('renders the logo checkbox checked and calls back on change', () => {
+    const { onLogoFallbackEnabledChange } = renderTab();
+    expect(screen.getByRole('heading', { name: 'Channel logos' })).toBeInTheDocument();
+    const box = screen.getByRole('checkbox', {
+      name: 'Fill in missing channel logos from iptv-org',
+    });
+    expect(box).toBeChecked();
+    expect(
+      screen.getByText(
+        "When a live channel's logo is missing or broken, Better IPTV looks it up in the open iptv-org database (iptv-org.github.io). Nothing about you is sent."
+      )
+    ).toBeInTheDocument();
+    fireEvent.click(box);
+    expect(onLogoFallbackEnabledChange).toHaveBeenCalledWith(false);
+  });
+
   beforeEach(() => {
     vi.mocked(checkTmdbKey).mockReset();
     handlers.clear();

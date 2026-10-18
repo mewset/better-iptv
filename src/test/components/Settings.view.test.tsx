@@ -12,6 +12,7 @@ import {
   deleteTmdbCache,
 } from '../../lib/tauri';
 import type { Channel, Playlist } from '../../types';
+import * as logoFallback from '../../lib/logoFallback';
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
@@ -116,7 +117,7 @@ describe('Settings as a view', () => {
     render(<Settings onClose={vi.fn()} />);
 
     // Sequential loading would show exactly one pending call here.
-    await waitFor(() => expect(release).toHaveLength(17));
+    await waitFor(() => expect(release).toHaveLength(18));
     release.forEach((r) => r());
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled());
   });
@@ -217,6 +218,32 @@ describe('Settings as a view', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await screen.findByRole('heading', { name: 'Failed to Save Settings' });
     expect(screen.getByText(/Background fetching needs your own TMDB API key/)).toBeInTheDocument();
+  });
+
+  it('saving a changed logo setting resets the session and reloads channels', async () => {
+    const loadChannels = vi.fn(async () => {});
+    const resetSpy = vi.spyOn(logoFallback, 'resetLogoFallbackSession');
+    usePlayerStore.setState({ currentPlaylist: playlist(7, 'Home'), loadChannels });
+    await renderSettings();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /^metadata$/i }));
+    await screen.findByRole('heading', { level: 1, name: 'Metadata' });
+    const box = screen.getByRole('checkbox', {
+      name: 'Fill in missing channel logos from iptv-org',
+    });
+    expect(box).toBeChecked();
+
+    // Unchanged: written, but no reset and no reload.
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(setSetting).toHaveBeenCalledWith('logo_fallback_enabled', '1'));
+    expect(resetSpy).not.toHaveBeenCalled();
+    expect(loadChannels).not.toHaveBeenCalled();
+
+    fireEvent.click(box);
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(setSetting).toHaveBeenCalledWith('logo_fallback_enabled', '0'));
+    await waitFor(() => expect(loadChannels).toHaveBeenCalledWith(7));
+    expect(resetSpy).toHaveBeenCalledTimes(1);
+    resetSpy.mockRestore();
   });
 
   it('Save with an unchanged language leaves the cache alone', async () => {

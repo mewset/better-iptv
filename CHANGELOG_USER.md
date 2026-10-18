@@ -4,6 +4,16 @@ A simple overview of new features and improvements.
 
 ---
 
+## Unreleased
+
+### New Features
+
+- Channels with a missing or broken logo now get one from the open iptv-org database. You can turn this off in Settings → Metadata
+
+### Fixes
+
+- Broken images no longer show in the TV guide's programme panel, the Movies banner or detail pages
+
 ## Version 3.1.2 (October 18, 2026)
 
 ### Improvements
