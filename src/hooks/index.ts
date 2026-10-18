@@ -33,3 +33,6 @@ export { useSubscriptionExpiries } from './useSubscriptionExpiries';
 
 // Profile switching
 export { useProfileSwitch, type ProfileSwitch } from './useProfileSwitch';
+
+// Channel logo with iptv-org fallback
+export { useChannelLogo } from './useChannelLogo';

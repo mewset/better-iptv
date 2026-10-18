@@ -439,3 +439,19 @@ export async function setTmdbMatch(channelId: number, tmdbId: number | null): Pr
 export async function deleteTmdbCache(): Promise<number> {
   return await invoke('delete_tmdb_cache');
 }
+
+// ========== Logo Commands ==========
+
+/**
+ * Reports provider logo URLs that failed to load. Returns the iptv-org fallback
+ * per channel id. serde sends the HashMap<i64, String> keys as strings, so they
+ * are converted back to numbers here.
+ */
+export async function reportDeadLogos(
+  items: Array<{ channelId: number; url: string }>
+): Promise<Record<number, string>> {
+  const raw = await invoke<Record<string, string>>('report_dead_logos', {
+    items: items.map(({ channelId, url }) => ({ channel_id: channelId, url })),
+  });
+  return Object.fromEntries(Object.entries(raw).map(([id, url]) => [Number(id), url]));
+}

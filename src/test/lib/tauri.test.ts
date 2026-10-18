@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { getChannels, getPlaylistChannelCounts } from '../../lib/tauri';
+import { getChannels, getPlaylistChannelCounts, reportDeadLogos } from '../../lib/tauri';
 
 const mockedInvoke = vi.mocked(invoke);
 
@@ -57,5 +57,20 @@ describe('getChannels', () => {
       playlistId: 3,
       contentTypes: undefined,
     });
+  });
+});
+
+describe('reportDeadLogos', () => {
+  beforeEach(() => {
+    mockedInvoke.mockReset();
+  });
+
+  it('reportDeadLogos maps keys to numbers and sends channel_id', async () => {
+    mockedInvoke.mockResolvedValueOnce({ '12': 'http://fb/12.png' });
+    const result = await reportDeadLogos([{ channelId: 12, url: 'http://a' }]);
+    expect(mockedInvoke).toHaveBeenCalledWith('report_dead_logos', {
+      items: [{ channel_id: 12, url: 'http://a' }],
+    });
+    expect(result).toEqual({ 12: 'http://fb/12.png' });
   });
 });
