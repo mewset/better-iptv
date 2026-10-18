@@ -116,6 +116,45 @@ describe('logo failure batching', () => {
     expect(sizes).toEqual([200, 50]);
   });
 
+  it('reset while a call is pending drops its result and the remaining chunks', async () => {
+    let resolve: (v: Record<number, string>) => void = () => {};
+    mockedInvoke.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolve = r as typeof resolve;
+        })
+    );
+    for (let i = 1; i <= 250; i++) reportLogoFailure(channel(i), `http://u/${i}`);
+    await vi.advanceTimersByTimeAsync(REPORT_BATCH_MS);
+    expect(mockedInvoke).toHaveBeenCalledTimes(1);
+
+    resetLogoFallbackSession();
+    resolve({ 1: 'http://fb/1.png' });
+    await vi.advanceTimersByTimeAsync(REPORT_BATCH_MS * 2);
+
+    expect(useLogoFallbackStore.getState().fallbacks).toEqual({});
+    expect(mockedInvoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('a report after reset still goes out while an old call is pending', async () => {
+    let resolve: (v: Record<number, string>) => void = () => {};
+    mockedInvoke.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolve = r as typeof resolve;
+        })
+    );
+    reportLogoFailure(channel(1), 'http://a');
+    await vi.advanceTimersByTimeAsync(REPORT_BATCH_MS);
+    resetLogoFallbackSession();
+    mockedInvoke.mockResolvedValueOnce({ 2: 'http://fb/2.png' });
+    reportLogoFailure(channel(2), 'http://b');
+    await vi.advanceTimersByTimeAsync(REPORT_BATCH_MS);
+    resolve({ 1: 'http://fb/1.png' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useLogoFallbackStore.getState().fallbacks).toEqual({ 2: 'http://fb/2.png' });
+  });
+
   it('reset cancels a pending flush', async () => {
     reportLogoFailure(channel(1), 'http://a');
     resetLogoFallbackSession();

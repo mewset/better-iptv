@@ -30,6 +30,8 @@ export const useLogoFallbackStore = create<LogoFallbackState>((set) => ({
 let queue: Array<{ channelId: number; url: string }> = [];
 let timer: ReturnType<typeof setTimeout> | null = null;
 const reported = new Set<string>();
+/** Bumped by every reset; a flush started before it neither merges nor sends more. */
+let generation = 0;
 
 function reportKey(channelId: number, url: string): string {
   return `${channelId}|${url}`;
@@ -47,9 +49,12 @@ async function flush(): Promise<void> {
   timer = null;
   const items = queue;
   queue = [];
+  const started = generation;
   for (let i = 0; i < items.length; i += MAX_ITEMS_PER_CALL) {
+    if (generation !== started) return;
     try {
       const result = await reportDeadLogos(items.slice(i, i + MAX_ITEMS_PER_CALL));
+      if (generation !== started) return;
       useLogoFallbackStore.getState().merge(result);
     } catch (e) {
       logger.warn('Failed to report dead logos', e);
@@ -69,6 +74,7 @@ export function reportLogoFailure(channel: Channel, url: string): void {
 }
 
 export function resetLogoFallbackSession(): void {
+  generation += 1;
   if (timer !== null) clearTimeout(timer);
   timer = null;
   queue = [];
