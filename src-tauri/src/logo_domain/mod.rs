@@ -95,10 +95,14 @@ pub fn select_fallbacks(logos: Vec<IptvOrgLogo>) -> HashMap<String, String> {
 }
 
 /// Whether the logo list should be fetched now. `last_fetched` is the RFC 3339
-/// string from settings; missing or unreadable counts as never fetched.
+/// string from settings; missing or unreadable counts as never fetched, and a
+/// stamp in the future (clock skew, a clock set back) counts as due.
 pub fn fetch_due(last_fetched: Option<&str>, now: DateTime<Utc>) -> bool {
     match last_fetched.and_then(|s| DateTime::parse_from_rfc3339(s).ok()) {
-        Some(last) => now - last.with_timezone(&Utc) >= Duration::days(FETCH_INTERVAL_DAYS),
+        Some(last) => {
+            let age = now - last.with_timezone(&Utc);
+            age < Duration::zero() || age >= Duration::days(FETCH_INTERVAL_DAYS)
+        }
         None => true,
     }
 }
@@ -214,6 +218,16 @@ mod tests {
         assert!(!fetch_due(Some(&recent), now()));
         let old = (now() - Duration::days(7) - Duration::minutes(1)).to_rfc3339();
         assert!(fetch_due(Some(&old), now()));
+    }
+
+    #[test]
+    fn fetch_due_when_stamp_is_in_the_future() {
+        // Clock skew or a clock set back: never wait out a stamp from the future.
+        let future = (now() + Duration::minutes(5)).to_rfc3339();
+        assert!(fetch_due(Some(&future), now()));
+        let far = (now() + Duration::days(400)).to_rfc3339();
+        assert!(fetch_due(Some(&far), now()));
+        assert!(!fetch_due(Some(&now().to_rfc3339()), now()));
     }
 
     #[test]
