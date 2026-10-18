@@ -8,7 +8,7 @@ use crate::playlist_domain;
 use crate::series_domain::{self, SeriesGroup};
 use crate::state::AppState;
 use crate::tmdb::enrich::schedule_library_scan;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter, State};
 
@@ -84,7 +84,14 @@ pub async fn import_playlist(
             );
         }
 
-        crate::db::logo_fallbacks::apply_after_channel_write(&tx, playlist_id)?;
+        // Cosmetic: a failed override recompute must not roll back the import.
+        // A failed UPDATE rolls back only itself, never the transaction.
+        if let Err(e) = crate::db::logo_fallbacks::apply_after_channel_write(&tx, playlist_id) {
+            warn!(
+                "Logo overrides for playlist {} not updated: {}",
+                playlist_id, e
+            );
+        }
 
         tx.commit()?;
 
@@ -196,7 +203,14 @@ pub async fn import_xtream_playlist(
             debug!("EPG URL already configured, skipping auto-population");
         }
 
-        crate::db::logo_fallbacks::apply_after_channel_write(&tx, playlist_id)?;
+        // Cosmetic: a failed override recompute must not roll back the import.
+        // A failed UPDATE rolls back only itself, never the transaction.
+        if let Err(e) = crate::db::logo_fallbacks::apply_after_channel_write(&tx, playlist_id) {
+            warn!(
+                "Logo overrides for playlist {} not updated: {}",
+                playlist_id, e
+            );
+        }
 
         tx.commit()?;
 
@@ -348,7 +362,14 @@ pub async fn refresh_playlist(
         if !is_xtream {
             mutations::replace_series_episodes(conn, playlist_id, &series_groups)?;
         }
-        crate::db::logo_fallbacks::apply_after_channel_write(conn, playlist_id)?;
+        // Cosmetic: the merge is already committed, so a failed override
+        // recompute must not report the refresh as failed or skip the stamp.
+        if let Err(e) = crate::db::logo_fallbacks::apply_after_channel_write(conn, playlist_id) {
+            warn!(
+                "Logo overrides for playlist {} not updated: {}",
+                playlist_id, e
+            );
+        }
         mutations::update_playlist_last_updated(conn, playlist_id)?;
         Ok(result)
     })

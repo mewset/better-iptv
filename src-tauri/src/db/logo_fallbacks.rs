@@ -575,6 +575,33 @@ mod tests {
         assert_eq!(override_of(&conn, id), None);
     }
 
+    /// Import and refresh log a failed recompute and go on (the override is
+    /// cosmetic). That is only safe if a failed UPDATE leaves the enclosing
+    /// transaction usable: SQLite rolls back the statement, not the transaction.
+    #[test]
+    fn failed_recompute_leaves_the_import_transaction_committable() {
+        let (conn, pid) = setup();
+        conn.execute_batch(
+            "CREATE TEMP TRIGGER boom BEFORE UPDATE OF logo_override ON channels \
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        let tx = conn.unchecked_transaction().unwrap();
+        let ch = channel(pid, "TV3", "http://s/1.m3u8", None, Some("tv3.se"));
+        crate::db::mutations::create_channels_batch(&tx, &[ch]).unwrap();
+        assert!(apply_after_channel_write(&tx, pid).is_err());
+        assert!(!tx.is_autocommit(), "the transaction must still be open");
+        tx.commit().unwrap();
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM channels WHERE playlist_id = ?1",
+                [pid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
+    }
+
     #[test]
     fn apply_respects_disabled_setting() {
         let (conn, pid) = setup();
