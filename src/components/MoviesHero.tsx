@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Clapperboard, Play } from 'lucide-react';
 import type { Channel } from '../types';
 import { ColorBars } from './ColorBars';
@@ -34,7 +35,11 @@ export function MoviesHero({
   eyebrow = 'Recently added',
   note,
 }: MoviesHeroProps) {
-  const art = tmdb?.backdrop_url ?? channel.logo;
+  const artUrl = tmdb?.backdrop_url ?? channel.logo;
+  // Remember which URL failed rather than a flag: a new URL gets a fresh try
+  // without an effect.
+  const [failedArt, setFailedArt] = useState<string | null>(null);
+  const art = artUrl && artUrl !== failedArt ? artUrl : null;
   const isSeries = channel.content_type === 'series';
   // TMDB's title over the provider's ("The.Great.Flood.2025.1080p") once matched.
   const title = tmdb?.title || channel.name;
@@ -49,6 +54,7 @@ export function MoviesHero({
           alt=""
           aria-hidden="true"
           draggable={false}
+          onError={() => setFailedArt(artUrl ?? null)}
           className="absolute inset-y-0 right-0 w-[55%] object-cover"
         />
       ) : (

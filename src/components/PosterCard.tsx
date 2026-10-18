@@ -1,4 +1,5 @@
 import { memo, useEffect, useState } from 'react';
+import { useChannelLogo } from '../hooks/useChannelLogo';
 import { Play, Clapperboard, Star, Lock } from 'lucide-react';
 import type { Channel } from '../types';
 import { ColorBars } from './ColorBars';
@@ -44,7 +45,7 @@ export const PosterCard = memo(function PosterCard({
   useEffect(() => {
     setTmdbArtFailed(false);
   }, [tmdb?.poster_url]);
-  const [logoFailed, setLogoFailed] = useState(false);
+  const { src: logoSrc, onError: onLogoError } = useChannelLogo(channel);
   const [fit, setFit] = useState<'cover' | 'contain'>('cover');
   const isSeries = channel.content_type === 'series';
   const blocked = isBlocked && parentalVisibility !== 'hide';
@@ -56,7 +57,7 @@ export const PosterCard = memo(function PosterCard({
   // A TMDB poster wins over the provider logo; if it fails to load, the
   // provider logo gets its turn before the ColorBars placeholder.
   const tmdbArt = tmdb?.poster_url && !tmdbArtFailed ? tmdb.poster_url : null;
-  const artSrc = tmdbArt ?? (channel.logo && !logoFailed ? channel.logo : null);
+  const artSrc = tmdbArt ?? logoSrc;
   const showArt = Boolean(artSrc) && !lockMode;
 
   const handleLoad = (e: React.SyntheticEvent<globalThis.HTMLImageElement>) => {
@@ -89,7 +90,7 @@ export const PosterCard = memo(function PosterCard({
             // few pixels of drag becomes a drag gesture that never fires a
             // click - on the poster, the largest target on the card.
             draggable={false}
-            onError={() => (tmdbArt ? setTmdbArtFailed(true) : setLogoFailed(true))}
+            onError={() => (tmdbArt ? setTmdbArtFailed(true) : onLogoError())}
             onLoad={handleLoad}
             className={`h-full w-full ${fit === 'cover' ? 'object-cover' : 'object-contain'} ${
               blurMode ? 'blur-xl' : ''

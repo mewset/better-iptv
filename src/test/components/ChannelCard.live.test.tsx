@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, render, screen, fireEvent } from '@testing-library/react';
+import { invoke } from '@tauri-apps/api/core';
+import { REPORT_BATCH_MS, resetLogoFallbackSession } from '../../lib/logoFallback';
 import { ChannelCard } from '../../components/ChannelCard';
 import type { Channel } from '../../types';
 
@@ -147,6 +149,46 @@ describe('live ChannelCard', () => {
       <ChannelCard channel={series} isPlaying={false} onPlay={vi.fn()} tmdb={tmdb} />
     );
     expect(screen.getByText('Series · 2011 · ★ 5.8')).toBeInTheDocument();
+    expect(container.querySelector('img')?.getAttribute('src')).toBe(tmdb.poster_url);
+  });
+});
+
+describe('ChannelCard logo fallback', () => {
+  const withLogo: Channel = { ...ch, logo: 'https://p/dead.png' };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetLogoFallbackSession();
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockResolvedValue({ 1: 'https://f/x.png' });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('a dead logo switches to the reported fallback', async () => {
+    const { container } = render(
+      <ChannelCard channel={withLogo} isPlaying={false} onPlay={vi.fn()} />
+    );
+    fireEvent.error(container.querySelector('img')!);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REPORT_BATCH_MS);
+    });
+    expect(container.querySelector('img')?.getAttribute('src')).toBe('https://f/x.png');
+  });
+
+  it('the TMDB poster still wins', () => {
+    const tmdb = {
+      channel_id: 1,
+      tmdb_id: 1,
+      title: 'X',
+      year: 2020,
+      rating: 7,
+      poster_url: 'https://image.tmdb.org/t/p/w342/p.jpg',
+      backdrop_url: null,
+      genres: [],
+    };
+    const { container } = render(
+      <ChannelCard channel={withLogo} isPlaying={false} onPlay={vi.fn()} tmdb={tmdb} />
+    );
     expect(container.querySelector('img')?.getAttribute('src')).toBe(tmdb.poster_url);
   });
 });

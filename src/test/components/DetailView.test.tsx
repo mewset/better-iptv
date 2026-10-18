@@ -260,3 +260,30 @@ describe('DetailView for a series', () => {
     expect(onBack).toHaveBeenCalled();
   });
 });
+
+describe('DetailView broken art', () => {
+  beforeEach(() => {
+    vi.mocked(getTmdbDetails).mockReset();
+    usePlayerStore.setState({ currentSeries: null, selectedSeason: null });
+  });
+
+  it('a broken image falls back to ColorBars', async () => {
+    vi.mocked(getTmdbDetails).mockResolvedValue(off);
+    const { container } = render(
+      <DetailView
+        channel={movie}
+        onBack={vi.fn()}
+        onPlay={vi.fn()}
+        onPlayEpisode={vi.fn()}
+        onToggleFavorite={vi.fn()}
+        isPlaying={false}
+      />
+    );
+    // Provider cover only: a blurred backdrop copy and the poster.
+    const imgs = Array.from(container.querySelectorAll('img'));
+    expect(imgs).toHaveLength(2);
+    imgs.forEach((img) => fireEvent.error(img));
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.querySelectorAll('[data-bars]')).toHaveLength(2);
+  });
+});

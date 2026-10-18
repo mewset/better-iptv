@@ -1,5 +1,6 @@
-import { memo, useEffect, useState } from 'react';
+import { memo } from 'react';
 import { Square } from 'lucide-react';
+import { useChannelLogo } from '../hooks/useChannelLogo';
 import type { Channel } from '../types';
 import type { EpgEntry } from '../stores/player-store';
 import { formatClock, progressPercent, minutesLeft, isEpgEntryStale } from '../lib/epgTime';
@@ -33,14 +34,9 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   nextProgram,
   onStop,
 }: NowPlayingBarProps) {
-  const [logoFailed, setLogoFailed] = useState(false);
-  // The dock stays mounted for as long as any channel plays, so a failed
-  // logo load for one channel must not stick around once playback moves to
-  // a different channel with its own (possibly working) logo.
-  useEffect(() => {
-    setLogoFailed(false);
-  }, [channel.id, channel.logo]);
-  const showLogo = Boolean(channel.logo) && !logoFailed;
+  // The dock stays mounted while any channel plays; the hook resets its
+  // failure state when the channel or its logo changes.
+  const { src: logoSrc, onError: onLogoError } = useChannelLogo(channel);
 
   // A cached entry that no longer describes the present (its programme ended,
   // or an off-air entry's next programme began) is stale until the refetch
@@ -66,14 +62,14 @@ export const NowPlayingBar = memo(function NowPlayingBar({
       className="absolute bottom-6 left-1/2 flex h-[76px] w-[min(880px,calc(100%-80px))] -translate-x-1/2 items-center gap-4 rounded-[18px] border border-border-strong bg-surface/85 px-3 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-2xl supports-[not(backdrop-filter:blur(1px))]:bg-surface"
     >
       <div className="relative h-[52px] w-[52px] shrink-0 overflow-hidden rounded-xl bg-surface-2">
-        {showLogo ? (
+        {logoSrc ? (
           <img
-            src={channel.logo!}
+            src={logoSrc}
             alt={channel.name}
             loading="lazy"
             decoding="async"
             draggable={false}
-            onError={() => setLogoFailed(true)}
+            onError={onLogoError}
             className="h-full w-full object-contain p-1"
           />
         ) : (

@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { NowPlayingBar } from '../../components/NowPlayingBar';
+import { resetLogoFallbackSession, useLogoFallbackStore } from '../../lib/logoFallback';
 import type { Channel } from '../../types';
 
 const ch: Channel = {
@@ -196,5 +197,21 @@ describe('NowPlayingBar', () => {
     expect(screen.getByRole('button', { name: 'Stop playback' }).className).toMatch(
       /focus-visible:outline-none/
     );
+  });
+});
+
+describe('NowPlayingBar logo fallback', () => {
+  beforeEach(() => resetLogoFallbackSession());
+
+  it('shows the placeholder after the logo and fallback fail', () => {
+    useLogoFallbackStore.getState().merge({ 1: 'https://f/x.png' });
+    const { container } = render(
+      <NowPlayingBar channel={{ ...ch, logo: 'https://p/dead.png' }} onStop={vi.fn()} />
+    );
+    fireEvent.error(container.querySelector('img')!);
+    expect(container.querySelector('img')?.getAttribute('src')).toBe('https://f/x.png');
+    fireEvent.error(container.querySelector('img')!);
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.querySelectorAll('[data-bars]')).toHaveLength(1);
   });
 });

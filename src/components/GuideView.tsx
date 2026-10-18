@@ -8,6 +8,7 @@ import { GUIDE_DAY_COUNT, blockGeometry, normalizeEpgId } from '../lib/guideLayo
 import { formatClock, minutesLeft, progressPercent } from '../lib/epgTime';
 import { logger } from '../lib/logger';
 import { cn } from '../lib/utils';
+import { useChannelLogo } from '../hooks/useChannelLogo';
 import { useGuide } from '../hooks/useGuide';
 import { CategoryBar } from './CategoryBar';
 import { ColorBars } from './ColorBars';
@@ -56,7 +57,7 @@ function LogoTile({
   showLogo: boolean;
   className: string;
 }) {
-  const [failed, setFailed] = useState(false);
+  const { src, onError } = useChannelLogo(channel);
   const initial = channel.name.trim().charAt(0).toUpperCase() || '?';
   return (
     <div
@@ -65,14 +66,14 @@ function LogoTile({
         className
       )}
     >
-      {showLogo && channel.logo && !failed ? (
+      {showLogo && src ? (
         <img
-          src={channel.logo}
+          src={src}
           alt=""
           loading="lazy"
           decoding="async"
           draggable={false}
-          onError={() => setFailed(true)}
+          onError={onError}
           className="h-full w-full object-contain p-1"
         />
       ) : (
@@ -214,6 +215,7 @@ interface DetailPanelProps {
 
 function DetailPanel({ selection, now, dockVisible, playing, onWatch, onClose }: DetailPanelProps) {
   const { channel, program } = selection;
+  const logo = useChannelLogo(channel);
   const airing = isAiring(program, now);
   const range = timeRange(program);
   const mins = airing ? minutesLeft(program.end_time, now) : null;
@@ -231,13 +233,14 @@ function DetailPanel({ selection, now, dockVisible, playing, onWatch, onClose }:
       )}
     >
       <div className="relative h-[52px] w-[52px] shrink-0 overflow-hidden rounded-xl bg-surface-2">
-        {channel.logo ? (
+        {logo.src ? (
           <img
-            src={channel.logo}
+            src={logo.src}
             alt=""
             loading="lazy"
             decoding="async"
             draggable={false}
+            onError={logo.onError}
             className="h-full w-full object-contain p-1"
           />
         ) : (

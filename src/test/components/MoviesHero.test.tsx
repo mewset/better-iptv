@@ -114,3 +114,15 @@ describe('MoviesHero with TMDB data', () => {
     expect(screen.queryByText('RECENTLY ADDED')).not.toBeInTheDocument();
   });
 });
+
+describe('MoviesHero broken art', () => {
+  it('a broken image falls back to ColorBars', () => {
+    const { container } = render(
+      <MoviesHero channel={{ ...movie, logo: 'http://img/dead.jpg' }} onPlay={vi.fn()} />
+    );
+    expect(container.querySelectorAll('[data-bars]')).toHaveLength(0);
+    fireEvent.error(container.querySelector('img')!);
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.querySelectorAll('[data-bars]')).toHaveLength(1);
+  });
+});

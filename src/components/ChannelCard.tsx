@@ -1,4 +1,5 @@
 import { memo, useEffect, useState } from 'react';
+import { useChannelLogo } from '../hooks/useChannelLogo';
 import { Play, Square, Star, Lock } from 'lucide-react';
 import type { Channel } from '../types';
 import type { EpgEntry } from '../stores/player-store';
@@ -44,11 +45,11 @@ export const ChannelCard = memo(function ChannelCard({
   onToggleFavorite,
   tmdb,
 }: ChannelCardProps) {
-  const [logoFailed, setLogoFailed] = useState(false);
+  const { src: logoSrc, onError: onLogoError } = useChannelLogo(channel);
   const [tmdbArtFailed, setTmdbArtFailed] = useState(false);
   useEffect(() => setTmdbArtFailed(false), [tmdb?.poster_url]);
   const tmdbArt = tmdb?.poster_url && !tmdbArtFailed ? tmdb.poster_url : null;
-  const artSrc = tmdbArt ?? (channel.logo && !logoFailed ? channel.logo : null);
+  const artSrc = tmdbArt ?? logoSrc;
   const showLogo = Boolean(artSrc);
   // A movie or series in this grid has no programme; say what it is instead.
   const kindLabel =
@@ -85,7 +86,7 @@ export const ChannelCard = memo(function ChannelCard({
             // few pixels of drag becomes a drag gesture that never fires a
             // click - on the logo, the largest target on the card.
             draggable={false}
-            onError={() => (tmdbArt ? setTmdbArtFailed(true) : setLogoFailed(true))}
+            onError={() => (tmdbArt ? setTmdbArtFailed(true) : onLogoError())}
             className="max-h-full max-w-full object-contain p-3"
           />
         ) : (

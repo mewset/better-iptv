@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { GuideView } from '../../components/GuideView';
 import { usePlayerStore } from '../../stores/player-store';
 import { formatClock } from '../../lib/epgTime';
+import { resetLogoFallbackSession, useLogoFallbackStore } from '../../lib/logoFallback';
 import type { GuideProgram } from '../../lib/tauri';
 import type { Channel } from '../../types';
 
@@ -412,5 +413,44 @@ describe('GuideView', () => {
 
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('region', { name: 'Selected programme' })).toBeNull();
+  });
+});
+
+describe('GuideView logos', () => {
+  beforeEach(() => {
+    mockedInvoke.mockReset();
+    guide = { 'svt1.se': [airing, later], 'tv4.se': [] };
+    guideIds = ['svt1.se', 'tv4.se'];
+    virtualiser.scrollOffset = 0;
+    virtualiser.visible = null;
+    hasUrl = true;
+    setupInvoke();
+    usePlayerStore.setState({ categories: [], categoryFilter: null });
+    resetLogoFallbackSession();
+    useLogoFallbackStore.getState().merge({ 1: 'https://f/x.png' });
+  });
+
+  const withLogo = { ...svt1, logo: 'https://p/dead.png' };
+
+  it('a row tile shows the letter after the logo and fallback fail', async () => {
+    renderGuide({ channels: [withLogo] });
+    const block = await screen.findByRole('button', { name: blockName(airing, 'SVT1') });
+    const row = block.closest('[role="row"]') as HTMLElement;
+    const img = () => row.querySelector('img');
+    fireEvent.error(img()!);
+    expect(img()?.getAttribute('src')).toBe('https://f/x.png');
+    fireEvent.error(img()!);
+    expect(img()).toBeNull();
+  });
+
+  it('the selection panel shows the placeholder after the logo and fallback fail', async () => {
+    renderGuide({ channels: [withLogo] });
+    fireEvent.click(await screen.findByRole('button', { name: blockName(airing, 'SVT1') }));
+    const panel = screen.getByRole('region', { name: 'Selected programme' });
+    fireEvent.error(panel.querySelector('img')!);
+    expect(panel.querySelector('img')?.getAttribute('src')).toBe('https://f/x.png');
+    fireEvent.error(panel.querySelector('img')!);
+    expect(panel.querySelector('img')).toBeNull();
+    expect(panel.querySelectorAll('[data-bars]')).toHaveLength(1);
   });
 });
