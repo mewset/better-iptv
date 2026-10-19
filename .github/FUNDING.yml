@@ -1,17 +1,6 @@
-# GitHub Sponsors configuration
-# This adds a "Sponsor" button to your repository
-
-# Ko-fi
+# Adds the "Sponsor" button to the repository
+github: mewset
 ko_fi: R6R21I53PD
 
-# Crypto donations (linked via custom URLs)
+# PayPal and crypto addresses live in the README
 custom: ['https://github.com/mewset/better-iptv#-support-the-project']
-
-# Other supported platforms (uncomment and add if you use them):
-# github: [your-github-username]
-# patreon: your-patreon-username
-# open_collective: your-collective
-# tidelift: npm/package-name
-# community_bridge: project-name
-# liberapay: your-liberapay-username
-# issuehunt: your-issuehunt-username

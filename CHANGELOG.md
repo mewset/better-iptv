@@ -16,6 +16,11 @@ This file is a developer-changelog, aimed towards development changes.
   - Broken-image fixes in the guide's programme panel, `MoviesHero` and `DetailView`, which now fall back instead of showing a broken image
   - Measured on a copy of a real 25,861-channel profile with 30,457 iptv-org logos and 601 dead provider URLs: 548 of 15,065 live channels get an override; `get_channels` grows by ~25 KB of 5.3 MB; the summary query is unchanged (49.4 vs 50.0 ms); the recompute after a refresh takes 12 ms (no change) and 16 ms on first import (548 rows written). Boot (LTO builds, 5-7 starts per cell): Home painted and Live painted with a cached DB, and Home with an uncached DB, show no regression; Live with an uncached DB was 73-81 ms later in two of three rounds and equal in the third
 
+### Changed
+
+- **New donation addresses** - BTC, ETH and SOL moved to new addresses, and LTC and DOGE were added, in `AboutTab.tsx` and the README. Each address shows its network, with a warning that coins sent on another network do not arrive. The old addresses stay valid because released versions still show them
+- **GitHub Sponsors first** - the Sponsors button comes first in About, ahead of Ko-fi and PayPal, and `.github/FUNDING.yml` now lists `github: mewset`, so the repository's Sponsor button includes it. The README has a support line under the header
+
 ## [3.1.2] - 2026-10-18
 
 ### Performance

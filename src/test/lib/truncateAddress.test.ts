@@ -3,7 +3,7 @@ import { truncateAddress } from '../../lib/truncateAddress';
 
 describe('truncateAddress', () => {
   it('returns first 6 chars + ... + last 4 chars for long addresses', () => {
-    expect(truncateAddress('bc1qth40h9t8r7hvp4czqvf20f3w72jdg4epd5mjq8')).toBe('bc1qth...mjq8');
+    expect(truncateAddress('bc1qk68zvuc75uzxn2p70se9p6jqrdydjddxk3c4nm')).toBe('bc1qk6...c4nm');
   });
 
   it('returns address unchanged if 13 chars or fewer', () => {

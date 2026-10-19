@@ -10,6 +10,10 @@ A simple overview of new features and improvements.
 
 - Channels with a missing or broken logo now get one from the open iptv-org database. You can turn this off in Settings → Metadata
 
+### Improvements
+
+- Settings → About has new crypto addresses for donations, now also Litecoin and Dogecoin, and shows which network to send each one on
+
 ### Fixes
 
 - Broken images no longer show in the TV guide's programme panel, the Movies banner or detail pages

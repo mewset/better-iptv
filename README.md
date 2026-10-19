@@ -16,6 +16,8 @@
 
 > **Note:** Better IPTV is a player, not a provider. It plays the playlists you bring. You are responsible for following your provider's terms and your local laws.
 
+> **One developer, zero revenue.** Better IPTV is free and open source, built in spare time. If you use it often, [a monthly sponsorship](https://github.com/sponsors/mewset) keeps it going ([other ways to support](#-support-the-project)).
+
 <div align="center">
   <img src="resources/screenshots/movies.webp" alt="Movies section with a Recently added banner and a grid of posters" width="960"/>
 </div>
@@ -342,13 +344,18 @@ This product uses the TMDB API but is not endorsed or certified by TMDB.
 
 ## 💖 Support the project
 
-Better IPTV is built by one person in their spare time. If it is useful to you:
+One developer, zero revenue. Better IPTV has no ads, no subscriptions and no company behind it. If you use it often, a small contribution helps keep it going.
 
+- **GitHub Sponsors** (monthly support helps the most): [github.com/sponsors/mewset](https://github.com/sponsors/mewset)
 - **Ko-fi**: [ko-fi.com/R6R21I53PD](https://ko-fi.com/R6R21I53PD)
-- **GitHub Sponsors**: [github.com/sponsors/mewset](https://github.com/sponsors/mewset)
+- **PayPal**: [paypal.me/MattiasAndersson59](https://paypal.me/MattiasAndersson59)
 
-| Crypto | Address                                        |
-| ------ | ---------------------------------------------- |
-| ETH    | `0x47183F4e4FEAeE4BF52d95E68893e950125b1B44`   |
-| BTC    | `bc1qth40h9t8r7hvp4czqvf20f3w72jdg4epd5mjq8`   |
-| SOL    | `3waxf6r2tmaaADuBGYoVD5qz4z8VnFNEGGafbXZ6Jf2j` |
+**Crypto:** send only on the network listed. Coins sent on any other network, for example ETH on an L2 such as Base or Arbitrum, will not arrive.
+
+| Coin | Network  | Address                                       |
+| ---- | -------- | --------------------------------------------- |
+| BTC  | Bitcoin  | `bc1qk68zvuc75uzxn2p70se9p6jqrdydjddxk3c4nm`  |
+| ETH  | Ethereum | `0xB91e9AB3D1E83eD42a1F71FF09217c8D1dfb557f`  |
+| SOL  | Solana   | `x989A2UWTTLrLWRgGR4kqpkQ65FWRqf7EzJ1dqbmNKW` |
+| LTC  | Litecoin | `ltc1qyn6nxcydfuxnaclehl538yzdp0xug0e6kcn9na` |
+| DOGE | Dogecoin | `DTwQM82aYgLN3bBfQ7YXHU6W8j94o785iZ`          |
