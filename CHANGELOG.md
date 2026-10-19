@@ -19,7 +19,7 @@ This file is a developer-changelog, aimed towards development changes.
 ### Changed
 
 - **New donation addresses** - BTC, ETH and SOL moved to new addresses, and LTC and DOGE were added, in `AboutTab.tsx` and the README. Each address shows its network, with a warning that coins sent on another network do not arrive. The old addresses stay valid because released versions still show them
-- **GitHub Sponsors first** - the Sponsors button comes first in About, ahead of Ko-fi and PayPal, and `.github/FUNDING.yml` now lists `github: mewset`, so the repository's Sponsor button includes it. The README has a support line under the header
+- **GitHub Sponsors first** - the Sponsors button comes first in About, ahead of Ko-fi and PayPal, and `.github/FUNDING.yml` now lists `github: mewset`, so the repository's Sponsor button includes it. The README has a support line under the header. Ko-fi links use the custom URL `ko-fi.com/mewset`
 
 ## [3.1.2] - 2026-10-18
 

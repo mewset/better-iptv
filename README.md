@@ -347,7 +347,7 @@ This product uses the TMDB API but is not endorsed or certified by TMDB.
 One developer, zero revenue. Better IPTV has no ads, no subscriptions and no company behind it. If you use it often, a small contribution helps keep it going.
 
 - **GitHub Sponsors** (monthly support helps the most): [github.com/sponsors/mewset](https://github.com/sponsors/mewset)
-- **Ko-fi**: [ko-fi.com/R6R21I53PD](https://ko-fi.com/R6R21I53PD)
+- **Ko-fi**: [ko-fi.com/mewset](https://ko-fi.com/mewset)
 - **PayPal**: [paypal.me/MattiasAndersson59](https://paypal.me/MattiasAndersson59)
 
 **Crypto:** send only on the network listed. Coins sent on any other network, for example ETH on an L2 such as Base or Arbitrum, will not arrive.

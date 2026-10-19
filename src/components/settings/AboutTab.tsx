@@ -98,7 +98,7 @@ export default function AboutTab() {
         </button>
         <button
           onClick={() => {
-            openUrl('https://ko-fi.com/R6R21I53PD').catch((err) =>
+            openUrl('https://ko-fi.com/mewset').catch((err) =>
               logger.error('Failed to open Ko-fi URL:', err)
             );
           }}
