@@ -21,6 +21,8 @@ pub struct ParseReport {
     pub skipped_no_channel: u32,
     pub skipped_no_title: u32,
     pub skipped_bad_start: u32,
+    /// `<programme>` elements inside another programme, ignored.
+    pub skipped_nested: u32,
     /// Times whose zone could not be read and were taken as UTC.
     pub unknown_zone_count: u32,
     /// The first such zone token, for the status tooltip and the log.

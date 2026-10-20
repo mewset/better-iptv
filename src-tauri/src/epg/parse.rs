@@ -113,6 +113,11 @@ struct Parser<'s, S: ParseSink> {
     sink: &'s mut S,
     report: ParseReport,
     element: Element,
+    /// Element nesting at the current event, the document element at 1.
+    depth: u32,
+    /// The depth `element` started at; only its own end tag ends it, and
+    /// only its direct children are fields.
+    element_depth: u32,
     /// The field whose text is being collected, and the text so far.
     open: Option<Field>,
     text: String,
@@ -262,34 +267,54 @@ impl<S: ParseSink> Parser<'_, S> {
         }
     }
 
+    /// A start tag; `depth` already counts it.
     fn start(&mut self, e: &BytesStart) {
+        let outside = matches!(self.element, Element::Outside);
         match e.name().as_ref() {
-            "programme" if matches!(self.element, Element::Outside) => self.start_programme(e),
-            "channel" if matches!(self.element, Element::Outside) => self.start_channel(e),
+            "programme" if outside => {
+                self.element_depth = self.depth;
+                self.start_programme(e);
+            }
+            "programme" => {
+                self.report.programmes_seen = self.report.programmes_seen.saturating_add(1);
+                self.report.skipped_nested = self.report.skipped_nested.saturating_add(1);
+            }
+            "channel" if outside => {
+                self.element_depth = self.depth;
+                self.start_channel(e);
+            }
             name => {
                 if let Some(field) = Field::of(name) {
-                    self.open_field(field);
+                    if self.depth == self.element_depth + 1 {
+                        self.open_field(field);
+                    }
                 }
             }
         }
     }
 
+    /// An end tag; `depth` still counts it.
     fn end(&mut self, name: &str) -> Result<()> {
+        let own_end = !matches!(self.element, Element::Outside) && self.depth == self.element_depth;
         match name {
             "programme"
-                if matches!(
-                    self.element,
-                    Element::Programme(_) | Element::SkippedProgramme
-                ) =>
+                if own_end
+                    && matches!(
+                        self.element,
+                        Element::Programme(_) | Element::SkippedProgramme
+                    ) =>
             {
                 self.end_programme()
             }
-            "channel" if matches!(self.element, Element::Channel(_)) => {
+            "channel" if own_end && matches!(self.element, Element::Channel(_)) => {
                 self.end_channel();
                 Ok(())
             }
             name => {
-                if self.open.is_some() && self.open == Field::of(name) {
+                if self.open.is_some()
+                    && self.open == Field::of(name)
+                    && self.depth == self.element_depth + 1
+                {
                     self.close_field();
                 }
                 Ok(())
@@ -323,27 +348,28 @@ pub fn parse_feed<R: BufRead>(input: R, sink: &mut impl ParseSink) -> Result<Par
         sink,
         report,
         element: Element::Outside,
+        depth: 0,
+        element_depth: 0,
         open: None,
         text: String::new(),
         next_seq: 0,
     };
     let mut buf = Vec::with_capacity(1024);
-    // quick-xml reports the end of input inside an open element as a plain
-    // `Eof`, so a feed cut off between tags is caught by counting.
-    let mut depth: u32 = 0;
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) => {
-                depth = depth.saturating_add(1);
+                parser.depth = parser.depth.saturating_add(1);
                 parser.start(&e);
             }
             Ok(Event::Empty(e)) => {
+                parser.depth = parser.depth.saturating_add(1);
                 parser.start(&e);
                 parser.end(e.name().as_ref())?;
+                parser.depth = parser.depth.saturating_sub(1);
             }
             Ok(Event::End(e)) => {
-                depth = depth.saturating_sub(1);
                 parser.end(e.name().as_ref())?;
+                parser.depth = parser.depth.saturating_sub(1);
             }
             Ok(Event::Text(e)) if parser.open.is_some() => {
                 parser.text.push_str(&e.xml10_content());
@@ -354,9 +380,11 @@ pub fn parse_feed<R: BufRead>(input: R, sink: &mut impl ParseSink) -> Result<Par
             Ok(Event::GeneralRef(e)) if parser.open.is_some() => {
                 push_reference(&mut parser.text, &e);
             }
+            // quick-xml reports the end of input inside an open element as a
+            // plain `Eof`, so a feed cut off between tags is caught by depth.
             Ok(Event::Eof) => {
-                parser.report.complete = depth == 0;
-                if depth > 0 {
+                parser.report.complete = parser.depth == 0;
+                if parser.depth > 0 {
                     parser.report.error = Some(TRUNCATED_MESSAGE.to_string());
                 }
                 parser.report.decode_replacements = reader.get_ref().get_ref().replacements();
@@ -742,6 +770,86 @@ mod tests {
         }
         let err = parse_feed(&feed(3)[..], &mut Fail).unwrap_err();
         assert_eq!(err.to_string(), "disk full");
+    }
+
+    #[test]
+    fn a_nested_programme_is_ignored_and_does_not_end_the_outer_one() {
+        let xml = "<tv>\
+            <programme start=\"20261021200000\" channel=\"a\">\
+              <programme start=\"20261021203000\" channel=\"b\"><title>Inner</title></programme>\
+              <title>Outer</title><desc>After the inner one</desc>\
+            </programme>\
+            <programme start=\"20261021210000\" channel=\"a\"><title>Next</title></programme>\
+            </tv>";
+        let (collected, report) = parse(xml.as_bytes());
+        assert!(report.complete);
+        let read: Vec<_> = collected
+            .programmes
+            .iter()
+            .map(|p| {
+                (
+                    p.channel.as_str(),
+                    p.title.as_str(),
+                    p.description.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            read,
+            [
+                ("a", "Outer", Some("After the inner one")),
+                ("a", "Next", None)
+            ]
+        );
+        assert_eq!(report.programmes_seen, 3);
+        assert_eq!(report.skipped_nested, 1);
+    }
+
+    #[test]
+    fn a_title_nested_deeper_than_a_child_is_not_the_title() {
+        let p = one("<sub-title><title>Deep</title></sub-title><title>Rapport</title>");
+        assert_eq!(p.title, "Rapport");
+    }
+
+    #[test]
+    fn self_closing_elements_leave_the_document_complete() {
+        let xml = "<?xml version=\"1.0\"?><tv generator-info-name=\"x\">\
+            <channel id=\"a\"><display-name>A</display-name><icon src=\"x\"/></channel>\
+            <channel id=\"b\"/>\
+            <programme start=\"20261021200000\" channel=\"a\"><title>x</title><new/>\
+              <rating system=\"x\"><value>7</value></rating><desc/></programme>\
+            <programme start=\"20261021210000\" channel=\"a\"/>\
+            </tv>";
+        let (collected, report) = parse(xml.as_bytes());
+        assert!(report.complete, "{:?}", report.error);
+        assert_eq!(collected.programmes.len(), 1);
+        assert_eq!(collected.programmes[0].description, None);
+        assert_eq!(collected.channels.len(), 2);
+    }
+
+    #[test]
+    fn a_utf16_feed_declaring_utf8_is_read_by_its_byte_order_mark() {
+        let xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?><tv>\
+                   <programme start=\"20261021200000 +0000\" channel=\"svt1.se\">\
+                   <title>Måndag</title></programme></tv>";
+        let mut bytes = vec![0xFF, 0xFE];
+        bytes.extend(xml.encode_utf16().flat_map(u16::to_le_bytes));
+        let (collected, report) = parse(&bytes);
+        assert!(report.complete);
+        assert_eq!(collected.programmes[0].title, "Måndag");
+        assert_eq!(report.decode_replacements, 0);
+    }
+
+    #[test]
+    fn a_multi_member_gzip_feed_is_read_to_the_end() {
+        let xml = feed(10);
+        let (head, tail) = xml.split_at(xml.len() / 2);
+        let mut gz = gzip(head);
+        gz.extend(gzip(tail));
+        let mut collected = Collect::default();
+        let report = parse_feed(&gz[..], &mut collected).unwrap();
+        assert!(report.complete);
+        assert_eq!(collected.programmes.len(), 10);
     }
 
     #[test]
