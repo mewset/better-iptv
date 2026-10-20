@@ -8,7 +8,7 @@
 
 use anyhow::Context;
 use encoding_rs::{DecoderResult, Encoding, UTF_8};
-use flate2::bufread::GzDecoder;
+use flate2::bufread::MultiGzDecoder;
 use std::io::{self, BufRead, BufReader, Read};
 
 /// How much of the start of a document is searched for a byte order mark or
@@ -31,9 +31,10 @@ pub fn is_gzipped(bytes: &[u8]) -> bool {
     bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b
 }
 
-/// A feed's bytes with gzip undone, if they were gzipped.
+/// A feed's bytes with gzip undone, if they were gzipped. Every member of a
+/// multi-member gzip file is read, as `gunzip` does.
 pub enum Decompress<R: BufRead> {
-    Gzip(GzDecoder<R>),
+    Gzip(MultiGzDecoder<R>),
     Plain(R),
 }
 
@@ -43,7 +44,7 @@ impl<R: BufRead> Decompress<R> {
     /// fills, which holds for files and byte slices.
     pub fn new(mut input: R) -> io::Result<Self> {
         if is_gzipped(input.fill_buf()?) {
-            Ok(Self::Gzip(GzDecoder::new(input)))
+            Ok(Self::Gzip(MultiGzDecoder::new(input)))
         } else {
             Ok(Self::Plain(input))
         }
@@ -83,8 +84,12 @@ pub fn drain<R: Read>(mut rest: R) -> io::Result<u64> {
 }
 
 /// The encoding named by a document's XML declaration, as written.
+/// Whitespace before the declaration is not allowed by XML, but quick-xml
+/// reads such feeds, so it is skipped here too.
 fn declared_label(head: &str) -> Option<&str> {
-    let decl = head.strip_prefix("<?xml")?;
+    let decl = head
+        .trim_start_matches([' ', '\t', '\n', '\r'])
+        .strip_prefix("<?xml")?;
     let decl = &decl[..decl.find("?>")?];
     let mut rest = decl;
     loop {
@@ -216,15 +221,18 @@ impl<R: Read> Utf8Reader<R> {
     /// U+FFFD after what the decoder wrote.
     fn decode_more(&mut self) -> io::Result<()> {
         if self.in_start == self.in_end && !self.input_done {
-            self.in_start = 0;
-            self.in_end = loop {
+            // The positions change only after a successful read, so a read
+            // error leaves nothing stale to decode a second time.
+            let n = loop {
                 match self.inner.read(&mut self.input) {
                     Ok(n) => break n,
                     Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                     Err(e) => return Err(e),
                 }
             };
-            self.input_done = self.in_end == 0;
+            self.in_start = 0;
+            self.in_end = n;
+            self.input_done = n == 0;
         }
 
         let room = self.output.len() - REPLACEMENT.len();
@@ -406,6 +414,83 @@ mod tests {
         let truncated = &gz[..gz.len() - 4];
         assert!(drain(Decompress::new(truncated).unwrap()).is_err());
         assert_eq!(drain(Decompress::new(&gz[..]).unwrap()).unwrap(), 100_000);
+    }
+
+    #[test]
+    fn leading_whitespace_before_the_declaration_is_skipped() {
+        let mut xml = b"\n <?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><tv>M".to_vec();
+        xml.push(0xE5);
+        xml.extend_from_slice(b"ndag</tv>");
+        let (text, reader) = read_all(&xml);
+        assert!(text.ends_with("<tv>Måndag</tv>"), "{text}");
+        assert_eq!(reader.declared_encoding(), Some("ISO-8859-1"));
+    }
+
+    #[test]
+    fn a_utf16_byte_order_mark_wins_over_a_declared_utf8() {
+        let xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?><tv>Måndag</tv>";
+        let mut bytes = vec![0xFF, 0xFE];
+        bytes.extend(xml.encode_utf16().flat_map(u16::to_le_bytes));
+        let (text, reader) = read_all(&bytes);
+        assert_eq!(text, xml);
+        assert_eq!(reader.declared_encoding(), Some("utf-8"));
+        assert_eq!(reader.encoding(), encoding_rs::UTF_16LE);
+    }
+
+    #[test]
+    fn every_member_of_a_multi_member_gzip_is_read() {
+        let mut gz = gzip(b"<tv>first ");
+        gz.extend(gzip(b"second</tv>"));
+        let mut text = String::new();
+        open_feed(&gz[..])
+            .unwrap()
+            .read_to_string(&mut text)
+            .unwrap();
+        assert_eq!(text, "<tv>first second</tv>");
+    }
+
+    #[test]
+    fn a_read_error_does_not_decode_the_previous_input_again() {
+        /// Gives `chunks` one per read, failing once before the second.
+        struct FailOnce {
+            chunks: Vec<&'static [u8]>,
+            failed: bool,
+        }
+        impl Read for FailOnce {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                if self.chunks.len() == 1 && !self.failed {
+                    self.failed = true;
+                    return Err(io::Error::other("flaky"));
+                }
+                if self.chunks.is_empty() {
+                    return Ok(0);
+                }
+                let chunk = self.chunks.remove(0);
+                buf[..chunk.len()].copy_from_slice(chunk);
+                Ok(chunk.len())
+            }
+        }
+        // The sniff reads to its 1 KB limit or the end, so the first chunk
+        // has to fill it for the next read to come from `decode_more`.
+        let first: &'static [u8] = Box::leak(vec![b'a'; SNIFF_LEN].into_boxed_slice());
+        let mut reader = Utf8Reader::new(FailOnce {
+            chunks: vec![first, b"bc"],
+            failed: false,
+        })
+        .unwrap();
+        let mut out = Vec::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => out.extend_from_slice(&buf[..n]),
+                Err(e) => assert_eq!(e.to_string(), "flaky"),
+            }
+        }
+        assert!(reader.inner.failed, "the error was not reached");
+        let mut expected = first.to_vec();
+        expected.extend_from_slice(b"bc");
+        assert_eq!(out, expected);
     }
 
     #[test]
