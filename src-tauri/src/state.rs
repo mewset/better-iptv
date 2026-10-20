@@ -1,6 +1,7 @@
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
@@ -53,10 +54,14 @@ pub struct AppState {
 
     /// Serialises the logo-fallback maintenance runs.
     pub logo_fallback_lock: Arc<tokio::sync::Mutex<()>>,
+
+    /// `<app_data>/epg/`: each guide source's cached feed and the ingest's
+    /// staging database (see `epg::sources`).
+    pub epg_cache_dir: PathBuf,
 }
 
 impl AppState {
-    pub fn new(pool: Pool<SqliteConnectionManager>) -> Self {
+    pub fn new(pool: Pool<SqliteConnectionManager>, epg_cache_dir: PathBuf) -> Self {
         Self {
             pool,
             current_channel: Arc::new(RwLock::new(None)),
@@ -65,6 +70,7 @@ impl AppState {
             tmdb: Arc::new(crate::tmdb::session::TmdbSession::default()),
             launch_id: chrono::Utc::now().timestamp_millis(),
             logo_fallback_lock: Arc::new(tokio::sync::Mutex::new(())),
+            epg_cache_dir,
         }
     }
 }

@@ -97,6 +97,17 @@ pub fn run() {
             // Create directory if it doesn't exist
             std::fs::create_dir_all(&app_data_dir).expect("Failed to create app data directory");
 
+            // Guide feed cache. Not fatal: without it the guide cannot be
+            // downloaded, everything else works.
+            let epg_cache_dir = epg::sources::cache_dir(&app_data_dir);
+            if let Err(e) = std::fs::create_dir_all(&epg_cache_dir) {
+                log::warn!(
+                    "Could not create EPG cache directory {}: {}",
+                    epg_cache_dir.display(),
+                    e
+                );
+            }
+
             // Database path
             let db_path = app_data_dir.join("better-ip-tv.db");
 
@@ -126,7 +137,7 @@ pub fn run() {
             }
 
             // Create and manage app state
-            let state = AppState::new(pool);
+            let state = AppState::new(pool, epg_cache_dir);
             let logo_pool = state.pool.clone();
             let logo_lock = state.logo_fallback_lock.clone();
             app.manage(state);
