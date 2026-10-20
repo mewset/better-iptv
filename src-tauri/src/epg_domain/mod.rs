@@ -3,6 +3,10 @@
 //! This module contains business logic for EPG operations, separated from
 //! database and command layers for better testability and maintainability.
 
+pub mod key;
+pub mod text;
+pub mod time;
+
 use crate::error::AppError;
 use chrono::{DateTime, Utc};
 
