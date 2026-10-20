@@ -261,36 +261,28 @@ fn parse_xmltv<R: BufRead>(source: R) -> ParsedXmltv<R> {
 }
 
 /// Parse XMLTV timestamp format (YYYYMMDDHHmmss +ZZZZ)
+///
+/// Feeds differ in how they write the offset: "+0200", "+0200" with no space
+/// before it, or "+02:00". All of them count. A missing or unreadable offset
+/// means UTC, as the XMLTV spec says.
 fn parse_xmltv_time(value: &[u8]) -> Option<DateTime<Utc>> {
-    let time_str = String::from_utf8_lossy(value);
+    use chrono::{FixedOffset, NaiveDateTime, TimeZone};
 
     // Format: "20231215193000 +0100"
-    if time_str.len() < 14 {
+    let (stamp, rest) = value.split_at_checked(14)?;
+    if !stamp.iter().all(u8::is_ascii_digit) {
         return None;
     }
+    let naive_dt =
+        NaiveDateTime::parse_from_str(std::str::from_utf8(stamp).ok()?, "%Y%m%d%H%M%S").ok()?;
 
-    let year: i32 = time_str[0..4].parse().ok()?;
-    let month: u32 = time_str[4..6].parse().ok()?;
-    let day: u32 = time_str[6..8].parse().ok()?;
-    let hour: u32 = time_str[8..10].parse().ok()?;
-    let minute: u32 = time_str[10..12].parse().ok()?;
-    let second: u32 = time_str[12..14].parse().ok()?;
-
-    use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
-
-    let date = NaiveDate::from_ymd_opt(year, month, day)?;
-    let time = NaiveTime::from_hms_opt(hour, minute, second)?;
-    let naive_dt = NaiveDateTime::new(date, time);
-
-    // Parse timezone offset if present
-    if time_str.len() >= 20 {
-        let tz_part = time_str[15..20].trim();
-        if let Ok(offset_minutes) = parse_tz_offset(tz_part) {
-            use chrono::FixedOffset;
-            if let Some(offset) = FixedOffset::east_opt(offset_minutes * 60) {
-                if let Some(dt_with_tz) = offset.from_local_datetime(&naive_dt).single() {
-                    return Some(dt_with_tz.with_timezone(&Utc));
-                }
+    // Only the first word after the time is the offset; "+0200 CEST" counts as +0200.
+    let tz = rest.trim_ascii_start();
+    let tz = tz.split(u8::is_ascii_whitespace).next().unwrap_or(tz);
+    if let Some(offset_minutes) = parse_tz_offset(tz) {
+        if let Some(offset) = FixedOffset::east_opt(offset_minutes * 60) {
+            if let Some(dt_with_tz) = offset.from_local_datetime(&naive_dt).single() {
+                return Some(dt_with_tz.with_timezone(&Utc));
             }
         }
     }
@@ -299,24 +291,24 @@ fn parse_xmltv_time(value: &[u8]) -> Option<DateTime<Utc>> {
     Some(Utc.from_utc_datetime(&naive_dt))
 }
 
-/// Parse timezone offset (+0100, -0500, etc.)
-fn parse_tz_offset(tz_str: &str) -> Result<i32, ()> {
-    if tz_str.len() != 5 {
-        return Err(());
-    }
-
-    let sign = if tz_str.starts_with('+') {
-        1
-    } else if tz_str.starts_with('-') {
-        -1
-    } else {
-        return Err(());
+/// Parse timezone offset (+0100, -0500, +01:00, etc.) into minutes
+fn parse_tz_offset(tz: &[u8]) -> Option<i32> {
+    let (sign, digits) = match tz {
+        [b'+', rest @ ..] => (1, rest),
+        [b'-', rest @ ..] => (-1, rest),
+        _ => return None,
+    };
+    let (hh, mm) = match digits {
+        [h1, h2, b':', m1, m2] | [h1, h2, m1, m2] => ([*h1, *h2], [*m1, *m2]),
+        _ => return None,
+    };
+    let two_digits = |pair: [u8; 2]| -> Option<i32> {
+        pair.iter()
+            .all(u8::is_ascii_digit)
+            .then(|| i32::from(pair[0] - b'0') * 10 + i32::from(pair[1] - b'0'))
     };
 
-    let hours: i32 = tz_str[1..3].parse().map_err(|_| ())?;
-    let minutes: i32 = tz_str[3..5].parse().map_err(|_| ())?;
-
-    Ok(sign * (hours * 60 + minutes))
+    Some(sign * (two_digits(hh)? * 60 + two_digits(mm)?))
 }
 
 /// Store programs in database.
@@ -670,6 +662,44 @@ mod tests {
             Some("Aktuellt")
         );
         assert_eq!(get_current_program(&conn, "unknown").unwrap(), None);
+    }
+
+    fn utc(value: &str) -> Option<String> {
+        parse_xmltv_time(value.as_bytes()).map(|t| t.to_rfc3339())
+    }
+
+    #[test]
+    fn the_offset_is_read_with_or_without_a_space_before_it() {
+        let expected = Some("2026-10-20T12:00:00+00:00".to_string());
+        assert_eq!(utc("20261020140000 +0200"), expected);
+        assert_eq!(utc("20261020140000+0200"), expected);
+        assert_eq!(utc("20261020140000  +0200"), expected);
+        assert_eq!(utc("20261020140000 +02:00"), expected);
+        assert_eq!(utc("20261020100000 -0200"), expected);
+        assert_eq!(utc("20261020140000 +0200 CEST"), expected);
+    }
+
+    #[test]
+    fn a_time_without_an_offset_is_utc() {
+        assert_eq!(
+            utc("20261020140000"),
+            Some("2026-10-20T14:00:00+00:00".to_string())
+        );
+    }
+
+    #[test]
+    fn an_unreadable_offset_falls_back_to_utc() {
+        assert_eq!(
+            utc("20261020140000 CEST"),
+            Some("2026-10-20T14:00:00+00:00".to_string())
+        );
+    }
+
+    #[test]
+    fn a_malformed_time_is_rejected_without_panicking() {
+        assert_eq!(utc("2026102014"), None);
+        assert_eq!(utc("202ö61020140000 +0200"), None);
+        assert_eq!(utc("20261320140000 +0200"), None);
     }
 
     #[test]

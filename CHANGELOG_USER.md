@@ -17,6 +17,7 @@ A simple overview of new features and improvements.
 ### Fixes
 
 - Broken images no longer show in the TV guide's programme panel, the Movies banner or detail pages
+- TV guide times are no longer off by a few hours with EPG sources that write their time zone in a less common format
 
 ## Version 3.1.2 (October 18, 2026)
 

@@ -21,6 +21,10 @@ This file is a developer-changelog, aimed towards development changes.
 - **New donation addresses** - BTC, ETH and SOL moved to new addresses, and LTC and DOGE were added, in `AboutTab.tsx` and the README. Each address shows its network, with a warning that coins sent on another network do not arrive. The old addresses stay valid because released versions still show them
 - **GitHub Sponsors first** - the Sponsors button comes first in About, ahead of Ko-fi and PayPal, and `.github/FUNDING.yml` now lists `github: mewset`, so the repository's Sponsor button includes it. The README has a support line under the header. Ko-fi links use the custom URL `ko-fi.com/mewset`
 
+### Fixed
+
+- **XMLTV offsets without a space were ignored** - `parse_xmltv_time` read the offset only at bytes 15..20, so `20261020140000+0200` (no space) or `+02:00` fell back to UTC and the whole guide was off by the offset. It now reads the 14-digit stamp as bytes and accepts `+HHMM` or `+HH:MM` after any amount of whitespace; a missing or unreadable offset still means UTC. A non-ASCII byte in the stamp used to panic on a string slice and now just drops that time
+
 ## [3.1.2] - 2026-10-18
 
 ### Performance
