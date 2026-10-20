@@ -31,7 +31,9 @@ const WRITE_BUF_LEN: usize = 256 * 1024;
 pub struct Downloaded {
     /// `<cache_dir>/<source_id>.download`, always gzip.
     pub path: PathBuf,
-    /// Body bytes received from the server.
+    /// Body bytes as reqwest hands them over: after it undid any
+    /// `Content-Encoding`, so the decoded size when the server compressed
+    /// the transfer, not the bytes on the wire.
     pub body_bytes: u64,
     /// Size of the file on disk.
     pub file_bytes: u64,
@@ -162,13 +164,36 @@ async fn fetch_to_file(
     })
 }
 
+/// Deletes the download file when dropped while still armed: on an error,
+/// and when the download future itself is dropped half-way (a timeout
+/// around it, shutdown), which no error path would see.
+struct DiscardOnDrop<'a> {
+    path: &'a Path,
+    armed: bool,
+}
+
+impl Drop for DiscardOnDrop<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        if let Err(e) = remove_if_present(self.path) {
+            warn!(
+                "Could not delete the failed EPG download {}: {e}",
+                self.path.display()
+            );
+        }
+    }
+}
+
 /// Download a source's feed to `<cache_dir>/<source_id>.download`.
 ///
 /// `user_agent` overrides the client's default when it is not blank.
 /// `deadline` overrides the client's total timeout; the client's stall
 /// timeout still ends a dead connection early. Errors name the failure in
-/// words a viewer can act on and never carry the URL. On any error the
-/// download file is deleted, including one left by an earlier attempt.
+/// words a viewer can act on and never carry the URL. On any error, and when
+/// the returned future is dropped before it finishes, the download file is
+/// deleted, including one left by an earlier attempt.
 pub async fn download_feed(
     client: &reqwest::Client,
     url: &str,
@@ -178,16 +203,16 @@ pub async fn download_feed(
     source_id: i64,
 ) -> Result<Downloaded> {
     let path = download_path(cache_dir, source_id);
-    let result = fetch_to_file(client, url, user_agent, deadline, &path).await;
-    if result.is_err() {
-        if let Err(e) = remove_if_present(&path) {
-            warn!(
-                "Could not delete the failed EPG download {}: {e}",
-                path.display()
-            );
-        }
-    }
-    result
+    let mut discard = DiscardOnDrop {
+        path: &path,
+        armed: true,
+    };
+    // The fetch future, and the open file inside it, is a temporary of this
+    // expression and is dropped before `discard`, so the file is closed
+    // before it is deleted.
+    let downloaded = fetch_to_file(client, url, user_agent, deadline, &path).await?;
+    discard.armed = false;
+    Ok(downloaded)
 }
 
 #[cfg(test)]
@@ -366,6 +391,44 @@ mod tests {
         assert_eq!(server.connections(), 1, "no retry");
         assert!(!download_path(&dir.0, SOURCE).exists());
         assert_eq!(std::fs::read(feed_path(&dir.0, SOURCE)).unwrap(), previous);
+    }
+
+    #[tokio::test]
+    async fn a_download_dropped_half_way_leaves_no_file() {
+        let dir = TestDir::new();
+        let previous = previous_feed(&dir.0);
+        let server = serve(vec![vec![
+            head("200 OK", 100_000),
+            Step::Write(XML.to_vec()),
+            Step::Hang,
+        ]])
+        .await;
+
+        // Shorter than the client's 0.5 s stall timeout, so the download is
+        // still waiting for its next chunk when the future is dropped.
+        let outcome = tokio::time::timeout(
+            Duration::from_millis(300),
+            download(&server.base, &dir.0, None),
+        )
+        .await;
+
+        assert!(outcome.is_err(), "the timeout did not fire");
+        assert!(!download_path(&dir.0, SOURCE).exists());
+        assert_eq!(std::fs::read(feed_path(&dir.0, SOURCE)).unwrap(), previous);
+    }
+
+    #[tokio::test]
+    async fn a_failed_write_is_an_error_without_the_url_and_leaves_no_file() {
+        let dir = TestDir::new();
+        let missing = dir.0.join("missing");
+        let server = serve(vec![respond("200 OK", XML)]).await;
+
+        let err = download(&server.base, &missing, None).await.unwrap_err();
+
+        assert_eq!(err.to_string(), "Failed to write the EPG download");
+        assert!(!format!("{err:#}").contains("secret"));
+        assert!(!download_path(&missing, SOURCE).exists());
+        assert!(!missing.exists());
     }
 
     #[tokio::test]
