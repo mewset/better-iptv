@@ -289,8 +289,8 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         log::error!("M3U series migration failed, will retry next start: {}", e);
     }
 
-    if let Err(e) = crate::epg::sources::seed_epg_sources(conn) {
-        log::error!("EPG source seed failed, will retry next start: {}", e);
+    if let Err(e) = crate::epg::sources::sync_epg_sources(conn) {
+        log::error!("EPG source sync failed, will retry next start: {}", e);
     }
 
     if let Err(e) = backfill_channel_epg_ids(conn) {
@@ -1262,13 +1262,99 @@ mod epg_source_seed_tests {
     }
 
     #[test]
-    fn a_url_that_is_not_http_is_not_migrated() {
-        let conn = v1_db("ftp://epg.example/guide.xml");
+    fn a_url_that_is_not_http_is_not_migrated_but_still_disables_xtream() {
+        // 3.1.2 fetched neither this URL nor the provider's guide.
+        for url in ["ftp://epg.example/guide.xml", "epg.example.com/guide.xml"] {
+            let conn = v1_db(url);
+            init_schema(&conn).unwrap();
+            assert_eq!(
+                sources(&conn),
+                [("xtream".to_string(), Some(2), None, false, 30)],
+                "{url}"
+            );
+        }
+    }
+
+    /// A second Xtream profile, beside playlist 2 of `v1_db`.
+    fn add_second_xtream_profile(conn: &Connection, id: i64) {
+        conn.execute(
+            "INSERT INTO playlists (id, name, url, xtream_username, xtream_password)
+             VALUES (?1, 'Second', 'http://other.example', 'u2', 'pw2')",
+            params![id],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn the_legacy_url_of_the_second_xtream_profile_counts_as_legacy() {
+        let conn = v1_db(&legacy_xtream_epg_url("http://other.example", "u2", "pw2"));
+        add_second_xtream_profile(&conn, 3);
         init_schema(&conn).unwrap();
         assert_eq!(
             sources(&conn),
-            [("xtream".to_string(), Some(2), None, true, 30)]
+            [
+                ("xtream".to_string(), Some(2), None, true, 30),
+                ("xtream".to_string(), Some(3), None, true, 30),
+            ]
         );
+    }
+
+    #[test]
+    fn a_custom_url_disables_every_xtream_profile() {
+        let conn = v1_db("https://epg.example/guide.xml");
+        add_second_xtream_profile(&conn, 3);
+        init_schema(&conn).unwrap();
+        assert_eq!(
+            sources(&conn),
+            [
+                ("xtream".to_string(), Some(2), None, false, 30),
+                ("xtream".to_string(), Some(3), None, false, 30),
+                (
+                    "manual".to_string(),
+                    None,
+                    Some("https://epg.example/guide.xml".to_string()),
+                    true,
+                    10
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_later_start_gives_a_new_xtream_profile_its_source() {
+        // Seeded with the legacy URL, then an older version imported a
+        // second Xtream profile on this database.
+        let conn = v1_db(&legacy_url());
+        init_schema(&conn).unwrap();
+        conn.execute(
+            "UPDATE epg_source SET enabled = 0 WHERE playlist_id = 2",
+            [],
+        )
+        .unwrap();
+        add_second_xtream_profile(&conn, 3);
+
+        init_schema(&conn).unwrap();
+
+        assert_eq!(
+            sources(&conn),
+            [
+                ("xtream".to_string(), Some(2), None, false, 30),
+                ("xtream".to_string(), Some(3), None, true, 30),
+            ],
+            "the new profile gets an enabled source, the disabled one stays disabled"
+        );
+    }
+
+    #[test]
+    fn a_new_xtream_profile_starts_disabled_beside_an_enabled_manual_source() {
+        let conn = v1_db("https://epg.example/guide.xml");
+        init_schema(&conn).unwrap();
+        add_second_xtream_profile(&conn, 3);
+
+        init_schema(&conn).unwrap();
+
+        let third = sources(&conn).into_iter().find(|s| s.1 == Some(3)).unwrap();
+        assert_eq!(third, ("xtream".to_string(), Some(3), None, false, 30));
     }
 
     #[test]
@@ -1397,11 +1483,29 @@ mod epg_source_seed_tests {
         assert!(second.is_err());
     }
 
-    #[test]
-    fn a_failing_seed_leaves_the_guard_unset() {
+    /// The old tables plus the new ones, and a trigger that rejects the
+    /// manual insert, which the seed makes after the xtream insert.
+    fn v1_db_with_failing_manual_insert() -> Connection {
         let conn = v1_db("https://epg.example/guide.xml");
-        // No epg_source table: the first insert fails.
+        super::create_epg_source_tables(&conn).unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_manual BEFORE INSERT ON epg_source
+             WHEN NEW.origin = 'manual'
+             BEGIN SELECT RAISE(ABORT, 'manual insert blocked'); END;",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn a_failing_seed_rolls_back_every_row_and_the_guard() {
+        let conn = v1_db_with_failing_manual_insert();
         assert!(seed_epg_sources(&conn).is_err());
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM epg_source"),
+            0,
+            "the xtream row written before the failure is rolled back"
+        );
         assert!(get_setting(&conn, EPG_SOURCES_SEEDED_KEY)
             .unwrap()
             .is_none());
@@ -1409,33 +1513,7 @@ mod epg_source_seed_tests {
 
     #[test]
     fn a_failing_seed_does_not_stop_startup_and_retries() {
-        let conn = v1_db("https://epg.example/guide.xml");
-        // A trigger makes the seed's insert fail on this start only.
-        conn.execute_batch(
-            "CREATE TABLE epg_source (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                playlist_id INTEGER REFERENCES playlists(id) ON DELETE CASCADE,
-                origin TEXT NOT NULL,
-                url TEXT,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                priority INTEGER NOT NULL,
-                time_interpret TEXT NOT NULL DEFAULT 'as_written',
-                time_shift_minutes INTEGER NOT NULL DEFAULT 0,
-                applied_interpret TEXT,
-                applied_shift_minutes INTEGER,
-                last_attempt_at INTEGER,
-                last_success_at INTEGER,
-                last_result TEXT,
-                last_error TEXT,
-                programme_count INTEGER NOT NULL DEFAULT 0,
-                unknown_zone_count INTEGER NOT NULL DEFAULT 0,
-                unknown_zone_sample TEXT,
-                decode_replacements INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TRIGGER fail_seed BEFORE INSERT ON epg_source
-            BEGIN SELECT RAISE(ABORT, 'seed blocked'); END;",
-        )
-        .unwrap();
+        let conn = v1_db_with_failing_manual_insert();
 
         init_schema(&conn).unwrap();
         assert!(get_setting(&conn, EPG_SOURCES_SEEDED_KEY)
@@ -1443,9 +1521,21 @@ mod epg_source_seed_tests {
             .is_none());
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM epg_source"), 0);
 
-        conn.execute_batch("DROP TRIGGER fail_seed;").unwrap();
+        conn.execute_batch("DROP TRIGGER fail_manual;").unwrap();
         init_schema(&conn).unwrap();
-        assert_eq!(count(&conn, "SELECT COUNT(*) FROM epg_source"), 2);
+        assert_eq!(
+            sources(&conn),
+            [
+                ("xtream".to_string(), Some(2), None, false, 30),
+                (
+                    "manual".to_string(),
+                    None,
+                    Some("https://epg.example/guide.xml".to_string()),
+                    true,
+                    10
+                ),
+            ]
+        );
         assert!(get_setting(&conn, EPG_SOURCES_SEEDED_KEY)
             .unwrap()
             .is_some());

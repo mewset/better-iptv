@@ -13,7 +13,7 @@ use crate::epg_domain::policy::{Interpret, TimePolicy};
 use crate::epg_domain::source::{LastResult, SourceOrigin};
 use crate::epg_domain::{normalize_epg_url, validate_epg_url};
 use crate::error::AppError;
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row, Transaction, TransactionBehavior};
 use std::collections::HashSet;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -32,9 +32,10 @@ const DOWNLOAD_SUFFIX: &str = ".download";
 
 /// The single-URL form the Xtream import wrote into `settings.epg_url` before
 /// per-source guides: server URL without trailing slash, credentials
-/// unencoded. Only the seed uses it, to tell an untouched provider URL from
-/// one the user typed; fetching builds the URL with
-/// `epg_domain::source::xtream_epg_url`.
+/// unencoded. The seed uses it to tell an untouched provider URL from one the
+/// user typed, and `playlist::xtream::get_xtream_epg_url` delegates to it
+/// until the old EPG commands are replaced. Fetching a source builds its URL
+/// with `epg_domain::source::xtream_epg_url` instead.
 pub fn legacy_xtream_epg_url(server_url: &str, username: &str, password: &str) -> String {
     format!(
         "{}/xmltv.php?username={}&password={}",
@@ -44,13 +45,34 @@ pub fn legacy_xtream_epg_url(server_url: &str, username: &str, password: &str) -
     )
 }
 
+/// Bring `epg_source` in line with the playlists at startup.
+///
+/// The first time, `seed_epg_sources` migrates the old settings. On every
+/// later start, `reconcile_xtream_sources` gives an Xtream playlist without a
+/// source one, which covers playlists imported by an older version run on
+/// this database in between. Both are bounded by the number of playlists.
+pub fn sync_epg_sources(conn: &Connection) -> rusqlite::Result<()> {
+    if get_setting(conn, EPG_SOURCES_SEEDED_KEY)?.is_none() {
+        return seed_epg_sources(conn);
+    }
+    let added = reconcile_xtream_sources(conn)?;
+    if added > 0 {
+        log::info!("EPG sources: added {} provider source(s)", added);
+    }
+    Ok(())
+}
+
 /// Seed `epg_source` once from the old settings.
 ///
 /// Every Xtream playlist gets an `xtream` source. A non-empty `epg_url` that
 /// is not the legacy provider URL of any Xtream playlist was typed by the
-/// user: it becomes a global `manual` source and the seeded `xtream` sources
-/// start disabled, so the upgrade fetches exactly what the old version
-/// fetched. The old settings rows are read, never changed.
+/// user, and the old version fetched only that URL: it becomes a global
+/// `manual` source and every `xtream` source starts disabled. An empty
+/// `epg_url` meant the old version fetched nothing; here it leaves the
+/// `xtream` sources enabled, so each Xtream profile gets its provider's
+/// guide. A typed URL that is not http(s) never fetched anything either: it
+/// adds no `manual` source, and the `xtream` sources are still disabled. The
+/// old settings rows are read, never changed.
 ///
 /// One transaction, guard key included: a failure leaves the database as it
 /// was and the seed retries on the next start.
@@ -61,24 +83,21 @@ pub fn seed_epg_sources(conn: &Connection) -> rusqlite::Result<()> {
 
     let tx = conn.unchecked_transaction()?;
 
-    let playlists: Vec<(i64, Option<String>, String, Option<String>)> = tx
-        .prepare(
-            "SELECT id, url, xtream_username, xtream_password FROM playlists
-             WHERE xtream_username IS NOT NULL ORDER BY id",
-        )?
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
-        .collect::<rusqlite::Result<_>>()?;
+    let added = reconcile_xtream_sources(&tx)?;
 
-    let mut seeded = Vec::with_capacity(playlists.len());
-    for (playlist_id, ..) in &playlists {
-        seeded.push(ensure_xtream_source(&tx, *playlist_id)?);
-    }
+    let playlists: Vec<(Option<String>, String, Option<String>)> = tx
+        .prepare(
+            "SELECT url, xtream_username, xtream_password FROM playlists
+             WHERE xtream_username IS NOT NULL",
+        )?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
 
     let custom_url = get_setting(&tx, "epg_url")?
         .map(|url| normalize_epg_url(&url))
         .filter(|url| !url.is_empty())
         .filter(|url| {
-            !playlists.iter().any(|(_, server, username, password)| {
+            !playlists.iter().any(|(server, username, password)| {
                 server.as_deref().is_some_and(|server| {
                     *url == legacy_xtream_epg_url(
                         server,
@@ -90,35 +109,55 @@ pub fn seed_epg_sources(conn: &Connection) -> rusqlite::Result<()> {
         });
 
     let mut manual_added = false;
-    if let Some(url) = custom_url {
-        // The old app could not fetch a URL that fails this check either;
-        // seeding it would only add a source that always errors.
-        if validate_epg_url(&url).is_ok() {
-            insert_source(&tx, None, SourceOrigin::Manual, Some(&url))?;
+    if let Some(url) = &custom_url {
+        if validate_epg_url(url).is_ok() {
+            insert_source(&tx, None, SourceOrigin::Manual, Some(url))?;
             manual_added = true;
-            for id in &seeded {
-                tx.execute(
-                    "UPDATE epg_source SET enabled = 0 WHERE id = ?1",
-                    params![id],
-                )?;
-            }
         } else {
             log::warn!("EPG source seed: the stored EPG URL is not an http(s) URL, not migrated");
         }
+        tx.execute(
+            "UPDATE epg_source SET enabled = 0 WHERE origin = 'xtream'",
+            [],
+        )?;
     }
 
     set_setting(&tx, EPG_SOURCES_SEEDED_KEY, "1")?;
     tx.commit()?;
     log::info!(
-        "EPG sources seeded: {} provider source(s){}",
-        seeded.len(),
+        "EPG sources seeded: {} provider source(s){}{}",
+        added,
+        if custom_url.is_some() {
+            " (disabled: a custom URL was set)"
+        } else {
+            ""
+        },
         if manual_added {
-            " and the custom URL"
+            ", plus the custom URL"
         } else {
             ""
         }
     );
     Ok(())
+}
+
+/// Give every Xtream playlist without an `xtream` source one; returns how
+/// many were added. Existing sources are left as they are, a disabled one
+/// stays disabled. A new source starts disabled when an enabled global
+/// `manual` source exists, as the seed would have made it.
+pub fn reconcile_xtream_sources(conn: &Connection) -> rusqlite::Result<usize> {
+    let manual_enabled: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM epg_source
+                        WHERE origin = 'manual' AND playlist_id IS NULL AND enabled = 1)",
+        [],
+        |r| r.get(0),
+    )?;
+    let origin = SourceOrigin::Xtream;
+    conn.execute(
+        "INSERT OR IGNORE INTO epg_source (playlist_id, origin, url, enabled, priority)
+         SELECT id, ?1, NULL, ?2, ?3 FROM playlists WHERE xtream_username IS NOT NULL",
+        params![origin.as_str(), !manual_enabled, origin.default_priority()],
+    )
 }
 
 fn insert_source(
@@ -211,7 +250,7 @@ pub fn update_source(
     id: i64,
     patch: &SourcePatch,
 ) -> Result<SourceUpdate, AppError> {
-    let tx = conn.unchecked_transaction()?;
+    let tx = write_transaction(conn)?;
     let (origin, url, enabled): (String, Option<String>, bool) = tx
         .query_row(
             "SELECT origin, url, enabled FROM epg_source WHERE id = ?1",
@@ -276,8 +315,12 @@ pub fn update_source(
 
 /// Remove a `manual` source with its rows and cache files. Provider sources
 /// go with their playlist instead.
+///
+/// The cache files are deleted after the commit. A file that cannot be
+/// deleted is logged and left to the sweep, which removes files of sources
+/// that no longer exist.
 pub fn remove_source(conn: &Connection, cache_dir: &Path, id: i64) -> Result<(), AppError> {
-    let tx = conn.unchecked_transaction()?;
+    let tx = write_transaction(conn)?;
     let origin: String = tx
         .query_row(
             "SELECT origin FROM epg_source WHERE id = ?1",
@@ -293,9 +336,23 @@ pub fn remove_source(conn: &Connection, cache_dir: &Path, id: i64) -> Result<(),
     }
     delete_guide_rows(&tx, id)?;
     tx.execute("DELETE FROM epg_source WHERE id = ?1", params![id])?;
-    remove_cache_files(cache_dir, id)?;
     tx.commit()?;
+    if let Err(e) = remove_cache_files(cache_dir, id) {
+        log::warn!(
+            "EPG cache: files of removed source {} not deleted: {}",
+            id,
+            e
+        );
+    }
     Ok(())
+}
+
+/// A transaction that takes the write lock at `BEGIN`. These functions read
+/// a row and then write based on it; a deferred transaction in WAL mode would
+/// fail with `SQLITE_BUSY_SNAPSHOT` at the first write if another connection
+/// wrote in between, instead of waiting on the busy timeout.
+fn write_transaction(conn: &Connection) -> rusqlite::Result<Transaction<'_>> {
+    Transaction::new_unchecked(conn, TransactionBehavior::Immediate)
 }
 
 /// Delete a source's programmes, names and channels. Spelled out rather than
@@ -963,6 +1020,67 @@ mod tests {
         crate::db::mutations::delete_playlist(&conn, 1).unwrap();
         assert_eq!(sweep_cache_dir(&conn, &dir.0, false).unwrap(), 1);
         assert!(!feed_path(&dir.0, id).exists());
+    }
+
+    #[test]
+    fn the_sweep_skips_directories_and_symlinks() {
+        let conn = db();
+        let dir = TestDir::new();
+        // Neither id 5 nor id 6 is a source; both names would be orphans.
+        std::fs::create_dir(feed_path(&dir.0, 5)).unwrap();
+        let target = dir.0.join("target.bin");
+        touch(&target);
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, feed_path(&dir.0, 6)).unwrap();
+
+        assert_eq!(sweep_cache_dir(&conn, &dir.0, true).unwrap(), 0);
+        assert!(feed_path(&dir.0, 5).is_dir());
+        #[cfg(unix)]
+        assert!(feed_path(&dir.0, 6).is_symlink());
+        assert!(target.exists());
+    }
+
+    #[test]
+    fn a_failed_feed_delete_leaves_the_url_change_undone() {
+        let conn = db();
+        let dir = TestDir::new();
+        let id = add_manual_source(&conn, "https://epg.example/a.xml").unwrap();
+        add_guide_rows(&conn, id, "svt1.se");
+        conn.execute(
+            "UPDATE epg_source SET last_success_at = 9, last_result = 'ok', programme_count = 2
+             WHERE id = ?1",
+            params![id],
+        )
+        .unwrap();
+        // remove_file cannot delete a directory.
+        std::fs::create_dir(feed_path(&dir.0, id)).unwrap();
+        let before = get_source(&conn, id).unwrap().unwrap();
+
+        let patch = SourcePatch {
+            url: Some("https://epg.example/c.xml".to_string()),
+            ..SourcePatch::default()
+        };
+        let err = update_source(&conn, &dir.0, id, &patch).unwrap_err();
+        assert!(matches!(err, AppError::Io(_)), "{err:?}");
+
+        assert_eq!(get_source(&conn, id).unwrap().unwrap(), before);
+        assert_eq!(rows(&conn, "epg_channel"), 1);
+        assert_eq!(rows(&conn, "epg_channel_name"), 1);
+        assert_eq!(rows(&conn, "epg_programme"), 2);
+    }
+
+    #[test]
+    fn a_failed_feed_delete_does_not_stop_a_removal() {
+        let conn = db();
+        let dir = TestDir::new();
+        let id = add_manual_source(&conn, "https://epg.example/a.xml").unwrap();
+        add_guide_rows(&conn, id, "svt1.se");
+        std::fs::create_dir(feed_path(&dir.0, id)).unwrap();
+
+        remove_source(&conn, &dir.0, id).unwrap();
+
+        assert_eq!(get_source(&conn, id).unwrap(), None);
+        assert_eq!(rows(&conn, "epg_programme"), 0);
     }
 
     #[test]
