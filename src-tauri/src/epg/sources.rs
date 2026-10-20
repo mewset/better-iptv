@@ -525,7 +525,8 @@ pub fn has_cached_feed(cache_dir: &Path, source_id: i64) -> bool {
     feed_path(cache_dir, source_id).is_file()
 }
 
-fn remove_if_present(path: &Path) -> io::Result<bool> {
+/// Delete a file; `Ok(false)` when it was not there.
+pub(crate) fn remove_if_present(path: &Path) -> io::Result<bool> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(true),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
