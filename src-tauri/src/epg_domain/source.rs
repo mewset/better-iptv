@@ -2,6 +2,7 @@
 
 use super::{EPG_AUTO_REFRESH_INTERVAL_HOURS, EPG_AUTO_REFRESH_RETRY_MINUTES};
 use crate::error::AppError;
+use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use serde::Serialize;
 use url::Url;
 
@@ -154,25 +155,50 @@ pub struct SourceRank {
     pub source_id: i64,
 }
 
+/// Everything but RFC 3986's unreserved characters (`A-Z a-z 0-9 - . _ ~`)
+/// is percent-encoded in a credential.
+const CREDENTIAL: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'~');
+
 /// The `xmltv.php` URL of an Xtream server for these credentials.
 ///
 /// The path is the server URL with `/xmltv.php` appended, the rule every
 /// `player_api.php` call uses, so a panel under a path (`http://host/panel`)
 /// keeps it. `Url::join` would replace the last segment instead. Username and
-/// password go into the query form-encoded (`@`, `&`, `%`, `+` escaped, space
-/// as `+`), so credentials with those characters survive.
+/// password are percent-encoded down to the unreserved characters, a space as
+/// `%20`, so the request means the same whether or not the panel reads `+`
+/// as a space.
+///
+/// A server URL that leaves no host (`http://`), or carries a query or
+/// fragment the appended path would land in, is rejected rather than sending
+/// the credentials somewhere else. Errors never contain the credentials.
 pub fn xtream_epg_url(server_url: &str, username: &str, password: &str) -> Result<Url, AppError> {
+    let invalid = || AppError::InvalidInput("Invalid Xtream server URL".to_string());
     let base = format!("{}/xmltv.php", server_url.trim().trim_end_matches('/'));
-    let mut url = Url::parse(&base)
-        .map_err(|e| AppError::InvalidInput(format!("Invalid Xtream server URL: {}", e)))?;
+    let mut url = Url::parse(&base).map_err(|_| invalid())?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err(AppError::InvalidInput(
             "Xtream server URL must start with http:// or https://".to_string(),
         ));
     }
-    url.query_pairs_mut()
-        .append_pair("username", username)
-        .append_pair("password", password);
+    // `http:/xmltv.php` (from `http://`) parses with host `xmltv.php` and path
+    // `/`; `http://h/?x` puts `/xmltv.php` into the query.
+    let host_ok = url.host_str().is_some_and(|host| !host.is_empty());
+    if !host_ok
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !url.path().ends_with("/xmltv.php")
+    {
+        return Err(invalid());
+    }
+    url.set_query(Some(&format!(
+        "username={}&password={}",
+        utf8_percent_encode(username, CREDENTIAL),
+        utf8_percent_encode(password, CREDENTIAL)
+    )));
     Ok(url)
 }
 
@@ -220,7 +246,7 @@ mod tests {
         let url = xtream_epg_url("http://host", "me@mail.se", "a&b%c+d e").unwrap();
         assert_eq!(
             url.query(),
-            Some("username=me%40mail.se&password=a%26b%25c%2Bd+e")
+            Some("username=me%40mail.se&password=a%26b%25c%2Bd%20e")
         );
         let pairs: Vec<(String, String)> = url.query_pairs().into_owned().collect();
         assert_eq!(
@@ -230,6 +256,17 @@ mod tests {
                 ("password".to_string(), "a&b%c+d e".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn only_unreserved_characters_stay_unencoded() {
+        let url = xtream_epg_url("http://host", "aZ09-._~", "ö=?#/:é").unwrap();
+        assert_eq!(
+            url.query(),
+            Some("username=aZ09-._~&password=%C3%B6%3D%3F%23%2F%3A%C3%A9")
+        );
+        let pairs: Vec<(String, String)> = url.query_pairs().into_owned().collect();
+        assert_eq!(pairs[1].1, "ö=?#/:é");
     }
 
     #[test]
@@ -267,7 +304,17 @@ mod tests {
 
     #[test]
     fn an_unusable_server_url_is_rejected_without_echoing_credentials() {
-        for server in ["", "host:8080", "ftp://host", "not a url"] {
+        for server in [
+            "",
+            "host:8080",
+            "ftp://host",
+            "not a url",
+            "http://",
+            "https:///",
+            "http://h/?x",
+            "http://h/panel?x=1",
+            "http://h#frag",
+        ] {
             let err = xtream_epg_url(server, "user", "secret").unwrap_err();
             assert!(matches!(err, AppError::InvalidInput(_)), "{server}");
             assert!(!err.to_string().contains("secret"), "{server}");
