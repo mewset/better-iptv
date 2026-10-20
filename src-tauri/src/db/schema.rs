@@ -225,6 +225,8 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    create_epg_source_tables(conn)?;
+
     // TMDB metadata cache, keyed by normalised title, not channel id, so one
     // row serves every playlist and survives a playlist refresh. year = 0
     // when unknown (UNIQUE cannot compare NULLs). tmdb_id NULL = no match.
@@ -287,11 +289,86 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         log::error!("M3U series migration failed, will retry next start: {}", e);
     }
 
+    if let Err(e) = crate::epg::sources::seed_epg_sources(conn) {
+        log::error!("EPG source seed failed, will retry next start: {}", e);
+    }
+
     if let Err(e) = backfill_channel_epg_ids(conn) {
         log::error!("EPG id backfill failed, will retry next start: {}", e);
     }
 
     Ok(())
+}
+
+/// Tables of the per-source guide store (`epg::sources`, `epg::store`).
+///
+/// New names beside the old `epg_programs`/`epg_sources`, so a 3.1.x binary
+/// started on this database still finds the tables it expects and ignores
+/// these. Every statement is idempotent.
+fn create_epg_source_tables(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS epg_source (
+            -- AUTOINCREMENT: ids are never reused, cache files are named by id
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            -- NULL = applies to every profile
+            playlist_id INTEGER REFERENCES playlists(id) ON DELETE CASCADE,
+            origin TEXT NOT NULL CHECK (origin IN ('manual', 'xtream', 'm3u_header')),
+            -- NULL for 'xtream': the URL is built from the playlist at fetch time
+            url TEXT,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            -- lower wins: manual 10, m3u_header 20, xtream 30
+            priority INTEGER NOT NULL,
+            -- configured policy; no CHECK so a later version can add values
+            time_interpret TEXT NOT NULL DEFAULT 'as_written',
+            time_shift_minutes INTEGER NOT NULL DEFAULT 0,
+            -- policy the stored rows were produced under, written by the swap
+            applied_interpret TEXT,
+            applied_shift_minutes INTEGER,
+            last_attempt_at INTEGER,          -- epoch seconds
+            last_success_at INTEGER,          -- epoch seconds
+            last_result TEXT CHECK (last_result IN ('ok', 'partial', 'error')),
+            last_error TEXT,                  -- credential-free sentence
+            programme_count INTEGER NOT NULL DEFAULT 0,
+            unknown_zone_count INTEGER NOT NULL DEFAULT 0,
+            unknown_zone_sample TEXT,
+            decode_replacements INTEGER NOT NULL DEFAULT 0
+        );
+        -- NULLs are distinct in a UNIQUE constraint, and url is NULL for every
+        -- xtream row and playlist_id for every global row, so the identity is
+        -- an expression index.
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_epg_source_identity
+            ON epg_source(COALESCE(playlist_id, 0), origin, COALESCE(url, ''));
+
+        CREATE TABLE IF NOT EXISTS epg_channel (
+            id INTEGER PRIMARY KEY,
+            source_id INTEGER NOT NULL REFERENCES epg_source(id) ON DELETE CASCADE,
+            key TEXT NOT NULL,                -- epg_domain::key::channel_key of the feed's id
+            first_start INTEGER,              -- summaries of this channel's rows, UTC seconds
+            last_stop INTEGER,
+            programme_count INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (source_id, key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_epg_channel_key ON epg_channel(key);
+
+        CREATE TABLE IF NOT EXISTS epg_channel_name (
+            channel_id INTEGER NOT NULL REFERENCES epg_channel(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            name TEXT NOT NULL,               -- as the feed wrote it
+            name_key TEXT NOT NULL,           -- epg_domain::key::name_key
+            PRIMARY KEY (channel_id, position)
+        ) WITHOUT ROWID;
+        CREATE INDEX IF NOT EXISTS idx_epg_channel_name_key ON epg_channel_name(name_key);
+
+        CREATE TABLE IF NOT EXISTS epg_programme (
+            channel_id INTEGER NOT NULL REFERENCES epg_channel(id) ON DELETE CASCADE,
+            start INTEGER NOT NULL,           -- UTC seconds, after the source's time policy
+            stop INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT,
+            category TEXT,
+            PRIMARY KEY (channel_id, start)
+        ) WITHOUT ROWID;",
+    )
 }
 
 /// Settings key that records the one-time EPG id backfill.
@@ -935,5 +1012,442 @@ mod home_migration_tests {
             .unwrap();
         conn.prepare("SELECT url, state, marked_at, launch_id FROM dead_logo_urls")
             .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod epg_source_seed_tests {
+    use super::init_schema;
+    use crate::db::queries::get_setting;
+    use crate::epg::sources::{
+        ensure_xtream_source, legacy_xtream_epg_url, seed_epg_sources, EPG_SOURCES_SEEDED_KEY,
+    };
+    use rusqlite::types::Value;
+    use rusqlite::{params, Connection};
+
+    /// A database as 3.1.x leaves it: old EPG tables with rows, the single
+    /// EPG URL in settings, an M3U and an Xtream profile with channels.
+    fn v1_db(epg_url: &str) -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute_batch(
+            "CREATE TABLE playlists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                url TEXT,
+                file_path TEXT,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                auto_refresh BOOLEAN DEFAULT 0,
+                xtream_username TEXT,
+                xtream_password TEXT,
+                xtream_exp_date TIMESTAMP,
+                xtream_exp_checked_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE channels (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                playlist_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                url TEXT NOT NULL,
+                logo TEXT,
+                group_name TEXT,
+                epg_id TEXT,
+                tvg_name TEXT,
+                content_type TEXT DEFAULT 'live',
+                is_favorite BOOLEAN DEFAULT 0,
+                sort_order INTEGER DEFAULT 0,
+                category_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                logo_override TEXT,
+                FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+            );
+            CREATE TABLE settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE epg_programs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_epg_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                start_time TIMESTAMP NOT NULL,
+                end_time TIMESTAMP NOT NULL,
+                category TEXT,
+                icon TEXT
+            );
+            CREATE UNIQUE INDEX idx_epg_programs_unique ON epg_programs(channel_epg_id, start_time);
+            CREATE TABLE epg_sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                url TEXT NOT NULL,
+                last_fetched TIMESTAMP,
+                auto_refresh BOOLEAN DEFAULT 1,
+                refresh_interval_hours INTEGER DEFAULT 6,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO playlists (id, name, url, created_at)
+              VALUES (1, 'M3U', 'http://lists.example/list.m3u', '2026-01-01 10:00:00');
+            INSERT INTO playlists (id, name, url, xtream_username, xtream_password, created_at)
+              VALUES (2, 'Provider', 'http://provider.example:8080/', 'me@mail.se', 'p&ss',
+                      '2026-02-01 10:00:00');
+            INSERT INTO channels (id, playlist_id, name, url, epg_id, is_favorite, sort_order, created_at)
+              VALUES (10, 1, 'SVT1', 'http://lists.example/svt1', 'SVT1.se', 1, 0, '2026-01-01 10:00:00');
+            INSERT INTO channels (id, playlist_id, name, url, epg_id, is_favorite, sort_order, created_at)
+              VALUES (20, 2, 'TV4', 'http://provider.example/tv4', 'tv4.se', 0, 1, '2026-02-01 10:00:00');
+            INSERT INTO channels (id, playlist_id, name, url, epg_id, content_type, is_favorite, created_at)
+              VALUES (21, 2, 'Dune', 'http://provider.example/m/1.mkv', NULL, 'vod', 1, '2026-02-01 10:00:00');
+            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
+              VALUES ('svt1.se', 'Rapport', '2026-10-20T18:00:00+00:00', '2026-10-20T18:30:00+00:00');
+            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
+              VALUES ('tv4.se', 'Nyheterna', '2026-10-20T19:00:00+00:00', '2026-10-20T19:30:00+00:00');
+            INSERT INTO epg_sources (name, url) VALUES ('Old', 'http://old.example/epg.xml');",
+        )
+        .unwrap();
+        let settings = [
+            ("epg_url", epg_url),
+            ("epg_last_fetched", "2026-10-20T12:00:00+00:00"),
+            ("epg_last_attempt", "2026-10-20T12:00:00+00:00"),
+            ("epg_programs_normalized", "1"),
+            ("epg_ids_backfilled", "1"),
+            ("m3u_series_grouped", "1"),
+            ("active_profile_id", "2"),
+        ];
+        for (key, value) in settings {
+            conn.execute(
+                "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, '2026-10-01 08:00:00')",
+                params![key, value],
+            )
+            .unwrap();
+        }
+        conn
+    }
+
+    fn legacy_url() -> String {
+        legacy_xtream_epg_url("http://provider.example:8080/", "me@mail.se", "p&ss")
+    }
+
+    /// Every row of `table`, in rowid order, restricted to `columns`.
+    fn snapshot(conn: &Connection, table: &str, columns: &[String]) -> Vec<Vec<Value>> {
+        let sql = format!("SELECT {} FROM {table} ORDER BY rowid", columns.join(", "));
+        let mut stmt = conn.prepare(&sql).unwrap();
+        stmt.query_map([], |row| {
+            (0..columns.len())
+                .map(|i| row.get::<_, Value>(i))
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect()
+    }
+
+    fn columns(conn: &Connection, table: &str) -> Vec<String> {
+        conn.prepare(&format!("PRAGMA table_info({table})"))
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(|c| c.unwrap())
+            .collect()
+    }
+
+    /// (origin, playlist_id, url, enabled, priority) of one source.
+    type SourceRow = (String, Option<i64>, Option<String>, bool, i64);
+
+    /// Every source, by id.
+    fn sources(conn: &Connection) -> Vec<SourceRow> {
+        conn.prepare(
+            "SELECT origin, playlist_id, url, enabled, priority FROM epg_source ORDER BY id",
+        )
+        .unwrap()
+        .query_map([], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect()
+    }
+
+    fn count(conn: &Connection, sql: &str) -> i64 {
+        conn.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    fn schema_objects(conn: &Connection) -> Vec<(String, String)> {
+        conn.prepare("SELECT type, name FROM sqlite_master ORDER BY type, name")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn a_fresh_database_has_the_source_tables_indices_and_guard() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        let objects = schema_objects(&conn);
+        for (kind, name) in [
+            ("table", "epg_source"),
+            ("table", "epg_channel"),
+            ("table", "epg_channel_name"),
+            ("table", "epg_programme"),
+            ("index", "idx_epg_source_identity"),
+            ("index", "idx_epg_channel_key"),
+            ("index", "idx_epg_channel_name_key"),
+        ] {
+            assert!(
+                objects.contains(&(kind.to_string(), name.to_string())),
+                "{kind} {name} missing"
+            );
+        }
+        // Both clustered on their primary key.
+        for table in ["epg_channel_name", "epg_programme"] {
+            let sql: String = conn
+                .query_row(
+                    "SELECT sql FROM sqlite_master WHERE name = ?1",
+                    [table],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert!(sql.contains("WITHOUT ROWID"), "{table}");
+        }
+        // The old tables stay until the drop task of a later step.
+        assert!(objects.contains(&("table".to_string(), "epg_programs".to_string())));
+        assert!(objects.contains(&("table".to_string(), "epg_sources".to_string())));
+        assert_eq!(
+            get_setting(&conn, EPG_SOURCES_SEEDED_KEY)
+                .unwrap()
+                .as_deref(),
+            Some("1")
+        );
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM epg_source"), 0);
+    }
+
+    #[test]
+    fn the_legacy_provider_url_seeds_one_enabled_xtream_source() {
+        let conn = v1_db(&legacy_url());
+        init_schema(&conn).unwrap();
+        assert_eq!(
+            sources(&conn),
+            [("xtream".to_string(), Some(2), None, true, 30)]
+        );
+    }
+
+    #[test]
+    fn a_custom_url_seeds_a_manual_source_and_disables_xtream() {
+        let conn = v1_db(" https://epg.example/guide.xml.gz ");
+        init_schema(&conn).unwrap();
+        assert_eq!(
+            sources(&conn),
+            [
+                ("xtream".to_string(), Some(2), None, false, 30),
+                (
+                    "manual".to_string(),
+                    None,
+                    Some("https://epg.example/guide.xml.gz".to_string()),
+                    true,
+                    10
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_empty_url_seeds_only_xtream() {
+        let conn = v1_db("  ");
+        init_schema(&conn).unwrap();
+        assert_eq!(
+            sources(&conn),
+            [("xtream".to_string(), Some(2), None, true, 30)]
+        );
+    }
+
+    #[test]
+    fn a_url_that_is_not_http_is_not_migrated() {
+        let conn = v1_db("ftp://epg.example/guide.xml");
+        init_schema(&conn).unwrap();
+        assert_eq!(
+            sources(&conn),
+            [("xtream".to_string(), Some(2), None, true, 30)]
+        );
+    }
+
+    #[test]
+    fn a_custom_url_without_an_xtream_profile_seeds_only_the_manual_source() {
+        let conn = v1_db("https://epg.example/guide.xml");
+        conn.execute("DELETE FROM playlists WHERE id = 2", [])
+            .unwrap();
+        init_schema(&conn).unwrap();
+        assert_eq!(
+            sources(&conn),
+            [(
+                "manual".to_string(),
+                None,
+                Some("https://epg.example/guide.xml".to_string()),
+                true,
+                10
+            )]
+        );
+    }
+
+    #[test]
+    fn the_upgrade_leaves_every_existing_row_byte_identical() {
+        for epg_url in [legacy_url(), "https://epg.example/guide.xml".to_string()] {
+            let conn = v1_db(&epg_url);
+            let tables = [
+                "settings",
+                "playlists",
+                "channels",
+                "epg_programs",
+                "epg_sources",
+            ];
+            let before: Vec<_> = tables
+                .iter()
+                .map(|t| {
+                    let cols = columns(&conn, t);
+                    let rows = snapshot(&conn, t, &cols);
+                    (cols, rows)
+                })
+                .collect();
+
+            init_schema(&conn).unwrap();
+
+            for (table, (cols, rows)) in tables.iter().zip(&before) {
+                let after = snapshot(&conn, table, cols);
+                if *table == "settings" {
+                    // The one new row is the guard; every old one is untouched.
+                    let old: Vec<_> = after
+                        .iter()
+                        .filter(|r| r[0] != Value::Text(EPG_SOURCES_SEEDED_KEY.to_string()))
+                        .cloned()
+                        .collect();
+                    assert_eq!(&old, rows, "{epg_url}: settings");
+                    assert_eq!(after.len(), rows.len() + 1, "{epg_url}");
+                } else {
+                    assert_eq!(&after, rows, "{epg_url}: {table}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_second_init_schema_adds_nothing() {
+        let conn = v1_db("https://epg.example/guide.xml");
+        init_schema(&conn).unwrap();
+        let objects = schema_objects(&conn);
+        let seeded = sources(&conn);
+        let settings = snapshot(
+            &conn,
+            "settings",
+            &["key".into(), "value".into(), "updated_at".into()],
+        );
+
+        init_schema(&conn).unwrap();
+
+        assert_eq!(schema_objects(&conn), objects);
+        assert_eq!(sources(&conn), seeded);
+        assert_eq!(
+            snapshot(
+                &conn,
+                "settings",
+                &["key".into(), "value".into(), "updated_at".into()]
+            ),
+            settings
+        );
+    }
+
+    #[test]
+    fn seeding_twice_and_an_import_leave_one_xtream_source() {
+        let conn = v1_db(&legacy_url());
+        init_schema(&conn).unwrap();
+
+        // Run the seed body again with the guard removed: the identity
+        // index, not only the guard, keeps the source single.
+        conn.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            [EPG_SOURCES_SEEDED_KEY],
+        )
+        .unwrap();
+        seed_epg_sources(&conn).unwrap();
+        // An Xtream re-import into the seeded playlist.
+        ensure_xtream_source(&conn, 2).unwrap();
+
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM epg_source WHERE origin = 'xtream' AND playlist_id = 2"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn the_identity_index_rejects_a_second_xtream_source() {
+        let conn = v1_db(&legacy_url());
+        init_schema(&conn).unwrap();
+        let second = conn.execute(
+            "INSERT INTO epg_source (playlist_id, origin, priority) VALUES (2, 'xtream', 30)",
+            [],
+        );
+        assert!(second.is_err());
+        let second = conn.execute(
+            "INSERT INTO epg_source (playlist_id, origin, url, priority)
+             VALUES (NULL, 'manual', 'http://a', 10), (NULL, 'manual', 'http://a', 10)",
+            [],
+        );
+        assert!(second.is_err());
+    }
+
+    #[test]
+    fn a_failing_seed_leaves_the_guard_unset() {
+        let conn = v1_db("https://epg.example/guide.xml");
+        // No epg_source table: the first insert fails.
+        assert!(seed_epg_sources(&conn).is_err());
+        assert!(get_setting(&conn, EPG_SOURCES_SEEDED_KEY)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn a_failing_seed_does_not_stop_startup_and_retries() {
+        let conn = v1_db("https://epg.example/guide.xml");
+        // A trigger makes the seed's insert fail on this start only.
+        conn.execute_batch(
+            "CREATE TABLE epg_source (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                playlist_id INTEGER REFERENCES playlists(id) ON DELETE CASCADE,
+                origin TEXT NOT NULL,
+                url TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                priority INTEGER NOT NULL,
+                time_interpret TEXT NOT NULL DEFAULT 'as_written',
+                time_shift_minutes INTEGER NOT NULL DEFAULT 0,
+                applied_interpret TEXT,
+                applied_shift_minutes INTEGER,
+                last_attempt_at INTEGER,
+                last_success_at INTEGER,
+                last_result TEXT,
+                last_error TEXT,
+                programme_count INTEGER NOT NULL DEFAULT 0,
+                unknown_zone_count INTEGER NOT NULL DEFAULT 0,
+                unknown_zone_sample TEXT,
+                decode_replacements INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TRIGGER fail_seed BEFORE INSERT ON epg_source
+            BEGIN SELECT RAISE(ABORT, 'seed blocked'); END;",
+        )
+        .unwrap();
+
+        init_schema(&conn).unwrap();
+        assert!(get_setting(&conn, EPG_SOURCES_SEEDED_KEY)
+            .unwrap()
+            .is_none());
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM epg_source"), 0);
+
+        conn.execute_batch("DROP TRIGGER fail_seed;").unwrap();
+        init_schema(&conn).unwrap();
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM epg_source"), 2);
+        assert!(get_setting(&conn, EPG_SOURCES_SEEDED_KEY)
+            .unwrap()
+            .is_some());
     }
 }
