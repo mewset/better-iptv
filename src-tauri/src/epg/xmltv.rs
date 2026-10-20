@@ -1,15 +1,16 @@
+use super::decode::{is_gzipped, open_feed};
 use crate::epg_domain::normalize_epg_id;
+use crate::epg_domain::text::push_reference;
 use crate::http::{download_error, ensure_success, get_http_client};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use flate2::read::GzDecoder;
 use log::{debug, info, warn};
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
+use std::io::BufRead;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,14 +106,16 @@ async fn parse_epg_off_runtime(bytes: bytes::Bytes) -> Result<Vec<EpgProgram>> {
 /// held in memory as a whole (that halves peak memory). When the XML breaks
 /// off, the rest of the stream is drained first, so gzip's length and CRC
 /// check still runs: a damaged download fails as a whole, while malformed XML
-/// in an intact file keeps the programmes read before the fault.
+/// in an intact file keeps the programmes read before the fault. The text is
+/// transcoded to UTF-8 on the way (`decode::open_feed`), so a stray byte
+/// becomes U+FFFD instead of ending the parse.
 pub(crate) fn parse_epg_bytes(bytes: &[u8]) -> Result<Vec<EpgProgram>> {
-    if is_gzipped(bytes) {
-        let reader = BufReader::with_capacity(64 * 1024, GzDecoder::new(bytes));
-        finish_parse(parse_xmltv(reader), "Failed to decompress gzipped EPG")
+    let read_failure = if is_gzipped(bytes) {
+        "Failed to decompress gzipped EPG"
     } else {
-        finish_parse(parse_xmltv(bytes), "Failed to read EPG")
-    }
+        "Failed to read EPG"
+    };
+    finish_parse(parse_xmltv(open_feed(bytes)?), read_failure)
 }
 
 fn finish_parse<R: BufRead>(parsed: ParsedXmltv<R>, read_failure: &str) -> Result<Vec<EpgProgram>> {
@@ -144,11 +147,6 @@ pub fn store_epg_programs(conn: &Connection, programs: &[EpgProgram]) -> Result<
     Ok(count)
 }
 
-/// Check if bytes are gzipped (magic bytes: 1f 8b)
-fn is_gzipped(bytes: &[u8]) -> bool {
-    bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b
-}
-
 /// What `parse_xmltv` read before it stopped, and why it stopped early.
 struct ParsedXmltv<R> {
     programs: Vec<EpgProgram>,
@@ -158,14 +156,17 @@ struct ParsedXmltv<R> {
     rest: R,
 }
 
-/// Parse XMLTV format from any buffered source.
+/// Parse XMLTV format from any buffered UTF-8 source.
 ///
-/// Text is decoded per field: a programme whose title is not valid UTF-8
-/// gets an empty title and is skipped, instead of one stray byte rejecting
-/// the whole guide.
+/// quick-xml reports entity references as their own events and validates
+/// UTF-8, so text is collected per field: text events appended, references
+/// resolved leniently, the result trimmed at the field's end tag. Bare
+/// ampersands are text.
 fn parse_xmltv<R: BufRead>(source: R) -> ParsedXmltv<R> {
     let mut reader = Reader::from_reader(source);
-    reader.config_mut().trim_text(true);
+    let config = reader.config_mut();
+    config.trim_text(false);
+    config.allow_dangling_amp = true;
 
     // Pre-allocate with estimated capacity (typical EPG has 5k-50k programs)
     let mut programs = Vec::with_capacity(10_000);
@@ -179,21 +180,21 @@ fn parse_xmltv<R: BufRead>(source: R) -> ParsedXmltv<R> {
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) => match e.name().as_ref() {
-                b"programme" => {
+                "programme" => {
                     let mut channel_id = String::new();
                     let mut start_time = None;
                     let mut end_time = None;
 
                     for attr in e.attributes().flatten() {
                         match attr.key.as_ref() {
-                            b"channel" => {
-                                channel_id = String::from_utf8_lossy(&attr.value).to_string();
+                            "channel" => {
+                                channel_id = attr.value.into_owned();
                             }
-                            b"start" => {
-                                start_time = parse_xmltv_time(&attr.value);
+                            "start" => {
+                                start_time = parse_xmltv_time(attr.value.as_bytes());
                             }
-                            b"stop" => {
-                                end_time = parse_xmltv_time(&attr.value);
+                            "stop" => {
+                                end_time = parse_xmltv_time(attr.value.as_bytes());
                             }
                             _ => {}
                         }
@@ -210,34 +211,67 @@ fn parse_xmltv<R: BufRead>(source: R) -> ParsedXmltv<R> {
                         });
                     }
                 }
-                b"title" => in_title = true,
-                b"desc" => in_desc = true,
-                b"category" => in_category = true,
+                // A later element of the same kind replaces the earlier one.
+                "title" => {
+                    in_title = true;
+                    if let Some(ref mut prog) = current_program {
+                        prog.title.clear();
+                    }
+                }
+                "desc" => {
+                    in_desc = true;
+                    if let Some(ref mut prog) = current_program {
+                        prog.description = Some(String::new());
+                    }
+                }
+                "category" => {
+                    in_category = true;
+                    if let Some(ref mut prog) = current_program {
+                        prog.category = Some(String::new());
+                    }
+                }
                 _ => {}
             },
             Ok(Event::Text(e)) => {
-                if let Some(ref mut prog) = current_program {
-                    let text = e.unescape().unwrap_or_default().to_string();
-                    if in_title {
-                        prog.title = text;
-                    } else if in_desc {
-                        prog.description = Some(text);
-                    } else if in_category {
-                        prog.category = Some(text);
-                    }
+                if let Some(field) = current_program
+                    .as_mut()
+                    .and_then(|prog| prog.field(in_title, in_desc, in_category))
+                {
+                    field.push_str(&e.xml10_content());
+                }
+            }
+            Ok(Event::GeneralRef(e)) => {
+                if let Some(field) = current_program
+                    .as_mut()
+                    .and_then(|prog| prog.field(in_title, in_desc, in_category))
+                {
+                    push_reference(field, &e);
                 }
             }
             Ok(Event::End(ref e)) => match e.name().as_ref() {
-                b"programme" => {
+                "programme" => {
                     if let Some(prog) = current_program.take() {
                         if !prog.title.is_empty() {
                             programs.push(prog.build());
                         }
                     }
                 }
-                b"title" => in_title = false,
-                b"desc" => in_desc = false,
-                b"category" => in_category = false,
+                "title" | "desc" | "category" => {
+                    if let Some(field) = current_program
+                        .as_mut()
+                        .and_then(|prog| prog.field(in_title, in_desc, in_category))
+                    {
+                        let trimmed = field.trim();
+                        if trimmed.len() != field.len() {
+                            *field = trimmed.to_string();
+                        }
+                    }
+                    match e.name().as_ref() {
+                        "title" => in_title = false,
+                        "desc" => in_desc = false,
+                        _ => in_category = false,
+                    }
+                }
                 _ => {}
             },
             Ok(Event::Eof) => break,
@@ -551,6 +585,19 @@ struct EpgProgramBuilder {
 }
 
 impl EpgProgramBuilder {
+    /// The text the open child element is collected into.
+    fn field(&mut self, in_title: bool, in_desc: bool, in_category: bool) -> Option<&mut String> {
+        if in_title {
+            Some(&mut self.title)
+        } else if in_desc {
+            self.description.as_mut()
+        } else if in_category {
+            self.category.as_mut()
+        } else {
+            None
+        }
+    }
+
     fn build(self) -> EpgProgram {
         EpgProgram {
             channel_id: self.channel_id,
@@ -806,16 +853,25 @@ mod tests {
     }
 
     #[test]
-    fn one_badly_encoded_title_drops_that_programme_not_the_guide() {
+    fn one_badly_encoded_title_keeps_the_programme_and_the_guide() {
         let mut xml = feed(100);
         let at = xml.windows(9).position(|w| w == b"Program 5").unwrap();
         xml[at + 1] = 0xE5; // a Latin-1 byte inside a UTF-8 feed
 
         for bytes in [xml.clone(), gzip(&xml)] {
             let programs = parse_epg_bytes(&bytes).unwrap();
-            assert_eq!(programs.len(), 99);
-            assert!(programs.iter().all(|p| p.title != "Program 5"));
+            assert_eq!(programs.len(), 100);
+            assert_eq!(programs[5].title, "P\u{fffd}ogram 5");
         }
+    }
+
+    #[test]
+    fn entities_and_bare_ampersands_in_titles_are_kept() {
+        let xml = br#"<tv><programme start="20260902200000 +0200" stop="20260902203000 +0200" channel="a">
+            <title>Tom &amp; Jerry &amp friends</title><desc> Caf&eacute; &#229; </desc></programme></tv>"#;
+        let programs = parse_epg_bytes(xml).unwrap();
+        assert_eq!(programs[0].title, "Tom & Jerry &amp friends");
+        assert_eq!(programs[0].description.as_deref(), Some("Café å"));
     }
 
     #[tokio::test(flavor = "current_thread")]

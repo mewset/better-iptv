@@ -105,12 +105,6 @@ impl From<quick_xml::Error> for AppError {
     }
 }
 
-impl From<quick_xml::DeError> for AppError {
-    fn from(e: quick_xml::DeError) -> Self {
-        AppError::Parse(format!("XML deserialization error: {}", e))
-    }
-}
-
 impl From<serde_json::Error> for AppError {
     fn from(e: serde_json::Error) -> Self {
         AppError::Parse(format!("JSON parse error: {}", e))
