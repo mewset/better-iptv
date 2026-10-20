@@ -7,6 +7,7 @@ pub mod key;
 pub mod normalize;
 pub mod policy;
 pub mod report;
+pub mod source;
 pub mod text;
 pub mod time;
 
