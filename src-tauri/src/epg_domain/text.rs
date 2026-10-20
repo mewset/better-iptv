@@ -64,6 +64,14 @@ const HTML_ENTITIES: &[(&str, char)] = &[
     ("euro", '€'),
 ];
 
+/// Whether XML 1.0 allows `c` in a document (its `Char` production): TAB,
+/// LF, CR, and everything from U+0020 except U+FFFE and U+FFFF. Surrogates
+/// and values past U+10FFFF are not `char`s at all, so `char::from_u32`
+/// has already rejected them.
+fn is_xml_char(c: char) -> bool {
+    matches!(c, '\t' | '\n' | '\r') || (c >= ' ' && c != '\u{fffe}' && c != '\u{ffff}')
+}
+
 /// The character an entity name stands for, without the `&` and `;`.
 ///
 /// Covers the five XML entities, decimal (`#49`) and hexadecimal (`#x30`)
@@ -79,13 +87,17 @@ pub fn entity(name: &str) -> Option<char> {
         _ => {}
     }
     if let Some(number) = name.strip_prefix('#') {
+        // Digits only: `from_str_radix` and `parse` would also take a sign.
         let code = match number.strip_prefix(['x', 'X']) {
-            Some(hex) => u32::from_str_radix(hex, 16).ok()?,
-            None => number.parse::<u32>().ok()?,
+            Some(hex) if !hex.is_empty() && hex.bytes().all(|b| b.is_ascii_hexdigit()) => {
+                u32::from_str_radix(hex, 16).ok()?
+            }
+            None if !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()) => {
+                number.parse::<u32>().ok()?
+            }
+            _ => return None,
         };
-        // `from_u32` rejects surrogates and values past U+10FFFF; NUL is not
-        // allowed in XML either.
-        return char::from_u32(code).filter(|c| *c != '\0');
+        return char::from_u32(code).filter(|c| is_xml_char(*c));
     }
     HTML_ENTITIES
         .iter()
@@ -196,6 +208,49 @@ mod tests {
         assert_eq!(unescape_lenient("&#xZZ;"), "&#xZZ;");
         // Surrogates and NUL are not characters XML allows.
         assert_eq!(unescape_lenient("&#xD800;&#0;"), "&#xD800;&#0;");
+    }
+
+    #[test]
+    fn numeric_references_xml_forbids_are_kept_verbatim() {
+        for reference in [
+            "&#x110000;",
+            "&#1;",
+            "&#x1F;",
+            "&#xFFFE;",
+            "&#xFFFF;",
+            "&#99999999999;",
+        ] {
+            assert_eq!(unescape_lenient(reference), reference);
+        }
+        // The three control characters XML does allow.
+        assert_eq!(unescape_lenient("&#9;&#xA;&#13;"), "\t\n\r");
+        assert_eq!(unescape_lenient("&#xFFFD;"), "\u{fffd}");
+    }
+
+    #[test]
+    fn signed_or_empty_numeric_references_are_kept_verbatim() {
+        for reference in ["&#+49;", "&#-49;", "&#x+41;", "&#x-41;", "&#;", "&#x;"] {
+            assert_eq!(unescape_lenient(reference), reference);
+        }
+    }
+
+    #[test]
+    fn non_ascii_after_an_ampersand_is_kept() {
+        assert_eq!(unescape_lenient("&é"), "&é");
+        assert_eq!(unescape_lenient("&é;"), "&é;");
+        assert_eq!(unescape_lenient("A&ö B"), "A&ö B");
+        assert_eq!(unescape_lenient("A&ö;&amp;"), "A&ö;&");
+    }
+
+    #[test]
+    fn entity_names_are_looked_for_up_to_32_characters() {
+        // "#" plus 31 digits is a 32-character name and still resolves.
+        let name_32 = format!("#{:0>31}", 49);
+        assert_eq!(unescape_lenient(&format!("&{name_32};")), "1");
+        // One digit more and the run is not taken as a reference.
+        let name_33 = format!("#{:0>32}", 49);
+        let text = format!("&{name_33};");
+        assert_eq!(unescape_lenient(&text), text);
     }
 
     #[test]

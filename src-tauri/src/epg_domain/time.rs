@@ -71,7 +71,9 @@ pub fn offset_token(value: &str) -> Option<&str> {
 ///
 /// The digit run may be any initial substring of `YYYYMMDDhhmmss` that ends on
 /// a field boundary: 4, 6, 8, 10, 12 or 14 digits. A missing month or day is
-/// 1, a missing hour, minute or second is 0. The zone is read from
+/// 1, a missing hour, minute or second is 0. Hour 24 with zero minutes and
+/// seconds is midnight at the end of the day, as some generators write it;
+/// any other hour 24, and second 60, are rejected. The zone is read from
 /// `offset_token`; a numeric offset beyond a day counts as `Unknown`.
 pub fn parse_raw_time(value: &str) -> Result<RawTime, TimeParseError> {
     let (digits, _) = split_digits(value);
@@ -88,9 +90,15 @@ pub fn parse_raw_time(value: &str) -> Result<RawTime, TimeParseError> {
     let year: i32 = digits[..4]
         .parse()
         .map_err(|_| TimeParseError::OutOfRange)?;
-    let wall = NaiveDate::from_ymd_opt(year, field(4, 1), field(6, 1))
-        .and_then(|date| date.and_hms_opt(field(8, 0), field(10, 0), field(12, 0)))
+    let date = NaiveDate::from_ymd_opt(year, field(4, 1), field(6, 1))
         .ok_or(TimeParseError::OutOfRange)?;
+    let (hour, minute, second) = (field(8, 0), field(10, 0), field(12, 0));
+    let wall = if (hour, minute, second) == (24, 0, 0) {
+        date.succ_opt().and_then(|next| next.and_hms_opt(0, 0, 0))
+    } else {
+        date.and_hms_opt(hour, minute, second)
+    }
+    .ok_or(TimeParseError::OutOfRange)?;
 
     Ok(RawTime {
         wall,
@@ -207,6 +215,38 @@ mod tests {
             parse_raw_time("20260230000000"),
             Err(TimeParseError::OutOfRange)
         );
+    }
+
+    #[test]
+    fn hour_24_on_the_dot_is_midnight_of_the_next_day() {
+        let raw = parse_raw_time("20261020240000 +0200").unwrap();
+        assert_eq!(raw.wall, wall("2026-10-21 00:00:00"));
+        assert_eq!(raw.offset, RawOffset::Explicit(120));
+        assert_eq!(
+            parse_raw_time("2026102024").unwrap().wall,
+            wall("2026-10-21 00:00:00")
+        );
+        assert_eq!(
+            parse_raw_time("20261231240000").unwrap().wall,
+            wall("2027-01-01 00:00:00")
+        );
+    }
+
+    #[test]
+    fn other_hour_24_values_and_second_60_are_rejected() {
+        for value in [
+            "20261020240100",
+            "20261020240001",
+            "20261020250000",
+            "20261020235960",
+            "20261020240060",
+        ] {
+            assert_eq!(
+                parse_raw_time(value),
+                Err(TimeParseError::OutOfRange),
+                "{value}"
+            );
+        }
     }
 
     #[test]

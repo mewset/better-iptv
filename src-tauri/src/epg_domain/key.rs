@@ -5,11 +5,12 @@
 //! `channel_key`. Display names are looser and go through `name_key`.
 
 /// Whitespace as JavaScript's `String.prototype.trim` sees it: Unicode
-/// White_Space plus the byte order mark, which Rust's `trim` leaves alone. The
-/// frontend normalises ids with `trim().toLowerCase()`, and the two sides must
-/// produce the same key for the same id.
+/// White_Space minus NEL (U+0085), which JavaScript does not trim, plus the
+/// byte order mark, which Rust's `trim` leaves alone. The frontend normalises
+/// ids with `trim().toLowerCase()`, and the two sides must produce the same
+/// key for the same id.
 fn is_trim_char(c: char) -> bool {
-    c.is_whitespace() || c == '\u{feff}'
+    (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
 }
 
 /// Key of an EPG channel id: trimmed and lower-cased with Unicode case mapping.
@@ -74,6 +75,16 @@ mod tests {
             channel_key("\u{feff}\u{a0}SVT1.se\t\n").as_deref(),
             Some("svt1.se")
         );
+    }
+
+    #[test]
+    fn channel_keys_keep_a_next_line_character_as_javascript_does() {
+        // U+0085 is White_Space in Rust but not trimmed by JavaScript.
+        assert_eq!(
+            channel_key("\u{85}SVT1.se\u{85}").as_deref(),
+            Some("\u{85}svt1.se\u{85}")
+        );
+        assert_eq!(channel_key("\u{85}").as_deref(), Some("\u{85}"));
     }
 
     #[test]

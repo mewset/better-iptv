@@ -15,6 +15,10 @@ pub const ENDED_GRACE_SECS: i64 = 24 * 3600;
 
 const FLAG_START_IN_GAP: u16 = 1;
 
+/// Per-slot notes from the overlap pass, counted only if the slot is kept.
+const MARK_NESTED: u8 = 1;
+const MARK_TRIMMED: u8 = 2;
+
 /// One programme as `normalise` sees it: 32 bytes, so a 430k-programme feed
 /// costs about 14 MB here. Sentinels instead of `Option` keep it that size.
 #[repr(C)]
@@ -108,15 +112,21 @@ pub struct KeyBounds {
 ///    `tv_sort` rule); the last one without a stop is dropped;
 /// 2. a stop at or before the start is dropped;
 /// 3. of programmes sharing a start, the first is kept;
-/// 4. a programme overlapped by the next one that runs past it is cut at the
-///    next one's start; one wholly inside another is kept and counted;
+/// 4. when a programme starts, every earlier one still on air that ends
+///    before it does is cut at its start (a partial overlap); one still on
+///    air that ends with it or later contains it, and it is kept as nested;
 /// 5. programmes that ended `ENDED_GRACE_SECS` before `now` are dropped.
 ///
-/// A programme dropped in step 2 or 3 whose start fell in a gap counts as
-/// `GapCollapsed`. Channels with no kept programme get no `KeyBounds`.
+/// A programme whose start fell in a gap counts as `GapCollapsed` when the
+/// gap caused its drop: its start landed on another programme's start, or
+/// its start and stop both landed on the transition. A gap start with a stop
+/// truly before it stays `InvalidSpan`. Nested and trimmed programmes are
+/// counted only if kept. Channels with no kept programme get no `KeyBounds`.
 pub fn normalise(slots: &mut [Slot], now: i64) -> (Vec<Verdict>, Vec<KeyBounds>, NormaliseReport) {
     slots.sort_unstable_by_key(|s| (s.key, s.start, s.start_in_gap(), s.clump, s.seq));
     let mut verdicts = vec![Verdict::Keep; slots.len()];
+    let mut marks = vec![0u8; slots.len()];
+    let mut on_air = Vec::new();
     let mut bounds = Vec::new();
     let mut report = NormaliseReport::default();
     let cutoff = now.saturating_sub(ENDED_GRACE_SECS);
@@ -127,8 +137,17 @@ pub fn normalise(slots: &mut [Slot], now: i64) -> (Vec<Verdict>, Vec<KeyBounds>,
         let hi = lo + slots[lo..].iter().take_while(|s| s.key == key).count();
         let channel = &mut slots[lo..hi];
         let channel_verdicts = &mut verdicts[lo..hi];
-        normalise_channel(channel, channel_verdicts, cutoff, &mut report);
-        if let Some(b) = finish_channel(key, channel, channel_verdicts, &mut report) {
+        let channel_marks = &mut marks[lo..hi];
+        normalise_channel(
+            channel,
+            channel_verdicts,
+            channel_marks,
+            &mut on_air,
+            cutoff,
+            &mut report,
+        );
+        if let Some(b) = finish_channel(key, channel, channel_verdicts, channel_marks, &mut report)
+        {
             bounds.push(b);
         }
         lo = hi;
@@ -146,13 +165,7 @@ fn stop_of(slot: &Slot, verdict: Verdict) -> Option<i64> {
     }
 }
 
-fn drop_slot(slot: &Slot, verdict: &mut Verdict, reason: DropReason, report: &mut NormaliseReport) {
-    let reason = match reason {
-        DropReason::DuplicateStart | DropReason::InvalidSpan if slot.start_in_gap() => {
-            DropReason::GapCollapsed
-        }
-        other => other,
-    };
+fn drop_slot(verdict: &mut Verdict, reason: DropReason, report: &mut NormaliseReport) {
     match reason {
         DropReason::DuplicateStart => report.duplicate_starts_dropped += 1,
         DropReason::NoStop => report.last_without_stop_dropped += 1,
@@ -166,6 +179,8 @@ fn drop_slot(slot: &Slot, verdict: &mut Verdict, reason: DropReason, report: &mu
 fn normalise_channel(
     slots: &[Slot],
     verdicts: &mut [Verdict],
+    marks: &mut [u8],
+    on_air: &mut Vec<usize>,
     cutoff: i64,
     report: &mut NormaliseReport,
 ) {
@@ -180,7 +195,7 @@ fn normalise_channel(
         if slots[i].stop == NO_STOP {
             match next_start {
                 Some(stop) => verdicts[i] = Verdict::KeepWithStop(stop),
-                None => drop_slot(&slots[i], &mut verdicts[i], DropReason::NoStop, report),
+                None => drop_slot(&mut verdicts[i], DropReason::NoStop, report),
             }
         }
     }
@@ -191,65 +206,87 @@ fn normalise_channel(
         let Some(stop) = stop_of(&slots[i], verdicts[i]) else {
             continue;
         };
+        let in_gap = slots[i].start_in_gap();
         if stop <= slots[i].start {
-            drop_slot(&slots[i], &mut verdicts[i], DropReason::InvalidSpan, report);
+            // Start and stop both on the transition: the gap emptied it.
+            let reason = if in_gap && stop == slots[i].start {
+                DropReason::GapCollapsed
+            } else {
+                DropReason::InvalidSpan
+            };
+            drop_slot(&mut verdicts[i], reason, report);
         } else if last_start == Some(slots[i].start) {
-            drop_slot(
-                &slots[i],
-                &mut verdicts[i],
-                DropReason::DuplicateStart,
-                report,
-            );
+            // Gap starts sort after others, so this one was moved onto it.
+            let reason = if in_gap {
+                DropReason::GapCollapsed
+            } else {
+                DropReason::DuplicateStart
+            };
+            drop_slot(&mut verdicts[i], reason, report);
         } else {
             last_start = Some(slots[i].start);
         }
     }
 
-    // 4. Overlaps against the programme currently on air.
-    let mut on_air: Option<usize> = None;
+    // 4. Overlaps against every programme still on air when one starts.
+    on_air.clear();
     for i in 0..n {
         let Some(stop) = stop_of(&slots[i], verdicts[i]) else {
             continue;
         };
-        let Some(current) = on_air else {
-            on_air = Some(i);
-            continue;
-        };
-        let current_stop = stop_of(&slots[current], verdicts[current]).unwrap_or(NO_STOP);
-        if slots[i].start >= current_stop {
-            on_air = Some(i);
-        } else if stop <= current_stop {
-            report.nested_kept += 1;
-        } else {
-            verdicts[current] = Verdict::KeepWithStop(slots[i].start);
-            report.consecutive_overlaps_trimmed += 1;
-            on_air = Some(i);
+        let start = slots[i].start;
+        let mut nested = false;
+        on_air.retain(|&earlier| {
+            let Some(earlier_stop) = stop_of(&slots[earlier], verdicts[earlier]) else {
+                return false;
+            };
+            if earlier_stop <= start {
+                false
+            } else if earlier_stop < stop {
+                verdicts[earlier] = Verdict::KeepWithStop(start);
+                marks[earlier] |= MARK_TRIMMED;
+                false
+            } else {
+                nested = true;
+                true
+            }
+        });
+        if nested {
+            marks[i] |= MARK_NESTED;
         }
+        on_air.push(i);
     }
 
     // 5. Ended long ago.
     for i in 0..n {
         if stop_of(&slots[i], verdicts[i]).is_some_and(|stop| stop <= cutoff) {
-            drop_slot(&slots[i], &mut verdicts[i], DropReason::Ended, report);
+            drop_slot(&mut verdicts[i], DropReason::Ended, report);
         }
     }
 }
 
-/// Write final stops into kept slots, count inferred stops, and compute the
-/// channel's bounds.
+/// Write final stops into kept slots, count inferred stops and the overlap
+/// marks of kept slots, and compute the channel's bounds.
 fn finish_channel(
     key: u32,
     slots: &mut [Slot],
     verdicts: &[Verdict],
+    marks: &[u8],
     report: &mut NormaliseReport,
 ) -> Option<KeyBounds> {
     let mut bounds: Option<KeyBounds> = None;
-    for (slot, verdict) in slots.iter_mut().zip(verdicts) {
+    for ((slot, verdict), mark) in slots.iter_mut().zip(verdicts).zip(marks) {
         let Some(stop) = stop_of(slot, *verdict) else {
             continue;
         };
         if slot.stop == NO_STOP {
             report.stops_inferred += 1;
+        }
+        if mark & MARK_NESTED != 0 {
+            report.nested_kept += 1;
+        }
+        if mark & MARK_TRIMMED != 0 {
+            report.consecutive_overlaps_trimmed += 1;
         }
         slot.stop = stop;
         let b = bounds.get_or_insert(KeyBounds {
@@ -519,6 +556,88 @@ mod tests {
         assert_eq!(report.gap_collapsed, 2);
         assert_eq!(report.duplicate_starts_dropped, 0);
         assert_eq!(report.invalid_span_dropped, 0);
+    }
+
+    #[test]
+    fn a_gap_start_with_a_stop_truly_before_it_is_an_invalid_span() {
+        let mut slots = [slot(0, 0, 0, Some(-H)).with_start_in_gap(true)];
+        let (verdicts, _, report) = run(&mut slots);
+        assert_eq!(verdicts[0].1, Verdict::Drop(DropReason::InvalidSpan));
+        assert_eq!(report.invalid_span_dropped, 1);
+        assert_eq!(report.gap_collapsed, 0);
+    }
+
+    #[test]
+    fn a_nested_programme_overlapping_the_next_one_is_cut_with_its_container() {
+        // A [0, 3h), B [1h, 2h30) inside A, C [2h, 4h) running past both.
+        let mut slots = [
+            slot(0, 0, 0, Some(3 * H)),
+            slot(1, 0, H, Some(2 * H + H / 2)),
+            slot(2, 0, 2 * H, Some(4 * H)),
+        ];
+        let (verdicts, _, report) = run(&mut slots);
+        assert_eq!(
+            verdicts_of(&verdicts),
+            [
+                Verdict::KeepWithStop(NOW + 2 * H),
+                Verdict::KeepWithStop(NOW + 2 * H),
+                Verdict::Keep
+            ]
+        );
+        assert_eq!(report.consecutive_overlaps_trimmed, 2);
+        assert_eq!(report.nested_kept, 1);
+    }
+
+    #[test]
+    fn a_programme_containing_two_others_is_left_alone() {
+        // A [0, 4h) with B [1h, 2h) and C [2h, 3h) inside it.
+        let mut slots = [
+            slot(0, 0, 0, Some(4 * H)),
+            slot(1, 0, H, Some(2 * H)),
+            slot(2, 0, 2 * H, Some(3 * H)),
+        ];
+        let (verdicts, bounds, report) = run(&mut slots);
+        assert_eq!(
+            verdicts_of(&verdicts),
+            [Verdict::Keep, Verdict::Keep, Verdict::Keep]
+        );
+        assert_eq!(report.nested_kept, 2);
+        assert_eq!(report.consecutive_overlaps_trimmed, 0);
+        assert_eq!(bounds[0].last_stop, NOW + 4 * H);
+    }
+
+    #[test]
+    fn a_programme_ending_with_its_container_is_nested() {
+        let mut slots = [slot(0, 0, 0, Some(4 * H)), slot(1, 0, 2 * H, Some(4 * H))];
+        let (verdicts, _, report) = run(&mut slots);
+        assert_eq!(verdicts_of(&verdicts), [Verdict::Keep, Verdict::Keep]);
+        assert_eq!(report.nested_kept, 1);
+        assert_eq!(report.consecutive_overlaps_trimmed, 0);
+    }
+
+    #[test]
+    fn overlap_counts_include_only_kept_programmes() {
+        let mut slots = [
+            // Nested in a programme still airing, but itself long ended.
+            slot(0, 0, -30 * H, Some(2 * H)),
+            slot(1, 0, -29 * H, Some(-28 * H)),
+            // Cut to end before the cutoff by the programme after it.
+            slot(2, 1, -30 * H, Some(-24 * H - H / 2)),
+            slot(3, 1, -25 * H, Some(H)),
+        ];
+        let (verdicts, _, report) = run(&mut slots);
+        assert_eq!(
+            verdicts_of(&verdicts),
+            [
+                Verdict::Keep,
+                Verdict::Drop(DropReason::Ended),
+                Verdict::Drop(DropReason::Ended),
+                Verdict::Keep
+            ]
+        );
+        assert_eq!(report.nested_kept, 0);
+        assert_eq!(report.consecutive_overlaps_trimmed, 0);
+        assert_eq!(report.ended_before_cutoff_dropped, 2);
     }
 
     #[test]
