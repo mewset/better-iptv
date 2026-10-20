@@ -160,8 +160,10 @@ struct ParsedXmltv<R> {
 ///
 /// quick-xml reports entity references as their own events and validates
 /// UTF-8, so text is collected per field: text events appended, references
-/// resolved leniently, the result trimmed at the field's end tag. Bare
-/// ampersands are text.
+/// resolved leniently, the result trimmed at the field's end tag. A field
+/// that is empty after trimming is ignored, so it neither replaces an earlier
+/// value nor turns a missing description into an empty one. Bare ampersands
+/// are text.
 fn parse_xmltv<R: BufRead>(source: R) -> ParsedXmltv<R> {
     let mut reader = Reader::from_reader(source);
     let config = reader.config_mut();
@@ -176,6 +178,7 @@ fn parse_xmltv<R: BufRead>(source: R) -> ParsedXmltv<R> {
     let mut in_title = false;
     let mut in_desc = false;
     let mut in_category = false;
+    let mut field_text = String::new();
 
     loop {
         match reader.read_event_into(&mut buf) {
@@ -211,42 +214,21 @@ fn parse_xmltv<R: BufRead>(source: R) -> ParsedXmltv<R> {
                         });
                     }
                 }
-                // A later element of the same kind replaces the earlier one.
-                "title" => {
-                    in_title = true;
-                    if let Some(ref mut prog) = current_program {
-                        prog.title.clear();
+                "title" | "desc" | "category" => {
+                    match e.name().as_ref() {
+                        "title" => in_title = true,
+                        "desc" => in_desc = true,
+                        _ => in_category = true,
                     }
-                }
-                "desc" => {
-                    in_desc = true;
-                    if let Some(ref mut prog) = current_program {
-                        prog.description = Some(String::new());
-                    }
-                }
-                "category" => {
-                    in_category = true;
-                    if let Some(ref mut prog) = current_program {
-                        prog.category = Some(String::new());
-                    }
+                    field_text.clear();
                 }
                 _ => {}
             },
-            Ok(Event::Text(e)) => {
-                if let Some(field) = current_program
-                    .as_mut()
-                    .and_then(|prog| prog.field(in_title, in_desc, in_category))
-                {
-                    field.push_str(&e.xml10_content());
-                }
+            Ok(Event::Text(e)) if in_title || in_desc || in_category => {
+                field_text.push_str(&e.xml10_content());
             }
-            Ok(Event::GeneralRef(e)) => {
-                if let Some(field) = current_program
-                    .as_mut()
-                    .and_then(|prog| prog.field(in_title, in_desc, in_category))
-                {
-                    push_reference(field, &e);
-                }
+            Ok(Event::GeneralRef(e)) if in_title || in_desc || in_category => {
+                push_reference(&mut field_text, &e);
             }
             Ok(Event::End(ref e)) => match e.name().as_ref() {
                 "programme" => {
@@ -256,16 +238,19 @@ fn parse_xmltv<R: BufRead>(source: R) -> ParsedXmltv<R> {
                         }
                     }
                 }
+                // A later non-empty element of the same kind replaces the
+                // earlier one, as with the parser before quick-xml 0.42.
                 "title" | "desc" | "category" => {
-                    if let Some(field) = current_program
-                        .as_mut()
-                        .and_then(|prog| prog.field(in_title, in_desc, in_category))
-                    {
-                        let trimmed = field.trim();
-                        if trimmed.len() != field.len() {
-                            *field = trimmed.to_string();
+                    let text = field_text.trim();
+                    if let (Some(prog), false) = (current_program.as_mut(), text.is_empty()) {
+                        let text = text.to_string();
+                        match e.name().as_ref() {
+                            "title" => prog.title = text,
+                            "desc" => prog.description = Some(text),
+                            _ => prog.category = Some(text),
                         }
                     }
+                    field_text.clear();
                     match e.name().as_ref() {
                         "title" => in_title = false,
                         "desc" => in_desc = false,
@@ -585,19 +570,6 @@ struct EpgProgramBuilder {
 }
 
 impl EpgProgramBuilder {
-    /// The text the open child element is collected into.
-    fn field(&mut self, in_title: bool, in_desc: bool, in_category: bool) -> Option<&mut String> {
-        if in_title {
-            Some(&mut self.title)
-        } else if in_desc {
-            self.description.as_mut()
-        } else if in_category {
-            self.category.as_mut()
-        } else {
-            None
-        }
-    }
-
     fn build(self) -> EpgProgram {
         EpgProgram {
             channel_id: self.channel_id,
@@ -863,6 +835,36 @@ mod tests {
             assert_eq!(programs.len(), 100);
             assert_eq!(programs[5].title, "P\u{fffd}ogram 5");
         }
+    }
+
+    #[test]
+    fn an_empty_field_never_replaces_a_value_and_stays_none() {
+        let xml = br#"<tv>
+            <programme start="20260902200000 +0200" stop="20260902203000 +0200" channel="a">
+              <title>First</title><title></title><title>  </title>
+              <desc>Story</desc><desc> </desc><category>News</category><category/>
+            </programme>
+            <programme start="20260902203000 +0200" stop="20260902210000 +0200" channel="a">
+              <title>Second</title><desc></desc><category>
+              </category>
+            </programme></tv>"#;
+        for bytes in [xml.to_vec(), gzip(xml)] {
+            let programs = parse_epg_bytes(&bytes).unwrap();
+            assert_eq!(programs.len(), 2);
+            assert_eq!(programs[0].title, "First");
+            assert_eq!(programs[0].description.as_deref(), Some("Story"));
+            assert_eq!(programs[0].category.as_deref(), Some("News"));
+            assert_eq!(programs[1].title, "Second");
+            assert_eq!(programs[1].description, None);
+            assert_eq!(programs[1].category, None);
+        }
+    }
+
+    #[test]
+    fn a_later_title_still_replaces_an_earlier_one() {
+        let xml = br#"<tv><programme start="20260902200000 +0200" stop="20260902203000 +0200" channel="a">
+            <title>First</title><title>Last</title></programme></tv>"#;
+        assert_eq!(parse_epg_bytes(xml).unwrap()[0].title, "Last");
     }
 
     #[test]
