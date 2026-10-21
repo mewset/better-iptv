@@ -27,6 +27,7 @@ Runs exactly the same checks as GitHub Actions CI:
 - `npm run lint` - ESLint checks
 - `npm run format:check` - Prettier formatting
 - `npm run test:run` - Vitest unit tests
+- `npm run test:tz` - the same tests under `TZ=Pacific/Auckland`
 
 **Rust Checks:**
 

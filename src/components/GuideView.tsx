@@ -4,7 +4,7 @@ import { CalendarRange, Lock, Play, X } from 'lucide-react';
 import { usePlayerStore, type ChannelLoadStatus } from '../stores/player-store';
 import type { Channel } from '../types';
 import type { Programme } from '../lib/epgIpc';
-import { GUIDE_DAY_COUNT, blockGeometry, normalizeEpgId } from '../lib/guideLayout';
+import { blockGeometry, guideDayLabels, normalizeEpgId } from '../lib/guideLayout';
 import { formatClock, formatClockAt, minutesLeft, progressPercent } from '../lib/epgTime';
 import { cn } from '../lib/utils';
 import { useChannelLogo } from '../hooks/useChannelLogo';
@@ -17,18 +17,6 @@ import { ChannelLoadError } from './ChannelLoadError';
 
 const HALF_HOUR = 30 * 60_000;
 const ROW_HEIGHT = 64; // h-16
-
-const weekdayShort = new Intl.DateTimeFormat(undefined, { weekday: 'short' });
-
-/** "Today", then "Fri 25"-style labels for the next four days. */
-function dayLabels(now: number): string[] {
-  const base = new Date(now);
-  return Array.from({ length: GUIDE_DAY_COUNT }, (_, i) => {
-    if (i === 0) return 'Today';
-    const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
-    return `${weekdayShort.format(d)} ${d.getDate()}`;
-  });
-}
 
 /** "HH:MM–HH:MM", or '' when either time cannot be parsed. */
 function timeRange(p: Programme): string {
@@ -401,7 +389,7 @@ export function GuideView({
   // Relabel once per calendar day, not on every now tick.
   const nowDate = new Date(now);
   const dayStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
-  const days = useMemo(() => dayLabels(dayStart), [dayStart]);
+  const days = useMemo(() => guideDayLabels(dayStart), [dayStart]);
 
   const span = win.to - win.from;
   const ticks = useMemo(() => {

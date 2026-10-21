@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   blockGeometry,
   guideChannels,
   guideDataRange,
+  guideDayLabels,
   guideWindow,
   normalizeEpgId,
 } from '../../lib/guideLayout';
@@ -144,3 +145,72 @@ describe('guideChannels', () => {
     expect(guideChannels(list, null).map((c) => c.id)).toEqual([1, 4]);
   });
 });
+
+// Instants next to a clock change. `npm run test:tz` runs these under
+// Pacific/Auckland, the CI default is UTC, and a maintainer's machine is
+// often Europe/Stockholm; every assertion is in local calendar terms, so
+// each holds in any of them.
+//   2026-10-25T00:30Z: 02:30 CEST, half an hour before the EU clocks go back
+//     (13:30 NZDT in Auckland).
+//   2026-04-04T13:30Z: 2026-04-05 02:30 NZDT, half an hour before the
+//     Auckland clocks go back (15:30 CEST in Stockholm).
+describe.each(['2026-10-25T00:30:00Z', '2026-04-04T13:30:00Z'])(
+  'around a DST change, at %s',
+  (at) => {
+    const HOUR = 3_600_000;
+    const now = Date.parse(at);
+    /** The local calendar date `days` after now's, read at local noon so a DST hour cannot shift it. */
+    const dateAfter = (days: number) => {
+      const d = new Date(now);
+      const noon = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12).getTime();
+      return new Date(noon + days * 24 * HOUR).getDate();
+    };
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("today's window starts at the half hour before now and spans three real hours", () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(now);
+      const { from, to } = guideWindow(Date.now(), 0);
+      const minutesPastHalfHour = new Date(now).getMinutes() % 30;
+      expect(from).toBe(now - minutesPastHalfHour * 60_000 - 30 * 60_000);
+      expect(to - from).toBe(3 * HOUR);
+    });
+
+    it("a later day's window is 18:00-21:00 local on that calendar day", () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(now);
+      for (let day = 1; day < 5; day++) {
+        const { from, to } = guideWindow(Date.now(), day);
+        expect([new Date(from).getHours(), new Date(from).getMinutes()]).toEqual([18, 0]);
+        expect([new Date(to).getHours(), new Date(to).getMinutes()]).toEqual([21, 0]);
+        expect(new Date(from).getDate()).toBe(dateAfter(day));
+      }
+    });
+
+    it('the data range runs from local midnight today to local midnight five days on', () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(now);
+      const { from, to } = guideDataRange(Date.now());
+      expect([new Date(from).getHours(), new Date(from).getMinutes()]).toEqual([0, 0]);
+      expect(new Date(from).getDate()).toBe(dateAfter(0));
+      expect([new Date(to).getHours(), new Date(to).getMinutes()]).toEqual([0, 0]);
+      expect(new Date(to).getDate()).toBe(dateAfter(5));
+      // Five calendar days; one of them may be an hour short or long.
+      expect(Math.abs(to - from - 5 * 24 * HOUR)).toBeLessThanOrEqual(HOUR);
+    });
+
+    it('the day chips name today and the next four calendar days, none twice', () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(now);
+      const labels = guideDayLabels(Date.now());
+      expect(labels[0]).toBe('Today');
+      for (let day = 1; day < 5; day++) {
+        expect(labels[day]).toMatch(new RegExp(` ${dateAfter(day)}$`));
+      }
+      expect(new Set(labels).size).toBe(5);
+    });
+  }
+);

@@ -48,6 +48,7 @@ echo -e "${YELLOW}==================${NC}\n"
 run_test "Frontend linting" "npm run lint"
 run_test "Frontend formatting" "npm run format:check"
 run_test "Frontend tests" "npm run test:run"
+run_test "Frontend tests (Pacific/Auckland)" "npm run test:tz"
 
 # Rust Tests
 echo -e "${YELLOW}🦀 Rust Checks${NC}"

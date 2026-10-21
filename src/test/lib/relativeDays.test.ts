@@ -2,19 +2,23 @@ import { describe, it, expect } from 'vitest';
 import { daysSince, refreshedAgo } from '../../lib/relativeDays';
 
 describe('refreshedAgo', () => {
+  // Times without a zone are local, so each case holds in any TZ (the suite
+  // also runs under Pacific/Auckland); the backend's values are UTC instants.
+  const utc = (local: string) => new Date(local).toISOString();
+
   it('says "Refreshed today" for the same local day', () => {
-    const now = new Date('2026-03-10T14:00:00Z');
-    expect(refreshedAgo('2026-03-10T09:00:00Z', now.getTime())).toBe('Refreshed today');
+    const now = new Date('2026-03-10T14:00:00');
+    expect(refreshedAgo(utc('2026-03-10T09:00:00'), now.getTime())).toBe('Refreshed today');
   });
 
   it('says "Refreshed yesterday" for one whole calendar day back', () => {
-    const now = new Date('2026-03-10T14:00:00Z');
-    expect(refreshedAgo('2026-03-09T09:00:00Z', now.getTime())).toBe('Refreshed yesterday');
+    const now = new Date('2026-03-10T14:00:00');
+    expect(refreshedAgo(utc('2026-03-09T09:00:00'), now.getTime())).toBe('Refreshed yesterday');
   });
 
   it('says "Refreshed {n} days ago" for several days back', () => {
-    const now = new Date('2026-03-10T14:00:00Z');
-    expect(refreshedAgo('2026-03-01T09:00:00Z', now.getTime())).toBe('Refreshed 9 days ago');
+    const now = new Date('2026-03-10T14:00:00');
+    expect(refreshedAgo(utc('2026-03-01T09:00:00'), now.getTime())).toBe('Refreshed 9 days ago');
   });
 
   it('returns "" for undefined input', () => {

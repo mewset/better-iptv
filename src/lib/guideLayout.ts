@@ -6,6 +6,22 @@ const HOUR = 60 * MINUTE;
 /** Days the guide offers: today and the next four. */
 export const GUIDE_DAY_COUNT = 5;
 
+const weekdayShort = new Intl.DateTimeFormat(undefined, { weekday: 'short' });
+
+/**
+ * The day chips: "Today", then "Fri 25"-style labels for the next
+ * `GUIDE_DAY_COUNT - 1` local calendar days, built from calendar fields so a
+ * DST change never repeats or skips a day.
+ */
+export function guideDayLabels(now: number): string[] {
+  const base = new Date(now);
+  return Array.from({ length: GUIDE_DAY_COUNT }, (_, i) => {
+    if (i === 0) return 'Today';
+    const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
+    return `${weekdayShort.format(d)} ${d.getDate()}`;
+  });
+}
+
 /**
  * The guide's time window in epoch ms.
  *

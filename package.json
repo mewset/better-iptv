@@ -11,6 +11,7 @@
     "tauri": "tauri",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:tz": "TZ=Pacific/Auckland vitest run",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",

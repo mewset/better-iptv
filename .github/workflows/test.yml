@@ -58,6 +58,11 @@ jobs:
       - name: Run frontend tests
         run: npm run test:run
 
+      # Far from UTC with DST in another month than Europe's, so a test or a
+      # date calculation that assumes the runner's zone fails here.
+      - name: Run frontend tests in another time zone
+        run: npm run test:tz
+
       - name: Check Rust formatting
         run: cd src-tauri && cargo fmt --check
 
@@ -82,6 +87,7 @@ jobs:
           echo "- ✅ Frontend linting" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Code formatting" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Frontend tests" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Frontend tests (Pacific/Auckland)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Rust formatting" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Rust clippy" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Rust tests" >> $GITHUB_STEP_SUMMARY
