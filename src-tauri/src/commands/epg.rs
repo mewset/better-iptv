@@ -9,7 +9,7 @@ use crate::commands::with_db;
 use crate::epg::read::{self, active_profile, NowNext, Programme};
 use crate::epg::service::{EpgService, Finished};
 use crate::epg::sources::{list_sources, SourcePatch};
-use crate::epg::status::EpgSourceStatus;
+use crate::epg::status::{label, EpgSourceStatus};
 use crate::epg_domain::policy::TimePolicy;
 use crate::epg_domain::source::SourceOrigin;
 use crate::epg_domain::{self, normalize_epg_url};
@@ -333,9 +333,15 @@ fn legacy_status(conn: &rusqlite::Connection) -> rusqlite::Result<LegacyEpgStatu
     })
 }
 
-/// The old answer for downloads that ended as `ended`: a success when one
-/// stored programmes or none failed, with the first failure otherwise.
-fn refresh_result(ended: &[(i64, Finished)], at: i64) -> EpgRefreshResult {
+/// The old answer for downloads that ended as `ended`, `labels` naming the
+/// sources. A success only when every source stored its feed. Otherwise the
+/// error names each source that did not, and says when the others were
+/// updated: Settings shows it under "EPG Update Failed".
+fn refresh_result(
+    ended: &[(i64, Finished)],
+    labels: &HashMap<i64, String>,
+    at: i64,
+) -> EpgRefreshResult {
     let stored: usize = ended
         .iter()
         .filter_map(|(_, f)| match f {
@@ -344,16 +350,34 @@ fn refresh_result(ended: &[(i64, Finished)], at: i64) -> EpgRefreshResult {
         })
         .sum();
     let any_stored = ended.iter().any(|(_, f)| matches!(f, Finished::Stored(_)));
-    let failure = ended.iter().find_map(|(_, f)| match f {
-        Finished::Failed(message) => Some(message.clone()),
-        _ => None,
-    });
+    let problems: Vec<String> = ended
+        .iter()
+        .filter_map(|(id, f)| {
+            let label = labels
+                .get(id)
+                .cloned()
+                .unwrap_or_else(|| format!("Guide source {id}"));
+            match f {
+                Finished::Stored(_) => None,
+                Finished::Failed(message) => Some(format!("{label}: {message}")),
+                Finished::Abandoned => Some(format!(
+                    "{label}: the source changed during the update, nothing was stored"
+                )),
+                Finished::Unknown => Some(format!("{label}: the result of the update was lost")),
+            }
+        })
+        .collect();
     let error = if ended.is_empty() {
         Some(NO_SOURCE_MESSAGE.to_string())
-    } else if any_stored {
+    } else if problems.is_empty() {
         None
+    } else if any_stored {
+        Some(format!(
+            "{}. The other guide sources were updated.",
+            problems.join(". ")
+        ))
     } else {
-        failure
+        Some(problems.join(". "))
     };
     EpgRefreshResult {
         success: error.is_none(),
@@ -367,13 +391,26 @@ fn refresh_result(ended: &[(i64, Finished)], at: i64) -> EpgRefreshResult {
 /// profile and waits for the result, also when a download was already
 /// running.
 #[tauri::command]
-pub async fn force_refresh_epg(epg: State<'_, EpgService>) -> Result<EpgRefreshResult, AppError> {
-    update_now(&epg).await
+pub async fn force_refresh_epg(
+    state: State<'_, AppState>,
+    epg: State<'_, EpgService>,
+) -> Result<EpgRefreshResult, AppError> {
+    update_now(&state.pool, &epg).await
 }
 
-async fn update_now(epg: &EpgService) -> Result<EpgRefreshResult, AppError> {
+async fn update_now(
+    pool: &Pool<SqliteConnectionManager>,
+    epg: &EpgService,
+) -> Result<EpgRefreshResult, AppError> {
     let ended = epg.refresh_and_wait(None).await?;
-    let result = refresh_result(&ended, now());
+    let labels = with_db(pool, |conn| {
+        Ok(list_sources(conn)?
+            .iter()
+            .map(|s| (s.id, label(s)))
+            .collect::<HashMap<_, _>>())
+    })
+    .await?;
+    let result = refresh_result(&ended, &labels, now());
     match &result.error {
         None => info!(
             "EPG refresh completed: {} programmes loaded",
@@ -384,10 +421,11 @@ async fn update_now(epg: &EpgService) -> Result<EpgRefreshResult, AppError> {
     Ok(result)
 }
 
-/// TEMPORARY: the Settings URL field, saved. An empty URL disables every
-/// URL source added by hand. A URL goes into such a source (the one that
-/// has it is enabled, otherwise the first one takes it, or a new one is
-/// added) and is downloaded now. Returns the programmes stored.
+/// TEMPORARY: the Settings URL field, saved. An empty URL means the
+/// providers' guides, as in 3.1.x: the global URL sources are disabled and
+/// the provider sources enabled. A URL goes into a global URL source (the
+/// one that has it is enabled, otherwise the first one takes it, or a new
+/// one is added) and is downloaded now. Returns the programmes stored.
 #[tauri::command]
 pub async fn fetch_epg_data(
     state: State<'_, AppState>,
@@ -403,35 +441,27 @@ async fn save_guide_url(
     epg_url: &str,
 ) -> Result<usize, AppError> {
     let url = normalize_epg_url(epg_url);
-    let manual: Vec<(i64, String, bool)> = with_db(pool, |conn| {
+    let manual: Vec<(i64, String)> = with_db(pool, |conn| {
         Ok(list_sources(conn)?
             .into_iter()
             .filter(|s| s.origin == SourceOrigin::Manual && s.playlist_id.is_none())
-            .map(|s| (s.id, s.url.unwrap_or_default(), s.enabled))
+            .map(|s| (s.id, s.url.unwrap_or_default()))
             .collect())
     })
     .await?;
 
     if url.is_empty() {
-        for (id, _, enabled) in manual {
-            if enabled {
-                let off = SourcePatch {
-                    enabled: Some(false),
-                    ..SourcePatch::default()
-                };
-                epg.update_source(id, off).await?;
-            }
-        }
+        epg.use_provider_guides().await?;
         return Ok(0);
     }
     epg_domain::validate_epg_url(&url)?;
 
     let target = manual
         .iter()
-        .find(|(_, u, _)| *u == url)
+        .find(|(_, u)| *u == url)
         .or_else(|| manual.first());
     let (id, run) = match target {
-        Some((id, _, _)) => {
+        Some((id, _)) => {
             let patch = SourcePatch {
                 enabled: Some(true),
                 url: Some(url),
@@ -458,19 +488,24 @@ async fn save_guide_url(
             .map(|r| Finished::of_result(&r.result)),
         None => None,
     };
-    let outcome = match started {
-        Some(outcome) => Some(outcome),
-        None => epg
+    let mut outcome = started;
+    // A download of the old URL that was running when the URL changed ends
+    // as abandoned, and the new URL's download follows it: wait for that.
+    for _ in 0..2 {
+        if matches!(outcome, Some(ref f) if *f != Finished::Abandoned) {
+            break;
+        }
+        outcome = epg
             .refresh_and_wait(Some(id))
             .await?
             .into_iter()
             .find(|(source, _)| *source == id)
-            .map(|(_, f)| f),
-    };
+            .map(|(_, f)| f);
+    }
     match outcome {
         Some(Finished::Stored(count)) => Ok(count as usize),
         Some(Finished::Failed(message)) => Err(AppError::Epg(message)),
-        Some(Finished::Abandoned) | None => Err(AppError::Epg(
+        Some(Finished::Abandoned | Finished::Unknown) | None => Err(AppError::Epg(
             "The guide source changed during the update".to_string(),
         )),
     }
@@ -484,7 +519,7 @@ mod tests {
     use crate::epg::status::EpgStatus;
     use crate::epg::test_support::*;
     use crate::epg::{ingest, Fetch, IngestOutcome, IngestScope};
-    use crate::http::test_server::{respond, serve};
+    use crate::http::test_server::{respond, serve, trickle};
     use std::collections::HashSet;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -617,7 +652,7 @@ mod tests {
     }
 
     /// (id, url, enabled) of every source, by id.
-    fn manual_sources(f: &Fixture) -> Vec<(i64, Option<String>, bool)> {
+    fn all_sources(f: &Fixture) -> Vec<(i64, Option<String>, bool)> {
         list_sources(&f.conn())
             .unwrap()
             .into_iter()
@@ -636,22 +671,44 @@ mod tests {
         );
 
         assert_eq!(save_guide_url(&f.pool, &epg, &first).await.unwrap(), 3);
-        let id = manual_sources(&f)[0].0;
-        assert_eq!(manual_sources(&f), [(id, Some(first.clone()), true)]);
+        let id = all_sources(&f)[0].0;
+        assert_eq!(all_sources(&f), [(id, Some(first.clone()), true)]);
         assert!(feed_path(&f.dir.0, id).exists());
 
         // Another URL replaces it in the same source, and downloads.
         assert_eq!(save_guide_url(&f.pool, &epg, &second).await.unwrap(), 3);
-        assert_eq!(manual_sources(&f), [(id, Some(second.clone()), true)]);
+        assert_eq!(all_sources(&f), [(id, Some(second.clone()), true)]);
 
-        // Emptied: disabled, kept.
+        // Emptied: the provider's guide again, as in 3.1.x. The URL
+        // source is disabled and kept.
+        let conn = f.conn();
+        conn.execute(
+            "INSERT INTO playlists (id, name, url, xtream_username, xtream_password)
+             VALUES (1, 'Provider', 'http://127.0.0.1:9', 'john', 'secret')",
+            [],
+        )
+        .unwrap();
+        let provider = crate::epg::sources::ensure_xtream_source(&conn, 1).unwrap();
+        conn.execute(
+            "UPDATE epg_source SET enabled = 0, last_attempt_at = ?2, last_success_at = ?2
+             WHERE id = ?1",
+            rusqlite::params![provider, NOW],
+        )
+        .unwrap();
+        drop(conn);
         assert_eq!(save_guide_url(&f.pool, &epg, "  ").await.unwrap(), 0);
-        assert_eq!(manual_sources(&f), [(id, Some(second.clone()), false)]);
+        assert_eq!(
+            all_sources(&f),
+            [(id, Some(second.clone()), false), (provider, None, true)]
+        );
 
         // The same URL again: enabled and downloaded, though fetched a
         // moment ago.
         assert_eq!(save_guide_url(&f.pool, &epg, &second).await.unwrap(), 3);
-        assert_eq!(manual_sources(&f), [(id, Some(second), true)]);
+        assert_eq!(
+            all_sources(&f),
+            [(id, Some(second), true), (provider, None, true)]
+        );
         assert_eq!(server.connections(), 3);
 
         let err = save_guide_url(&f.pool, &epg, "ftp://epg.example/a.xml")
@@ -677,16 +734,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn saving_a_url_while_the_old_one_downloads_waits_for_the_new_one() {
+        let f = Fixture::new("commands");
+        let body = feed().into_bytes();
+        let server = serve(vec![trickle(&body, 8, Duration::from_millis(100))]).await;
+        let epg = service(&f);
+        let s = add_manual(&f.conn(), &format!("{}/old.xml", server.base));
+        let running = epg.refresh(Some(s)).await.unwrap().unwrap();
+        while !crate::epg::sources::download_path(&f.dir.0, s).exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        let stored = save_guide_url(&f.pool, &epg, &format!("{}/new.xml", server.base))
+            .await
+            .unwrap();
+
+        assert_eq!(stored, 3, "the new URL's download, not the abandoned one");
+        let runs = running.await.unwrap();
+        assert!(matches!(
+            runs[0].result,
+            Ok(IngestOutcome::Abandoned(
+                crate::epg::AbandonReason::UrlChanged
+            ))
+        ));
+        assert_eq!(f.programmes(s).len(), 3);
+    }
+
+    #[tokio::test]
     async fn update_now_waits_for_the_download_and_reports_it() {
         let f = Fixture::new("commands");
         let server = serve(vec![respond("200 OK", feed().as_bytes())]).await;
         let epg = service(&f);
 
-        let none = update_now(&epg).await.unwrap();
+        let none = update_now(&f.pool, &epg).await.unwrap();
         assert_eq!(none.error.as_deref(), Some(NO_SOURCE_MESSAGE));
 
         add_manual(&f.conn(), &format!("{}/epg.xml", server.base));
-        let result = update_now(&epg).await.unwrap();
+        let result = update_now(&f.pool, &epg).await.unwrap();
 
         assert!(result.success, "{result:?}");
         assert_eq!(result.programs_loaded, 3);
@@ -804,18 +888,19 @@ mod tests {
     }
 
     #[test]
-    fn update_now_succeeds_when_a_source_stored_and_reports_a_failure_otherwise() {
+    fn update_now_succeeds_only_when_every_source_stored_and_names_the_others() {
         let at = 1_792_584_000;
-        let ok = refresh_result(
-            &[
-                (1, Finished::Failed("down".into())),
-                (2, Finished::Stored(40)),
-                (3, Finished::Stored(2)),
-            ],
+        let labels = HashMap::from([
+            (1, "epg.example".to_string()),
+            (2, "My provider".to_string()),
+        ]);
+        let all = refresh_result(
+            &[(1, Finished::Stored(40)), (2, Finished::Stored(2))],
+            &labels,
             at,
         );
         assert_eq!(
-            ok,
+            all,
             EpgRefreshResult {
                 success: true,
                 programs_loaded: 42,
@@ -823,6 +908,22 @@ mod tests {
                 error: None,
             }
         );
+
+        let some = refresh_result(
+            &[
+                (1, Finished::Failed("down".into())),
+                (2, Finished::Stored(40)),
+            ],
+            &labels,
+            at,
+        );
+        assert!(!some.success);
+        assert_eq!(some.programs_loaded, 40);
+        assert_eq!(
+            some.error.as_deref(),
+            Some("epg.example: down. The other guide sources were updated.")
+        );
+
         let failed = refresh_result(
             &[
                 (1, Finished::Abandoned),
@@ -831,16 +932,29 @@ mod tests {
                     Finished::Failed("The EPG server answered 403 Forbidden".into()),
                 ),
             ],
+            &labels,
             at,
         );
         assert!(!failed.success);
         assert_eq!(
             failed.error.as_deref(),
-            Some("The EPG server answered 403 Forbidden")
+            Some(
+                "epg.example: the source changed during the update, nothing was stored. \
+                 My provider: The EPG server answered 403 Forbidden"
+            )
         );
-        let none = refresh_result(&[], at);
+
+        let abandoned = refresh_result(&[(1, Finished::Abandoned)], &labels, at);
+        assert!(!abandoned.success, "nothing stored is no success");
+        let lost = refresh_result(&[(3, Finished::Unknown)], &labels, at);
+        assert!(!lost.success);
+        assert_eq!(
+            lost.error.as_deref(),
+            Some("Guide source 3: the result of the update was lost"),
+            "a lost outcome is not \"no source\""
+        );
+        let none = refresh_result(&[], &labels, at);
         assert!(!none.success);
         assert_eq!(none.error.as_deref(), Some(NO_SOURCE_MESSAGE));
-        assert!(refresh_result(&[(1, Finished::Abandoned)], at).success);
     }
 }

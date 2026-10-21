@@ -80,7 +80,7 @@ pub struct EpgStatus {
 }
 
 /// The source's short name; see `EpgSourceStatus::label`.
-fn label(source: &SourceRecord) -> String {
+pub fn label(source: &SourceRecord) -> String {
     match source.origin {
         SourceOrigin::Xtream => source
             .playlist_name

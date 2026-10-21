@@ -125,6 +125,9 @@ pub enum Finished {
     Abandoned,
     /// Failed with this credential-free sentence.
     Failed(String),
+    /// Ended, but the waiter missed how: more downloads ended at once than
+    /// the channel holds. Only `refresh_and_wait` reports it.
+    Unknown,
 }
 
 impl Finished {
@@ -365,7 +368,7 @@ impl EpgService {
     /// download, also one that was already queued or running when it was
     /// asked for. Returns how each ended, in the order they ended; empty
     /// when no source applies. A source whose outcome was missed (more
-    /// downloads ended at once than the channel holds) is left out.
+    /// downloads ended at once than the channel holds) is `Unknown`.
     pub async fn refresh_and_wait(&self, source_id: Option<i64>) -> Result<Vec<Outcome>, AppError> {
         let ids = self.requested(source_id).await?;
         let (_, mut finished) = self.spawn_downloads(ids.clone());
@@ -381,7 +384,15 @@ impl EpgService {
                 Err(broadcast::error::RecvError::Lagged(missed)) => {
                     warn!("EPG refresh: {missed} download outcome(s) missed");
                     let busy = lock_set(&self.parts.refreshing).clone();
-                    waiting.retain(|id| busy.contains(id));
+                    let missed: Vec<i64> = waiting
+                        .iter()
+                        .filter(|id| !busy.contains(id))
+                        .copied()
+                        .collect();
+                    for id in missed {
+                        waiting.remove(&id);
+                        ended.push((id, Finished::Unknown));
+                    }
                 }
                 // The service holds the sender; reached only if that changes.
                 Err(broadcast::error::RecvError::Closed) => break,
@@ -696,6 +707,28 @@ impl EpgService {
     pub async fn profile_switched(&self) -> Result<Option<RunHandle>, AppError> {
         self.refreshed(RefreshReason::ProfileSwitch, None);
         self.emit_status().await;
+        self.check_due().await
+    }
+
+    /// What an emptied guide URL meant before per-source guides (the old
+    /// Settings field): the providers' guides, not the URL. Disables the
+    /// global URL sources, enables the provider sources, and runs the
+    /// due-check.
+    pub async fn use_provider_guides(&self) -> Result<Option<RunHandle>, AppError> {
+        let changed = self.db(sources::use_provider_guides).await?;
+        self.provider_guides_restored(changed > 0).await
+    }
+
+    /// The events and due-check after `sources::use_provider_guides` ran,
+    /// on a connection of the caller's; `changed` when it changed a row.
+    pub async fn provider_guides_restored(
+        &self,
+        changed: bool,
+    ) -> Result<Option<RunHandle>, AppError> {
+        if changed {
+            self.refreshed(RefreshReason::SourceChanged, None);
+            self.emit_status().await;
+        }
         self.check_due().await
     }
 
@@ -1440,5 +1473,32 @@ mod tests {
         let f = Fixture::new("service");
         let (service, _) = service(&f);
         assert!(service.refresh_and_wait(None).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn clearing_the_guide_url_enables_the_provider_guides_and_fetches_them() {
+        let f = Fixture::new("service");
+        let url = add_manual(&f.conn(), "http://epg.example/epg.xml");
+        let provider = xtream(&f, 1);
+        set_active(&f, 1);
+        f.conn()
+            .execute(
+                "UPDATE epg_source SET enabled = 0 WHERE id = ?1",
+                params![provider],
+            )
+            .unwrap();
+        let (service, events) = service(&f);
+
+        let run = service.use_provider_guides().await.unwrap();
+
+        let enabled = |id: i64| f.status::<bool>(id, "enabled");
+        assert!(!enabled(url) && enabled(provider));
+        assert_eq!(events.reasons(), [(RefreshReason::SourceChanged, None)]);
+        let runs = run.expect("never fetched, so due").await.unwrap();
+        assert_eq!(runs[0].source_id, provider);
+
+        // Again: nothing changes, nothing is announced.
+        service.use_provider_guides().await.unwrap();
+        assert_eq!(events.reasons().len(), 1);
     }
 }

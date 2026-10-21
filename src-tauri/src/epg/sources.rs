@@ -314,6 +314,24 @@ pub fn update_source(
     })
 }
 
+/// What an empty guide URL meant before per-source guides: the provider's
+/// guide. Disables every global source added by hand and enables every
+/// provider source, in one transaction; returns how many rows changed.
+pub fn use_provider_guides(conn: &Connection) -> Result<usize, AppError> {
+    let tx = write_transaction(conn)?;
+    let off = tx.execute(
+        "UPDATE epg_source SET enabled = 0
+         WHERE origin = 'manual' AND playlist_id IS NULL AND enabled = 1",
+        [],
+    )?;
+    let on = tx.execute(
+        "UPDATE epg_source SET enabled = 1 WHERE origin = 'xtream' AND enabled = 0",
+        [],
+    )?;
+    tx.commit()?;
+    Ok(off + on)
+}
+
 /// Set the time policy a source's feed is read with. The stored programmes
 /// keep the policy they were read under until the next ingest re-reads the
 /// feed; `SourceRecord::policy_pending` shows the difference meanwhile.
@@ -909,6 +927,26 @@ mod tests {
             get_source(&conn, id).unwrap().unwrap().policy.shift_minutes,
             -90
         );
+    }
+
+    #[test]
+    fn a_patch_from_the_frontend_leaves_out_what_it_does_not_change() {
+        let parse = |json: &str| serde_json::from_str::<SourcePatch>(json);
+        assert_eq!(parse("{}").unwrap(), SourcePatch::default());
+        assert_eq!(
+            parse(r#"{"enabled":null}"#).unwrap(),
+            SourcePatch::default()
+        );
+        assert_eq!(
+            parse(r#"{"enabled":false,"priority":5,"url":"https://epg.example/a.xml"}"#).unwrap(),
+            SourcePatch {
+                enabled: Some(false),
+                priority: Some(5),
+                url: Some("https://epg.example/a.xml".to_string()),
+            }
+        );
+        let err = parse(r#"{"enabled":true,"origin":"xtream"}"#).unwrap_err();
+        assert!(err.to_string().contains("unknown field `origin`"), "{err}");
     }
 
     #[test]
