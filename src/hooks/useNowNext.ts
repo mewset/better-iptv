@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useEpgStore } from '../stores/epg-store';
+import { MISS_RETRY_MS, useEpgStore } from '../stores/epg-store';
 import { getEpgNowNext, NOW_NEXT_BATCH, type NowNext } from '../lib/epgIpc';
 import { isNowNextStale, nowNextBoundary } from '../lib/epgTime';
 import { normalizeEpgId } from '../lib/guideLayout';
@@ -9,7 +9,7 @@ import type { Channel } from '../types';
 /** Wait after the wanted keys change before asking (scrolling settles). */
 const DEBOUNCE_MS = 500;
 /** A key the guide had nothing for, or a failed request, is not asked again for this long. */
-export const EMPTY_RETRY_MS = 5 * 60_000;
+export const EMPTY_RETRY_MS = MISS_RETRY_MS;
 /** Ask this long after a programme boundary, so the next programme has begun. */
 const BOUNDARY_SLACK_MS = 1000;
 /** The boundary timer never waits longer than this; it re-arms on firing. */
@@ -30,10 +30,7 @@ export function nowNextFor(nowNext: Map<string, NowNext>, channel: Channel): Now
   return key === null ? undefined : nowNext.get(key);
 }
 
-type EpgCache = Pick<
-  ReturnType<typeof useEpgStore.getState>,
-  'nowNext' | 'fetchedIn' | 'missedAt' | 'generation'
->;
+type EpgCache = Pick<ReturnType<typeof useEpgStore.getState>, 'nowNext' | 'fetchedIn' | 'missedAt'>;
 
 /**
  * Whether `key` has to be asked for at `now`: never answered in this
@@ -41,7 +38,7 @@ type EpgCache = Pick<
  * programme boundary has passed.
  */
 function isDue(cache: EpgCache, key: string, now: number): boolean {
-  if (cache.fetchedIn.get(key) !== cache.generation) return true;
+  if (!cache.fetchedIn.has(key)) return true;
   const missed = cache.missedAt.get(key);
   if (missed !== undefined) return now - missed >= EMPTY_RETRY_MS;
   const entry = cache.nowNext.get(key);
@@ -65,8 +62,9 @@ function isDue(cache: EpgCache, key: string, now: number): boolean {
  * their answer replaces them.
  */
 export function useNowNext(channels: Channel[], playing?: Channel | null): Map<string, NowNext> {
+  // Only what the cards show and what starts a request: a batch of misses
+  // changes neither, and re-renders nothing.
   const nowNext = useEpgStore((s) => s.nowNext);
-  const missedAt = useEpgStore((s) => s.missedAt);
   const generation = useEpgStore((s) => s.generation);
 
   const wantedKey = useMemo(() => {
@@ -83,18 +81,16 @@ export function useNowNext(channels: Channel[], playing?: Channel | null): Map<s
   wantedRef.current = wantedKey === '' ? [] : wantedKey.split(SEP);
 
   const alive = useRef(true);
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-    };
-  }, []);
-
   const inFlight = useRef(false);
   // A request was wanted while one ran: ask again when it ends.
   const askAgain = useRef(false);
+  // When the last request failed; null after a success.
+  const failedAt = useRef<number | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pass, setPass] = useState(0);
-  const [failedAt, setFailedAt] = useState<number | null>(null);
+
+  // `schedule` and `fetchDue` call each other; the ref breaks the cycle.
+  const scheduleRef = useRef<() => void>(() => {});
 
   const fetchDue = useCallback(async () => {
     if (inFlight.current) {
@@ -124,45 +120,51 @@ export function useNowNext(channels: Channel[], playing?: Channel | null): Map<s
           entries.push([key, entry]);
         }
       }
-      useEpgStore.getState().setNowNext(entries, misses, now, cache.generation);
-      if (alive.current) setFailedAt(null);
+      useEpgStore
+        .getState()
+        .setNowNext(entries, misses, now, cache.generation, new Set(wantedRef.current));
+      failedAt.current = null;
     } catch (err) {
       logger.debug('Failed to fetch now/next:', err);
       // Not again at once: the timer asks again after EMPTY_RETRY_MS.
       more = false;
-      if (alive.current) setFailedAt(Date.now());
+      failedAt.current = Date.now();
     } finally {
       inFlight.current = false;
     }
-    if (alive.current && (more || askAgain.current)) {
+    if (!alive.current) return;
+    scheduleRef.current();
+    if (more || askAgain.current) {
       askAgain.current = false;
       setPass((p) => p + 1);
     }
   }, []);
 
-  // New wanted keys, a new generation, or the next capped batch.
-  useEffect(() => {
-    if (wantedKey === '') return;
-    const timer = setTimeout(fetchDue, DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [wantedKey, generation, pass, fetchDue]);
-
-  // The boundary timer. `rearm` restarts it when it fired without changing
-  // the store (it was capped at MAX_TIMER_MS, or nothing was due yet).
-  const [rearm, setRearm] = useState(0);
-  useEffect(() => {
-    if (wantedKey === '') return;
+  /**
+   * (Re)arms the one timer: just after the earliest programme boundary
+   * among the wanted entries, when a miss or a failed request may be asked
+   * again, at most MAX_TIMER_MS ahead. A wanted entry already past its
+   * boundary (the timer was cleared by a re-run after the boundary, before
+   * it fired), or a miss already due, is asked for at once.
+   */
+  const schedule = useCallback(() => {
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    if (!alive.current || wantedRef.current.length === 0) return;
     const cache = useEpgStore.getState();
     const now = Date.now();
-    // Only moments still ahead: what is due already is asked for by the
-    // effect above, and counting it here would spin the timer.
     let at = Infinity;
+    let dueNow = false;
     const consider = (t: number) => {
       if (t > now) at = Math.min(at, t);
+      else dueNow = true;
     };
-    if (failedAt !== null) consider(failedAt + EMPTY_RETRY_MS);
-    for (const key of wantedKey.split(SEP)) {
-      if (cache.fetchedIn.get(key) !== cache.generation) continue;
+    if (failedAt.current !== null) consider(failedAt.current + EMPTY_RETRY_MS);
+    for (const key of wantedRef.current) {
+      // Not answered in this generation: the request effect asks for it.
+      if (!cache.fetchedIn.has(key)) continue;
       const missed = cache.missedAt.get(key);
       if (missed !== undefined) {
         consider(missed + EMPTY_RETRY_MS);
@@ -170,19 +172,45 @@ export function useNowNext(channels: Channel[], playing?: Channel | null): Map<s
       }
       const entry = cache.nowNext.get(key);
       const boundary = entry ? nowNextBoundary(entry) : null;
-      if (boundary !== null) consider(boundary + BOUNDARY_SLACK_MS);
+      if (boundary === null) continue;
+      if (boundary <= now) dueNow = true;
+      else consider(boundary + BOUNDARY_SLACK_MS);
     }
+    // After a failure only the retry time asks again, never a loop.
+    if (dueNow && failedAt.current === null) void fetchDue();
     if (at === Infinity) return;
-    const timer = setTimeout(
+    timer.current = setTimeout(
       () => {
+        timer.current = null;
         void fetchDue();
-        setRearm((n) => n + 1);
+        scheduleRef.current();
       },
       Math.min(at - now, MAX_TIMER_MS)
     );
-    return () => clearTimeout(timer);
-    // nowNext, missedAt: an answer moves the earliest boundary.
-  }, [wantedKey, nowNext, missedAt, generation, failedAt, rearm, fetchDue]);
+  }, [fetchDue]);
+  scheduleRef.current = schedule;
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      if (timer.current !== null) clearTimeout(timer.current);
+      timer.current = null;
+    };
+  }, []);
+
+  // New wanted keys, a new generation, or the next capped batch.
+  useEffect(() => {
+    if (wantedKey === '') return;
+    const t = setTimeout(fetchDue, DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [wantedKey, generation, pass, fetchDue]);
+
+  // Other keys, or a new generation, move the earliest boundary; answers
+  // re-arm the timer from fetchDue.
+  useEffect(() => {
+    schedule();
+  }, [wantedKey, generation, schedule]);
 
   return nowNext;
 }

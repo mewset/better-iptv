@@ -45,7 +45,7 @@ describe('epgEvents', () => {
   it('epg-refreshed invalidates the cached guide data', async () => {
     const stop = startEpgEvents();
     await vi.waitFor(() => expect(mockedListen).toHaveBeenCalledTimes(2));
-    useEpgStore.getState().setNowNext([], ['a'], 0, 0);
+    useEpgStore.getState().setNowNext([], ['a'], 0, 0, new Set());
 
     emit('epg-refreshed', { reason: 'ingest', source_id: 1, matches_changed: 0 });
 

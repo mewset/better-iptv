@@ -37,6 +37,7 @@ function answerWith(entry: (key: string) => NowNext | undefined) {
   });
 }
 const store = () => useEpgStore.getState();
+const none = new Set<string>();
 
 describe('useNowNext', () => {
   beforeEach(() => {
@@ -216,7 +217,13 @@ describe('useNowNext', () => {
   });
 
   it('asks again for a wanted key whose cached programme has ended', async () => {
-    store().setNowNext([['svt1.se', nowNext(programme('Old show', at(-90), at(-30)))]], [], 0, 0);
+    store().setNowNext(
+      [['svt1.se', nowNext(programme('Old show', at(-90), at(-30)))]],
+      [],
+      0,
+      0,
+      none
+    );
     answerWith(() => airing('New show'));
 
     const { result } = renderHook(() =>
@@ -229,7 +236,13 @@ describe('useNowNext', () => {
   });
 
   it('asks again for the playing channel when its cached programme has ended', async () => {
-    store().setNowNext([['kanal5.se', nowNext(programme('Old show', at(-90), at(-30)))]], [], 0, 0);
+    store().setNowNext(
+      [['kanal5.se', nowNext(programme('Old show', at(-90), at(-30)))]],
+      [],
+      0,
+      0,
+      none
+    );
     answerWith(() => airing('New show'));
     const playing = makeChannel({ id: 9, name: 'Kanal 5', epg_id: 'kanal5.se' });
 
@@ -342,6 +355,48 @@ describe('useNowNext', () => {
     expect(mocked).toHaveBeenCalledTimes(2);
     expect(mocked.mock.calls[1][0]).toEqual(['short.se']);
     expect(store().nowNext.get('short.se')?.now?.title).toBe('After');
+  });
+
+  it('asks at once for an entry past its boundary when the timer was re-armed after it', async () => {
+    // The clock passes the boundary without the timer firing (a busy or
+    // suspended page), then something re-arms the timer: the boundary is
+    // behind it, so only an immediate request still catches it.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-21T18:00:00Z'));
+    answerWith((key) => (key === 'a.se' ? airing('A', -5, 10) : airing('B', -5, 60)));
+    const a = makeChannel({ id: 1, epg_id: 'a.se' });
+    const b = makeChannel({ id: 2, epg_id: 'b.se' });
+    const { rerender } = renderHook(({ list }) => useNowNext(list), {
+      initialProps: { list: [a] },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(mocked).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(Date.now() + 10 * 60_000 + 5000);
+    answerWith(() => airing('After', 0, 30));
+    rerender({ list: [a, b] });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // At once, not after the 500 ms debounce of the new list.
+    expect(mocked).toHaveBeenCalledTimes(2);
+    expect(mocked.mock.calls[1][0]).toContain('a.se');
+    expect(store().nowNext.get('a.se')?.now?.title).toBe('After');
+  });
+
+  it('a batch of misses does not re-render the caller', async () => {
+    mocked.mockResolvedValue({});
+    let renders = 0;
+    renderHook(() => {
+      renders++;
+      return useNowNext([makeChannel({ id: 1, epg_id: 'none.se' })]);
+    });
+    await waitFor(() => expect(store().missedAt.has('none.se')).toBe(true), { timeout: 2000 });
+    const after = renders;
+    act(() => store().setNowNext([], ['other.se'], Date.now(), 0, none));
+    expect(renders).toBe(after);
   });
 
   it('an off-air entry is asked again when its next programme begins', async () => {
