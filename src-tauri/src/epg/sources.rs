@@ -313,6 +313,21 @@ pub fn update_source(
     })
 }
 
+/// Set the time policy a source's feed is read with. The stored programmes
+/// keep the policy they were read under until the next ingest re-reads the
+/// feed; `SourceRecord::policy_pending` shows the difference meanwhile.
+pub fn set_time_policy(conn: &Connection, id: i64, policy: &TimePolicy) -> Result<(), AppError> {
+    policy.validate()?;
+    let changed = conn.execute(
+        "UPDATE epg_source SET time_interpret = ?2, time_shift_minutes = ?3 WHERE id = ?1",
+        params![id, policy.interpret.as_str(), policy.shift_minutes],
+    )?;
+    if changed == 0 {
+        return Err(not_found(id));
+    }
+    Ok(())
+}
+
 /// Remove a `manual` source with its rows and cache files. Provider sources
 /// go with their playlist instead.
 ///
@@ -834,6 +849,35 @@ mod tests {
         )
         .unwrap();
         assert!(pending(&conn), "configured changed since");
+    }
+
+    #[test]
+    fn a_time_policy_is_stored_as_configured_only() {
+        let conn = db();
+        let id = add_manual_source(&conn, "https://epg.example/a.xml").unwrap();
+        let policy = TimePolicy {
+            interpret: Interpret::LocalZone,
+            shift_minutes: -90,
+        };
+        set_time_policy(&conn, id, &policy).unwrap();
+        let source = get_source(&conn, id).unwrap().unwrap();
+        assert_eq!(source.policy, policy);
+        assert_eq!(source.applied_policy, None);
+
+        for bad in [45, 15 * 60, -13 * 60] {
+            let policy = TimePolicy {
+                shift_minutes: bad,
+                ..TimePolicy::default()
+            };
+            let err = set_time_policy(&conn, id, &policy).unwrap_err();
+            assert!(matches!(err, AppError::InvalidInput(_)), "{bad}");
+        }
+        let err = set_time_policy(&conn, 99, &TimePolicy::default()).unwrap_err();
+        assert!(matches!(err, AppError::InvalidInput(_)));
+        assert_eq!(
+            get_source(&conn, id).unwrap().unwrap().policy.shift_minutes,
+            -90
+        );
     }
 
     #[test]
