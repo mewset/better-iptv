@@ -1256,4 +1256,174 @@ mod epg_source_seed_tests {
             "the old settings rows stay"
         );
     }
+
+    // ========== Downgrade: the 3.1.2 binary started on this database ==========
+
+    use crate::db::schema::ensure_active_profile;
+    use crate::db::schema_v3_1::{
+        init_schema_v3_1, EPG_IDS_BACKFILLED_KEY, EPG_PROGRAMS_NORMALIZED_KEY,
+    };
+
+    /// Every row of the guide tables of this version, in primary key order
+    /// (two of them have no rowid).
+    fn new_tables(conn: &Connection) -> Vec<Vec<Vec<Value>>> {
+        [
+            "epg_source",
+            "epg_channel",
+            "epg_channel_name",
+            "epg_programme",
+        ]
+        .iter()
+        .map(|t| {
+            let cols = columns(conn, t);
+            let sql = format!("SELECT {} FROM {t} ORDER BY 1, 2", cols.join(", "));
+            let mut stmt = conn.prepare(&sql).unwrap();
+            stmt.query_map([], |row| {
+                (0..cols.len())
+                    .map(|i| row.get::<_, Value>(i))
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect()
+        })
+        .collect()
+    }
+
+    /// One channel with a name and a programme, as an ingest stores them.
+    fn add_guide_rows(conn: &Connection, source_id: i64) {
+        conn.execute(
+            "INSERT INTO epg_channel (source_id, key, first_start, last_stop, programme_count)
+             VALUES (?1, 'tv4.se', 100, 200, 1)",
+            params![source_id],
+        )
+        .unwrap();
+        let channel = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO epg_channel_name (channel_id, position, name, name_key)
+             VALUES (?1, 0, 'TV4', 'tv4')",
+            params![channel],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO epg_programme (channel_id, start, stop, title) VALUES (?1, 100, 200, 'News')",
+            params![channel],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE epg_source SET programme_count = 1, last_success_at = 100,
+                 last_attempt_at = 100, last_result = 'ok',
+                 applied_interpret = 'as_written', applied_shift_minutes = 0
+             WHERE id = ?1",
+            params![source_id],
+        )
+        .unwrap();
+    }
+
+    fn has_setting(conn: &Connection, key: &str) -> bool {
+        get_setting(conn, key).unwrap().is_some()
+    }
+
+    #[test]
+    fn a_3_1_2_start_on_an_upgraded_database_succeeds_and_leaves_the_new_tables() {
+        let conn = v1_db(&legacy_url());
+        init_schema(&conn).unwrap();
+        super::drop_legacy_epg_tables(&conn).unwrap();
+        let source: i64 = conn
+            .query_row("SELECT id FROM epg_source", [], |r| r.get(0))
+            .unwrap();
+        add_guide_rows(&conn, source);
+        let guide = new_tables(&conn);
+        let channel_columns = columns(&conn, "channels");
+        let channels = snapshot(&conn, "channels", &channel_columns);
+
+        init_schema_v3_1(&conn).unwrap();
+        ensure_active_profile(&conn).unwrap();
+
+        assert_eq!(new_tables(&conn), guide);
+        assert_eq!(snapshot(&conn, "channels", &channel_columns), channels);
+        for key in [
+            EPG_PROGRAMS_NORMALIZED_KEY,
+            EPG_IDS_BACKFILLED_KEY,
+            EPG_SOURCES_SEEDED_KEY,
+            super::M3U_SERIES_GROUPED_KEY,
+        ] {
+            assert!(has_setting(&conn, key), "{key}");
+        }
+        // 3.1.2 finds its URL and an empty table: it downloads again at its
+        // first poll.
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM epg_programs"), 0);
+        assert_eq!(get_setting(&conn, "epg_url").unwrap(), Some(legacy_url()));
+
+        // Back on this version.
+        init_schema(&conn).unwrap();
+        super::drop_legacy_epg_tables(&conn).unwrap();
+        assert_eq!(new_tables(&conn), guide);
+        assert!(schema_objects(&conn)
+            .iter()
+            .all(|(_, name)| name != "epg_programs"));
+    }
+
+    fn live(name: &str, epg_id: Option<&str>) -> crate::db::models::Channel {
+        crate::db::models::Channel {
+            id: None,
+            playlist_id: 0,
+            name: name.to_string(),
+            url: format!("http://provider.example/{name}"),
+            logo: None,
+            group_name: Some("News".to_string()),
+            epg_id: epg_id.map(str::to_string),
+            tvg_name: None,
+            content_type: "live".to_string(),
+            is_favorite: false,
+            sort_order: 0,
+            category_order: 0,
+            created_at: None,
+        }
+    }
+
+    #[test]
+    fn a_3_1_2_start_on_a_database_this_version_created_succeeds() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        init_schema(&conn).unwrap();
+        ensure_active_profile(&conn).unwrap();
+        let playlist = crate::playlist_domain::build_xtream_playlist(
+            "Provider".to_string(),
+            "http://provider.example:8080".to_string(),
+            "john".to_string(),
+            "secret".to_string(),
+        )
+        .unwrap();
+        let channels = vec![live("SVT1 HD SE", None), live("TV4", Some("tv4.se"))];
+        crate::commands::playlist::write_xtream_import(&conn, playlist, channels).unwrap();
+        ensure_active_profile(&conn).unwrap();
+        let provider_sources = sources(&conn);
+        assert_eq!(provider_sources.len(), 1);
+
+        init_schema_v3_1(&conn).unwrap();
+        ensure_active_profile(&conn).unwrap();
+
+        assert_eq!(sources(&conn), provider_sources);
+        // Never a URL in settings: 3.1.2 shows an empty guide and fetches
+        // nothing, but starts.
+        assert_eq!(get_setting(&conn, "epg_url").unwrap(), None);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM epg_programs"), 0);
+        assert!(has_setting(&conn, EPG_PROGRAMS_NORMALIZED_KEY));
+        assert!(has_setting(&conn, EPG_IDS_BACKFILLED_KEY));
+        // Its backfill named the Swedish channel, as 3.1.2 always did.
+        let backfilled: Option<String> = conn
+            .query_row(
+                "SELECT epg_id FROM channels WHERE name = 'SVT1 HD SE'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(backfilled.as_deref(), Some("SVT1.se"));
+
+        // Back on this version.
+        init_schema(&conn).unwrap();
+        super::drop_legacy_epg_tables(&conn).unwrap();
+        assert_eq!(sources(&conn), provider_sources);
+    }
 }
