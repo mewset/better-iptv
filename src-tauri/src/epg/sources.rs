@@ -391,7 +391,9 @@ pub struct SourceRecord {
     /// The policy the user configured.
     pub policy: TimePolicy,
     /// The policy the stored programmes were produced under; `None` before
-    /// the first stored ingest.
+    /// the first stored ingest, after a URL change, and while (or after) a
+    /// whole-source replace that takes several transactions is half done,
+    /// when the source holds rows of two policies.
     pub applied_policy: Option<TimePolicy>,
     pub last_attempt_at: Option<i64>,
     pub last_success_at: Option<i64>,
@@ -405,11 +407,13 @@ pub struct SourceRecord {
 }
 
 impl SourceRecord {
-    /// The stored programmes were produced under another policy than the
-    /// configured one; the next ingest applies it.
+    /// The stored programmes were not all produced under the configured
+    /// policy; the next ingest applies it to every row. Rows under an
+    /// unknown policy (a whole-source replace that stopped half way) count
+    /// as pending: they may be under the old one. No rows, nothing pending.
     pub fn policy_pending(&self) -> bool {
         self.applied_policy
-            .is_some_and(|applied| applied != self.policy)
+            .map_or(self.programme_count > 0, |applied| applied != self.policy)
     }
 }
 
@@ -798,6 +802,38 @@ mod tests {
         assert_eq!(source.unknown_zone_count, 3);
         assert_eq!(source.unknown_zone_sample.as_deref(), Some("+0200 XYZ"));
         assert_eq!(source.decode_replacements, 7);
+    }
+
+    #[test]
+    fn rows_under_an_unknown_policy_are_pending() {
+        let conn = db();
+        let id = add_manual_source(&conn, "https://epg.example/a.xml").unwrap();
+        let pending = |conn: &Connection| get_source(conn, id).unwrap().unwrap().policy_pending();
+        assert!(!pending(&conn), "no rows yet");
+
+        // What a whole-source replace leaves when it stops between two
+        // transactions: rows, and no applied policy.
+        conn.execute(
+            "UPDATE epg_source SET programme_count = 5, applied_interpret = NULL,
+                 applied_shift_minutes = NULL WHERE id = ?1",
+            params![id],
+        )
+        .unwrap();
+        assert!(pending(&conn));
+
+        conn.execute(
+            "UPDATE epg_source SET applied_interpret = 'as_written', applied_shift_minutes = 0
+             WHERE id = ?1",
+            params![id],
+        )
+        .unwrap();
+        assert!(!pending(&conn), "applied equals configured");
+        conn.execute(
+            "UPDATE epg_source SET time_shift_minutes = 30 WHERE id = ?1",
+            params![id],
+        )
+        .unwrap();
+        assert!(pending(&conn), "configured changed since");
     }
 
     #[test]
