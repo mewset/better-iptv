@@ -9,6 +9,7 @@
 pub mod decode;
 pub mod download;
 pub mod parse;
+pub mod read;
 pub mod sources;
 pub mod store;
 #[cfg(test)]
