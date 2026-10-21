@@ -656,4 +656,109 @@ mod tests {
             ["SCAN c", "SEARCH s USING INTEGER PRIMARY KEY (rowid=?)"]
         );
     }
+
+    /// Release benches of the three reads the UI makes, each including
+    /// `resolve`, on a database filled by ingesting a feed: the captured
+    /// feed (`EPG_REAL_FEED`) and the synthetic 430k feed that the store's
+    /// `perf_make_feeds` writes to `EPG_PERF_DIR`. The sizes are those of
+    /// the old baseline (docs/plans/2026-10-16-backend-perf-baseline.md):
+    /// `get_guide` 763 ids over 3 h, the guide's ids over 5 days, now/next
+    /// for 100 ids. Prints only counts and timings.
+    mod perf {
+        use super::*;
+        use crate::epg::sources::feed_path;
+        use crate::epg::{ingest, Fetch, IngestOutcome, IngestScope};
+        use std::path::Path;
+        use std::time::{Duration, Instant};
+
+        const RUNS: usize = 50;
+
+        /// Median and fastest of `RUNS` timed calls after one warm-up.
+        fn time<T>(mut f: impl FnMut() -> T) -> (Duration, Duration, T) {
+            let mut last = f();
+            let mut times = Vec::with_capacity(RUNS);
+            for _ in 0..RUNS {
+                let started = Instant::now();
+                last = f();
+                times.push(started.elapsed());
+            }
+            times.sort();
+            (times[RUNS / 2], times[0], last)
+        }
+
+        async fn bench(feed: &Path) {
+            let f = Fixture::new("read-perf");
+            let s = add_manual(&f.conn(), "http://bench.example/epg.xml");
+            std::fs::copy(feed, feed_path(&f.dir.0, s)).unwrap();
+            let outcome = ingest(&f.env(), s, Fetch::Cache, IngestScope::Feed, NOW)
+                .await
+                .unwrap();
+            let IngestOutcome::Stored(report) = outcome else {
+                panic!("not stored: {outcome:?}");
+            };
+            let conn = f.conn();
+            let name = feed.file_name().unwrap().to_string_lossy();
+
+            let (from, to) = (NOW - 24 * H, NOW + 96 * H);
+            let (median, fastest, keys) = time(|| guide_keys(&conn, None, from, to).unwrap());
+            eprintln!(
+                "PERF {name}: {} programmes on {} channels stored; guide keys 5 days: \
+                 median {median:.2?}, fastest {fastest:.2?}, {} keys",
+                report.stored,
+                report.keys,
+                keys.len()
+            );
+
+            let wanted: Vec<String> = keys.iter().take(763).cloned().collect();
+            let (median, fastest, answer) =
+                time(|| guide(&conn, None, &wanted, NOW, NOW + 3 * H).unwrap());
+            let started = Instant::now();
+            let bytes = serde_json::to_vec(&answer).unwrap().len();
+            let serde = started.elapsed();
+            eprintln!(
+                "PERF {name}: get_guide {} ids, 3 h: median {median:.2?}, fastest {fastest:.2?}, \
+                 {} programmes, {bytes} bytes JSON in {serde:.2?}",
+                wanted.len(),
+                answer.values().map(Vec::len).sum::<usize>()
+            );
+
+            let wanted: Vec<String> = keys.iter().take(100).cloned().collect();
+            let (median, fastest, answer) = time(|| now_next(&conn, None, &wanted, NOW).unwrap());
+            eprintln!(
+                "PERF {name}: now/next {} ids: median {median:.2?}, fastest {fastest:.2?}, \
+                 {} answered, {} bytes JSON",
+                wanted.len(),
+                answer.len(),
+                serde_json::to_vec(&answer).unwrap().len()
+            );
+        }
+
+        #[tokio::test]
+        #[ignore]
+        async fn perf_reads_real_feed() {
+            let Some(path) = std::env::var_os("EPG_REAL_FEED") else {
+                eprintln!("EPG_REAL_FEED is not set; skipped");
+                return;
+            };
+            bench(Path::new(&path)).await;
+        }
+
+        #[tokio::test]
+        #[ignore]
+        async fn perf_reads_430k() {
+            let Some(dir) = std::env::var_os("EPG_PERF_DIR") else {
+                eprintln!("EPG_PERF_DIR is not set; skipped");
+                return;
+            };
+            let path = Path::new(&dir).join("430k-plain.xml");
+            if !path.exists() {
+                eprintln!(
+                    "{} is missing: run epg::store::tests::perf::perf_make_feeds",
+                    path.display()
+                );
+                return;
+            }
+            bench(&path).await;
+        }
+    }
 }
