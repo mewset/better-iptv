@@ -24,6 +24,12 @@ import { ChannelLoadError } from './ChannelLoadError';
 
 const HALF_HOUR = 30 * 60_000;
 const ROW_HEIGHT = 64; // h-16
+/**
+ * The strip at the track's right end that a row with a `+N` chip keeps free
+ * for it: the chip is 32 px wide (w-8), plus the 4 px gap blocks keep between
+ * each other. Blocks keep their time-true left edge and end before it.
+ */
+const CHIP_RESERVE_PX = 36;
 
 /** "HH:MM–HH:MM", or '' when either time cannot be parsed. */
 function timeRange(p: Programme): string {
@@ -191,6 +197,11 @@ const GuideRow = memo(function GuideRow({
                   style={{
                     left: `calc(${left}% + 2px)`,
                     width: `max(0px, calc(${width}% - 4px))`,
+                    // In a row with a +N chip, a block reaching the chip's strip
+                    // ends before it, so the chip never covers a title or a click.
+                    // A negative calc() result clamps to 0.
+                    maxWidth:
+                      dropped > 0 ? `calc(${100 - left}% - ${2 + CHIP_RESERVE_PX}px)` : undefined,
                   }}
                   className={cn(
                     'absolute overflow-hidden border px-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
@@ -225,13 +236,13 @@ const GuideRow = memo(function GuideRow({
                 </button>
               );
             })}
-            {/* After the blocks, so it paints over the track's right end. */}
+            {/* In the strip the blocks leave free at the track's right end. */}
             {dropped > 0 && (
               <span
                 role="note"
                 aria-label={droppedLabel(dropped)}
                 title={droppedLabel(dropped)}
-                className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full border border-border-strong bg-surface-2 px-1.5 text-[11px] font-semibold tabular-nums text-text-muted"
+                className="absolute right-0 top-1/2 w-8 -translate-y-1/2 rounded-full border border-border-strong bg-surface-2 text-center text-[11px] font-semibold tabular-nums text-text-muted"
               >
                 +{dropped}
               </span>
@@ -451,6 +462,14 @@ export function GuideView({
   const nowDate = new Date(now);
   const dayStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
   const days = useMemo(() => guideDayLabels(dayStart), [dayStart]);
+
+  // At midnight every day chip, and so the window, moves on a day: a
+  // programme selected on the old one is closed, as a day change closes it.
+  const [selectionDay, setSelectionDay] = useState(dayStart);
+  if (selectionDay !== dayStart) {
+    setSelectionDay(dayStart);
+    setSelection(null);
+  }
 
   const span = win.to - win.from;
   const ticks = useMemo(() => {

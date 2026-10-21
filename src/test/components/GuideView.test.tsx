@@ -260,6 +260,26 @@ describe('GuideView', () => {
     expect(within(row).queryByRole('button', { name: blockName(second, 'SVT1') })).toBeNull();
   });
 
+  it('keeps the +N chip clear of the blocks: in its row they end before the chip', async () => {
+    // Block runs past the window's right edge, the chip's corner.
+    const block: Programme = { title: 'Block', description: null, ...span(-30, 600) };
+    const first: Programme = { title: 'First', description: null, ...span(-20, 40) };
+    const second: Programme = { title: 'Second', description: null, ...span(0, 60) };
+    guide = { 'svt1.se': [block, first, second], 'tv4.se': [airing] };
+    renderGuide();
+    const row = await screen.findByRole('row', { name: 'SVT1' });
+    const chip = await within(row).findByRole('note');
+    expect(chip.className).toContain('w-8');
+    expect(chip.className).toContain('right-0');
+    for (const button of within(row).getAllByRole('button')) {
+      // Never past 100% minus the 2 px left inset and the chip's 36 px strip.
+      expect(button.style.maxWidth).toMatch(/^calc\(\d+(\.\d+)?% - 38px\)$/);
+    }
+    // A row without a chip uses the whole track.
+    const tv4Row = screen.getByRole('row', { name: 'TV4' });
+    expect(within(tv4Row).getByRole('button').style.maxWidth).toBe('');
+  });
+
   it('names a single programme left out in the singular', async () => {
     const block: Programme = { title: 'Block', description: null, ...span(-30, 120) };
     const first: Programme = { title: 'First', description: null, ...span(-20, 40) };
@@ -589,6 +609,31 @@ describe('GuideView', () => {
     fireEvent.click(await within(row).findByRole('button', { name: blockName(airing, 'SVT1') }));
     fireEvent.click(within(screen.getByRole('tablist', { name: 'Day' })).getAllByRole('tab')[0]);
     expect(screen.getByRole('region', { name: 'Selected programme' })).toBeInTheDocument();
+  });
+
+  it('closes the selected programme when midnight moves the window to the next day', async () => {
+    const lateEvening = new Date();
+    lateEvening.setHours(23, 50, 0, 0);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(lateEvening);
+    try {
+      const news: Programme = { title: 'Late news', description: null, ...span(-5, 20) };
+      guide = { 'svt1.se': [news], 'tv4.se': [] };
+      renderGuide();
+      fireEvent.click(await screen.findByRole('button', { name: /^Late news/ }));
+      // A tick before midnight keeps it.
+      await act(async () => {
+        vi.advanceTimersByTime(NOW_TICK_MS);
+      });
+      expect(screen.getByRole('region', { name: 'Selected programme' })).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(20 * NOW_TICK_MS);
+      });
+      expect(screen.queryByRole('region', { name: 'Selected programme' })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps the detail panel when the selected row scrolls out of view', async () => {

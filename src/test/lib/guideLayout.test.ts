@@ -118,6 +118,49 @@ describe('layoutLanes', () => {
     expect(layout.dropped).toBe(1);
   });
 
+  it('puts an identical duplicate in lane 1', () => {
+    const layout = layoutLanes([prog('News', 19, 0, 19, 30), prog('News', 19, 0, 19, 30)]);
+    expect(layout.blocks.map((b) => [b.programme.title, b.lane])).toEqual([
+      ['News', 0],
+      ['News', 1],
+    ]);
+    expect(layout.laneCount).toBe(2);
+    expect(layout.dropped).toBe(0);
+  });
+
+  it('goes back to lane 0 once the lane-0 programme ends, while lane 1 still runs', () => {
+    expect(
+      lanesOf([
+        prog('A', 19, 0, 20, 0),
+        prog('Overlap', 19, 30, 20, 30),
+        prog('B', 20, 0, 21, 0),
+        prog('C', 21, 0, 21, 30),
+      ])
+    ).toEqual([
+      ['A', 0],
+      ['Overlap', 1],
+      ['B', 0],
+      ['C', 0],
+    ]);
+  });
+
+  it('keeps a lane-1 programme after a gap in lane 1 instead of dropping it', () => {
+    // Late starts while B holds lane 0 and after Overlap has left lane 1.
+    const layout = layoutLanes([
+      prog('A', 19, 0, 20, 0),
+      prog('Overlap', 19, 30, 20, 15),
+      prog('B', 20, 0, 21, 0),
+      prog('Late', 20, 45, 21, 15),
+    ]);
+    expect(layout.blocks.map((b) => [b.programme.title, b.lane])).toEqual([
+      ['A', 0],
+      ['Overlap', 1],
+      ['B', 0],
+      ['Late', 1],
+    ]);
+    expect(layout.dropped).toBe(0);
+  });
+
   it('lays out unsorted input as if it were sorted', () => {
     const sorted = [
       prog('A', 19, 0, 20, 0),
