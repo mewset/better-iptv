@@ -1400,6 +1400,17 @@ mod epg_source_seed_tests {
         ensure_active_profile(&conn).unwrap();
         let provider_sources = sources(&conn);
         assert_eq!(provider_sources.len(), 1);
+        let svt1_id = |conn: &Connection| -> Option<String> {
+            conn.query_row(
+                "SELECT epg_id FROM channels WHERE name = 'SVT1 HD SE'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        // This version stores no id the provider did not send, so 3.1.2's
+        // backfill has a NULL live row to fill.
+        assert_eq!(svt1_id(&conn), None);
 
         init_schema_v3_1(&conn).unwrap();
         ensure_active_profile(&conn).unwrap();
@@ -1411,15 +1422,8 @@ mod epg_source_seed_tests {
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM epg_programs"), 0);
         assert!(has_setting(&conn, EPG_PROGRAMS_NORMALIZED_KEY));
         assert!(has_setting(&conn, EPG_IDS_BACKFILLED_KEY));
-        // Its backfill named the Swedish channel, as 3.1.2 always did.
-        let backfilled: Option<String> = conn
-            .query_row(
-                "SELECT epg_id FROM channels WHERE name = 'SVT1 HD SE'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(backfilled.as_deref(), Some("SVT1.se"));
+        // Its backfill ran over that row on the boot path, as 3.1.2 does.
+        assert_eq!(svt1_id(&conn).as_deref(), Some("SVT1.se"));
 
         // Back on this version.
         init_schema(&conn).unwrap();
