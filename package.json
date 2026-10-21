@@ -1,7 +1,7 @@
 {
   "name": "better-ip-tv",
   "private": true,
-  "version": "3.1.2",
+  "version": "3.2.0",
   "license": "GPL-2.0-only",
   "type": "module",
   "scripts": {
