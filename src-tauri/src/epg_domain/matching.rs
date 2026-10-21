@@ -171,6 +171,9 @@ pub struct MatchReport {
     pub ambiguous_names: u32,
     /// Rows whose stored match changed, live or not.
     pub changed: u32,
+    /// Playlists whose recompute failed and was rolled back; none of their
+    /// channels is in the other counts.
+    pub failed_playlists: u32,
 }
 
 impl MatchReport {
@@ -184,6 +187,7 @@ impl MatchReport {
         self.unmatched_with_id += other.unmatched_with_id;
         self.ambiguous_names += other.ambiguous_names;
         self.changed += other.changed;
+        self.failed_playlists += other.failed_playlists;
     }
 }
 

@@ -22,7 +22,8 @@
 //! URL or removed, a playlist imported or refreshed) is followed by a match
 //! recompute (`epg::matching`) for the playlists concerned; the event that
 //! follows carries how many channels it changed. A failed recompute is
-//! logged and leaves the stored matches as they were.
+//! logged and leaves the stored matches of that playlist as they were; the
+//! other playlists are still matched, and their changes still announced.
 //!
 //! Events go through `EpgEvents`, so the service runs without a Tauri
 //! runtime in tests: `epg-refreshed` (`EpgRefreshed`) after anything that
@@ -360,6 +361,9 @@ impl EpgService {
         match report {
             Ok(Some(report)) => {
                 log_match("every playlist, once after the upgrade", &report);
+                if report.failed_playlists > 0 {
+                    warn!("EPG channel matching after the upgrade is retried at the next start");
+                }
                 if report.changed > 0 {
                     self.refreshed(RefreshReason::Match, None, report.changed);
                     self.emit_status().await;
@@ -729,10 +733,14 @@ impl EpgService {
 
 /// One line per recompute.
 fn log_match(what: &str, report: &MatchReport) {
+    let failed = match report.failed_playlists {
+        0 => String::new(),
+        n => format!("; {n} playlist(s) failed and kept their matches"),
+    };
     info!(
         "EPG channel matching for {what}: {} changed; of {} live channels {} by id, {} by \
          tvg-name, {} by name, {} set by hand, {} with an id the guide does not know; \
-         {} ambiguous guide names",
+         {} ambiguous guide names{failed}",
         report.changed,
         report.considered,
         report.by_id,
@@ -1630,6 +1638,40 @@ mod tests {
             "the import stands, no match is half written"
         );
         assert!(events.matches().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_failed_playlist_does_not_hide_the_changes_of_the_others() {
+        let f = Fixture::new("service");
+        let (svt1, _) = playlist_with_channels(&f);
+        let conn = f.conn();
+        conn.execute("INSERT INTO playlists (id, name) VALUES (2, 'Q')", [])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO channels (playlist_id, name, url, epg_id) VALUES (2, 'SVT1', 'http://q', 'svt1.se')",
+            [],
+        )
+        .unwrap();
+        let failing = conn.last_insert_rowid();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_match BEFORE UPDATE OF epg_match_key ON channels
+             WHEN NEW.playlist_id = 2 BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        let s = add_manual(&conn, "http://epg.example/epg.xml");
+        drop(conn);
+        f.store(s, &feed(), NOW).await;
+        let (service, events) = service(&f);
+
+        let first = SourcePatch {
+            priority: Some(5),
+            ..SourcePatch::default()
+        };
+        service.update_source(s, first).await.unwrap();
+
+        assert_eq!(match_key(&f, svt1).as_deref(), Some("svt1.se"));
+        assert_eq!(match_key(&f, failing), None);
+        assert_eq!(events.matches(), [(RefreshReason::SourceChanged, 1)]);
     }
 
     #[tokio::test]

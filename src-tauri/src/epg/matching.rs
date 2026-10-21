@@ -15,6 +15,7 @@ use crate::db::queries::get_setting;
 use crate::epg_domain::matching::{
     ChannelRow, GuideIndex, MatchReport, MatchUpdate, Matcher, SourceGuide,
 };
+use log::warn;
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 
 /// Settings key that records the one-time recompute of every playlist for a
@@ -112,7 +113,10 @@ pub fn recompute_playlist(conn: &Connection, playlist_id: i64) -> rusqlite::Resu
 
 /// Recompute every playlist a source with this `playlist_id` applies to: the
 /// one playlist, or every playlist for a global source (`None`). One
-/// transaction per playlist; the reports are added up.
+/// transaction per playlist; the reports are added up. A playlist whose
+/// recompute fails is rolled back, logged and counted in
+/// `failed_playlists`, and the next one still runs: the rows the others
+/// changed are committed and must be reported.
 pub fn recompute_where_applies(
     conn: &Connection,
     playlist_id: Option<i64>,
@@ -126,7 +130,13 @@ pub fn recompute_where_applies(
     };
     let mut total = MatchReport::default();
     for id in playlists {
-        total.add(&recompute_playlist(conn, id)?);
+        match recompute_playlist(conn, id) {
+            Ok(report) => total.add(&report),
+            Err(e) => {
+                warn!("EPG channel matching for playlist {id} failed, its matches stay: {e}");
+                total.failed_playlists += 1;
+            }
+        }
     }
     Ok(total)
 }
@@ -148,14 +158,16 @@ pub fn recompute_for_source(conn: &Connection, source_id: i64) -> rusqlite::Resu
 /// Once per database: match every playlist against the guide already
 /// stored. A database that held guide data before matching existed would
 /// otherwise show no programme until the next download. The guard key is
-/// written after every playlist is done, so a failure retries at the next
-/// start; the recompute itself is idempotent. `None` when it ran before.
+/// written only when every playlist succeeded, so a failure retries at the
+/// next start; the recompute itself is idempotent. `None` when it ran before.
 pub fn recompute_once_after_upgrade(conn: &Connection) -> rusqlite::Result<Option<MatchReport>> {
     if get_setting(conn, MATCHES_INITIALISED_KEY)?.is_some() {
         return Ok(None);
     }
     let report = recompute_where_applies(conn, None)?;
-    set_setting(conn, MATCHES_INITIALISED_KEY, "1")?;
+    if report.failed_playlists == 0 {
+        set_setting(conn, MATCHES_INITIALISED_KEY, "1")?;
+    }
     Ok(Some(report))
 }
 
@@ -432,6 +444,33 @@ mod tests {
     }
 
     #[test]
+    fn a_failing_playlist_is_skipped_and_the_others_still_count() {
+        let conn = setup_test_db();
+        add_source(&conn, None, 10, &[("svt1.se", &[])]);
+        let channels: Vec<i64> = ["First", "Second", "Third"]
+            .into_iter()
+            .map(|name| {
+                let p = create_test_playlist(&conn, name);
+                add_channel(&conn, p, "SVT1", Some("svt1.se"), "live")
+            })
+            .collect();
+        conn.execute_batch(&format!(
+            "CREATE TRIGGER fail_match BEFORE UPDATE OF epg_match_key ON channels
+             WHEN NEW.id = {} BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+            channels[1]
+        ))
+        .unwrap();
+
+        let report = recompute_where_applies(&conn, None).unwrap();
+
+        assert_eq!((report.changed, report.failed_playlists), (2, 1));
+        assert_eq!(stored(&conn, channels[0]), matched("svt1.se", "id"));
+        assert_eq!(stored(&conn, channels[1]), (None, None), "rolled back");
+        assert_eq!(stored(&conn, channels[2]), matched("svt1.se", "id"));
+        assert!(conn.is_autocommit(), "no transaction left open");
+    }
+
+    #[test]
     fn only_enabled_sources_that_apply_to_the_playlist_count() {
         let conn = setup_test_db();
         let mine = create_test_playlist(&conn, "Mine");
@@ -655,7 +694,8 @@ mod tests {
         )
         .unwrap();
 
-        assert!(recompute_once_after_upgrade(&conn).is_err());
+        let failed = recompute_once_after_upgrade(&conn).unwrap().unwrap();
+        assert_eq!((failed.failed_playlists, failed.changed), (1, 0));
         assert_eq!(get_setting(&conn, MATCHES_INITIALISED_KEY).unwrap(), None);
 
         conn.execute_batch("DROP TRIGGER fail_match;").unwrap();
