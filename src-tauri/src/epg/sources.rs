@@ -32,10 +32,9 @@ const DOWNLOAD_SUFFIX: &str = ".download";
 
 /// The single-URL form the Xtream import wrote into `settings.epg_url` before
 /// per-source guides: server URL without trailing slash, credentials
-/// unencoded. The seed uses it to tell an untouched provider URL from one the
-/// user typed, and `playlist::xtream::get_xtream_epg_url` delegates to it
-/// until the old EPG commands are replaced. Fetching a source builds its URL
-/// with `epg_domain::source::xtream_epg_url` instead.
+/// unencoded. Only the seed uses it, to tell an untouched provider URL from
+/// one the user typed. Fetching a source builds its URL with
+/// `epg_domain::source::xtream_epg_url` instead.
 pub fn legacy_xtream_epg_url(server_url: &str, username: &str, password: &str) -> String {
     format!(
         "{}/xmltv.php?username={}&password={}",
@@ -220,8 +219,10 @@ pub fn add_manual_source(conn: &Connection, url: &str) -> Result<i64, AppError> 
     })
 }
 
-/// Fields `update_source` may change; `None` leaves a field as it is.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// Fields `update_source` may change; `None` (or absent, from the frontend)
+/// leaves a field as it is.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct SourcePatch {
     pub enabled: Option<bool>,
     pub priority: Option<i32>,
@@ -640,6 +641,22 @@ pub fn sweep_cache_dir(
         log::info!("EPG cache: deleted {} file(s) of removed sources", deleted);
     }
     Ok(deleted)
+}
+
+/// Startup clean-up, off the boot path and idempotent: drop the guide
+/// tables of 3.1.x (`db::schema::drop_legacy_epg_tables`), then sweep the
+/// cache directory. The staging database is swept too, but only when
+/// `refresh_lock` is free: a manual update may already be running and have
+/// it open. The lock is held for the sweep, so no ingest starts meanwhile.
+/// Returns how many files were deleted.
+pub fn boot_cleanup(
+    conn: &Connection,
+    cache_dir: &Path,
+    refresh_lock: &tokio::sync::Mutex<()>,
+) -> Result<usize, AppError> {
+    crate::db::schema::drop_legacy_epg_tables(conn)?;
+    let idle = refresh_lock.try_lock().ok();
+    sweep_cache_dir(conn, cache_dir, idle.is_some())
 }
 
 #[cfg(test)]
@@ -1193,6 +1210,48 @@ mod tests {
         touch(&dir.0.join("ingest.db.bak"));
         assert_eq!(sweep_cache_dir(&conn, &dir.0, true).unwrap(), 4);
         assert!(dir.0.join("ingest.db.bak").exists());
+    }
+
+    fn has_table(conn: &Connection, name: &str) -> bool {
+        conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = ?1)",
+            [name],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn the_boot_clean_up_drops_the_old_tables_and_sweeps_staging_only_when_idle() {
+        let conn = db();
+        let dir = TestDir::new();
+        conn.execute_batch(
+            "CREATE TABLE epg_programs (id INTEGER PRIMARY KEY, channel_epg_id TEXT NOT NULL);
+             CREATE INDEX idx_channel_time ON epg_programs(channel_epg_id);
+             CREATE TABLE epg_sources (id INTEGER PRIMARY KEY, url TEXT NOT NULL);
+             INSERT INTO epg_programs (channel_epg_id) VALUES ('svt1.se');",
+        )
+        .unwrap();
+        touch(&feed_path(&dir.0, 41));
+        touch(&staging_path(&dir.0));
+        let lock = tokio::sync::Mutex::new(());
+
+        let update = lock.try_lock().unwrap();
+        assert_eq!(boot_cleanup(&conn, &dir.0, &lock).unwrap(), 1);
+        assert!(staging_path(&dir.0).exists(), "an update holds the lock");
+        assert!(!feed_path(&dir.0, 41).exists());
+        drop(update);
+
+        assert_eq!(boot_cleanup(&conn, &dir.0, &lock).unwrap(), 1);
+        assert!(!staging_path(&dir.0).exists());
+        for name in ["epg_programs", "epg_sources", "idx_channel_time"] {
+            assert!(!has_table(&conn, name), "{name}");
+        }
+        assert!(has_table(&conn, "epg_source"));
+        assert!(lock.try_lock().is_ok(), "released after the sweep");
+
+        // Every start runs it again.
+        assert_eq!(boot_cleanup(&conn, &dir.0, &lock).unwrap(), 0);
     }
 
     #[test]

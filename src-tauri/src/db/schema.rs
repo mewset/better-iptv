@@ -105,45 +105,12 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         [],
     )?;
 
-    // EPG Programs table
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS epg_programs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            channel_epg_id TEXT NOT NULL,
-            title TEXT NOT NULL,
-            description TEXT,
-            start_time TIMESTAMP NOT NULL,
-            end_time TIMESTAMP NOT NULL,
-            category TEXT,
-            icon TEXT
-        )",
-        [],
-    )?;
-
-    // Needed by migrate_epg_programs below, so it is created before it.
     conn.execute(
         "CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )",
-        [],
-    )?;
-
-    // One-time EPG migrations: dedupe (2.8.0) must precede the unique index.
-    migrate_epg_programs(conn)?;
-
-    // One row per channel and start time; the EPG upsert conflicts on this.
-    conn.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_epg_programs_unique
-         ON epg_programs(channel_epg_id, start_time)",
-        [],
-    )?;
-
-    // Create index for EPG lookups
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_channel_time
-         ON epg_programs(channel_epg_id, start_time, end_time)",
         [],
     )?;
 
@@ -208,20 +175,6 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_watch_history_channel_id
          ON watch_history(channel_id)",
-        [],
-    )?;
-
-    // EPG Sources table
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS epg_sources (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            url TEXT NOT NULL,
-            last_fetched TIMESTAMP,
-            auto_refresh BOOLEAN DEFAULT 1,
-            refresh_interval_hours INTEGER DEFAULT 6,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )",
         [],
     )?;
 
@@ -293,18 +246,15 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         log::error!("EPG source sync failed, will retry next start: {}", e);
     }
 
-    if let Err(e) = backfill_channel_epg_ids(conn) {
-        log::error!("EPG id backfill failed, will retry next start: {}", e);
-    }
-
     Ok(())
 }
 
 /// Tables of the per-source guide store (`epg::sources`, `epg::store`).
 ///
-/// New names beside the old `epg_programs`/`epg_sources`, so a 3.1.x binary
-/// started on this database still finds the tables it expects and ignores
-/// these. Every statement is idempotent.
+/// Named apart from the 3.1.x tables `epg_programs`/`epg_sources`: a 3.1.x
+/// binary started on this database recreates those, ignores these, and its
+/// index on `epg_programs` never meets a table without the columns it names.
+/// Every statement is idempotent.
 fn create_epg_source_tables(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS epg_source (
@@ -371,76 +321,15 @@ fn create_epg_source_tables(conn: &Connection) -> Result<()> {
     )
 }
 
-/// Settings key that records the one-time EPG id backfill.
-pub const EPG_IDS_BACKFILLED_KEY: &str = "epg_ids_backfilled";
-
-/// Channels written before EPG ids were generated on write may have NULL ids.
-/// Fill them once. `update_channel_epg_ids` has its own transaction and is
-/// idempotent, so losing the key write only costs a repeat pass next start.
-fn backfill_channel_epg_ids(conn: &Connection) -> Result<()> {
-    if crate::db::queries::get_setting(conn, EPG_IDS_BACKFILLED_KEY)?.is_some() {
-        return Ok(());
-    }
-    // The series migration turns some rows into live channels. Backfilling
-    // before it has run would set the key and leave those rows without ids.
-    if crate::db::queries::get_setting(conn, M3U_SERIES_GROUPED_KEY)?.is_none() {
-        log::debug!("EPG id backfill deferred until the M3U series migration has run");
-        return Ok(());
-    }
-    crate::db::mutations::update_channel_epg_ids(conn)?;
-    crate::db::mutations::set_setting(conn, EPG_IDS_BACKFILLED_KEY, "1")?;
-    Ok(())
-}
-
-/// Settings key that records the one-time EPG migrations (dedupe and id lower-casing).
-pub const EPG_PROGRAMS_NORMALIZED_KEY: &str = "epg_programs_normalized";
-
-/// The EPG migrations below are full-table scans, so they run once and record
-/// the guard in the same transaction. A failure rolls back and retries next
-/// start (and fails `init_schema`, since the unique index needs the dedupe).
-fn migrate_epg_programs(conn: &Connection) -> Result<()> {
-    if crate::db::queries::get_setting(conn, EPG_PROGRAMS_NORMALIZED_KEY)?.is_some() {
-        return Ok(());
-    }
-
-    let tx = conn.unchecked_transaction()?;
-
-    // Migration (2.8.0): older databases inserted a fresh copy of every future
-    // programme on each EPG refresh, because `INSERT OR REPLACE` had no unique
-    // key to conflict on. Collapse those duplicates before adding the key.
-    tx.execute(
-        "DELETE FROM epg_programs
-         WHERE id NOT IN (
-             SELECT MIN(id) FROM epg_programs GROUP BY channel_epg_id, start_time
-         )",
-        [],
-    )?;
-
-    // The lower-casing below relies on this key: OR IGNORE only skips a row when
-    // the unique index would reject it, so the index must exist first.
-    tx.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_epg_programs_unique
-         ON epg_programs(channel_epg_id, start_time)",
-        [],
-    )?;
-
-    // Migration (3.0.0): EPG ids are stored normalised (`epg_domain::normalize_epg_id`,
-    // ASCII lower-case like SQLite's lower()) so `SVT1.se` channels match a feed
-    // that writes `svt1.se`. Lower-case older rows once; where both spellings exist
-    // for one slot, OR IGNORE keeps the lower-case row and the DELETE drops the rest.
-    tx.execute(
-        "UPDATE OR IGNORE epg_programs SET channel_epg_id = lower(channel_epg_id)
-         WHERE channel_epg_id <> lower(channel_epg_id)",
-        [],
-    )?;
-    tx.execute(
-        "DELETE FROM epg_programs WHERE channel_epg_id <> lower(channel_epg_id)",
-        [],
-    )?;
-
-    crate::db::mutations::set_setting(&tx, EPG_PROGRAMS_NORMALIZED_KEY, "1")?;
-    tx.commit()?;
-    Ok(())
+/// Drop the guide tables of 3.1.x and their indices. Not on the boot path:
+/// the app runs it in the background after startup (`epg::sources::
+/// boot_cleanup`), at every start, so a database that a 3.1.x binary
+/// recreated them in is cleaned again. Their settings rows stay.
+pub fn drop_legacy_epg_tables(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "DROP TABLE IF EXISTS epg_programs;
+         DROP TABLE IF EXISTS epg_sources;",
+    )
 }
 
 /// Settings key that records the one-time M3U series grouping migration.
@@ -532,7 +421,7 @@ pub fn ensure_active_profile(conn: &Connection) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{init_schema, EPG_PROGRAMS_NORMALIZED_KEY};
+    use super::init_schema;
     use rusqlite::Connection;
 
     fn seed_null_live_channel(conn: &Connection, name: &str) {
@@ -556,178 +445,21 @@ mod tests {
         .unwrap()
     }
 
+    /// The boot path no longer fills in ids from channel names: a NULL
+    /// `epg_id` stays NULL, however often the schema is initialised.
     #[test]
-    fn backfill_waits_for_the_m3u_series_migration() {
+    fn init_schema_leaves_channel_epg_ids_alone() {
         let conn = Connection::open_in_memory().unwrap();
         init_schema(&conn).unwrap();
-        // Simulate an upgrade boot where the series migration did not complete.
-        for key in [super::EPG_IDS_BACKFILLED_KEY, super::M3U_SERIES_GROUPED_KEY] {
-            conn.execute("DELETE FROM settings WHERE key = ?1", [key])
-                .unwrap();
-        }
         seed_null_live_channel(&conn, "SVT1 HD SE");
 
-        super::backfill_channel_epg_ids(&conn).unwrap();
-        assert!(
-            crate::db::queries::get_setting(&conn, super::EPG_IDS_BACKFILLED_KEY)
-                .unwrap()
-                .is_none()
-        );
+        init_schema(&conn).unwrap();
+
         assert_eq!(epg_id_of(&conn, "SVT1 HD SE"), None);
-
-        // Once the series migration has run, the backfill goes through.
-        crate::db::mutations::set_setting(&conn, super::M3U_SERIES_GROUPED_KEY, "1").unwrap();
-        super::backfill_channel_epg_ids(&conn).unwrap();
-        assert_eq!(epg_id_of(&conn, "SVT1 HD SE").as_deref(), Some("SVT1.se"));
-    }
-
-    #[test]
-    fn backfill_runs_once() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_schema(&conn).unwrap();
-        // Simulate a pre-existing database: guard not yet set.
-        conn.execute(
-            "DELETE FROM settings WHERE key = ?1",
-            [super::EPG_IDS_BACKFILLED_KEY],
-        )
-        .unwrap();
-        seed_null_live_channel(&conn, "SVT1 HD SE");
-        init_schema(&conn).unwrap();
-        assert_eq!(epg_id_of(&conn, "SVT1 HD SE").as_deref(), Some("SVT1.se"));
-
-        seed_null_live_channel(&conn, "TV4 HD SE");
-        init_schema(&conn).unwrap();
-        assert_eq!(epg_id_of(&conn, "TV4 HD SE"), None);
-    }
-
-    /// Databases created before 2.8.0 have no unique key on epg_programs and
-    /// accumulated one copy of every future programme per EPG refresh.
-    #[test]
-    fn init_schema_collapses_duplicate_epg_rows_from_older_databases() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE epg_programs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                channel_epg_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                description TEXT,
-                start_time TIMESTAMP NOT NULL,
-                end_time TIMESTAMP NOT NULL,
-                category TEXT,
-                icon TEXT
-            );
-            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
-              VALUES ('svt1.se', 'Rapport', '2026-09-02T18:00:00+00:00', '2026-09-02T18:30:00+00:00');
-            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
-              VALUES ('svt1.se', 'Rapport', '2026-09-02T18:00:00+00:00', '2026-09-02T18:30:00+00:00');
-            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
-              VALUES ('svt1.se', 'Aktuellt', '2026-09-02T21:00:00+00:00', '2026-09-02T21:30:00+00:00');",
-        )
-        .unwrap();
-
-        init_schema(&conn).unwrap();
-
-        let rows: i64 = conn
-            .query_row("SELECT COUNT(*) FROM epg_programs", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(rows, 2, "one Rapport row and one Aktuellt row survive");
-
-        let index_exists: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master
-                 WHERE type = 'index' AND name = 'idx_epg_programs_unique'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(index_exists, 1);
-    }
-
-    /// EPG ids used to be stored as the feed wrote them, so a feed with
-    /// `svt1.se` never matched a channel whose id is `SVT1.se`. Existing rows
-    /// are lower-cased once; when both spellings exist for the same slot, one
-    /// row survives.
-    #[test]
-    fn init_schema_lower_cases_stored_epg_ids() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_schema(&conn).unwrap();
-        conn.execute_batch(
-            "INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
-              VALUES ('SVT1.se', 'Rapport', '2026-09-02T18:00:00+00:00', '2026-09-02T18:30:00+00:00');
-            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
-              VALUES ('svt1.se', 'Rapport', '2026-09-02T18:00:00+00:00', '2026-09-02T18:30:00+00:00');
-            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
-              VALUES ('TV4.se', 'Nyheterna', '2026-09-02T19:00:00+00:00', '2026-09-02T19:30:00+00:00');",
-        )
-        .unwrap();
-
-        // The rows above model a database that has not been migrated yet.
-        conn.execute(
-            "DELETE FROM settings WHERE key = ?1",
-            [EPG_PROGRAMS_NORMALIZED_KEY],
-        )
-        .unwrap();
-        init_schema(&conn).unwrap();
-
-        let mixed: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM epg_programs WHERE channel_epg_id <> lower(channel_epg_id)",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(mixed, 0);
-        let rows: i64 = conn
-            .query_row("SELECT COUNT(*) FROM epg_programs", [], |r| r.get(0))
-            .unwrap();
         assert_eq!(
-            rows, 2,
-            "the two SVT1 spellings collapse to one row, TV4 stays"
+            crate::db::queries::get_setting(&conn, "epg_ids_backfilled").unwrap(),
+            None
         );
-    }
-
-    /// A database from before 2.8.0 has no unique index yet. Both spellings of
-    /// one slot must still collapse before the index is created.
-    #[test]
-    fn init_schema_lower_cases_ids_in_databases_without_the_unique_index() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE epg_programs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                channel_epg_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                description TEXT,
-                start_time TIMESTAMP NOT NULL,
-                end_time TIMESTAMP NOT NULL,
-                category TEXT,
-                icon TEXT
-            );
-            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
-              VALUES ('SVT1.se', 'Rapport', '2026-09-02T18:00:00+00:00', '2026-09-02T18:30:00+00:00');
-            INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
-              VALUES ('svt1.se', 'Rapport', '2026-09-02T18:00:00+00:00', '2026-09-02T18:30:00+00:00');",
-        )
-        .unwrap();
-
-        init_schema(&conn).unwrap();
-
-        let rows: i64 = conn
-            .query_row("SELECT COUNT(*) FROM epg_programs", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(rows, 1);
-    }
-
-    #[test]
-    fn epg_programs_rejects_duplicate_channel_and_start_time() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_schema(&conn).unwrap();
-
-        let insert = "INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
-                      VALUES ('svt1.se', 'Rapport', '2026-09-02T18:00:00+00:00', '2026-09-02T18:30:00+00:00')";
-        conn.execute(insert, []).unwrap();
-        let second = conn.execute(insert, []);
-
-        assert!(second.is_err(), "unique index must reject the duplicate");
     }
 
     use super::{migrate_m3u_series, M3U_SERIES_GROUPED_KEY};
@@ -878,57 +610,6 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM channels", [], |r| r.get(0))
             .unwrap();
         assert_eq!(after, before + 1, "second run does not regroup");
-    }
-
-    use super::migrate_epg_programs;
-
-    #[test]
-    fn epg_migrations_are_skipped_once_recorded() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_schema(&conn).unwrap();
-        conn.execute(
-            "INSERT INTO epg_programs (channel_epg_id, title, start_time, end_time)
-             VALUES ('SVT1.se', 'Rapport', '2026-09-02T18:00:00+00:00', '2026-09-02T18:30:00+00:00')",
-            [],
-        )
-        .unwrap();
-
-        init_schema(&conn).unwrap();
-
-        let id: String = conn
-            .query_row("SELECT channel_epg_id FROM epg_programs", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(id, "SVT1.se", "the lower() pass must not run again");
-    }
-
-    #[test]
-    fn fresh_database_marks_epg_migrations_done() {
-        let conn = Connection::open_in_memory().unwrap();
-        init_schema(&conn).unwrap();
-        assert_eq!(
-            queries::get_setting(&conn, EPG_PROGRAMS_NORMALIZED_KEY)
-                .unwrap()
-                .as_deref(),
-            Some("1")
-        );
-    }
-
-    #[test]
-    fn failed_epg_migration_leaves_guard_unset() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );",
-        )
-        .unwrap();
-
-        assert!(migrate_epg_programs(&conn).is_err());
-        assert!(queries::get_setting(&conn, EPG_PROGRAMS_NORMALIZED_KEY)
-            .unwrap()
-            .is_none());
     }
 
     #[test]
@@ -1210,9 +891,10 @@ mod epg_source_seed_tests {
                 .unwrap();
             assert!(sql.contains("WITHOUT ROWID"), "{table}");
         }
-        // The old tables stay until the drop task of a later step.
-        assert!(objects.contains(&("table".to_string(), "epg_programs".to_string())));
-        assert!(objects.contains(&("table".to_string(), "epg_sources".to_string())));
+        // The 3.1.x guide tables are not created any more.
+        assert!(objects
+            .iter()
+            .all(|(_, name)| !matches!(name.as_str(), "epg_programs" | "epg_sources")));
         assert_eq!(
             get_setting(&conn, EPG_SOURCES_SEEDED_KEY)
                 .unwrap()
@@ -1539,5 +1221,39 @@ mod epg_source_seed_tests {
         assert!(get_setting(&conn, EPG_SOURCES_SEEDED_KEY)
             .unwrap()
             .is_some());
+    }
+
+    #[test]
+    fn the_drop_task_removes_the_old_tables_and_can_run_again() {
+        let conn = v1_db(&legacy_url());
+        init_schema(&conn).unwrap();
+        let settings = snapshot(
+            &conn,
+            "settings",
+            &["key".into(), "value".into(), "updated_at".into()],
+        );
+
+        super::drop_legacy_epg_tables(&conn).unwrap();
+
+        let objects = schema_objects(&conn);
+        for name in ["epg_programs", "epg_sources", "idx_epg_programs_unique"] {
+            assert!(objects.iter().all(|(_, n)| n != name), "{name}");
+        }
+        super::drop_legacy_epg_tables(&conn).unwrap();
+        init_schema(&conn).unwrap();
+        assert_eq!(
+            schema_objects(&conn),
+            objects,
+            "init_schema does not bring them back"
+        );
+        assert_eq!(
+            snapshot(
+                &conn,
+                "settings",
+                &["key".into(), "value".into(), "updated_at".into()]
+            ),
+            settings,
+            "the old settings rows stay"
+        );
     }
 }

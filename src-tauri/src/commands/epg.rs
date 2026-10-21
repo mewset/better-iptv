@@ -1,75 +1,243 @@
+//! Guide commands: thin handlers over `epg::read` (what the guide shows),
+//! `epg::service` (downloads, sources, time policy) and `epg::status`.
+//!
+//! Times cross IPC as RFC 3339 strings and are Unix seconds inside. Keys are
+//! the channel ids as the playlist spells them; answers are keyed the same
+//! way (`epg::read`).
+
 use crate::commands::with_db;
-use crate::db::queries;
-use crate::epg::{ChannelEpg, GuideProgram};
-use crate::epg_domain;
-use crate::epg_domain::{
-    epg_refresh_due, epg_retry_allowed, EPG_AUTO_REFRESH_INTERVAL_HOURS,
-    EPG_AUTO_REFRESH_RETRY_MINUTES,
-};
+use crate::epg::read::{self, active_profile, NowNext, Programme};
+use crate::epg::service::{EpgService, Finished};
+use crate::epg::sources::{list_sources, SourcePatch};
+use crate::epg::status::EpgSourceStatus;
+use crate::epg_domain::policy::TimePolicy;
+use crate::epg_domain::source::SourceOrigin;
+use crate::epg_domain::{self, normalize_epg_url};
 use crate::error::AppError;
-use crate::playlist::{get_xtream_epg_url, XtreamCredentials};
 use crate::state::AppState;
 use log::{debug, info, warn};
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::State;
 
-fn resolve_xtream_epg_user_agent(
-    db: &rusqlite::Connection,
-    target_epg_url: &str,
-) -> Result<Option<String>, AppError> {
-    let active_profile_id =
-        queries::get_setting(db, "active_profile_id")?.and_then(|id| id.parse::<i64>().ok());
+/// Upper bound on keys per now/next request; the channel grid asks for at
+/// most 100.
+const MAX_EPG_BATCH: usize = 500;
 
-    let Some(profile_id) = active_profile_id else {
-        return Ok(None);
-    };
-
-    let Some(playlist) = queries::get_playlist_by_id(db, profile_id)? else {
-        return Ok(None);
-    };
-
-    let Some(server_url) = playlist.url else {
-        return Ok(None);
-    };
-    let Some(username) = playlist.xtream_username else {
-        return Ok(None);
-    };
-    let Some(password) = playlist.xtream_password else {
-        return Ok(None);
-    };
-
-    let xtream_epg_url = get_xtream_epg_url(&XtreamCredentials {
-        server_url,
-        username,
-        password,
-    });
-
-    if xtream_epg_url != target_epg_url {
-        return Ok(None);
-    }
-
-    let settings = queries::get_multiple_settings(
-        db,
-        &["playlist_user_agent_mode", "playlist_user_agent_custom"],
-    )?;
-    let mode = settings.get("playlist_user_agent_mode").map(|s| s.as_str());
-    let custom = settings
-        .get("playlist_user_agent_custom")
-        .map(|s| s.as_str());
-
-    Ok(Some(crate::http::resolve_playlist_user_agent(mode, custom)))
+fn now() -> i64 {
+    chrono::Utc::now().timestamp()
 }
 
-#[derive(Debug, Serialize)]
-pub struct EpgStatus {
+fn check_batch(count: usize) -> Result<(), AppError> {
+    if count > MAX_EPG_BATCH {
+        return Err(AppError::InvalidInput(format!(
+            "At most {} EPG ids per request",
+            MAX_EPG_BATCH
+        )));
+    }
+    Ok(())
+}
+
+/// Now and next for each key at `now`, in the active profile.
+async fn read_now_next(
+    pool: &Pool<SqliteConnectionManager>,
+    keys: Vec<String>,
+    now: i64,
+) -> Result<HashMap<String, NowNext>, AppError> {
+    with_db(pool, move |conn| {
+        let profile = active_profile(conn)?;
+        Ok(read::now_next(conn, profile, &keys, now)?)
+    })
+    .await
+}
+
+/// The guide between `from` and `to` (RFC 3339) for each key.
+async fn read_guide(
+    pool: &Pool<SqliteConnectionManager>,
+    keys: Vec<String>,
+    from: &str,
+    to: &str,
+) -> Result<HashMap<String, Vec<Programme>>, AppError> {
+    epg_domain::validate_guide_id_count(keys.len())?;
+    let (from, to) = epg_domain::validate_guide_window(from, to)?;
+    with_db(pool, move |conn| {
+        let profile = active_profile(conn)?;
+        Ok(read::guide(conn, profile, &keys, from, to)?)
+    })
+    .await
+}
+
+/// The keys the guide has programmes for between `from` and `to`.
+async fn read_guide_keys(
+    pool: &Pool<SqliteConnectionManager>,
+    from: &str,
+    to: &str,
+) -> Result<Vec<String>, AppError> {
+    let (from, to) = epg_domain::validate_guide_ids_window(from, to)?;
+    with_db(pool, move |conn| {
+        let profile = active_profile(conn)?;
+        Ok(read::guide_keys(conn, profile, from, to)?)
+    })
+    .await
+}
+
+/// What each channel shows now and next. Keyed by the key as sent; a key
+/// the guide has nothing for is left out.
+#[tauri::command]
+pub async fn get_epg_now_next(
+    state: State<'_, AppState>,
+    keys: Vec<String>,
+) -> Result<HashMap<String, NowNext>, AppError> {
+    check_batch(keys.len())?;
+    read_now_next(&state.pool, keys, now()).await
+}
+
+/// Programmes overlapping `from`-`to` (RFC 3339, at most 48 hours) for each
+/// key; every key sent is in the answer.
+#[tauri::command]
+pub async fn get_epg_guide(
+    state: State<'_, AppState>,
+    keys: Vec<String>,
+    from: String,
+    to: String,
+) -> Result<HashMap<String, Vec<Programme>>, AppError> {
+    read_guide(&state.pool, keys, &from, &to).await
+}
+
+/// Keys of the channels whose stored guide (first start to last stop)
+/// touches `from`-`to` (at most seven days), in a source of the active
+/// profile. A channel with a gap over the whole range is listed too; for the
+/// guide's five-day range that reading and "has a programme in it" agree.
+#[tauri::command]
+pub async fn get_epg_guide_keys(
+    state: State<'_, AppState>,
+    from: String,
+    to: String,
+) -> Result<Vec<String>, AppError> {
+    read_guide_keys(&state.pool, &from, &to).await
+}
+
+/// Add a guide URL for every profile and start its first download.
+#[tauri::command]
+pub async fn add_epg_source(
+    epg: State<'_, EpgService>,
+    url: String,
+) -> Result<EpgSourceStatus, AppError> {
+    Ok(epg.add_source(url).await?.0)
+}
+
+/// Enable or disable a source, change its priority, or (for a URL added by
+/// hand) its URL. Fields left out stay as they are.
+#[tauri::command]
+pub async fn update_epg_source(
+    epg: State<'_, EpgService>,
+    id: i64,
+    patch: SourcePatch,
+) -> Result<(), AppError> {
+    epg.update_source(id, patch).await?;
+    Ok(())
+}
+
+/// Remove a URL added by hand, with its programmes and cached feed.
+#[tauri::command]
+pub async fn remove_epg_source(epg: State<'_, EpgService>, id: i64) -> Result<(), AppError> {
+    epg.remove_source(id).await
+}
+
+/// Download one source, or every enabled source of the active profile, now.
+/// Returns at once; progress arrives as `epg-status` events.
+#[tauri::command]
+pub async fn refresh_epg(
+    epg: State<'_, EpgService>,
+    source_id: Option<i64>,
+) -> Result<(), AppError> {
+    epg.refresh(source_id).await?;
+    Ok(())
+}
+
+/// Set how a source's times are read. Returns at once; a cached feed is
+/// read again under the new policy in the background.
+#[tauri::command]
+pub async fn set_epg_time_policy(
+    epg: State<'_, EpgService>,
+    source_id: i64,
+    policy: TimePolicy,
+) -> Result<(), AppError> {
+    policy.validate()?;
+    epg.set_time_policy(source_id, policy).await?;
+    Ok(())
+}
+
+// ========== Temporary wrappers ==========
+//
+// TEMPORARY: the commands below keep the names and payloads the shipped
+// frontend calls until it moves to the commands above (PR A-frontend), which
+// deletes them.
+
+/// Current/next titles with times, in the old `get_channels_epg` shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChannelEpg {
+    pub current: Option<String>,
+    pub current_start: Option<String>,
+    pub current_end: Option<String>,
+    pub next: Option<String>,
+    pub next_start: Option<String>,
+}
+
+impl From<NowNext> for ChannelEpg {
+    fn from(entry: NowNext) -> Self {
+        let (current, current_start, current_end) = match entry.now {
+            Some(p) => (Some(p.title), Some(p.start), Some(p.stop)),
+            None => (None, None, None),
+        };
+        let (next, next_start) = match entry.next {
+            Some(p) => (Some(p.title), Some(p.start)),
+            None => (None, None),
+        };
+        ChannelEpg {
+            current,
+            current_start,
+            current_end,
+            next,
+            next_start,
+        }
+    }
+}
+
+/// One guide programme in the old `get_guide` shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GuideProgram {
+    pub title: String,
+    pub description: Option<String>,
+    pub start_time: String,
+    pub end_time: String,
+}
+
+impl From<Programme> for GuideProgram {
+    fn from(p: Programme) -> Self {
+        GuideProgram {
+            title: p.title,
+            description: p.description,
+            start_time: p.start,
+            end_time: p.stop,
+        }
+    }
+}
+
+/// The old `get_epg_status` shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LegacyEpgStatus {
+    /// An enabled source applies to the active profile.
     pub has_url: bool,
+    /// The latest successful download among those sources, RFC 3339.
     pub last_fetched: Option<String>,
     pub program_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+/// The old `force_refresh_epg` answer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EpgRefreshResult {
     pub success: bool,
     pub programs_loaded: usize,
@@ -77,68 +245,30 @@ pub struct EpgRefreshResult {
     pub error: Option<String>,
 }
 
-#[tauri::command]
-pub async fn fetch_epg_data(
-    state: State<'_, AppState>,
-    epg_url: String,
-) -> Result<usize, AppError> {
-    let _guard = state.epg_refresh_lock.lock().await;
+/// Shown by `force_refresh_epg` when no source applies.
+const NO_SOURCE_MESSAGE: &str = "No guide source is enabled for this profile";
 
-    let normalized_url = epg_domain::normalize_epg_url(&epg_url);
-    epg_domain::validate_epg_url(&normalized_url)?;
-
-    let url_for_ua = normalized_url.clone();
-    let playlist_user_agent = with_db(&state.pool, move |conn| {
-        resolve_xtream_epg_user_agent(conn, &url_for_ua)
-    })
-    .await?;
-
-    let programs = crate::epg::fetch_and_parse_epg(&normalized_url, playlist_user_agent.as_deref())
-        .await
-        .map_err(|e| AppError::Epg(e.to_string()))?;
-
-    with_db(&state.pool, move |conn| {
-        let count = crate::epg::store_epg_programs(conn, &programs)?;
-        crate::db::mutations::set_setting(
-            conn,
-            "epg_last_fetched",
-            &chrono::Utc::now().to_rfc3339(),
-        )?;
-        Ok(count)
-    })
-    .await
-}
-
+/// TEMPORARY: `get_channel_epg` → current and next title of one channel.
 #[tauri::command]
 pub async fn get_channel_epg(
     state: State<'_, AppState>,
     channel_epg_id: String,
 ) -> Result<(Option<String>, Option<String>), AppError> {
     epg_domain::validate_channel_epg_id(&channel_epg_id)?;
-
-    with_db(&state.pool, move |conn| {
-        let current = crate::epg::get_current_program(conn, &channel_epg_id)?;
-        let next = crate::epg::get_next_program(conn, &channel_epg_id)?;
-        Ok((current, next))
+    let mut answer = read_now_next(&state.pool, vec![channel_epg_id.clone()], now()).await?;
+    Ok(match answer.remove(&channel_epg_id) {
+        Some(entry) => (entry.now.map(|p| p.title), entry.next.map(|p| p.title)),
+        None => (None, None),
     })
-    .await
 }
 
-/// Upper bound on ids per call; the channel grid asks for at most 100.
-const MAX_EPG_BATCH: usize = 500;
-
+/// TEMPORARY: `get_channels_epg` → `get_epg_now_next` in the old shape.
 #[tauri::command]
 pub async fn get_channels_epg(
     state: State<'_, AppState>,
     epg_ids: Vec<String>,
 ) -> Result<HashMap<String, ChannelEpg>, AppError> {
-    if epg_ids.len() > MAX_EPG_BATCH {
-        return Err(AppError::InvalidInput(format!(
-            "At most {} EPG ids per request",
-            MAX_EPG_BATCH
-        )));
-    }
-
+    check_batch(epg_ids.len())?;
     let ids: Vec<String> = epg_ids
         .into_iter()
         .filter(|id| !id.trim().is_empty())
@@ -146,15 +276,12 @@ pub async fn get_channels_epg(
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-
-    let result = with_db(&state.pool, move |conn| {
-        Ok(crate::epg::get_programs_for_channels(conn, &ids)?)
-    })
-    .await?;
-    debug!("get_channels_epg -> {} channels with data", result.len());
-    Ok(result)
+    let answer = read_now_next(&state.pool, ids, now()).await?;
+    debug!("get_channels_epg -> {} channels with data", answer.len());
+    Ok(answer.into_iter().map(|(k, v)| (k, v.into())).collect())
 }
 
+/// TEMPORARY: `get_guide` → `get_epg_guide` in the old shape.
 #[tauri::command]
 pub async fn get_guide(
     state: State<'_, AppState>,
@@ -162,229 +289,558 @@ pub async fn get_guide(
     from: String,
     to: String,
 ) -> Result<HashMap<String, Vec<GuideProgram>>, AppError> {
-    epg_domain::validate_guide_id_count(epg_ids.len())?;
-
     for id in &epg_ids {
         epg_domain::validate_channel_epg_id(id)?;
     }
-
-    let (from, to) = epg_domain::validate_guide_window(&from, &to)?;
-
-    with_db(&state.pool, move |conn| {
-        Ok(crate::epg::get_guide(conn, &epg_ids, &from, &to)?)
-    })
-    .await
+    let answer = read_guide(&state.pool, epg_ids, &from, &to).await?;
+    Ok(answer
+        .into_iter()
+        .map(|(k, list)| (k, list.into_iter().map(GuideProgram::from).collect()))
+        .collect())
 }
 
-/// EPG ids with programmes between `from` and `to` (at most seven days): the
-/// guide lists only channels whose id is in this answer.
+/// TEMPORARY: `get_guide_epg_ids` → `get_epg_guide_keys`.
 #[tauri::command]
 pub async fn get_guide_epg_ids(
     state: State<'_, AppState>,
     from: String,
     to: String,
 ) -> Result<Vec<String>, AppError> {
-    let (from, to) = epg_domain::validate_guide_ids_window(&from, &to)?;
-    with_db(&state.pool, move |conn| {
-        Ok(crate::epg::get_guide_epg_ids(conn, &from, &to)?)
-    })
-    .await
+    read_guide_keys(&state.pool, &from, &to).await
 }
 
+/// TEMPORARY: `get_epg_status` in the old shape, over the sources of the
+/// active profile.
 #[tauri::command]
-pub async fn get_epg_status(state: State<'_, AppState>) -> Result<EpgStatus, AppError> {
-    with_db(&state.pool, |conn| {
-        let epg_url = queries::get_setting(conn, "epg_url")?;
-        let has_url = epg_url.map(|u| !u.trim().is_empty()).unwrap_or(false);
+pub async fn get_epg_status(state: State<'_, AppState>) -> Result<LegacyEpgStatus, AppError> {
+    with_db(&state.pool, |conn| Ok(legacy_status(conn)?)).await
+}
 
-        let last_fetched = queries::get_setting(conn, "epg_last_fetched")?;
-        let program_count = queries::get_epg_program_count(conn)?;
+fn legacy_status(conn: &rusqlite::Connection) -> rusqlite::Result<LegacyEpgStatus> {
+    let profile = active_profile(conn)?;
+    let enabled: Vec<_> = list_sources(conn)?
+        .into_iter()
+        .filter(|s| s.enabled && crate::epg_domain::source::applies_to(s.playlist_id, profile))
+        .collect();
+    Ok(LegacyEpgStatus {
+        has_url: !enabled.is_empty(),
+        last_fetched: enabled
+            .iter()
+            .filter_map(|s| s.last_success_at)
+            .max()
+            .and_then(read::rfc3339),
+        program_count: enabled.iter().map(|s| s.programme_count as usize).sum(),
+    })
+}
 
-        Ok(EpgStatus {
-            has_url,
-            last_fetched,
-            program_count,
+/// The old answer for downloads that ended as `ended`: a success when one
+/// stored programmes or none failed, with the first failure otherwise.
+fn refresh_result(ended: &[(i64, Finished)], at: i64) -> EpgRefreshResult {
+    let stored: usize = ended
+        .iter()
+        .filter_map(|(_, f)| match f {
+            Finished::Stored(count) => Some(*count as usize),
+            _ => None,
         })
-    })
-    .await
-}
-
-/// Fetch, parse and store EPG from the configured `epg_url`.
-///
-/// Returns `Ok(EpgRefreshResult { success: false, .. })` for user-facing
-/// problems (no URL, invalid URL, download failure) and `Err` only for
-/// database failures. Shared by the Settings button and the background task.
-pub async fn run_epg_refresh(state: &AppState) -> Result<EpgRefreshResult, AppError> {
-    let epg_url = with_db(&state.pool, |conn| {
-        Ok(queries::get_setting(conn, "epg_url")?)
-    })
-    .await?;
-
-    let epg_url = match epg_url {
-        Some(url) if !url.trim().is_empty() => url,
-        _ => {
-            return Ok(EpgRefreshResult {
-                success: false,
-                programs_loaded: 0,
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                error: Some("No EPG URL configured".to_string()),
-            });
-        }
+        .sum();
+    let any_stored = ended.iter().any(|(_, f)| matches!(f, Finished::Stored(_)));
+    let failure = ended.iter().find_map(|(_, f)| match f {
+        Finished::Failed(message) => Some(message.clone()),
+        _ => None,
+    });
+    let error = if ended.is_empty() {
+        Some(NO_SOURCE_MESSAGE.to_string())
+    } else if any_stored {
+        None
+    } else {
+        failure
     };
-
-    info!(
-        "Force refreshing EPG from: {}",
-        crate::utils::mask_credentials(&epg_url)
-    );
-
-    let normalized_url = epg_domain::normalize_epg_url(&epg_url);
-    if let Err(e) = epg_domain::validate_epg_url(&normalized_url) {
-        warn!("Invalid EPG URL: {}", e);
-        return Ok(EpgRefreshResult {
-            success: false,
-            programs_loaded: 0,
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            error: Some(format!("Invalid EPG URL: {}", e)),
-        });
+    EpgRefreshResult {
+        success: error.is_none(),
+        programs_loaded: stored,
+        timestamp: read::rfc3339(at).unwrap_or_default(),
+        error,
     }
-
-    let url_for_ua = normalized_url.clone();
-    let playlist_user_agent = with_db(&state.pool, move |conn| {
-        resolve_xtream_epg_user_agent(conn, &url_for_ua)
-    })
-    .await?;
-
-    let programs = match crate::epg::fetch_and_parse_epg(
-        &normalized_url,
-        playlist_user_agent.as_deref(),
-    )
-    .await
-    {
-        Ok(p) => p,
-        Err(e) => {
-            // Full chain for diagnosis; the log formatter masks credentials
-            warn!("Failed to fetch EPG: {:#}", e);
-            return Ok(EpgRefreshResult {
-                success: false,
-                programs_loaded: 0,
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                error: Some(format!("Failed to fetch EPG: {}", e)),
-            });
-        }
-    };
-
-    let (count, timestamp) = with_db(&state.pool, move |conn| {
-        let count = crate::epg::store_epg_programs(conn, &programs)?;
-
-        let timestamp = chrono::Utc::now().to_rfc3339();
-        crate::db::mutations::set_setting(conn, "epg_last_fetched", &timestamp)?;
-        Ok((count, timestamp))
-    })
-    .await?;
-
-    info!("EPG refresh completed: {} programs loaded", count);
-
-    Ok(EpgRefreshResult {
-        success: true,
-        programs_loaded: count,
-        timestamp,
-        error: None,
-    })
 }
 
+/// TEMPORARY: "Update Now". Downloads every enabled source of the active
+/// profile and waits for the result, also when a download was already
+/// running.
 #[tauri::command]
-pub async fn force_refresh_epg(state: State<'_, AppState>) -> Result<EpgRefreshResult, AppError> {
-    let _guard = state.epg_refresh_lock.lock().await;
-    run_epg_refresh(&state).await
+pub async fn force_refresh_epg(epg: State<'_, EpgService>) -> Result<EpgRefreshResult, AppError> {
+    update_now(&epg).await
 }
 
-/// First automatic check after startup; leaves the UI's own startup traffic alone.
-pub const EPG_AUTO_REFRESH_INITIAL_DELAY: Duration = Duration::from_secs(30);
-/// How often the background task re-checks whether a refresh is due.
-pub const EPG_AUTO_REFRESH_POLL_INTERVAL: Duration = Duration::from_secs(15 * 60);
+async fn update_now(epg: &EpgService) -> Result<EpgRefreshResult, AppError> {
+    let ended = epg.refresh_and_wait(None).await?;
+    let result = refresh_result(&ended, now());
+    match &result.error {
+        None => info!(
+            "EPG refresh completed: {} programmes loaded",
+            result.programs_loaded
+        ),
+        Some(e) => warn!("EPG refresh failed: {e}"),
+    }
+    Ok(result)
+}
 
-/// Background entry point: refresh EPG when an `epg_url` is set and the last
-/// fetch is older than `EPG_AUTO_REFRESH_INTERVAL_HOURS`. Never fails; every
-/// problem is logged. Attempts are spaced at least
-/// `EPG_AUTO_REFRESH_RETRY_MINUTES` apart via the `epg_last_attempt` setting,
-/// so a broken URL is not re-downloaded at every poll.
-pub async fn maybe_auto_refresh_epg(app: &AppHandle) {
-    let state = app.state::<AppState>();
+/// TEMPORARY: the Settings URL field, saved. An empty URL disables every
+/// URL source added by hand. A URL goes into such a source (the one that
+/// has it is enabled, otherwise the first one takes it, or a new one is
+/// added) and is downloaded now. Returns the programmes stored.
+#[tauri::command]
+pub async fn fetch_epg_data(
+    state: State<'_, AppState>,
+    epg: State<'_, EpgService>,
+    epg_url: String,
+) -> Result<usize, AppError> {
+    save_guide_url(&state.pool, &epg, &epg_url).await
+}
 
-    let _guard = match state.epg_refresh_lock.try_lock() {
-        Ok(g) => g,
-        Err(_) => {
-            debug!("EPG auto-refresh: a refresh is already running, skipping");
-            return;
-        }
-    };
-
-    let settings = with_db(&state.pool, |conn| {
-        Ok(queries::get_multiple_settings(
-            conn,
-            &["epg_url", "epg_last_fetched", "epg_last_attempt"],
-        )?)
+async fn save_guide_url(
+    pool: &Pool<SqliteConnectionManager>,
+    epg: &EpgService,
+    epg_url: &str,
+) -> Result<usize, AppError> {
+    let url = normalize_epg_url(epg_url);
+    let manual: Vec<(i64, String, bool)> = with_db(pool, |conn| {
+        Ok(list_sources(conn)?
+            .into_iter()
+            .filter(|s| s.origin == SourceOrigin::Manual && s.playlist_id.is_none())
+            .map(|s| (s.id, s.url.unwrap_or_default(), s.enabled))
+            .collect())
     })
-    .await;
+    .await?;
 
-    let settings = match settings {
-        Ok(s) => s,
-        Err(e) => {
-            warn!("EPG auto-refresh: could not read settings: {}", e);
-            return;
-        }
-    };
-
-    let has_url = settings
-        .get("epg_url")
-        .map(|u| !u.trim().is_empty())
-        .unwrap_or(false);
-    if !has_url {
-        return;
-    }
-
-    let now = chrono::Utc::now();
-    let last_fetched = settings.get("epg_last_fetched").map(|s| s.as_str());
-    if !epg_refresh_due(last_fetched, now, EPG_AUTO_REFRESH_INTERVAL_HOURS) {
-        return;
-    }
-
-    // A broken URL must not be re-downloaded at every poll: space attempts out
-    // whether or not the previous one succeeded.
-    let last_attempt = settings.get("epg_last_attempt").map(|s| s.as_str());
-    if !epg_retry_allowed(last_attempt, now, EPG_AUTO_REFRESH_RETRY_MINUTES) {
-        debug!(
-            "EPG auto-refresh: last attempt {:?} is too recent, waiting",
-            last_attempt
-        );
-        return;
-    }
-
-    let stamp = now.to_rfc3339();
-    let stamped = with_db(&state.pool, move |conn| {
-        Ok(crate::db::mutations::set_setting(
-            conn,
-            "epg_last_attempt",
-            &stamp,
-        )?)
-    })
-    .await;
-    if let Err(e) = stamped {
-        warn!("EPG auto-refresh: could not record attempt time: {}", e);
-        return;
-    }
-
-    info!(
-        "EPG auto-refresh: last fetch {:?}, refreshing",
-        last_fetched
-    );
-    match run_epg_refresh(&state).await {
-        Ok(result) if result.success => {
-            if let Err(e) = app.emit("epg-refreshed", result) {
-                warn!("EPG auto-refresh: failed to emit event: {}", e);
+    if url.is_empty() {
+        for (id, _, enabled) in manual {
+            if enabled {
+                let off = SourcePatch {
+                    enabled: Some(false),
+                    ..SourcePatch::default()
+                };
+                epg.update_source(id, off).await?;
             }
         }
-        Ok(result) => warn!("EPG auto-refresh failed: {:?}", result.error),
-        Err(e) => warn!("EPG auto-refresh failed: {}", e),
+        return Ok(0);
+    }
+    epg_domain::validate_epg_url(&url)?;
+
+    let target = manual
+        .iter()
+        .find(|(_, u, _)| *u == url)
+        .or_else(|| manual.first());
+    let (id, run) = match target {
+        Some((id, _, _)) => {
+            let patch = SourcePatch {
+                enabled: Some(true),
+                url: Some(url),
+                ..SourcePatch::default()
+            };
+            (*id, epg.update_source(*id, patch).await?)
+        }
+        None => {
+            let (status, run) = epg.add_source(url).await?;
+            (status.id, run)
+        }
+    };
+
+    // The change may have started the download. Otherwise one was running
+    // already, or the source was fetched a moment ago and is not due: then
+    // ask for one and wait for it.
+    let started = match run {
+        Some(run) => run
+            .await
+            .map_err(|e| AppError::Epg(format!("The guide update failed: {e}")))?
+            .into_iter()
+            .rev()
+            .find(|r| r.source_id == id)
+            .map(|r| Finished::of_result(&r.result)),
+        None => None,
+    };
+    let outcome = match started {
+        Some(outcome) => Some(outcome),
+        None => epg
+            .refresh_and_wait(Some(id))
+            .await?
+            .into_iter()
+            .find(|(source, _)| *source == id)
+            .map(|(_, f)| f),
+    };
+    match outcome {
+        Some(Finished::Stored(count)) => Ok(count as usize),
+        Some(Finished::Failed(message)) => Err(AppError::Epg(message)),
+        Some(Finished::Abandoned) | None => Err(AppError::Epg(
+            "The guide source changed during the update".to_string(),
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::epg::service::{EpgEvents, EpgRefreshed, ServiceParts};
+    use crate::epg::sources::feed_path;
+    use crate::epg::status::EpgStatus;
+    use crate::epg::test_support::*;
+    use crate::epg::{ingest, Fetch, IngestOutcome, IngestScope};
+    use crate::http::test_server::{respond, serve};
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    struct NoEvents;
+
+    impl EpgEvents for NoEvents {
+        fn refreshed(&self, _: &EpgRefreshed) {}
+        fn status(&self, _: &EpgStatus) {}
+    }
+
+    fn service(f: &Fixture) -> EpgService {
+        EpgService::new(ServiceParts {
+            pool: f.pool.clone(),
+            db_path: f.db_path.clone(),
+            cache_dir: f.dir.0.clone(),
+            client: f.client.clone(),
+            download_deadline: Duration::from_secs(10),
+            lock: Arc::new(tokio::sync::Mutex::new(())),
+            refreshing: Arc::new(Mutex::new(HashSet::new())),
+            pending_policy: Arc::new(Mutex::new(HashSet::new())),
+            events: Arc::new(NoEvents),
+            clock: Arc::new(|| NOW),
+        })
+    }
+
+    fn at(t: i64) -> String {
+        read::rfc3339(t).unwrap()
+    }
+
+    fn feed() -> String {
+        Feed::new()
+            .programme("SVT1.se", NOW - H, NOW + H, "News")
+            .programme("SVT1.se", NOW + H, NOW + 2 * H, "Film")
+            .programme("Ämne.se", NOW, NOW + H, "Ämne")
+            .xml()
+    }
+
+    #[tokio::test]
+    async fn the_old_read_commands_answer_from_the_new_store() {
+        let f = Fixture::new("commands");
+        let s = add_manual(&f.conn(), "http://epg.example/epg.xml");
+        f.store(s, &feed(), NOW).await;
+        let keys = |list: &[&str]| list.iter().map(|k| k.to_string()).collect::<Vec<_>>();
+
+        let now_next = read_now_next(&f.pool, keys(&["svt1.se", "ÄMNE.SE", "none"]), NOW)
+            .await
+            .unwrap();
+        let old: HashMap<String, ChannelEpg> =
+            now_next.into_iter().map(|(k, v)| (k, v.into())).collect();
+        assert_eq!(old.len(), 2);
+        assert_eq!(
+            old["svt1.se"],
+            ChannelEpg {
+                current: Some("News".into()),
+                current_start: Some(at(NOW - H)),
+                current_end: Some(at(NOW + H)),
+                next: Some("Film".into()),
+                next_start: Some(at(NOW + H)),
+            }
+        );
+        assert_eq!(old["ÄMNE.SE"].current.as_deref(), Some("Ämne"));
+
+        // `to` half a second after a start keeps that programme in, as the
+        // string comparison of the old store did.
+        let guide = read_guide(
+            &f.pool,
+            keys(&["SVT1.se"]),
+            "2026-10-21T13:00:00+01:00",
+            "2026-10-21T13:00:00.500Z",
+        )
+        .await
+        .unwrap();
+        let titles: Vec<&str> = guide["SVT1.se"].iter().map(|p| p.title.as_str()).collect();
+        assert_eq!(titles, ["News", "Film"]);
+        let old = GuideProgram::from(guide["SVT1.se"][1].clone());
+        assert_eq!(
+            (old.start_time, old.end_time),
+            (at(NOW + H), at(NOW + 2 * H))
+        );
+        let err = read_guide(&f.pool, keys(&["svt1.se"]), &at(NOW), &at(NOW + 49 * H))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::InvalidInput(_)));
+
+        assert_eq!(
+            read_guide_keys(&f.pool, &at(NOW - 24 * H), &at(NOW + 96 * H))
+                .await
+                .unwrap(),
+            ["svt1.se", "ämne.se"]
+        );
+        let status = legacy_status(&f.conn()).unwrap();
+        assert!(status.has_url);
+        assert_eq!(status.program_count, 3);
+        assert_eq!(
+            status.last_fetched, None,
+            "read from the cache, not downloaded"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_old_status_counts_only_enabled_sources_of_the_active_profile() {
+        let f = Fixture::new("commands");
+        let conn = f.conn();
+        let s = add_manual(&conn, "http://epg.example/epg.xml");
+        assert!(legacy_status(&conn).unwrap().has_url);
+        conn.execute(
+            "UPDATE epg_source SET last_success_at = ?2, programme_count = 7 WHERE id = ?1",
+            rusqlite::params![s, NOW],
+        )
+        .unwrap();
+        assert_eq!(
+            legacy_status(&conn).unwrap(),
+            LegacyEpgStatus {
+                has_url: true,
+                last_fetched: Some(at(NOW)),
+                program_count: 7,
+            }
+        );
+        conn.execute("UPDATE epg_source SET enabled = 0", [])
+            .unwrap();
+        assert_eq!(
+            legacy_status(&conn).unwrap(),
+            LegacyEpgStatus {
+                has_url: false,
+                last_fetched: None,
+                program_count: 0,
+            }
+        );
+    }
+
+    /// (id, url, enabled) of every source, by id.
+    fn manual_sources(f: &Fixture) -> Vec<(i64, Option<String>, bool)> {
+        list_sources(&f.conn())
+            .unwrap()
+            .into_iter()
+            .map(|s| (s.id, s.url, s.enabled))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn saving_the_url_field_keeps_one_url_source_and_downloads_it() {
+        let f = Fixture::new("commands");
+        let server = serve(vec![respond("200 OK", feed().as_bytes())]).await;
+        let epg = service(&f);
+        let (first, second) = (
+            format!("{}/a.xml", server.base),
+            format!("{}/b.xml", server.base),
+        );
+
+        assert_eq!(save_guide_url(&f.pool, &epg, &first).await.unwrap(), 3);
+        let id = manual_sources(&f)[0].0;
+        assert_eq!(manual_sources(&f), [(id, Some(first.clone()), true)]);
+        assert!(feed_path(&f.dir.0, id).exists());
+
+        // Another URL replaces it in the same source, and downloads.
+        assert_eq!(save_guide_url(&f.pool, &epg, &second).await.unwrap(), 3);
+        assert_eq!(manual_sources(&f), [(id, Some(second.clone()), true)]);
+
+        // Emptied: disabled, kept.
+        assert_eq!(save_guide_url(&f.pool, &epg, "  ").await.unwrap(), 0);
+        assert_eq!(manual_sources(&f), [(id, Some(second.clone()), false)]);
+
+        // The same URL again: enabled and downloaded, though fetched a
+        // moment ago.
+        assert_eq!(save_guide_url(&f.pool, &epg, &second).await.unwrap(), 3);
+        assert_eq!(manual_sources(&f), [(id, Some(second), true)]);
+        assert_eq!(server.connections(), 3);
+
+        let err = save_guide_url(&f.pool, &epg, "ftp://epg.example/a.xml")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::InvalidInput(_)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn a_failed_download_after_saving_the_url_is_an_error() {
+        let f = Fixture::new("commands");
+        let server = serve(vec![respond("403 Forbidden", b"no")]).await;
+        let epg = service(&f);
+
+        let err = save_guide_url(&f.pool, &epg, &format!("{}/epg.xml", server.base))
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "EPG error: The EPG server answered 403 Forbidden"
+        );
+    }
+
+    #[tokio::test]
+    async fn update_now_waits_for_the_download_and_reports_it() {
+        let f = Fixture::new("commands");
+        let server = serve(vec![respond("200 OK", feed().as_bytes())]).await;
+        let epg = service(&f);
+
+        let none = update_now(&epg).await.unwrap();
+        assert_eq!(none.error.as_deref(), Some(NO_SOURCE_MESSAGE));
+
+        add_manual(&f.conn(), &format!("{}/epg.xml", server.base));
+        let result = update_now(&epg).await.unwrap();
+
+        assert!(result.success, "{result:?}");
+        assert_eq!(result.programs_loaded, 3);
+        assert_eq!(server.connections(), 1);
+    }
+
+    /// The captured feed (see the EPG rewrite brief) through the ingest and
+    /// the old read commands, at the capture's noon:
+    /// `EPG_REAL_FEED=/path/to/xmltv.xml cargo test --lib real_feed -- --ignored`.
+    /// Prints counts only.
+    #[tokio::test]
+    #[ignore]
+    async fn real_feed_through_the_old_read_commands() {
+        let Some(path) = std::env::var_os("EPG_REAL_FEED") else {
+            eprintln!("EPG_REAL_FEED is not set; skipped");
+            return;
+        };
+        let f = Fixture::new("commands-real");
+        let s = add_manual(&f.conn(), "http://real.example/epg.xml");
+        std::fs::copy(&path, feed_path(&f.dir.0, s)).unwrap();
+        let outcome = ingest(&f.env(), s, Fetch::Cache, IngestScope::Feed, NOW)
+            .await
+            .unwrap();
+        let IngestOutcome::Stored(report) = outcome else {
+            panic!("not stored: {outcome:?}");
+        };
+
+        let keys = read_guide_keys(&f.pool, &at(NOW - 24 * H), &at(NOW + 96 * H))
+            .await
+            .unwrap();
+        // The feed lists 2,055 ids; fewer of them carry programmes.
+        assert!(keys.len() > 500, "{} keys", keys.len());
+
+        let wanted: Vec<String> = keys.iter().take(100).cloned().collect();
+        let now_next = read_now_next(&f.pool, wanted.clone(), NOW).await.unwrap();
+        assert!(now_next.len() >= 50, "{} answered", now_next.len());
+        let parse = |t: &str| chrono::DateTime::parse_from_rfc3339(t).unwrap().timestamp();
+        for (key, entry) in &now_next {
+            assert!(wanted.contains(key));
+            let old = ChannelEpg::from(entry.clone());
+            if let (Some(start), Some(end)) = (&old.current_start, &old.current_end) {
+                assert!(parse(start) <= NOW && NOW < parse(end), "{key}");
+            }
+            if let Some(next) = &old.next_start {
+                assert!(parse(next) > NOW, "{key}");
+            }
+        }
+
+        let wanted: Vec<String> = keys.iter().take(763).cloned().collect();
+        let guide = read_guide(&f.pool, wanted.clone(), &at(NOW), &at(NOW + 3 * H))
+            .await
+            .unwrap();
+        assert_eq!(guide.len(), wanted.len());
+        let mut programmes = 0;
+        for list in guide.values() {
+            let old: Vec<GuideProgram> = list.iter().cloned().map(GuideProgram::from).collect();
+            for pair in old.windows(2) {
+                assert!(parse(&pair[0].start_time) < parse(&pair[1].start_time));
+            }
+            for p in &old {
+                let (start, end) = (parse(&p.start_time), parse(&p.end_time));
+                assert!(start < end && end > NOW && start < NOW + 3 * H);
+            }
+            programmes += old.len();
+        }
+        assert!(programmes > wanted.len(), "{programmes} programmes");
+
+        let status = legacy_status(&f.conn()).unwrap();
+        assert_eq!(status.program_count, report.stored as usize);
+        eprintln!(
+            "REAL FEED: {} programmes on {} channels stored; {} guide keys; now/next {} of 100; \
+             guide 3 h {} programmes for {} keys",
+            report.stored,
+            report.keys,
+            keys.len(),
+            now_next.len(),
+            programmes,
+            wanted.len()
+        );
+    }
+
+    #[test]
+    fn the_old_now_next_shape_carries_titles_and_times() {
+        let programme = |title: &str, start: &str, stop: &str| Programme {
+            title: title.to_string(),
+            description: None,
+            start: start.to_string(),
+            stop: stop.to_string(),
+        };
+        let entry = NowNext {
+            now: Some(programme("News", "a", "b")),
+            next: Some(programme("Film", "b", "c")),
+        };
+        assert_eq!(
+            ChannelEpg::from(entry),
+            ChannelEpg {
+                current: Some("News".into()),
+                current_start: Some("a".into()),
+                current_end: Some("b".into()),
+                next: Some("Film".into()),
+                next_start: Some("b".into()),
+            }
+        );
+        let only_next = NowNext {
+            now: None,
+            next: Some(programme("Film", "b", "c")),
+        };
+        let old = ChannelEpg::from(only_next);
+        assert_eq!((old.current, old.current_start), (None, None));
+        assert_eq!(old.next.as_deref(), Some("Film"));
+        assert_eq!(
+            serde_json::to_value(GuideProgram::from(programme("News", "a", "b"))).unwrap(),
+            serde_json::json!({"title": "News", "description": null, "start_time": "a", "end_time": "b"})
+        );
+    }
+
+    #[test]
+    fn update_now_succeeds_when_a_source_stored_and_reports_a_failure_otherwise() {
+        let at = 1_792_584_000;
+        let ok = refresh_result(
+            &[
+                (1, Finished::Failed("down".into())),
+                (2, Finished::Stored(40)),
+                (3, Finished::Stored(2)),
+            ],
+            at,
+        );
+        assert_eq!(
+            ok,
+            EpgRefreshResult {
+                success: true,
+                programs_loaded: 42,
+                timestamp: "2026-10-21T12:00:00+00:00".into(),
+                error: None,
+            }
+        );
+        let failed = refresh_result(
+            &[
+                (1, Finished::Abandoned),
+                (
+                    2,
+                    Finished::Failed("The EPG server answered 403 Forbidden".into()),
+                ),
+            ],
+            at,
+        );
+        assert!(!failed.success);
+        assert_eq!(
+            failed.error.as_deref(),
+            Some("The EPG server answered 403 Forbidden")
+        );
+        let none = refresh_result(&[], at);
+        assert!(!none.success);
+        assert_eq!(none.error.as_deref(), Some(NO_SOURCE_MESSAGE));
+        assert!(refresh_result(&[(1, Finished::Abandoned)], at).success);
     }
 }

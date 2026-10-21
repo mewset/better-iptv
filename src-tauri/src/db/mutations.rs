@@ -1,7 +1,6 @@
 use super::models::*;
 use crate::channel_domain::effective_epg_id;
 use crate::series_domain::{EpisodeInput, SeriesGroup};
-use crate::utils::generate_epg_id_swedish;
 use log::{debug, warn};
 use rusqlite::{params, Connection, Result};
 use std::time::Instant;
@@ -488,42 +487,6 @@ pub fn replace_series_episodes(
         written, playlist_id
     );
     Ok(written)
-}
-
-// ========== EPG Mutations ==========
-
-/// Update EPG IDs for all Swedish channels based on their names
-/// Uses a transaction with prepared statement for batch efficiency
-pub fn update_channel_epg_ids(conn: &Connection) -> Result<usize> {
-    // Get all live channels without EPG IDs
-    let mut stmt = conn
-        .prepare("SELECT id, name FROM channels WHERE content_type = 'live' AND epg_id IS NULL")?;
-    let channels: Vec<(i64, String)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect::<Result<Vec<_>, _>>()?;
-    drop(stmt); // Explicitly drop to release borrow
-
-    if channels.is_empty() {
-        return Ok(0);
-    }
-
-    // Batch update using transaction for ~100-1000x performance improvement
-    let tx = conn.unchecked_transaction()?;
-    let mut updated_count = 0;
-
-    {
-        let mut update_stmt = tx.prepare_cached("UPDATE channels SET epg_id = ?1 WHERE id = ?2")?;
-
-        for (id, name) in &channels {
-            if let Some(epg_id) = generate_epg_id_swedish(name) {
-                update_stmt.execute(params![epg_id, id])?;
-                updated_count += 1;
-            }
-        }
-    }
-
-    tx.commit()?;
-    Ok(updated_count)
 }
 
 // ========== TMDB cache ==========

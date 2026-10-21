@@ -140,7 +140,30 @@ pub fn run() {
             let state = AppState::new(pool, db_path.clone(), epg_cache_dir);
             let logo_pool = state.pool.clone();
             let logo_lock = state.logo_fallback_lock.clone();
+            let epg_service =
+                epg::service::EpgService::new(epg::service::ServiceParts::from_state(
+                    &state,
+                    std::sync::Arc::new(app.handle().clone()),
+                ));
+            let (cleanup_pool, cleanup_dir, cleanup_lock) = (
+                state.pool.clone(),
+                state.epg_cache_dir.clone(),
+                state.epg_refresh_lock.clone(),
+            );
             app.manage(state);
+            app.manage(epg_service.clone());
+
+            // Off the boot path: drop the 3.1.x guide tables and delete
+            // cache files of sources that no longer exist. Every start, so a
+            // database a 3.1.x binary ran on in between is cleaned again.
+            tauri::async_runtime::spawn_blocking(move || {
+                let result = cleanup_pool.get().map_err(AppError::from).and_then(|conn| {
+                    epg::sources::boot_cleanup(&conn, &cleanup_dir, &cleanup_lock)
+                });
+                if let Err(e) = result {
+                    log::warn!("EPG clean-up at startup failed: {}", e);
+                }
+            });
 
             // TMDB enrichment: one search per visible title, plus the opt-in
             // library scan once the first channel load is out of the way.
@@ -151,17 +174,10 @@ pub fn run() {
                 tmdb::enrich::schedule_library_scan(scan_handle);
             });
 
-            // Background EPG refresh. Runs on Tauri's tokio runtime; the
-            // heavy parts (download, parse, store) already go through
-            // spawn_blocking / async HTTP inside run_epg_refresh.
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(commands::epg::EPG_AUTO_REFRESH_INITIAL_DELAY).await;
-                loop {
-                    commands::epg::maybe_auto_refresh_epg(&handle).await;
-                    tokio::time::sleep(commands::epg::EPG_AUTO_REFRESH_POLL_INTERVAL).await;
-                }
-            });
+            // Background guide refresh: every source due for the active
+            // profile, one at a time. Parsing and storing run on the
+            // blocking pool inside the ingest.
+            tauri::async_runtime::spawn(epg_service.run_background());
 
             // iptv-org logo fallbacks: expire dead marks and refresh the list
             // weekly, well after startup.
@@ -207,6 +223,15 @@ pub fn run() {
             set_active_profile_id,
             rename_playlist,
             // EPG commands
+            get_epg_now_next,
+            get_epg_guide,
+            get_epg_guide_keys,
+            add_epg_source,
+            update_epg_source,
+            remove_epg_source,
+            refresh_epg,
+            set_epg_time_policy,
+            // EPG commands kept for the current frontend (temporary)
             fetch_epg_data,
             get_channel_epg,
             get_channels_epg,

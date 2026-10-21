@@ -316,14 +316,6 @@ pub fn get_multiple_settings(conn: &Connection, keys: &[&str]) -> Result<HashMap
     Ok(result)
 }
 
-// ========== EPG Queries ==========
-
-/// Get the total count of EPG programs in the database
-pub fn get_epg_program_count(conn: &Connection) -> Result<usize> {
-    let count: i64 = conn.query_row("SELECT COUNT(*) FROM epg_programs", [], |row| row.get(0))?;
-    Ok(count as usize)
-}
-
 // ========== Stale Playlist Queries ==========
 
 /// Get playlists that have a URL and haven't been updated in the given number of days

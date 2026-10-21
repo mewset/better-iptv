@@ -1,15 +1,17 @@
 use crate::commands::with_db;
 use crate::db::{models::*, mutations, queries};
+use crate::epg::service::EpgService;
+use crate::epg::sources::{ensure_xtream_source, sweep_cache_dir};
 use crate::error::AppError;
-use crate::playlist::{
-    fetch_xtream_channels_with_progress, get_xtream_epg_url, parse_m3u, XtreamCredentials,
-};
+use crate::playlist::{fetch_xtream_channels_with_progress, parse_m3u, XtreamCredentials};
 use crate::playlist_domain;
 use crate::series_domain::{self, SeriesGroup};
 use crate::state::AppState;
 use crate::tmdb::enrich::schedule_library_scan;
 use log::{debug, error, info, warn};
+use rusqlite::Connection;
 use std::collections::HashMap;
+use std::path::Path;
 use tauri::{AppHandle, Emitter, State};
 
 fn get_playlist_user_agent(db: &rusqlite::Connection) -> Result<String, AppError> {
@@ -146,81 +148,77 @@ pub async fn import_xtream_playlist(
     playlist_domain::validate_import_not_empty(channels.len())?;
 
     let playlist = playlist_domain::build_xtream_playlist(name, server_url, username, password)?;
-    let epg_url = get_xtream_epg_url(&creds);
 
     let imported = with_db(&state.pool, move |conn| {
-        // `create_channels_batch` no longer opens its own transaction (see
-        // the M3U import above), so this closure owns one for the whole
-        // import to keep every batch's commit atomic with the rest.
-        let tx = conn.unchecked_transaction()?;
-
-        let playlist_id = mutations::create_playlist(&tx, &playlist).map_err(|e| {
-            error!("Failed to create playlist: {}", e);
-            e
-        })?;
-
-        debug!("Created playlist with ID: {}", playlist_id);
-
-        let channels_with_playlist =
-            playlist_domain::assign_playlist_id_to_channels(channels, playlist_id);
-        let total_channels = channels_with_playlist.len();
-        debug!(
-            "Inserting {} channels in batches of {}...",
-            total_channels,
-            playlist_domain::DEFAULT_BATCH_SIZE
-        );
-
-        let batches = playlist_domain::batch_channels(
-            channels_with_playlist,
-            playlist_domain::DEFAULT_BATCH_SIZE,
-        );
-        for (batch_num, batch) in batches.iter().enumerate() {
-            mutations::create_channels_batch(&tx, batch).map_err(|e| {
-                error!("Failed to insert channel batch: {}", e);
-                e
-            })?;
-            debug!("Inserted batch {}/{}", batch_num + 1, batches.len());
-        }
-
-        info!(
-            "Xtream import completed: {} channels imported",
-            total_channels
-        );
-
-        let existing_epg_url = queries::get_setting(&tx, "epg_url")?;
-        let has_epg_url = existing_epg_url
-            .as_ref()
-            .map(|u| !u.trim().is_empty())
-            .unwrap_or(false);
-
-        if !has_epg_url {
-            mutations::set_setting(&tx, "epg_url", &epg_url)?;
-            info!(
-                "Auto-populated EPG URL from Xtream provider: {}",
-                crate::utils::mask_credentials(&epg_url)
-            );
-        } else {
-            debug!("EPG URL already configured, skipping auto-population");
-        }
-
-        // Cosmetic: a failed override recompute must not roll back the import.
-        // A failed UPDATE rolls back only itself, never the transaction.
-        if let Err(e) = crate::db::logo_fallbacks::apply_after_channel_write(&tx, playlist_id) {
-            warn!(
-                "Logo overrides for playlist {} not updated: {}",
-                playlist_id, e
-            );
-        }
-
-        tx.commit()?;
-
-        let mut result = playlist;
-        result.id = Some(playlist_id);
-        Ok(result)
+        write_xtream_import(conn, playlist, channels)
     })
     .await?;
     schedule_library_scan(app);
     Ok(imported)
+}
+
+/// The database half of an Xtream import, all or nothing: the playlist, its
+/// channels and its provider guide source. The source is fetched once the
+/// profile is active (`set_active_profile_id` runs the due-check).
+pub(crate) fn write_xtream_import(
+    conn: &Connection,
+    playlist: Playlist,
+    channels: Vec<Channel>,
+) -> Result<Playlist, AppError> {
+    // `create_channels_batch` does not open a transaction of its own, so
+    // this one keeps every batch atomic with the rest of the import.
+    let tx = conn.unchecked_transaction()?;
+
+    let playlist_id = mutations::create_playlist(&tx, &playlist).map_err(|e| {
+        error!("Failed to create playlist: {}", e);
+        e
+    })?;
+
+    debug!("Created playlist with ID: {}", playlist_id);
+
+    let channels_with_playlist =
+        playlist_domain::assign_playlist_id_to_channels(channels, playlist_id);
+    let total_channels = channels_with_playlist.len();
+    debug!(
+        "Inserting {} channels in batches of {}...",
+        total_channels,
+        playlist_domain::DEFAULT_BATCH_SIZE
+    );
+
+    let batches = playlist_domain::batch_channels(
+        channels_with_playlist,
+        playlist_domain::DEFAULT_BATCH_SIZE,
+    );
+    for (batch_num, batch) in batches.iter().enumerate() {
+        mutations::create_channels_batch(&tx, batch).map_err(|e| {
+            error!("Failed to insert channel batch: {}", e);
+            e
+        })?;
+        debug!("Inserted batch {}/{}", batch_num + 1, batches.len());
+    }
+
+    info!(
+        "Xtream import completed: {} channels imported",
+        total_channels
+    );
+
+    let source_id = ensure_xtream_source(&tx, playlist_id)?;
+    debug!("Provider guide source {source_id} for playlist {playlist_id}");
+
+    // Cosmetic: a failed override recompute must not roll back the import.
+    // A failed UPDATE rolls back only itself, never the transaction.
+    if let Err(e) = crate::db::logo_fallbacks::apply_after_channel_write(&tx, playlist_id) {
+        warn!(
+            "Logo overrides for playlist {} not updated: {}",
+            playlist_id, e
+        );
+    }
+
+    tx.commit()?;
+
+    let mut result = playlist;
+    result.id = Some(playlist_id);
+    Ok(result)
 }
 
 /// Read the subscription expiry an Xtream provider reports for a playlist
@@ -399,11 +397,42 @@ pub async fn get_playlists(state: State<'_, AppState>) -> Result<Vec<Playlist>, 
 }
 
 #[tauri::command]
-pub async fn delete_playlist(state: State<'_, AppState>, id: i64) -> Result<(), AppError> {
-    with_db(&state.pool, move |conn| {
-        Ok(mutations::delete_playlist(conn, id)?)
+pub async fn delete_playlist(
+    state: State<'_, AppState>,
+    epg: State<'_, EpgService>,
+    id: i64,
+) -> Result<(), AppError> {
+    let cache_dir = state.epg_cache_dir.clone();
+    let had_sources = with_db(&state.pool, move |conn| {
+        delete_playlist_and_guide(conn, &cache_dir, id)
     })
-    .await
+    .await?;
+    if had_sources {
+        epg.sources_removed().await;
+    }
+    Ok(())
+}
+
+/// Delete a playlist. Its guide sources, channels and programmes go with it
+/// through the cascade; their cache files, which the cascade cannot reach,
+/// are swept after the commit. Returns whether it had guide sources.
+pub(crate) fn delete_playlist_and_guide(
+    conn: &Connection,
+    cache_dir: &Path,
+    id: i64,
+) -> Result<bool, AppError> {
+    let had_sources: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM epg_source WHERE playlist_id = ?1)",
+        [id],
+        |r| r.get(0),
+    )?;
+    mutations::delete_playlist(conn, id)?;
+    // The playlist is gone either way; a file left behind goes at the next
+    // sweep.
+    if let Err(e) = sweep_cache_dir(conn, cache_dir, false) {
+        warn!("EPG cache not swept after deleting playlist {id}: {e}");
+    }
+    Ok(had_sources)
 }
 
 /// Channel count per playlist, for the profile cards. A playlist with no
@@ -435,4 +464,111 @@ pub async fn rename_playlist(
     info!("Playlist ID {} renamed to: {}", playlist_id, name_for_log);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::test_helpers::{create_test_playlist, setup_test_db};
+    use crate::epg::sources::{feed_path, list_sources};
+    use crate::epg::test_support::{add_manual, TestDir};
+    use crate::epg_domain::source::SourceOrigin;
+    use rusqlite::params;
+
+    fn channel(name: &str, epg_id: Option<&str>) -> Channel {
+        Channel {
+            id: None,
+            playlist_id: 0,
+            name: name.to_string(),
+            url: format!("http://provider.example/{name}"),
+            logo: None,
+            group_name: Some("News".to_string()),
+            epg_id: epg_id.map(str::to_string),
+            tvg_name: None,
+            content_type: "live".to_string(),
+            is_favorite: false,
+            sort_order: 0,
+            category_order: 0,
+            created_at: None,
+        }
+    }
+
+    fn import(conn: &Connection) -> i64 {
+        let playlist = playlist_domain::build_xtream_playlist(
+            "Provider".to_string(),
+            "http://provider.example:8080".to_string(),
+            "john".to_string(),
+            "secret".to_string(),
+        )
+        .unwrap();
+        let channels = vec![channel("SVT1", Some("svt1.se")), channel("TV4", None)];
+        write_xtream_import(conn, playlist, channels)
+            .unwrap()
+            .id
+            .unwrap()
+    }
+
+    fn count(conn: &Connection, table: &str) -> i64 {
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn an_xtream_import_into_an_empty_database_creates_its_guide_source() {
+        let conn = setup_test_db();
+
+        let playlist_id = import(&conn);
+
+        let sources = list_sources(&conn).unwrap();
+        assert_eq!(sources.len(), 1);
+        let source = &sources[0];
+        assert_eq!(source.origin, SourceOrigin::Xtream);
+        assert_eq!(source.playlist_id, Some(playlist_id));
+        assert_eq!(source.url, None, "built from the login when fetched");
+        assert!(source.enabled);
+        assert_eq!(source.priority, 30);
+        assert_eq!(count(&conn, "channels"), 2);
+        assert_eq!(
+            queries::get_setting(&conn, "epg_url").unwrap(),
+            None,
+            "the single-URL setting is not written any more"
+        );
+    }
+
+    #[test]
+    fn deleting_a_playlist_removes_its_guide_and_sweeps_its_cache_files() {
+        let conn = setup_test_db();
+        let dir = TestDir::new("delete-playlist");
+        let playlist_id = import(&conn);
+        let provider = list_sources(&conn).unwrap()[0].id;
+        let manual = add_manual(&conn, "http://epg.example/epg.xml");
+        for source in [provider, manual] {
+            conn.execute(
+                "INSERT INTO epg_channel (source_id, key, first_start, last_stop, programme_count)
+                 VALUES (?1, 'svt1.se', 100, 200, 1)",
+                params![source],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO epg_programme (channel_id, start, stop, title)
+                 VALUES (?1, 100, 200, 'News')",
+                params![conn.last_insert_rowid()],
+            )
+            .unwrap();
+            std::fs::write(feed_path(&dir.0, source), b"feed").unwrap();
+        }
+
+        assert!(delete_playlist_and_guide(&conn, &dir.0, playlist_id).unwrap());
+
+        let left: Vec<i64> = list_sources(&conn).unwrap().iter().map(|s| s.id).collect();
+        assert_eq!(left, [manual]);
+        assert_eq!(count(&conn, "epg_channel"), 1);
+        assert_eq!(count(&conn, "epg_programme"), 1);
+        assert_eq!(count(&conn, "channels"), 0);
+        assert!(!feed_path(&dir.0, provider).exists());
+        assert!(feed_path(&dir.0, manual).exists());
+
+        let m3u = create_test_playlist(&conn, "M3U");
+        assert!(!delete_playlist_and_guide(&conn, &dir.0, m3u).unwrap());
+    }
 }

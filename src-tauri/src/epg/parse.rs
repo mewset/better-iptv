@@ -18,7 +18,6 @@ use anyhow::{Context, Result};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 use std::io::BufRead;
-use std::path::PathBuf;
 
 /// `ParseReport::error` for a document that ends inside an open element.
 const TRUNCATED_MESSAGE: &str = "The EPG ends before all its elements are closed";
@@ -406,22 +405,6 @@ pub fn parse_feed<R: BufRead>(input: R, sink: &mut impl ParseSink) -> Result<Par
     Ok(parser.report)
 }
 
-/// Parse a feed file on the blocking pool: a large feed takes over a second
-/// of CPU, which would otherwise stall a tokio worker and every task queued
-/// on it. Returns the sink with the report.
-pub async fn parse_file_off_runtime<S>(path: PathBuf, mut sink: S) -> Result<(S, ParseReport)>
-where
-    S: ParseSink + Send + 'static,
-{
-    tokio::task::spawn_blocking(move || {
-        let file = std::fs::File::open(&path).context("Failed to open the downloaded EPG")?;
-        let report = parse_feed(std::io::BufReader::new(file), &mut sink)?;
-        Ok((sink, report))
-    })
-    .await
-    .context("EPG parse task failed")?
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -561,6 +544,21 @@ mod tests {
     #[test]
     fn an_empty_first_title_gives_way_to_the_next() {
         assert_eq!(title("<title> </title><title>Rapport</title>"), "Rapport");
+    }
+
+    #[test]
+    fn an_empty_field_never_replaces_a_value_and_stays_none() {
+        let p = one(
+            "<title>First</title><title></title><desc>Story</desc><desc> </desc>\
+             <category>News</category><category/>",
+        );
+        assert_eq!(p.title, "First");
+        assert_eq!(p.description.as_deref(), Some("Story"));
+        assert_eq!(p.category.as_deref(), Some("News"));
+
+        let p = one("<title>Second</title><desc></desc><category>\n </category>");
+        assert_eq!(p.description, None);
+        assert_eq!(p.category, None);
     }
 
     #[test]
@@ -857,44 +855,6 @@ mod tests {
         let (collected, report) = parse(b"");
         assert!(collected.programmes.is_empty());
         assert!(report.complete);
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn parsing_leaves_the_runtime_free_for_other_tasks() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::Arc;
-
-        let dir = std::env::temp_dir().join(format!("bitv-parse-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("feed.gz");
-        std::fs::write(&path, gzip(&feed(20_000))).unwrap();
-
-        // On a current-thread runtime a sibling task only runs while the
-        // parse future is pending. A parse on the runtime thread never
-        // yields, so the ticker would stay at zero.
-        let ticks = Arc::new(AtomicUsize::new(0));
-        let counter = ticks.clone();
-        let ticker = tokio::spawn(async move {
-            loop {
-                counter.fetch_add(1, Ordering::Relaxed);
-                tokio::task::yield_now().await;
-            }
-        });
-        tokio::task::yield_now().await;
-        let before = ticks.load(Ordering::Relaxed);
-
-        let result = parse_file_off_runtime(path, Collect::default()).await;
-
-        let during = ticks.load(Ordering::Relaxed) - before;
-        ticker.abort();
-        std::fs::remove_dir_all(&dir).unwrap();
-        let (collected, report) = result.unwrap();
-        assert!(report.complete);
-        assert_eq!(collected.programmes.len(), 20_000);
-        assert!(
-            during > 0,
-            "the runtime thread was blocked for the whole parse"
-        );
     }
 
     /// Reads the feed captured for the rewrite (see the EPG rewrite brief):

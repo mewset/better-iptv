@@ -1,10 +1,9 @@
 use crate::commands::with_db;
 use crate::db::{mutations, queries};
+use crate::epg::service::EpgService;
 use crate::error::AppError;
 use crate::http;
 use crate::logo_domain::{is_enabled, LOGO_FALLBACK_ENABLED_KEY};
-use crate::playlist::get_xtream_epg_url;
-use crate::playlist::XtreamCredentials;
 use crate::state::AppState;
 use crate::tmdb::enrich::schedule_library_scan;
 use crate::tmdb::keys::{TMDB_API_KEY_KEY, TMDB_BACKGROUND_ENRICH_KEY, TMDB_ENABLED_KEY};
@@ -93,7 +92,6 @@ struct SettingWrite {
 /// The database half of `set_setting`.
 fn write_setting(conn: &Connection, key: &str, value: String) -> Result<SettingWrite, AppError> {
     let final_value = match key {
-        "epg_url" if value.trim().is_empty() => get_default_xtream_epg_url(conn).unwrap_or(value),
         TMDB_BACKGROUND_ENRICH_KEY => validate_background_enrich_write(conn, &value)?,
         _ => value,
     };
@@ -228,36 +226,6 @@ fn validate_playlist_user_agent_custom(value: &str) -> Result<String, AppError> 
     Ok(normalized)
 }
 
-/// Get the default EPG URL from the active Xtream playlist (if any)
-fn get_default_xtream_epg_url(db: &rusqlite::Connection) -> Option<String> {
-    let active_id_str = queries::get_setting(db, "active_profile_id")
-        .ok()
-        .and_then(|x| x)?;
-    let active_id: i64 = active_id_str.parse().ok()?;
-
-    let playlist = queries::get_playlist_by_id(db, active_id)
-        .ok()
-        .and_then(|x| x)?;
-
-    let server_url = playlist.url?;
-    let username = playlist.xtream_username?;
-    let password = playlist.xtream_password?;
-
-    let creds = XtreamCredentials {
-        server_url: server_url.clone(),
-        username: username.clone(),
-        password,
-    };
-    let epg_url = get_xtream_epg_url(&creds);
-
-    debug!(
-        "Defaulting to Xtream EPG URL: {}",
-        crate::utils::mask_credentials(&epg_url)
-    );
-
-    Some(epg_url)
-}
-
 #[tauri::command]
 pub async fn get_active_profile_id(state: State<'_, AppState>) -> Result<Option<i64>, AppError> {
     let active_id_str = with_db(&state.pool, |conn| {
@@ -279,6 +247,7 @@ pub async fn get_active_profile_id(state: State<'_, AppState>) -> Result<Option<
 pub async fn set_active_profile_id(
     app: AppHandle,
     state: State<'_, AppState>,
+    epg: State<'_, EpgService>,
     profile_id: i64,
 ) -> Result<(), AppError> {
     with_db(&state.pool, move |conn| {
@@ -294,6 +263,11 @@ pub async fn set_active_profile_id(
     // The scan covers the active profile, so a switch (including the one
     // right after an import) is when a new library becomes eligible.
     schedule_library_scan(app);
+    // Other guide sources apply now; one of them may be due. The switch
+    // itself has succeeded either way.
+    if let Err(e) = epg.profile_switched().await {
+        warn!("EPG check after the profile switch failed: {e}");
+    }
 
     Ok(())
 }

@@ -15,10 +15,7 @@ pub mod sources;
 pub mod status;
 pub mod store;
 #[cfg(test)]
-mod test_support;
-pub mod xmltv;
-
-pub use xmltv::*;
+pub(crate) mod test_support;
 
 use crate::db::queries::{get_multiple_settings, get_playlist_by_id};
 use crate::epg_domain::policy::TimePolicy;
@@ -906,6 +903,48 @@ mod tests {
         drop(guard);
         // The swap the dropped ingest started went through whole.
         assert_eq!(f.programmes(s).len(), 2);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_ingest_leaves_the_runtime_free_for_other_tasks() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let f = Fixture::new("ingest");
+        let s = add_manual(&f.conn(), "http://guide.example/epg.xml");
+        let mut feed = Feed::new();
+        for n in 0..20_000 {
+            let start = NOW + n * 60;
+            feed = feed.programme(&format!("kanal{}.se", n % 40), start, start + 60, "T");
+        }
+        f.cache(s, &feed.xml());
+        // On a current-thread runtime a sibling task only runs while the
+        // ingest future is pending. Parsing and storing on the runtime
+        // thread would never yield, so the ticker would stay at zero.
+        let ticks = Arc::new(AtomicUsize::new(0));
+        let counter = ticks.clone();
+        let ticker = tokio::spawn(async move {
+            loop {
+                counter.fetch_add(1, Ordering::Relaxed);
+                tokio::task::yield_now().await;
+            }
+        });
+        tokio::task::yield_now().await;
+        let before = ticks.load(Ordering::Relaxed);
+
+        let outcome = ingest(&f.env(), s, Fetch::Cache, IngestScope::Feed, NOW)
+            .await
+            .unwrap();
+
+        let during = ticks.load(Ordering::Relaxed) - before;
+        ticker.abort();
+        let IngestOutcome::Stored(report) = outcome else {
+            panic!("not stored: {outcome:?}");
+        };
+        assert_eq!(report.stored, 20_000);
+        assert!(
+            during > 0,
+            "the runtime thread was blocked for the whole ingest"
+        );
     }
 
     fn settle_job(f: &Fixture, source_id: i64) -> Job {

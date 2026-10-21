@@ -760,12 +760,6 @@ pub fn get_xtream_m3u_url(creds: &XtreamCredentials) -> String {
     )
 }
 
-/// Generate EPG (XMLTV) URL from Xtream credentials
-/// Most Xtream providers serve EPG data at /xmltv.php endpoint
-pub fn get_xtream_epg_url(creds: &XtreamCredentials) -> String {
-    crate::epg::sources::legacy_xtream_epg_url(&creds.server_url, &creds.username, &creds.password)
-}
-
 /// Fetch series information (seasons and episodes)
 pub async fn fetch_series_info(creds: &XtreamCredentials, series_id: i64) -> Result<SeriesInfo> {
     let url = format!(

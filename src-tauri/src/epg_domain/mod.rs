@@ -64,20 +64,6 @@ pub fn normalize_epg_url(url: &str) -> String {
     url.trim().to_string()
 }
 
-/// Check if URL points to a gzipped file based on extension
-///
-/// This is used to determine if we need to decompress the EPG data.
-///
-/// # Arguments
-/// * `url` - The EPG URL to check
-///
-/// # Returns
-/// * `true` if the URL ends with `.gz`, `false` otherwise
-#[allow(dead_code)]
-pub fn is_gzipped_url(url: &str) -> bool {
-    url.ends_with(".gz")
-}
-
 /// Validate channel EPG ID format
 ///
 /// Ensures the EPG ID is not empty and contains valid characters.
@@ -101,16 +87,6 @@ pub fn validate_channel_epg_id(epg_id: &str) -> Result<(), AppError> {
 /// Longest window a single guide request may span.
 pub const GUIDE_MAX_WINDOW_HOURS: i64 = 48;
 
-/// Canonical form of an EPG channel id: trimmed and ASCII lower-cased.
-///
-/// XMLTV feeds and playlists disagree on case (`SVT1.se` vs `svt1.se`), and an
-/// exact comparison made those channels show no guide data. ASCII-only so it
-/// agrees with SQLite's `lower()`, which the one-time migration in
-/// `db::schema` uses on rows stored before this existed.
-pub fn normalize_epg_id(id: &str) -> String {
-    id.trim().to_ascii_lowercase()
-}
-
 /// Longest range the "which channels have guide data" lookup may span: the
 /// guide's five days fit with room for a day boundary in any time zone.
 pub const GUIDE_IDS_MAX_WINDOW_HOURS: i64 = 168;
@@ -119,24 +95,24 @@ pub const GUIDE_IDS_MAX_WINDOW_HOURS: i64 = 168;
 /// row with guide data at once and splits larger sets into requests of this size.
 pub const GUIDE_MAX_IDS: usize = 5000;
 
-/// Validate and normalise a guide request's time window.
+/// Validate a guide request's time window and turn it into Unix seconds.
 ///
-/// Parses `from` and `to` as RFC 3339, requires `to` to be strictly after
-/// `from`, and rejects a window longer than `GUIDE_MAX_WINDOW_HOURS`. Returns
-/// both bounds re-formatted as UTC `to_rfc3339()` strings, so a caller who
-/// passed a non-UTC offset still gets values in the exact format
-/// `store_epg_programs` writes, keeping the boundary string comparison in
-/// `get_guide`'s SQL correct regardless of the caller's offset.
-pub fn validate_guide_window(from: &str, to: &str) -> Result<(String, String), AppError> {
+/// Parses `from` and `to` as RFC 3339 (any offset), requires `to` to be
+/// strictly after `from`, and rejects a window longer than
+/// `GUIDE_MAX_WINDOW_HOURS`. `from` is truncated to its second and `to`
+/// rounded up to the next whole second, so a programme starting inside the
+/// last fraction of the window is still in it, as with the RFC 3339 strings
+/// the guide was compared against before it was stored in seconds.
+pub fn validate_guide_window(from: &str, to: &str) -> Result<(i64, i64), AppError> {
     validate_window(from, to, GUIDE_MAX_WINDOW_HOURS)
 }
 
-/// `validate_guide_window` for the id lookup, which spans the guide's days.
-pub fn validate_guide_ids_window(from: &str, to: &str) -> Result<(String, String), AppError> {
+/// `validate_guide_window` for the key lookup, which spans the guide's days.
+pub fn validate_guide_ids_window(from: &str, to: &str) -> Result<(i64, i64), AppError> {
     validate_window(from, to, GUIDE_IDS_MAX_WINDOW_HOURS)
 }
 
-fn validate_window(from: &str, to: &str, max_hours: i64) -> Result<(String, String), AppError> {
+fn validate_window(from: &str, to: &str, max_hours: i64) -> Result<(i64, i64), AppError> {
     let from_dt = DateTime::parse_from_rfc3339(from)
         .map_err(|e| AppError::InvalidInput(format!("Invalid 'from' timestamp: {}", e)))?
         .with_timezone(&Utc);
@@ -157,7 +133,8 @@ fn validate_window(from: &str, to: &str, max_hours: i64) -> Result<(String, Stri
         )));
     }
 
-    Ok((from_dt.to_rfc3339(), to_dt.to_rfc3339()))
+    let to_secs = to_dt.timestamp() + i64::from(to_dt.timestamp_subsec_nanos() > 0);
+    Ok((from_dt.timestamp(), to_secs))
 }
 
 /// Reject a guide request naming more than `GUIDE_MAX_IDS` ids.
@@ -171,55 +148,17 @@ pub fn validate_guide_id_count(count: usize) -> Result<(), AppError> {
     Ok(())
 }
 
-/// How old `epg_last_fetched` may be before the background task refreshes.
+/// How long a source's guide stays fresh before the background task fetches
+/// it again (`source::source_due`).
 pub const EPG_AUTO_REFRESH_INTERVAL_HOURS: i64 = 6;
 
-/// Decide whether an automatic EPG refresh should run now.
-///
-/// `last_fetched` is the RFC 3339 string stored in the `epg_last_fetched`
-/// setting. A missing or unreadable value counts as "never fetched".
-pub fn epg_refresh_due(
-    last_fetched: Option<&str>,
-    now: DateTime<Utc>,
-    interval_hours: i64,
-) -> bool {
-    match last_fetched.and_then(|s| DateTime::parse_from_rfc3339(s).ok()) {
-        Some(last) => now - last.with_timezone(&Utc) >= chrono::Duration::hours(interval_hours),
-        None => true,
-    }
-}
-
-/// Minimum spacing between automatic refresh attempts, so a broken EPG URL is
-/// not re-downloaded at every poll.
+/// Minimum spacing between attempts on one source, so a broken URL is not
+/// downloaded again at every poll.
 pub const EPG_AUTO_REFRESH_RETRY_MINUTES: i64 = 60;
-
-/// Decide whether the background task may attempt a refresh now, given the
-/// time of its previous attempt (the `epg_last_attempt` setting, stamped
-/// whether or not that attempt succeeded). A missing or unreadable value
-/// counts as "never attempted".
-pub fn epg_retry_allowed(
-    last_attempt: Option<&str>,
-    now: DateTime<Utc>,
-    retry_minutes: i64,
-) -> bool {
-    match last_attempt.and_then(|s| DateTime::parse_from_rfc3339(s).ok()) {
-        Some(last) => now - last.with_timezone(&Utc) >= chrono::Duration::minutes(retry_minutes),
-        None => true,
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn epg_ids_are_normalised_to_trimmed_ascii_lowercase() {
-        assert_eq!(normalize_epg_id("SVT1.se"), "svt1.se");
-        assert_eq!(normalize_epg_id("  TV4.SE "), "tv4.se");
-        assert_eq!(normalize_epg_id("svt1.se"), "svt1.se");
-        // Non-ASCII letters are left alone, matching SQLite's lower().
-        assert_eq!(normalize_epg_id("Ämne.se"), "Ämne.se");
-    }
 
     #[test]
     fn test_validate_epg_url_valid_https() {
@@ -268,16 +207,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_gzipped_url_true() {
-        assert!(is_gzipped_url("https://example.com/epg.xml.gz"));
-    }
-
-    #[test]
-    fn test_is_gzipped_url_false() {
-        assert!(!is_gzipped_url("https://example.com/epg.xml"));
-    }
-
-    #[test]
     fn test_validate_channel_epg_id_valid() {
         assert!(validate_channel_epg_id("channel123").is_ok());
     }
@@ -292,101 +221,6 @@ mod tests {
         assert!(validate_channel_epg_id("   ").is_err());
     }
 
-    mod refresh_due {
-        use super::super::{epg_refresh_due, EPG_AUTO_REFRESH_INTERVAL_HOURS};
-        use chrono::{Duration, Utc};
-
-        #[test]
-        fn never_fetched_is_due() {
-            assert!(epg_refresh_due(
-                None,
-                Utc::now(),
-                EPG_AUTO_REFRESH_INTERVAL_HOURS
-            ));
-        }
-
-        #[test]
-        fn unparsable_timestamp_is_due() {
-            assert!(epg_refresh_due(
-                Some("yesterday"),
-                Utc::now(),
-                EPG_AUTO_REFRESH_INTERVAL_HOURS
-            ));
-        }
-
-        #[test]
-        fn recent_fetch_is_not_due() {
-            let now = Utc::now();
-            let last = (now - Duration::hours(1)).to_rfc3339();
-            assert!(!epg_refresh_due(Some(&last), now, 6));
-        }
-
-        #[test]
-        fn fetch_older_than_interval_is_due() {
-            let now = Utc::now();
-            let last = (now - Duration::hours(6) - Duration::minutes(1)).to_rfc3339();
-            assert!(epg_refresh_due(Some(&last), now, 6));
-        }
-
-        #[test]
-        fn accepts_the_timestamp_format_written_by_force_refresh() {
-            // chrono's to_rfc3339 with nanoseconds, as stored in epg_last_fetched.
-            let now = Utc::now();
-            assert!(!epg_refresh_due(
-                Some("2026-03-15T15:03:20.435045575+00:00"),
-                now,
-                24 * 365 * 10
-            ));
-            assert!(epg_refresh_due(
-                Some("2026-03-15T15:03:20.435045575+00:00"),
-                now,
-                6
-            ));
-        }
-    }
-
-    mod retry_allowed {
-        use super::super::{epg_retry_allowed, EPG_AUTO_REFRESH_RETRY_MINUTES};
-        use chrono::{Duration, Utc};
-
-        #[test]
-        fn never_attempted_is_allowed() {
-            assert!(epg_retry_allowed(
-                None,
-                Utc::now(),
-                EPG_AUTO_REFRESH_RETRY_MINUTES
-            ));
-        }
-
-        #[test]
-        fn unparsable_timestamp_is_allowed() {
-            assert!(epg_retry_allowed(
-                Some("yesterday"),
-                Utc::now(),
-                EPG_AUTO_REFRESH_RETRY_MINUTES
-            ));
-        }
-
-        #[test]
-        fn recent_attempt_blocks_retry() {
-            let now = Utc::now();
-            let last = (now - Duration::minutes(10)).to_rfc3339();
-            assert!(!epg_retry_allowed(Some(&last), now, 60));
-        }
-
-        #[test]
-        fn attempt_older_than_retry_window_is_allowed() {
-            let now = Utc::now();
-            let last = (now - Duration::minutes(61)).to_rfc3339();
-            assert!(epg_retry_allowed(Some(&last), now, 60));
-        }
-
-        #[test]
-        fn retry_window_is_one_hour() {
-            assert_eq!(EPG_AUTO_REFRESH_RETRY_MINUTES, 60);
-        }
-    }
-
     mod guide_window {
         use super::super::{
             validate_guide_id_count, validate_guide_ids_window, validate_guide_window,
@@ -395,19 +229,22 @@ mod tests {
         use chrono::{Duration, Utc};
 
         #[test]
-        fn valid_window_is_accepted_and_normalised_to_utc() {
-            let from = Utc::now();
-            let to = from + Duration::hours(1);
-            // Same instants, but `from` given with a +02:00 offset.
-            let from_offset = from
-                .with_timezone(&chrono::FixedOffset::east_opt(2 * 3600).unwrap())
-                .to_rfc3339();
+        fn valid_window_is_accepted_as_unix_seconds_whatever_the_offset() {
+            let (from, to) =
+                validate_guide_window("2026-10-21T14:00:00+02:00", "2026-10-21T13:00:00Z").unwrap();
+            assert_eq!((from, to), (1_792_584_000, 1_792_587_600));
+        }
 
-            let (norm_from, norm_to) =
-                validate_guide_window(&from_offset, &to.to_rfc3339()).unwrap();
-
-            assert_eq!(norm_from, from.to_rfc3339());
-            assert_eq!(norm_to, to.to_rfc3339());
+        #[test]
+        fn from_is_truncated_and_to_rounded_up_to_whole_seconds() {
+            let (from, to) =
+                validate_guide_window("2026-10-21T12:00:00.900Z", "2026-10-21T13:00:00.001Z")
+                    .unwrap();
+            assert_eq!(from, 1_792_584_000);
+            assert_eq!(to, 1_792_587_601, "a start at 13:00:00 is still inside");
+            let (_, to) =
+                validate_guide_window("2026-10-21T12:00:00Z", "2026-10-21T13:00:00.000Z").unwrap();
+            assert_eq!(to, 1_792_587_600, "a whole second stays as it is");
         }
 
         #[test]
@@ -469,12 +306,12 @@ mod tests {
         }
 
         #[test]
-        fn ids_window_returns_utc_bounds() {
+        fn ids_window_returns_unix_seconds() {
             let (from, to) =
                 validate_guide_ids_window("2026-10-08T00:00:00+02:00", "2026-10-13T00:00:00+02:00")
                     .unwrap();
-            assert_eq!(from, "2026-10-07T22:00:00+00:00");
-            assert_eq!(to, "2026-10-12T22:00:00+00:00");
+            assert_eq!(from, 1_791_410_400);
+            assert_eq!(to - from, 5 * 24 * 3600);
         }
 
         #[test]
