@@ -48,6 +48,8 @@ export interface EpgSource {
   decode_replacements: number;
   has_cached_feed: boolean;
   refreshing: boolean;
+  /** A re-read under a changed time policy is queued or running. */
+  applying: boolean;
 }
 
 export interface MatchCounts {

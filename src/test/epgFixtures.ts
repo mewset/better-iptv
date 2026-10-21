@@ -23,6 +23,7 @@ export function epgSource(overrides: Partial<EpgSource> = {}): EpgSource {
     decode_replacements: 0,
     has_cached_feed: true,
     refreshing: false,
+    applying: false,
     ...overrides,
   };
 }

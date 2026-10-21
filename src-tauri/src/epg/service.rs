@@ -10,6 +10,8 @@
 //! `epg_pending_policy` when a time policy change queues a re-read of the
 //! cached feed and leaves when that re-read takes the lock; changes meanwhile
 //! only update the configured policy, and the one re-read uses the last.
+//! While a re-read runs, the id is in the service's own `reingesting` set;
+//! a source in either of those two is `applying` in the status.
 //!
 //! After a download, a configured policy that differs from the one the rows
 //! were stored under (it changed while the feed was read) is applied at once
@@ -25,7 +27,7 @@ use super::read::active_profile;
 use super::sources::{
     self, add_manual_source, get_source, has_cached_feed, list_sources, SourcePatch,
 };
-use super::status::{epg_status, source_status, EpgSourceStatus, EpgStatus};
+use super::status::{epg_status, source_status, Busy, EpgSourceStatus, EpgStatus};
 use super::{ingest_counted, Fetch, IngestEnv, IngestOutcome, IngestPermit, IngestScope};
 use crate::commands::with_db;
 use crate::epg_domain::policy::TimePolicy;
@@ -217,12 +219,30 @@ fn applicable_sources(conn: &Connection) -> rusqlite::Result<Vec<i64>> {
 #[derive(Clone)]
 pub struct EpgService {
     parts: Arc<ServiceParts>,
+    /// Sources whose cached feed is being read again under a new policy.
+    reingesting: Arc<Mutex<HashSet<i64>>>,
+    /// Held from reading a status to emitting it, so statuses reach the
+    /// frontend in the order they were read and an older one never
+    /// overwrites a newer one.
+    emit_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl EpgService {
     pub fn new(parts: ServiceParts) -> Self {
         EpgService {
             parts: Arc::new(parts),
+            reingesting: Arc::default(),
+            emit_lock: Arc::default(),
+        }
+    }
+
+    /// The ids with a download, or a policy re-read, queued or running.
+    fn busy(&self) -> Busy {
+        let mut applying = lock_set(&self.parts.pending_policy).clone();
+        applying.extend(lock_set(&self.reingesting).iter().copied());
+        Busy {
+            refreshing: lock_set(&self.parts.refreshing).clone(),
+            applying,
         }
     }
 
@@ -264,20 +284,14 @@ impl EpgService {
 
     /// The guide's status for the active profile, as `epg-status` sends it.
     pub async fn status(&self) -> Result<EpgStatus, AppError> {
-        let (cache_dir, refreshing, now) = (
-            self.parts.cache_dir.clone(),
-            self.parts.refreshing.clone(),
-            self.now(),
-        );
-        self.db(move |conn| {
-            let refreshing = lock_set(&refreshing).clone();
-            Ok(epg_status(conn, &cache_dir, &refreshing, now)?)
-        })
-        .await
+        let (cache_dir, busy, now) = (self.parts.cache_dir.clone(), self.busy(), self.now());
+        self.db(move |conn| Ok(epg_status(conn, &cache_dir, &busy, now)?))
+            .await
     }
 
     /// Emit the current status; a failure to read it is logged.
     async fn emit_status(&self) {
+        let _order = self.emit_lock.lock().await;
         match self.status().await {
             Ok(status) => self.parts.events.status(&status),
             Err(e) => warn!("EPG status not sent: {e}"),
@@ -454,8 +468,10 @@ impl EpgService {
     ) -> Result<Option<RunHandle>, AppError> {
         self.db(move |conn| sources::set_time_policy(conn, source_id, &policy))
             .await?;
+        // Queued first, so the status sent now already says "applying".
+        let run = self.schedule_reingest(source_id);
         self.emit_status().await;
-        Ok(self.schedule_reingest(source_id))
+        Ok(run)
     }
 
     fn schedule_reingest(&self, source_id: i64) -> Option<RunHandle> {
@@ -467,10 +483,13 @@ impl EpgService {
         Some(tokio::spawn(async move {
             let permit = service.wait_for_lock().await;
             // From here a further change queues a re-read of its own: this
-            // one may already have read the policy.
+            // one may already have read the policy. Marked as running first,
+            // so the source stays "applying" throughout.
+            let running = mark(&service.reingesting, [source_id]);
             drop(queued);
             let result = service.reingest_if_pending(source_id, &permit).await;
             drop(permit);
+            drop(running);
             service.emit_status().await;
             result
                 .map(|result| SourceRun {
@@ -506,6 +525,13 @@ impl EpgService {
         if !has_cached_feed(&self.parts.cache_dir, source_id) {
             return None;
         }
+        // After a download the source may not be "applying" yet (the policy
+        // changed while there was no cache to queue a re-read on): say so.
+        let announce = !self.busy().applying.contains(&source_id);
+        let _running = mark(&self.reingesting, [source_id]);
+        if announce {
+            self.emit_status().await;
+        }
         let env = self.env(permit);
         let run = ingest_counted(
             &env,
@@ -536,14 +562,13 @@ impl EpgService {
         if run.is_none() {
             self.emit_status().await;
         }
-        let (cache_dir, refreshing) = (self.parts.cache_dir.clone(), self.parts.refreshing.clone());
+        let (cache_dir, busy) = (self.parts.cache_dir.clone(), self.busy());
         let status = self
             .db(move |conn| {
                 let source = get_source(conn, id)?.ok_or_else(|| {
                     AppError::InvalidInput(format!("Guide source {id} not found"))
                 })?;
-                let busy = lock_set(&refreshing).contains(&id);
-                Ok(source_status(&source, &cache_dir, busy))
+                Ok(source_status(&source, &cache_dir, &busy))
             })
             .await?;
         Ok((status, run))
@@ -641,6 +666,17 @@ mod tests {
                 .iter()
                 .filter_map(|s| s.sources.iter().find(|r| r.id == id))
                 .map(|r| r.refreshing)
+                .collect()
+        }
+
+        /// `applying` of source `id` in each status sent, in order.
+        fn applying(&self, id: i64) -> Vec<bool> {
+            self.statuses
+                .lock()
+                .unwrap()
+                .iter()
+                .filter_map(|s| s.sources.iter().find(|r| r.id == id))
+                .map(|r| r.applying)
                 .collect()
         }
 
@@ -887,6 +923,11 @@ mod tests {
         let third = service.set_time_policy(s, shift(90)).await.unwrap();
         assert!(first.is_some() && second.is_none() && third.is_none());
         assert!(events.last_status().sources[0].policy_pending);
+        assert_eq!(
+            events.applying(s),
+            [true, true, true],
+            "queued from the first status on"
+        );
         drop(held);
 
         let runs = first.unwrap().await.unwrap();
@@ -902,6 +943,10 @@ mod tests {
             ])
         );
         assert!(!events.last_status().sources[0].policy_pending);
+        assert!(
+            !events.last_status().sources[0].applying,
+            "the status after the re-read ends it"
+        );
         // Nothing is queued any more: the next step queues its own re-read.
         let next = service.set_time_policy(s, shift(0)).await.unwrap();
         assert!(next.unwrap().await.unwrap()[0].result.is_ok());
@@ -918,7 +963,9 @@ mod tests {
             .await
             .unwrap()
             .is_none());
-        assert_eq!(events.last_status().sources[0].policy.shift_minutes, 60);
+        let row = &events.last_status().sources[0];
+        assert_eq!(row.policy.shift_minutes, 60);
+        assert!(!row.applying, "nothing to re-read yet");
         let err = service.set_time_policy(s, shift(45)).await.unwrap_err();
         assert!(matches!(err, AppError::InvalidInput(_)));
     }
@@ -942,7 +989,10 @@ mod tests {
 
         assert!(runs[0].result.is_err());
         assert_eq!(f.programmes(s), rows_before);
-        assert!(events.last_status().sources[0].policy_pending);
+        let row = &events.last_status().sources[0];
+        assert!(row.policy_pending);
+        assert!(!row.applying, "a failed re-read is no longer applying");
+        assert_eq!(events.applying(s).first(), Some(&true));
         assert!(events.reasons().is_empty());
     }
 
@@ -992,6 +1042,11 @@ mod tests {
             ]
         );
         assert_eq!(server.connections(), 1, "the re-read downloads nothing");
+        // No re-read was queued (the policy changed inside the swap), so
+        // the chained one announces itself, and the status after it ends it.
+        let applying = events.applying(s);
+        assert!(applying.contains(&true), "{applying:?}");
+        assert_eq!(applying.last(), Some(&false));
     }
 
     #[tokio::test]

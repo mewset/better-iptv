@@ -50,6 +50,9 @@ pub struct EpgSourceStatus {
     pub has_cached_feed: bool,
     /// A download of this source is queued or running.
     pub refreshing: bool,
+    /// A re-read of the cached feed under a changed time policy is queued
+    /// or running. Settings shows "Applying…" while it is set.
+    pub applying: bool,
 }
 
 /// Channels matched to the guide, per way of matching. Filled once channel
@@ -132,8 +135,17 @@ pub fn display_url(raw: &str) -> String {
     url.to_string()
 }
 
+/// The sources with work under way, as the refresh service tracks them.
+#[derive(Debug, Default)]
+pub struct Busy {
+    /// A download is queued or running (`epg_refreshing`).
+    pub refreshing: HashSet<i64>,
+    /// A time-policy re-read is queued or running.
+    pub applying: HashSet<i64>,
+}
+
 /// One source's row.
-pub fn source_status(source: &SourceRecord, cache_dir: &Path, refreshing: bool) -> EpgSourceStatus {
+pub fn source_status(source: &SourceRecord, cache_dir: &Path, busy: &Busy) -> EpgSourceStatus {
     let display_url = match source.origin {
         SourceOrigin::Xtream => None,
         SourceOrigin::Manual | SourceOrigin::M3uHeader => source.url.as_deref().map(display_url),
@@ -158,16 +170,17 @@ pub fn source_status(source: &SourceRecord, cache_dir: &Path, refreshing: bool) 
         unknown_zone_sample: source.unknown_zone_sample.clone(),
         decode_replacements: source.decode_replacements,
         has_cached_feed: has_cached_feed(cache_dir, source.id),
-        refreshing,
+        refreshing: busy.refreshing.contains(&source.id),
+        applying: busy.applying.contains(&source.id),
     }
 }
 
-/// The status for the active profile at `now` (Unix seconds); `refreshing`
-/// holds the ids with a download queued or running.
+/// The status for the active profile at `now` (Unix seconds); `busy`
+/// holds the ids with a download or a policy re-read queued or running.
 pub fn epg_status(
     conn: &Connection,
     cache_dir: &Path,
-    refreshing: &HashSet<i64>,
+    busy: &Busy,
     now: i64,
 ) -> rusqlite::Result<EpgStatus> {
     let profile = active_profile(conn)?;
@@ -188,7 +201,7 @@ pub fn epg_status(
         matches: None,
         sources: sources
             .iter()
-            .map(|s| source_status(s, cache_dir, refreshing.contains(&s.id)))
+            .map(|s| source_status(s, cache_dir, busy))
             .collect(),
     })
 }
@@ -260,7 +273,7 @@ mod tests {
         let xtream = add_xtream_playlist(&conn, 1, "My provider");
         set_active(&conn, 1);
 
-        let status = epg_status(&conn, &f.dir.0, &HashSet::new(), NOW).unwrap();
+        let status = epg_status(&conn, &f.dir.0, &Busy::default(), NOW).unwrap();
 
         let by_id = |id: i64| status.sources.iter().find(|s| s.id == id).unwrap();
         assert_eq!(by_id(manual).label, "epg.example");
@@ -291,8 +304,11 @@ mod tests {
             )
             .unwrap();
 
-        let refreshing = HashSet::from([s]);
-        let status = epg_status(&f.conn(), &f.dir.0, &refreshing, NOW).unwrap();
+        let busy = Busy {
+            refreshing: HashSet::from([s]),
+            applying: HashSet::new(),
+        };
+        let status = epg_status(&f.conn(), &f.dir.0, &busy, NOW).unwrap();
 
         let row = &status.sources[0];
         assert_eq!(
@@ -307,6 +323,7 @@ mod tests {
         assert_eq!((row.programme_count, row.channel_count), (2, 2));
         assert!(row.has_cached_feed);
         assert!(row.refreshing);
+        assert!(!row.applying);
         assert!(!row.policy_pending);
         assert_eq!(status.programme_count, 2);
         assert!(status.guide_downloaded);
@@ -319,8 +336,13 @@ mod tests {
 
         f.set_shift(s, 30);
         std::fs::remove_file(feed_path(&f.dir.0, s)).unwrap();
-        let status = epg_status(&f.conn(), &f.dir.0, &HashSet::new(), NOW).unwrap();
+        let busy = Busy {
+            refreshing: HashSet::new(),
+            applying: HashSet::from([s]),
+        };
+        let status = epg_status(&f.conn(), &f.dir.0, &busy, NOW).unwrap();
         let row = &status.sources[0];
+        assert!(row.applying);
         assert!(row.policy_pending);
         assert_eq!(row.policy.shift_minutes, 30);
         assert!(!row.has_cached_feed);
@@ -346,7 +368,7 @@ mod tests {
         .unwrap();
         set_active(&conn, 1);
 
-        let status = epg_status(&conn, &f.dir.0, &HashSet::new(), NOW).unwrap();
+        let status = epg_status(&conn, &f.dir.0, &Busy::default(), NOW).unwrap();
 
         let ids: Vec<i64> = status.sources.iter().map(|s| s.id).collect();
         assert_eq!(
@@ -366,7 +388,7 @@ mod tests {
             params![mine],
         )
         .unwrap();
-        let status = epg_status(&conn, &f.dir.0, &HashSet::new(), NOW).unwrap();
+        let status = epg_status(&conn, &f.dir.0, &Busy::default(), NOW).unwrap();
         assert_eq!(status.programme_count, 0);
         assert!(!status.guide_downloaded);
         assert_eq!(status.next_auto_refresh, None);
@@ -377,7 +399,7 @@ mod tests {
         let f = Fixture::new("status");
         let conn = f.conn();
         add_manual(&conn, "http://epg.example/epg.xml");
-        let status = epg_status(&conn, &f.dir.0, &HashSet::new(), NOW).unwrap();
+        let status = epg_status(&conn, &f.dir.0, &Busy::default(), NOW).unwrap();
         let json = serde_json::to_value(&status).unwrap();
         let mut top: Vec<&str> = json
             .as_object()
@@ -407,6 +429,7 @@ mod tests {
         assert_eq!(
             fields,
             [
+                "applying",
                 "channel_count",
                 "decode_replacements",
                 "display_url",
