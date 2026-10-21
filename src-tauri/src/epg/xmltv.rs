@@ -1,4 +1,5 @@
 use super::decode::{is_gzipped, open_feed};
+use super::EMPTY_GUIDE_MESSAGE;
 use crate::epg_domain::normalize_epg_id;
 use crate::epg_domain::text::push_reference;
 use crate::http::{download_error, ensure_success, get_http_client};
@@ -22,12 +23,6 @@ pub struct EpgProgram {
     pub end_time: DateTime<Utc>,
     pub category: Option<String>,
 }
-
-/// Shown when a feed downloads fine but holds no programmes: an empty file
-/// or a page that is not XMLTV. Nothing is stored and `epg_last_fetched` is
-/// left alone, so the next attempt is not pushed back by a refresh interval.
-pub const EMPTY_GUIDE_MESSAGE: &str =
-    "The EPG server sent a program guide without any programmes, so the current guide was kept";
 
 /// Fetch and parse XMLTV EPG data from a URL (async part)
 pub async fn fetch_and_parse_epg(url: &str, user_agent: Option<&str>) -> Result<Vec<EpgProgram>> {
