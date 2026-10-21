@@ -230,32 +230,51 @@ pub fn guide(
     to: i64,
 ) -> rusqlite::Result<HashMap<String, Vec<Programme>>> {
     let channels = resolve(conn, active_profile, keys, from)?;
-    let mut stmt = conn.prepare_cached(GUIDE_PROGRAMMES)?;
-    let mut by_channel: HashMap<i64, Vec<Programme>> = HashMap::new();
-    let mut result = HashMap::with_capacity(keys.len());
+    // Each key sent once, with the channel that speaks for it, and how many
+    // keys share each channel: a list is cloned only for a case variant.
+    let mut asked: Vec<(&String, Option<i64>)> = Vec::with_capacity(keys.len());
+    let mut seen = HashSet::with_capacity(keys.len());
+    let mut sharing: HashMap<i64, usize> = HashMap::new();
     for key in keys {
-        if result.contains_key(key) {
+        if !seen.insert(key) {
             continue;
         }
-        let programmes = match channel_key(key).and_then(|k| channels.get(&k)) {
+        let channel = channel_key(key).and_then(|k| channels.get(&k).copied());
+        if let Some(channel) = channel {
+            *sharing.entry(channel).or_default() += 1;
+        }
+        asked.push((key, channel));
+    }
+
+    let mut stmt = conn.prepare_cached(GUIDE_PROGRAMMES)?;
+    let mut lists: HashMap<i64, Vec<Programme>> = HashMap::with_capacity(sharing.len());
+    for &channel in sharing.keys() {
+        let list = stmt
+            .query_map(params![channel, from, to], |row| {
+                Ok(Programme {
+                    title: row.get(0)?,
+                    description: row.get(1)?,
+                    start: time_column(row, 2)?,
+                    stop: time_column(row, 3)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        lists.insert(channel, list);
+    }
+
+    let mut result = HashMap::with_capacity(asked.len());
+    for (key, channel) in asked {
+        let programmes = match channel {
             None => Vec::new(),
-            Some(&channel) => match by_channel.get(&channel) {
-                Some(list) => list.clone(),
-                None => {
-                    let list = stmt
-                        .query_map(params![channel, from, to], |row| {
-                            Ok(Programme {
-                                title: row.get(0)?,
-                                description: row.get(1)?,
-                                start: time_column(row, 2)?,
-                                stop: time_column(row, 3)?,
-                            })
-                        })?
-                        .collect::<rusqlite::Result<Vec<_>>>()?;
-                    by_channel.insert(channel, list.clone());
-                    list
+            Some(channel) => {
+                let left = sharing.get_mut(&channel).expect("counted above");
+                *left -= 1;
+                if *left == 0 {
+                    lists.remove(&channel).unwrap_or_default()
+                } else {
+                    lists.get(&channel).cloned().unwrap_or_default()
                 }
-            },
+            }
         };
         result.insert(key.clone(), programmes);
     }
@@ -414,22 +433,52 @@ mod tests {
         let f = Fixture::new("read");
         let s = manual(&f, "a", 10);
         let feed = Feed::new()
-            .programme("svt1.se", NOW - 2 * H, NOW - H, "Ended at from")
+            .programme("svt1.se", NOW - 2 * H, NOW - H, "Ends at from")
             .programme("svt1.se", NOW - H, NOW + H, "Playing at from")
             .programme("svt1.se", NOW + H, NOW + 2 * H, "Inside")
             .programme("svt1.se", NOW + 2 * H, NOW + 3 * H, "Starts at to");
         f.store(s, &feed.xml(), NOW - 2 * H).await;
+        let asked = keys(&["svt1.se"]);
+        let guide_at = |from: i64, to: i64| guide(&f.conn(), None, &asked, from, to).unwrap();
 
-        let guide = guide(
-            &f.conn(),
-            None,
-            &keys(&["svt1.se"]),
-            NOW - H + 1,
-            NOW + 2 * H,
-        )
-        .unwrap();
+        // As the old get_guide: end > from and start < to, both strict.
+        assert_eq!(
+            titles(&guide_at(NOW - H, NOW + 2 * H)["svt1.se"]),
+            ["Playing at from", "Inside"]
+        );
+        assert_eq!(
+            titles(&guide_at(NOW - H - 1, NOW + 2 * H + 1)["svt1.se"]),
+            ["Ends at from", "Playing at from", "Inside", "Starts at to"]
+        );
+    }
 
-        assert_eq!(titles(&guide["svt1.se"]), ["Playing at from", "Inside"]);
+    #[tokio::test]
+    async fn now_and_next_follow_the_boundaries() {
+        let f = Fixture::new("read");
+        let s = manual(&f, "a", 10);
+        let feed = Feed::new()
+            .programme("svt1.se", NOW - H, NOW, "Ends at now")
+            .programme("svt1.se", NOW, NOW + H, "Starts at now")
+            .programme("svt1.se", NOW + H, NOW + 2 * H, "Later");
+        f.store(s, &feed.xml(), NOW - H).await;
+        let asked = keys(&["svt1.se"]);
+        let at = |now: i64| {
+            let nn = now_next(&f.conn(), None, &asked, now).unwrap();
+            let title = |p: &Option<Programme>| p.as_ref().map(|p| p.title.clone());
+            (title(&nn["svt1.se"].now), title(&nn["svt1.se"].next))
+        };
+
+        assert_eq!(
+            at(NOW),
+            (Some("Starts at now".into()), Some("Later".into())),
+            "start == now is on now, stop == now is not"
+        );
+        assert_eq!(
+            at(NOW - 1),
+            (Some("Ends at now".into()), Some("Starts at now".into())),
+            "next starts strictly after now"
+        );
+        assert_eq!(at(NOW + H), (Some("Later".into()), None));
     }
 
     #[tokio::test]
