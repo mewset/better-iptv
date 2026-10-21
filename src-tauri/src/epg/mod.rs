@@ -351,7 +351,7 @@ async fn run(
     info!(
         "EPG ingest of source {source_id} ({fetch:?}, {:?}): {} programmes on {} channels \
          stored{}; {} seen, normalise {:?}; download {:?}, parse {:?}, normalise {:?}, \
-         store {:?}, lock held {:?} at most over {} transactions",
+         store {:?} ({:?} in all), lock held {:?} at most over {} transactions",
         report.scope,
         report.stored,
         report.keys,
@@ -366,6 +366,7 @@ async fn run(
         report.elapsed.parse,
         report.elapsed.normalise,
         report.elapsed.store,
+        report.elapsed.total(),
         report.lock_hold,
         report.transactions,
     );

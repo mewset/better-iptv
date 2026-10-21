@@ -68,8 +68,6 @@ pub enum RefreshReason {
     SourceChanged,
     /// Another profile became active; other sources apply.
     ProfileSwitch,
-    /// Channel matches changed.
-    Match,
 }
 
 /// The `epg-refreshed` payload: cached now/next and guide data is stale.
@@ -146,6 +144,24 @@ impl ServiceParts {
             events,
             clock: Arc::new(|| chrono::Utc::now().timestamp()),
         }
+    }
+}
+
+/// One line per automatic update, so the log shows what each source did.
+fn log_run(run: &SourceRun) {
+    let outcome = |r: &Result<IngestOutcome, AppError>| match r {
+        Ok(IngestOutcome::Stored(report)) => format!("stored {} programmes", report.stored),
+        Ok(other) => format!("{other:?}"),
+        Err(e) => format!("failed: {e}"),
+    };
+    match &run.reingest {
+        Some(reingest) => debug!(
+            "EPG source {}: {}; time policy re-read: {}",
+            run.source_id,
+            outcome(&run.result),
+            outcome(reingest)
+        ),
+        None => debug!("EPG source {}: {}", run.source_id, outcome(&run.result)),
     }
 }
 
@@ -422,7 +438,9 @@ impl EpgService {
     pub async fn run_background(self) {
         tokio::time::sleep(AUTO_REFRESH_INITIAL_DELAY).await;
         loop {
-            self.tick().await;
+            for run in self.tick().await {
+                log_run(&run);
+            }
             tokio::time::sleep(AUTO_REFRESH_POLL_INTERVAL).await;
         }
     }
@@ -763,7 +781,6 @@ mod tests {
         assert_eq!(json(RefreshReason::Reingest), "\"reingest\"");
         assert_eq!(json(RefreshReason::SourceChanged), "\"source_changed\"");
         assert_eq!(json(RefreshReason::ProfileSwitch), "\"profile_switch\"");
-        assert_eq!(json(RefreshReason::Match), "\"match\"");
         assert_eq!(
             serde_json::to_value(EpgRefreshed::new(RefreshReason::Ingest, Some(3))).unwrap(),
             serde_json::json!({"reason": "ingest", "source_id": 3, "matches_changed": 0})

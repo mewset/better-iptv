@@ -9,6 +9,7 @@
 use anyhow::Context;
 use encoding_rs::{DecoderResult, Encoding, UTF_8};
 use flate2::bufread::MultiGzDecoder;
+use log::debug;
 use std::io::{self, BufRead, BufReader, Read};
 
 /// How much of the start of a document is searched for a byte order mark or
@@ -280,6 +281,9 @@ pub fn open_feed<R: BufRead>(input: R) -> anyhow::Result<FeedReader<R>> {
     let decompress = Decompress::new(input).context(PLAIN_READ_FAILURE)?;
     let read_failure = decompress.read_failure();
     let utf8 = Utf8Reader::new(decompress).context(read_failure)?;
+    if utf8.encoding() != UTF_8 {
+        debug!("EPG feed is decoded from {}", utf8.encoding().name());
+    }
     Ok(BufReader::with_capacity(BUF_LEN, utf8))
 }
 

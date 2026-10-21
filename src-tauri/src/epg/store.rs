@@ -41,7 +41,7 @@ use crate::epg_domain::report::{NormaliseReport, ParseReport};
 use crate::epg_domain::source::{success_after, LastResult};
 use anyhow::{bail, ensure, Context, Result};
 use chrono::TimeZone;
-use log::warn;
+use log::{debug, warn};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::collections::HashMap;
 use std::io::{self, BufRead};
@@ -1138,6 +1138,10 @@ pub(crate) fn store_feed<R: BufRead, Tz: TimeZone>(
     let parse_time = started.elapsed();
 
     let prepared = prepare(&staging, staged, req.now, req.network)?;
+    debug!(
+        "EPG source {}: {} of {} programmes kept after normalising",
+        req.source_id, prepared.kept, prepared.parse.programmes_seen
+    );
     let started = Instant::now();
     let swapped = swap(conn, &prepared, req, committed).context(STORE_FAILURE)?;
     let swap_time = started.elapsed();

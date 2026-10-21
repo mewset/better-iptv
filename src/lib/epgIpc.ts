@@ -70,7 +70,7 @@ export interface EpgStatus {
   matches: MatchCounts | null;
 }
 
-export type RefreshReason = 'ingest' | 'reingest' | 'source_changed' | 'profile_switch' | 'match';
+export type RefreshReason = 'ingest' | 'reingest' | 'source_changed' | 'profile_switch';
 
 /** The `epg-refreshed` payload: cached now/next and guide data is stale. */
 export interface EpgRefreshed {
