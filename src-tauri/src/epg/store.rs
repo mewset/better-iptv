@@ -1776,4 +1776,290 @@ mod tests {
         assert_eq!(one.programmes(s1), many.programmes(s2));
         assert_eq!(many.status::<i64>(s2, "programme_count"), 7);
     }
+
+    /// Release benches over synthetic feeds, one process per test so peak
+    /// RSS can be read with `/usr/bin/time -v`. Feeds are written once to
+    /// `EPG_PERF_DIR` by `perf_make_feeds`, streamed so writing them costs
+    /// no memory in the measured run; `perf_baseline` is the process
+    /// without an ingest. See the A3 step of the EPG rewrite design.
+    mod perf {
+        use super::*;
+        use crate::epg::sources::feed_path;
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+
+        const DESCRIPTION: &str = "En berättelse om hösten i Göteborg där familjen Åström \
+            möter nya utmaningar på jobbet och hemma. Med musik, väder och nyheter från \
+            hela landet.";
+
+        #[derive(Clone, Copy)]
+        enum Variant {
+            Plain,
+            Gzip,
+            Latin1,
+            /// Plain, programmes ordered by time across channels instead of
+            /// grouped per channel: the primary key sees them in random order.
+            Interleaved,
+        }
+
+        fn perf_dir() -> Option<PathBuf> {
+            let dir = std::env::var_os("EPG_PERF_DIR").map(PathBuf::from);
+            if dir.is_none() {
+                eprintln!("EPG_PERF_DIR is not set; skipped");
+            }
+            dir
+        }
+
+        fn feed_file(dir: &Path, channels: usize, variant: Variant) -> PathBuf {
+            let name = match variant {
+                Variant::Plain => "plain.xml",
+                Variant::Gzip => "gzip.xml.gz",
+                Variant::Latin1 => "latin1.xml",
+                Variant::Interleaved => "interleaved.xml",
+            };
+            dir.join(format!("{}k-{name}", channels * 43 / 2000))
+        }
+
+        fn programmes_of(channel: usize) -> usize {
+            21 + channel % 2
+        }
+
+        fn programme_xml(channel: usize, n: usize, start: i64) -> (String, i64) {
+            let minutes = 30 + ((channel * 7 + n * 13) % 4) as i64 * 20;
+            let stop = start + minutes * 60;
+            let category = if n.is_multiple_of(3) {
+                "Nyheter"
+            } else {
+                "Film"
+            };
+            let xml = format!(
+                "<programme start=\"{}\" stop=\"{}\" channel=\"kanal{channel}.se\">\
+                 <title>Måndagsmagasinet {n}: Ärliga öden på Kanal {channel}</title>\
+                 <desc>{DESCRIPTION} Del {n}.</desc><category>{category}</category></programme>\n",
+                xmltv_time(start),
+                xmltv_time(stop)
+            );
+            (xml, stop)
+        }
+
+        /// Write a feed of `channels` channels with 21-22 programmes each from
+        /// six hours before `NOW`, 145-character descriptions and Swedish
+        /// letters in every title, and `<channel>` elements with 1-3 names.
+        fn write_feed(path: &Path, channels: usize, variant: Variant) {
+            let file = std::io::BufWriter::new(std::fs::File::create(path).unwrap());
+            let mut out: Box<dyn Write> = match variant {
+                Variant::Gzip => Box::new(GzEncoder::new(file, Compression::default())),
+                _ => Box::new(file),
+            };
+            let mut write = |text: &str| {
+                if matches!(variant, Variant::Latin1) {
+                    let (bytes, _, unmappable) = encoding_rs::WINDOWS_1252.encode(text);
+                    assert!(!unmappable);
+                    out.write_all(&bytes).unwrap();
+                } else {
+                    out.write_all(text.as_bytes()).unwrap();
+                }
+            };
+            let encoding = if matches!(variant, Variant::Latin1) {
+                "ISO-8859-1"
+            } else {
+                "UTF-8"
+            };
+            write(&format!(
+                "<?xml version=\"1.0\" encoding=\"{encoding}\"?>\n<tv generator-info-name=\"bench\">\n"
+            ));
+            for channel in 0..channels {
+                let names = ["Kanal {i}", "Kanal {i} HD", "K{i} Sverige"];
+                let mut xml = format!("<channel id=\"kanal{channel}.se\">");
+                for name in names.iter().take(1 + channel % 3) {
+                    xml.push_str(&format!(
+                        "<display-name>{}</display-name>",
+                        name.replace("{i}", &channel.to_string())
+                    ));
+                }
+                xml.push_str("</channel>\n");
+                write(&xml);
+            }
+            let first_start = |channel: usize| NOW - 6 * H + (channel % 4) as i64 * 900;
+            if matches!(variant, Variant::Interleaved) {
+                let mut next: Vec<i64> = (0..channels).map(first_start).collect();
+                for n in 0..22 {
+                    for (channel, start) in next.iter_mut().enumerate() {
+                        if n < programmes_of(channel) {
+                            let (xml, stop) = programme_xml(channel, n, *start);
+                            write(&xml);
+                            *start = stop;
+                        }
+                    }
+                }
+            } else {
+                for channel in 0..channels {
+                    let mut start = first_start(channel);
+                    for n in 0..programmes_of(channel) {
+                        let (xml, stop) = programme_xml(channel, n, start);
+                        write(&xml);
+                        start = stop;
+                    }
+                }
+            }
+            write("</tv>\n");
+            drop(write);
+            out.flush().unwrap();
+        }
+
+        #[test]
+        #[ignore]
+        fn perf_make_feeds() {
+            let Some(dir) = perf_dir() else {
+                return;
+            };
+            std::fs::create_dir_all(&dir).unwrap();
+            for channels in [2_000, 20_000] {
+                for variant in [
+                    Variant::Plain,
+                    Variant::Gzip,
+                    Variant::Latin1,
+                    Variant::Interleaved,
+                ] {
+                    let path = feed_file(&dir, channels, variant);
+                    if !path.exists() {
+                        write_feed(&path, channels, variant);
+                    }
+                    eprintln!(
+                        "{} {} bytes",
+                        path.display(),
+                        std::fs::metadata(&path).unwrap().len()
+                    );
+                }
+            }
+        }
+
+        fn file_mb(path: &Path) -> f64 {
+            std::fs::metadata(path).map_or(0.0, |m| m.len() as f64 / 1e6)
+        }
+
+        fn line(label: &str, report: &crate::epg::IngestReport, wall: Duration) -> String {
+            format!(
+                "{label}: wall {wall:.3?} (parse+stage {:.3?}, normalise {:.3?}, \
+                 mark+swap {:.3?}, lock held {:.3?} max over {} tx), stored {}, \
+                 channels {}, replacements {}",
+                report.elapsed.parse,
+                report.elapsed.normalise,
+                report.elapsed.store,
+                report.lock_hold,
+                report.transactions,
+                report.stored,
+                report.keys,
+                report.parse.decode_replacements,
+            )
+        }
+
+        /// Ingest `feed` twice through the cache path: into an empty
+        /// database, then again over its own rows (the steady state).
+        async fn bench(feed: &Path, expected: Option<u32>) {
+            let f = Fixture::new("perf");
+            let s = add_manual(&f.conn(), "http://bench.example/epg.xml");
+            let db = f.dir.0.join("app.db");
+            let wal = f.dir.0.join("app.db-wal");
+            for (label, now) in [("first", NOW), ("again", NOW + 60)] {
+                std::fs::copy(feed, feed_path(&f.dir.0, s)).unwrap();
+                let (db_before, wal_before) = (file_mb(&db), file_mb(&wal));
+                let started = Instant::now();
+                let outcome = ingest(&f.env(), s, Fetch::Cache, IngestScope::Feed, now)
+                    .await
+                    .unwrap();
+                let wall = started.elapsed();
+                let IngestOutcome::Stored(report) = outcome else {
+                    panic!("not stored: {outcome:?}");
+                };
+                if let Some(expected) = expected {
+                    assert_eq!(report.stored, expected);
+                }
+                eprintln!(
+                    "PERF {} {}; db {db_before:.1} -> {:.1} MB, wal {wal_before:.1} -> {:.1} MB",
+                    feed.file_name().unwrap().to_string_lossy(),
+                    line(label, &report, wall),
+                    file_mb(&db),
+                    file_mb(&wal),
+                );
+            }
+        }
+
+        async fn bench_variant(channels: usize, variant: Variant) {
+            let Some(dir) = perf_dir() else {
+                return;
+            };
+            let expected = (0..channels).map(programmes_of).sum::<usize>() as u32;
+            bench(&feed_file(&dir, channels, variant), Some(expected)).await;
+        }
+
+        #[tokio::test]
+        #[ignore]
+        async fn perf_baseline() {
+            let f = Fixture::new("perf");
+            add_manual(&f.conn(), "http://bench.example/epg.xml");
+        }
+
+        #[tokio::test]
+        #[ignore]
+        async fn perf_43k_plain() {
+            bench_variant(2_000, Variant::Plain).await;
+        }
+
+        #[tokio::test]
+        #[ignore]
+        async fn perf_43k_gzip() {
+            bench_variant(2_000, Variant::Gzip).await;
+        }
+
+        #[tokio::test]
+        #[ignore]
+        async fn perf_43k_latin1() {
+            bench_variant(2_000, Variant::Latin1).await;
+        }
+
+        #[tokio::test]
+        #[ignore]
+        async fn perf_43k_interleaved() {
+            bench_variant(2_000, Variant::Interleaved).await;
+        }
+
+        #[tokio::test]
+        #[ignore]
+        async fn perf_430k_plain() {
+            bench_variant(20_000, Variant::Plain).await;
+        }
+
+        #[tokio::test]
+        #[ignore]
+        async fn perf_430k_gzip() {
+            bench_variant(20_000, Variant::Gzip).await;
+        }
+
+        #[tokio::test]
+        #[ignore]
+        async fn perf_430k_latin1() {
+            bench_variant(20_000, Variant::Latin1).await;
+        }
+
+        #[tokio::test]
+        #[ignore]
+        async fn perf_430k_interleaved() {
+            bench_variant(20_000, Variant::Interleaved).await;
+        }
+
+        /// The feed captured for the rewrite (see the EPG rewrite brief),
+        /// ingested at the time it was captured. It holds provider data:
+        /// only counts and timings are printed.
+        #[tokio::test]
+        #[ignore]
+        async fn perf_real_feed() {
+            let Some(path) = std::env::var_os("EPG_REAL_FEED") else {
+                eprintln!("EPG_REAL_FEED is not set; skipped");
+                return;
+            };
+            bench(Path::new(&path), None).await;
+        }
+    }
 }
