@@ -167,6 +167,22 @@ pub async fn set_epg_time_policy(
     Ok(())
 }
 
+/// `(channel id, guide key)` of the playlist's live channels that are
+/// matched to the guide. After an `epg-refreshed` event with
+/// `matches_changed` above 0, the frontend sets these keys on the channels
+/// it holds (and clears the key of every other live channel) instead of
+/// reading the whole channel list again.
+#[tauri::command]
+pub async fn get_channel_epg_keys(
+    state: State<'_, AppState>,
+    playlist_id: i64,
+) -> Result<Vec<(i64, String)>, AppError> {
+    with_db(&state.pool, move |conn| {
+        Ok(crate::db::queries::get_channel_epg_keys(conn, playlist_id)?)
+    })
+    .await
+}
+
 /// The guide's status for the active profile: one row per source that
 /// applies to it, and the totals. The same payload arrives as `epg-status`
 /// whenever it changes.

@@ -236,6 +236,7 @@ pub fn run() {
             refresh_epg,
             set_epg_time_policy,
             get_epg_status,
+            get_channel_epg_keys,
             // Parental controls commands
             set_parental_pin,
             verify_parental_pin,

@@ -139,8 +139,11 @@ pub fn get_channels(conn: &Connection, playlist_id: Option<i64>) -> Result<Vec<C
     }
 }
 
+/// The `epg_id` slot carries the guide key the matcher chose
+/// (`epg::matching`), not the provider's raw id: it is what the frontend
+/// asks the guide for. `CHANNEL_SELECT_COLUMNS` keeps the raw id.
 const SUMMARY_COLUMNS: &str =
-    "id, name, COALESCE(logo_override, logo), group_name, epg_id, content_type, is_favorite, created_at";
+    "id, name, COALESCE(logo_override, logo), group_name, epg_match_key, content_type, is_favorite, created_at";
 
 fn map_summary_row(row: &Row) -> rusqlite::Result<ChannelSummary> {
     Ok(ChannelSummary {
@@ -157,7 +160,8 @@ fn map_summary_row(row: &Row) -> rusqlite::Result<ChannelSummary> {
 
 /// The channel list as the frontend reads it: only the `ChannelSummary`
 /// columns, so the stream URLs are never read. Same rows and ORDER BY as
-/// `get_channels`, mapped exactly as `ChannelSummary::from(Channel)` does.
+/// `get_channels`, mapped as `ChannelSummary::from(Channel)` does, except
+/// that `epg_id` is the matched guide key.
 pub fn get_channel_summaries(
     conn: &Connection,
     playlist_id: Option<i64>,
@@ -210,6 +214,19 @@ pub fn get_channel_summaries_by_ids(
         }
     }
     Ok(out)
+}
+
+/// `(channel id, guide key)` of every live channel of a playlist that is
+/// matched to the guide, so the frontend can set the keys of the channels it
+/// holds without reading the whole list again.
+pub fn get_channel_epg_keys(conn: &Connection, playlist_id: i64) -> Result<Vec<(i64, String)>> {
+    conn.prepare(
+        "SELECT id, epg_match_key FROM channels
+         WHERE playlist_id = ?1 AND content_type = 'live' AND epg_match_key IS NOT NULL
+         ORDER BY id",
+    )?
+    .query_map(params![playlist_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+    .collect()
 }
 
 /// The vod and series rows of a playlist, with only the columns the Home

@@ -71,6 +71,9 @@ pub struct ChannelSummary {
     pub created_at: Option<String>,
 }
 
+/// `epg_id` stays `None`: a summary's `epg_id` is the guide key the matcher
+/// chose, which a `Channel` does not carry; its `epg_id` is the provider's raw
+/// id.
 impl From<Channel> for ChannelSummary {
     fn from(c: Channel) -> Self {
         Self {
@@ -79,7 +82,7 @@ impl From<Channel> for ChannelSummary {
             name: c.name,
             logo: c.logo,
             group_name: c.group_name,
-            epg_id: c.epg_id,
+            epg_id: None,
             content_type: c.content_type,
             is_favorite: c.is_favorite,
             created_at: c.created_at,
@@ -207,7 +210,6 @@ mod channel_summary_tests {
                 "name": "SVT1",
                 "logo": "http://l/1.png",
                 "group_name": "Sweden",
-                "epg_id": "svt1.se",
                 "content_type": "live",
                 "is_favorite": true,
                 "created_at": "2026-09-01 10:00:00"

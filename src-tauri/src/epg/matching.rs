@@ -164,6 +164,7 @@ mod tests {
     use super::*;
     use crate::db::models::Channel;
     use crate::db::mutations::merge_channels;
+    use crate::db::queries::{get_channel_summaries, get_channel_summaries_by_ids};
     use crate::db::test_helpers::{create_test_playlist, setup_test_db};
     use rusqlite::types::Value;
 
@@ -559,6 +560,33 @@ mod tests {
     }
 
     #[test]
+    fn summaries_carry_the_match_key_where_the_raw_id_was() {
+        let conn = setup_test_db();
+        let p = create_test_playlist(&conn, "P");
+        add_source(&conn, None, 10, &[("svt1.se", &["SVT1"])]);
+        let raw = add_channel(&conn, p, "SVT1 HD", Some("SVT1.se"), "live");
+        let named = add_channel(&conn, p, "SVT1", None, "live");
+        let unknown = add_channel(&conn, p, "TV4", Some("tv4.se"), "live");
+        recompute_playlist(&conn, p).unwrap();
+
+        let all = get_channel_summaries(&conn, Some(p), None).unwrap();
+        let by_ids = get_channel_summaries_by_ids(&conn, &[raw, named, unknown]).unwrap();
+
+        for summary in &all {
+            assert_eq!(&by_ids[&summary.id], summary);
+        }
+        let key = |id: i64| by_ids[&id].epg_id.clone();
+        assert_eq!(key(raw).as_deref(), Some("svt1.se"));
+        assert_eq!(key(named).as_deref(), Some("svt1.se"));
+        assert_eq!(key(unknown), None, "the raw id stays out of the summary");
+        // The full row keeps the raw id.
+        let channel = crate::db::queries::get_channel_by_id(&conn, raw)
+            .unwrap()
+            .unwrap();
+        assert_eq!(channel.epg_id.as_deref(), Some("SVT1.se"));
+    }
+
+    #[test]
     fn a_global_source_recomputes_every_playlist_and_an_own_source_one() {
         let conn = setup_test_db();
         let first = create_test_playlist(&conn, "First");
@@ -633,6 +661,29 @@ mod tests {
         conn.execute_batch("DROP TRIGGER fail_match;").unwrap();
         assert!(recompute_once_after_upgrade(&conn).unwrap().is_some());
         assert_eq!(stored(&conn, svt1), matched("svt1.se", "id"));
+    }
+
+    #[test]
+    fn the_epg_keys_list_the_matched_live_channels_of_one_playlist() {
+        let conn = setup_test_db();
+        let p = create_test_playlist(&conn, "P");
+        let other = create_test_playlist(&conn, "Other");
+        add_source(&conn, None, 10, &[("svt1.se", &[]), ("film.se", &[])]);
+        let svt1 = add_channel(&conn, p, "SVT1", Some("SVT1.se"), "live");
+        let manual = add_channel(&conn, p, "Sjuan", None, "live");
+        add_channel(&conn, p, "TV4", Some("tv4.se"), "live");
+        add_channel(&conn, p, "Film", Some("film.se"), "vod");
+        add_channel(&conn, other, "SVT1", Some("svt1.se"), "live");
+        recompute_where_applies(&conn, None).unwrap();
+        set_manual(&conn, manual, "tv7.se");
+
+        assert_eq!(
+            crate::db::queries::get_channel_epg_keys(&conn, p).unwrap(),
+            [
+                (svt1, "svt1.se".to_string()),
+                (manual, "tv7.se".to_string())
+            ]
+        );
     }
 
     /// Release benches of the recompute, written for the orchestrator to run
