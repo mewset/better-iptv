@@ -26,7 +26,7 @@ use super::sources::{
     self, add_manual_source, get_source, has_cached_feed, list_sources, SourcePatch,
 };
 use super::status::{epg_status, source_status, EpgSourceStatus, EpgStatus};
-use super::{ingest, Fetch, IngestEnv, IngestOutcome, IngestPermit, IngestScope};
+use super::{ingest_counted, Fetch, IngestEnv, IngestOutcome, IngestPermit, IngestScope};
 use crate::commands::with_db;
 use crate::epg_domain::policy::TimePolicy;
 use crate::epg_domain::source::{applies_to, source_due};
@@ -315,8 +315,34 @@ impl EpgService {
                 service.emit_status().await;
                 runs.push(run);
             }
+            let more = service.follow_up(&runs).await;
+            runs.extend(more);
             runs
         }))
+    }
+
+    /// After a download that was abandoned because its source changed (a
+    /// new URL, re-enabled), the source may be due now, but the due-check
+    /// its change ran found it still marked and started nothing. Run the
+    /// due-check again, now that the marks are released, and wait for it.
+    async fn follow_up(&self, runs: &[SourceRun]) -> Vec<SourceRun> {
+        let abandoned = runs
+            .iter()
+            .any(|r| matches!(r.result, Ok(IngestOutcome::Abandoned(_))));
+        if !abandoned {
+            return Vec::new();
+        }
+        match self.check_due().await {
+            Ok(Some(run)) => run.await.unwrap_or_else(|e| {
+                warn!("EPG refresh after a changed source failed: {e}");
+                Vec::new()
+            }),
+            Ok(None) => Vec::new(),
+            Err(e) => {
+                warn!("EPG refresh after a changed source: could not read the sources: {e}");
+                Vec::new()
+            }
+        }
     }
 
     /// One background poll: skipped while another refresh holds the lock;
@@ -348,6 +374,9 @@ impl EpgService {
             drop(mark);
             self.emit_status().await;
         }
+        drop(permit);
+        let more = self.follow_up(&runs).await;
+        runs.extend(more);
         runs
     }
 
@@ -365,7 +394,7 @@ impl EpgService {
     /// meanwhile. The caller holds the lock.
     async fn download(&self, source_id: i64, permit: &IngestPermit) -> SourceRun {
         let env = self.env(permit);
-        let result = ingest(
+        let run = ingest_counted(
             &env,
             source_id,
             Fetch::Network,
@@ -373,14 +402,17 @@ impl EpgService {
             self.now(),
         )
         .await;
-        let mut reingest = None;
-        if matches!(result, Ok(IngestOutcome::Stored(_))) {
+        // A large feed that stopped part way still changed some channels.
+        if run.guide_changed() {
             self.refreshed(RefreshReason::Ingest, Some(source_id));
+        }
+        let mut reingest = None;
+        if matches!(run.result, Ok(IngestOutcome::Stored(_))) {
             reingest = self.reingest_if_pending(source_id, permit).await;
         }
         SourceRun {
             source_id,
-            result,
+            result: run.result,
             reingest,
         }
     }
@@ -452,7 +484,7 @@ impl EpgService {
             return None;
         }
         let env = self.env(permit);
-        let result = ingest(
+        let run = ingest_counted(
             &env,
             source_id,
             Fetch::Cache,
@@ -460,14 +492,13 @@ impl EpgService {
             self.now(),
         )
         .await;
-        match &result {
-            Ok(IngestOutcome::Stored(_)) => {
-                self.refreshed(RefreshReason::Reingest, Some(source_id));
-            }
-            Ok(IngestOutcome::Abandoned(_)) => {}
-            Err(e) => warn!("EPG source {source_id}: the new time policy is not applied: {e}"),
+        if run.guide_changed() {
+            self.refreshed(RefreshReason::Reingest, Some(source_id));
         }
-        Some(result)
+        if let Err(e) = &run.result {
+            warn!("EPG source {source_id}: the new time policy is not applied: {e}");
+        }
+        Some(run.result)
     }
 
     // ========== Sources and profiles ==========
@@ -1076,30 +1107,133 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_url_change_during_a_download_abandons_it_and_frees_the_source() {
+    async fn a_url_changed_during_a_download_is_fetched_right_after_it() {
         let f = Fixture::new("service");
         let body = feed().into_bytes();
         let server = serve(vec![trickle(&body, 8, Duration::from_millis(100))]).await;
         let s = manual(&f, &server.base, 10);
-        let (service, _) = service(&f);
+        let (service, events) = service(&f);
 
         let run = service.refresh(Some(s)).await.unwrap().unwrap();
         while !crate::epg::sources::download_path(&f.dir.0, s).exists() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         let moved = SourcePatch {
-            url: Some("http://other.example/epg.xml".to_string()),
+            url: Some(format!("{}/other.xml", server.base)),
             ..SourcePatch::default()
         };
-        service.update_source(s, moved).await.unwrap();
+        // Its own due-check finds the source still being downloaded.
+        assert!(service.update_source(s, moved).await.unwrap().is_none());
         let runs = run.await.unwrap();
 
+        assert_eq!(runs.len(), 2);
         assert_eq!(
             runs[0].result.as_ref().unwrap(),
             &IngestOutcome::Abandoned(AbandonReason::UrlChanged)
         );
-        assert!(f.programmes(s).is_empty());
-        assert!(!feed_path(&f.dir.0, s).exists());
+        assert_eq!(runs[1].source_id, s);
+        assert!(stored(&runs[1].result), "{:?}", runs[1].result);
+        assert_eq!(server.connections(), 2, "one request per URL");
+        assert_eq!(f.programmes(s).len(), 2);
+        assert!(feed_path(&f.dir.0, s).exists());
         assert!(lock_set(&service.parts.refreshing).is_empty());
+        assert_eq!(
+            events.reasons(),
+            [
+                (RefreshReason::SourceChanged, Some(s)),
+                (RefreshReason::Ingest, Some(s))
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn enabling_a_due_source_downloads_it_once() {
+        let f = Fixture::new("service");
+        let server = serve(vec![respond("200 OK", feed().as_bytes())]).await;
+        let s = manual(&f, &server.base, 10);
+        f.conn()
+            .execute(
+                "UPDATE epg_source SET enabled = 0 WHERE id = ?1",
+                params![s],
+            )
+            .unwrap();
+        let (service, _) = service(&f);
+
+        let on = SourcePatch {
+            enabled: Some(true),
+            ..SourcePatch::default()
+        };
+        let run = service.update_source(s, on.clone()).await.unwrap();
+        // Asked again while it runs: nothing more starts.
+        assert!(service.update_source(s, on).await.unwrap().is_none());
+        assert!(service.refresh(None).await.unwrap().is_none());
+        let runs = run.expect("never fetched, so due").await.unwrap();
+
+        assert_eq!(runs.len(), 1);
+        assert!(stored(&runs[0].result));
+        assert_eq!(server.connections(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_aborted_refresh_releases_its_sources() {
+        let f = Fixture::new("service");
+        let server = serve(vec![vec![head("200 OK", 100_000), Step::Hang]]).await;
+        let s = manual(&f, &server.base, 10);
+        let (service, _) = service(&f);
+
+        let run = service.refresh(Some(s)).await.unwrap().unwrap();
+        while server.connections() == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        run.abort();
+        assert!(run.await.unwrap_err().is_cancelled());
+
+        assert!(lock_set(&service.parts.refreshing).is_empty());
+        assert!(service.parts.lock.try_lock().is_ok());
+        let again = service.refresh(Some(s)).await.unwrap();
+        assert!(again.is_some(), "a new request downloads again");
+        again.unwrap().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_large_swap_that_stops_part_way_still_refreshes_the_guide() {
+        let mut feed = Feed::new();
+        for (channel, first) in [("c1.se", "first"), ("c2.se", "second")] {
+            for n in 0..12_000 {
+                let start = NOW + n * 60;
+                let title = if n == 0 { first } else { "T" };
+                feed = feed.programme(channel, start, start + 60, title);
+            }
+        }
+        let f = Fixture::new("service");
+        let server = serve(vec![respond("200 OK", feed.xml().as_bytes())]).await;
+        let s = manual(&f, &server.base, 10);
+        f.conn()
+            .execute_batch(
+                "CREATE TRIGGER fail_second BEFORE INSERT ON epg_programme
+                 WHEN NEW.title = 'second' BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+            )
+            .unwrap();
+        let (service, events) = service(&f);
+
+        let runs = service
+            .refresh(Some(s))
+            .await
+            .unwrap()
+            .unwrap()
+            .await
+            .unwrap();
+
+        assert!(runs[0].result.is_err());
+        assert_eq!(
+            f.programmes(s).len(),
+            12_000,
+            "the first transaction stayed"
+        );
+        assert_eq!(events.reasons(), [(RefreshReason::Ingest, Some(s))]);
+        assert!(
+            !feed_path(&f.dir.0, s).exists(),
+            "no cache older than the rows"
+        );
     }
 }
