@@ -28,7 +28,9 @@ export function startEpgEvents(): () => void {
   users++;
   if (users === 1) {
     unlisteners = [
-      register<EpgRefreshed>(EPG_REFRESHED_EVENT, () => useEpgStore.getState().invalidate()),
+      register<EpgRefreshed>(EPG_REFRESHED_EVENT, (refreshed) =>
+        useEpgStore.getState().invalidate(refreshed)
+      ),
       register<EpgStatus>(EPG_STATUS_EVENT, (status) => useEpgStore.getState().setStatus(status)),
     ];
   }

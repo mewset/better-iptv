@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { getEpgStatus, type EpgStatus, type NowNext } from '../lib/epgIpc';
+import { getEpgStatus, type EpgRefreshed, type EpgStatus, type NowNext } from '../lib/epgIpc';
 import { isNowNextStale } from '../lib/epgTime';
 import { logger } from '../lib/logger';
 
@@ -31,6 +31,11 @@ interface EpgState {
   missedAt: Map<string, number>;
   /** Bumped by `invalidate`; answers to requests of an earlier one are dropped. */
   generation: number;
+  /**
+   * The `epg-refreshed` event behind the latest `invalidate`, if one was;
+   * Settings reads it to tell when a source's new time policy is applied.
+   */
+  lastRefreshed: EpgRefreshed | null;
   /** The status for the active profile; null until the first answer or event. */
   status: EpgStatus | null;
   /** The status request failed and no event has brought one since. */
@@ -51,8 +56,8 @@ interface EpgState {
     generation: number,
     wanted: ReadonlySet<string>
   ) => void;
-  /** Everything cached is stale (`epg-refreshed`). */
-  invalidate: () => void;
+  /** Everything cached is stale (`epg-refreshed`, whose payload is kept). */
+  invalidate: (refreshed?: EpgRefreshed) => void;
   setStatus: (status: EpgStatus) => void;
   /** Asks for the status once, unless one is known or being asked for. */
   loadStatus: () => void;
@@ -63,6 +68,7 @@ export const useEpgStore = create<EpgState>((set, get) => ({
   fetchedIn: new Set(),
   missedAt: new Map(),
   generation: 0,
+  lastRefreshed: null,
   status: null,
   statusFailed: false,
   statusLoading: false,
@@ -109,9 +115,10 @@ export const useEpgStore = create<EpgState>((set, get) => ({
       return { nowNext, fetchedIn, missedAt };
     }),
 
-  invalidate: () =>
+  invalidate: (refreshed) =>
     set((state) => ({
       generation: state.generation + 1,
+      lastRefreshed: refreshed ?? null,
       fetchedIn: new Set<string>(),
       missedAt: new Map<string, number>(),
     })),
