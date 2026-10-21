@@ -33,7 +33,6 @@ pub async fn get_setting(
 pub async fn set_setting(
     app: AppHandle,
     state: State<'_, AppState>,
-    epg: State<'_, EpgService>,
     key: String,
     value: String,
 ) -> Result<(), AppError> {
@@ -53,7 +52,6 @@ pub async fn set_setting(
     let SettingWrite {
         stops_scan,
         logo_fallback_changed,
-        provider_guides,
     } = with_db(&state.pool, move |conn| {
         write_setting(conn, &key, normalized_value)
     })
@@ -74,12 +72,6 @@ pub async fn set_setting(
             false,
         ));
     }
-    if let Some(changed) = provider_guides {
-        // The setting is written; the guide follows as soon as it can.
-        if let Err(e) = epg.provider_guides_restored(changed > 0).await {
-            warn!("EPG check after clearing the guide URL failed: {e}");
-        }
-    }
     debug!("Setting '{}' updated", key_for_log);
     Ok(())
 }
@@ -95,10 +87,6 @@ struct SettingWrite {
     /// The logo fallback was switched on or off (absent counts as on), so
     /// the overrides were recomputed.
     logo_fallback_changed: bool,
-    /// An empty `epg_url` was written, which (as in 3.1.x) means the
-    /// providers' guides: the global URL sources were disabled and the
-    /// provider sources enabled. The number of sources that changed.
-    provider_guides: Option<usize>,
 }
 
 /// The database half of `set_setting`.
@@ -117,13 +105,6 @@ fn write_setting(conn: &Connection, key: &str, value: String) -> Result<SettingW
     // recompute of every live row.
     let logo_fallback_changed =
         logo_was_on.is_some_and(|was| was != is_enabled(Some(&final_value)));
-    // TEMPORARY, until Settings manages guide sources itself (PR
-    // A-frontend): the shipped URL field writes this key on every save.
-    let provider_guides = if key == "epg_url" && final_value.trim().is_empty() {
-        Some(crate::epg::sources::use_provider_guides(conn)?)
-    } else {
-        None
-    };
     if logo_fallback_changed {
         crate::db::logo_fallbacks::recompute_overrides(conn, None)?;
     }
@@ -142,7 +123,6 @@ fn write_setting(conn: &Connection, key: &str, value: String) -> Result<SettingW
     Ok(SettingWrite {
         stops_scan,
         logo_fallback_changed,
-        provider_guides,
     })
 }
 
@@ -487,68 +467,5 @@ mod logo_fallback_setting {
         write_setting(&conn, LOGO_FALLBACK_ENABLED_KEY, "0".into()).unwrap();
         write_setting(&conn, LOGO_FALLBACK_ENABLED_KEY, "1".into()).unwrap();
         assert_eq!(override_of(&conn, id).as_deref(), Some("http://fb/tv3.png"));
-    }
-}
-
-#[cfg(test)]
-mod epg_url_setting {
-    use super::*;
-    use crate::db::test_helpers::setup_test_db;
-    use crate::epg::sources::{ensure_xtream_source, list_sources};
-    use crate::epg::test_support::add_manual;
-
-    /// (origin, enabled) of every source, by id.
-    fn enabled(conn: &Connection) -> Vec<(String, bool)> {
-        list_sources(conn)
-            .unwrap()
-            .into_iter()
-            .map(|s| (s.origin.as_str().to_string(), s.enabled))
-            .collect()
-    }
-
-    #[test]
-    fn clearing_the_guide_url_brings_back_the_provider_guides() {
-        let conn = setup_test_db();
-        conn.execute(
-            "INSERT INTO playlists (id, name, url, xtream_username, xtream_password)
-             VALUES (1, 'Provider', 'http://provider.example', 'john', 'secret')",
-            [],
-        )
-        .unwrap();
-        let provider = ensure_xtream_source(&conn, 1).unwrap();
-        conn.execute(
-            "UPDATE epg_source SET enabled = 0 WHERE id = ?1",
-            [provider],
-        )
-        .unwrap();
-        add_manual(&conn, "http://epg.example/epg.xml");
-
-        let w = write_setting(&conn, "epg_url", "http://epg.example/other.xml".into()).unwrap();
-        assert_eq!(w.provider_guides, None, "a URL changes no source here");
-        assert_eq!(
-            enabled(&conn),
-            [("manual".to_string(), true), ("xtream".to_string(), false)]
-        );
-
-        let w = write_setting(&conn, "epg_url", "  ".into()).unwrap();
-        assert_eq!(w.provider_guides, Some(2));
-        assert_eq!(
-            enabled(&conn),
-            [("manual".to_string(), false), ("xtream".to_string(), true)]
-        );
-        assert_eq!(
-            queries::get_setting(&conn, "epg_url").unwrap().as_deref(),
-            Some("  "),
-            "the value is stored as written"
-        );
-
-        let w = write_setting(&conn, "epg_url", String::new()).unwrap();
-        assert_eq!(w.provider_guides, Some(0), "nothing left to change");
-        assert_eq!(
-            write_setting(&conn, "theme", String::new())
-                .unwrap()
-                .provider_guides,
-            None
-        );
     }
 }

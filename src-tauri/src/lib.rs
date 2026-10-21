@@ -232,9 +232,6 @@ pub fn run() {
             refresh_epg,
             set_epg_time_policy,
             get_epg_status,
-            // EPG commands kept for the current Settings tab (temporary)
-            fetch_epg_data,
-            force_refresh_epg,
             // Parental controls commands
             set_parental_pin,
             verify_parental_pin,

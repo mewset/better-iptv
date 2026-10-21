@@ -41,8 +41,8 @@ pub struct AppState {
     /// the blocking pool — see `playback::play_stream` and friends.
     pub mpv_player: crate::playback::SharedPlayer,
 
-    /// Serialises manual (Update Now, EPG URL save) and automatic EPG
-    /// refreshes so they never download and store concurrently.
+    /// Serialises guide ingests (Settings' Update, a time policy re-read and
+    /// the automatic refresh) so they never download and store concurrently.
     pub epg_refresh_lock: Arc<tokio::sync::Mutex<()>>,
 
     /// TMDB session flags and the in-flight enrichment set.

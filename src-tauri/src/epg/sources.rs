@@ -314,24 +314,6 @@ pub fn update_source(
     })
 }
 
-/// What an empty guide URL meant before per-source guides: the provider's
-/// guide. Disables every global source added by hand and enables every
-/// provider source, in one transaction; returns how many rows changed.
-pub fn use_provider_guides(conn: &Connection) -> Result<usize, AppError> {
-    let tx = write_transaction(conn)?;
-    let off = tx.execute(
-        "UPDATE epg_source SET enabled = 0
-         WHERE origin = 'manual' AND playlist_id IS NULL AND enabled = 1",
-        [],
-    )?;
-    let on = tx.execute(
-        "UPDATE epg_source SET enabled = 1 WHERE origin = 'xtream' AND enabled = 0",
-        [],
-    )?;
-    tx.commit()?;
-    Ok(off + on)
-}
-
 /// Set the time policy a source's feed is read with. The stored programmes
 /// keep the policy they were read under until the next ingest re-reads the
 /// feed; `SourceRecord::policy_pending` shows the difference meanwhile.
