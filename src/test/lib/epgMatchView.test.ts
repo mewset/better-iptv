@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   channelIndex,
   findChannels,
+  guideSearchable,
   hitDetails,
   hitTitle,
   manualTarget,
@@ -105,6 +106,19 @@ describe('hit and manual wording', () => {
     expect(manualTarget(manual({ has_programmes: false, guide_name: null }))).toBe(
       'tv4hd.se (guide has no programmes now)'
     );
+  });
+});
+
+describe('guideSearchable', () => {
+  it('takes a query of two characters or more, counted as the backend counts them', () => {
+    expect(guideSearchable('')).toBe(false);
+    expect(guideSearchable('s')).toBe(false);
+    expect(guideSearchable('  Ä ')).toBe(false);
+    expect(guideSearchable('1_')).toBe(false);
+    expect(guideSearchable(' _ v_ ')).toBe(false);
+    expect(guideSearchable('tv')).toBe(true);
+    expect(guideSearchable(' äm ')).toBe(true);
+    expect(guideSearchable('a b')).toBe(true);
   });
 });
 

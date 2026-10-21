@@ -1,9 +1,15 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Search, X } from 'lucide-react';
-import { searchEpgChannels, setChannelEpgMatch, type EpgChannelHit } from '../../lib/epgIpc';
+import {
+  GUIDE_SEARCH_MIN_CHARS,
+  searchEpgChannels,
+  setChannelEpgMatch,
+  type EpgChannelHit,
+} from '../../lib/epgIpc';
 import {
   channelIndex,
   findChannels,
+  guideSearchable,
   hitDetails,
   hitTitle,
   matchState,
@@ -226,13 +232,16 @@ function GuideStep({ channel, lookup, onBack, onDone }: GuideStepProps) {
   const [query, setQuery] = useState(channel.name);
   const debounced = useDebouncedValue(query, GUIDE_SEARCH_DEBOUNCE_MS);
   const [hits, setHits] = useState<EpgChannelHit[]>([]);
-  const [searching, setSearching] = useState(false);
+  // The first search starts right after the first render; saying so from
+  // the start keeps "No guide channel…" from showing for a frame.
+  const [searching, setSearching] = useState(() => guideSearchable(channel.name));
   const [searchError, setSearchError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const request = useRef(0);
   const locked = useParentalLocked();
   const shown = useMemo(() => visibleGuideHits(hits, locked), [hits, locked]);
+  const searchable = guideSearchable(debounced);
   const state = matchState(channel, lookup);
   const byHand = state.kind === 'manual' || state.kind === 'manual_empty';
 
@@ -243,7 +252,7 @@ function GuideStep({ channel, lookup, onBack, onDone }: GuideStepProps) {
   useEffect(() => {
     const current = ++request.current;
     const q = debounced.trim();
-    if (!q) {
+    if (!guideSearchable(q)) {
       setHits([]);
       setSearching(false);
       setSearchError(null);
@@ -321,8 +330,13 @@ function GuideStep({ channel, lookup, onBack, onDone }: GuideStepProps) {
       )}
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
         {searchError && <p className="mb-3 text-sm text-danger">{searchError}</p>}
+        {!searchable && (
+          <p className="text-sm text-text-muted">
+            Type at least {GUIDE_SEARCH_MIN_CHARS} characters of a guide channel's name or id.
+          </p>
+        )}
         {searching && shown.length === 0 && <p className="text-sm text-text-muted">Searching…</p>}
-        {!searching && !searchError && debounced.trim() && shown.length === 0 && (
+        {!searching && !searchError && searchable && shown.length === 0 && (
           <p className="text-sm text-text-muted">
             No guide channel with programmes has that in its name or id.
           </p>

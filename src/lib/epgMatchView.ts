@@ -1,5 +1,10 @@
 import type { Channel } from '../types';
-import type { EpgChannelHit, ManualMatch, MatchDetails } from './epgIpc';
+import {
+  GUIDE_SEARCH_MIN_CHARS,
+  type EpgChannelHit,
+  type ManualMatch,
+  type MatchDetails,
+} from './epgIpc';
 import { isAdultContent } from './parentalControls';
 
 // Wording and searching for the manual match picker in Settings → EPG,
@@ -94,6 +99,17 @@ export function matchState(channel: Channel, lookup: MatchLookup | null): MatchS
 /** A guide channel's name, or its key when the feed names it nowhere. */
 export function hitTitle(hit: EpgChannelHit): string {
   return hit.name ?? hit.key;
+}
+
+/**
+ * Whether the guide search takes `query`: at least `GUIDE_SEARCH_MIN_CHARS`
+ * characters both trimmed (as a key) and with underscores and runs of
+ * spaces read as one space (as a name), as the backend counts them.
+ */
+export function guideSearchable(query: string): boolean {
+  const key = query.trim();
+  const name = query.replace(/_/g, ' ').trim().replace(/\s+/g, ' ');
+  return [...key].length >= GUIDE_SEARCH_MIN_CHARS && [...name].length >= GUIDE_SEARCH_MIN_CHARS;
 }
 
 /**

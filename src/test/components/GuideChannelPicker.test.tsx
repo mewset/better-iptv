@@ -361,6 +361,48 @@ describe('Fixing a channel by hand in Settings → EPG', () => {
     ]);
   });
 
+  it('step 2 asks for two characters before it searches', async () => {
+    vi.useFakeTimers();
+    await renderTab();
+    await openPicker();
+    await pick('SVT1');
+    expect(calls('search_epg_channels')).toHaveLength(1);
+
+    for (const value of ['s', ' _ v_ ']) {
+      fireEvent.change(screen.getByLabelText('Search guide channels'), { target: { value } });
+      act(() => vi.advanceTimersByTime(GUIDE_SEARCH_DEBOUNCE_MS));
+      await settle();
+      expect(calls('search_epg_channels')).toHaveLength(1);
+      expect(
+        screen.getByText("Type at least 2 characters of a guide channel's name or id.")
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/No guide channel/)).toBeNull();
+      expect(
+        within(screen.getByRole('list', { name: 'Guide channels' })).queryAllByRole('listitem')
+      ).toEqual([]);
+    }
+  });
+
+  it('step 2 says it is searching from its first frame', async () => {
+    vi.useFakeTimers();
+    answer({ search_epg_channels: () => new Promise(() => {}) });
+    await renderTab();
+    await openPicker();
+    // A message shown for one frame is added and removed again before
+    // anything can look; the removed node keeps its text.
+    const removed: string[] = [];
+    const record = (records: globalThis.MutationRecord[]) =>
+      records.forEach((r) => r.removedNodes.forEach((n) => removed.push(n.textContent ?? '')));
+    const observer = new globalThis.MutationObserver(record);
+    observer.observe(document.body, { childList: true, subtree: true });
+    await pick('SVT1');
+    record(observer.takeRecords());
+    observer.disconnect();
+
+    expect(screen.getByText('Searching…')).toBeInTheDocument();
+    expect(removed.some((text) => text.includes('No guide channel'))).toBe(false);
+  });
+
   it('goes back to your channels and closes with Escape', async () => {
     vi.useFakeTimers();
     await renderTab();

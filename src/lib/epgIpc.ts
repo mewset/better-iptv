@@ -137,6 +137,9 @@ export const GUIDE_BATCH = 5000;
 /** Hits per `search_epg_channels` request (the backend's maximum). */
 export const GUIDE_SEARCH_LIMIT = 50;
 
+/** A shorter `search_epg_channels` query finds nothing (the backend's MIN_QUERY_CHARS). */
+export const GUIDE_SEARCH_MIN_CHARS = 2;
+
 /**
  * Now and next per key, keyed as sent; a key the guide has nothing for is
  * left out. At most 500 keys.
@@ -187,7 +190,8 @@ export async function setChannelEpgMatch(channelId: number, key: string | null):
 
 /**
  * Guide channels of the active profile whose name or key contains `query`,
- * best first, at most `limit` (1 to 50). An empty query finds nothing.
+ * best first, at most `limit` (1 to 50). A query under
+ * `GUIDE_SEARCH_MIN_CHARS` characters finds nothing.
  */
 export async function searchEpgChannels(
   query: string,
