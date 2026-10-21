@@ -116,7 +116,7 @@ export function statusDetails(source: EpgSource): string | null {
   if (source.unknown_zone_count > 0) {
     const sample = source.unknown_zone_sample ? ` (such as "${source.unknown_zone_sample}")` : '';
     lines.push(
-      `${count(source.unknown_zone_count, 'programme time names', 'programme times name')} a time zone the app does not know${sample}. Time correction can fix them.`
+      `${count(source.unknown_zone_count, 'programme time names', 'programme times name')} a time zone the app does not know${sample}. Time correction can fix ${source.unknown_zone_count === 1 ? 'it' : 'them'}.`
     );
   }
   if (source.decode_replacements > 0) {

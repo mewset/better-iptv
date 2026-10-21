@@ -50,11 +50,6 @@ describe('epgEvents', () => {
     emit('epg-refreshed', { reason: 'ingest', source_id: 1, matches_changed: 0 });
 
     expect(useEpgStore.getState().generation).toBe(1);
-    expect(useEpgStore.getState().lastRefreshed).toEqual({
-      reason: 'ingest',
-      source_id: 1,
-      matches_changed: 0,
-    });
     expect(useEpgStore.getState().missedAt.size).toBe(0);
     stop();
   });

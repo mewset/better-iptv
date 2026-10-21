@@ -238,7 +238,7 @@ function DetailPanel({ selection, now, dockVisible, playing, onWatch, onClose }:
 
       <div className="min-w-0 flex-1">
         <h2 className="truncate font-display text-xl font-semibold text-text">{program.title}</h2>
-        <p className="truncate text-sm tabular-nums text-text-muted">{meta}</p>
+        <p className="truncate text-sm text-text-muted">{meta}</p>
         {program.description && (
           <p className="truncate text-sm text-text-muted">{program.description}</p>
         )}

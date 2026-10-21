@@ -178,6 +178,7 @@ function AddSource() {
         >
           https://iptv-epg.org/
         </a>
+        .
       </p>
     </form>
   );

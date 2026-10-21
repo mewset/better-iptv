@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import EpgTab from '../../components/settings/EpgTab';
 import { POLICY_DEBOUNCE_MS } from '../../components/settings/TimeCorrection';
@@ -73,10 +73,10 @@ describe('EpgTab', () => {
     expect(document.body.innerHTML).not.toContain('s3cret');
     expect(document.body.innerHTML).not.toContain('provider.example');
     // Only a URL added by hand can be removed.
-    expect(within(row(PROVIDER)).queryByRole('button', { name: 'Remove' })).toBeNull();
+    expect(within(row(PROVIDER)).queryByRole('button', { name: /^Remove/ })).toBeNull();
     expect(
       within(row('http://epg.example/guide.xml?token=••••')).getByRole('button', {
-        name: 'Remove',
+        name: 'Remove http://epg.example/guide.xml?token=••••',
       })
     ).toBeInTheDocument();
   });
@@ -148,7 +148,9 @@ describe('EpgTab', () => {
     ).toBeInTheDocument();
     const busy = row('http://busy.example/g.xml');
     expect(within(busy).getByText('Updating…')).toBeInTheDocument();
-    expect(within(busy).getByRole('button', { name: 'Update' })).toBeDisabled();
+    expect(
+      within(busy).getByRole('button', { name: 'Update http://busy.example/g.xml' })
+    ).toBeDisabled();
     // Any source updating holds "Update all now".
     expect(screen.getByRole('button', { name: 'Update all now' })).toBeDisabled();
   });
@@ -161,13 +163,13 @@ describe('EpgTab', () => {
 
   it('enables, disables and updates a source at once', async () => {
     renderTab(statusWith([epgSource({ id: 7 })]));
-    fireEvent.click(within(row(PROVIDER)).getByRole('checkbox', { name: 'Enabled' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: `Enable ${PROVIDER}` }));
     await settle();
     expect(mockedInvoke).toHaveBeenCalledWith('update_epg_source', {
       id: 7,
       patch: { enabled: false },
     });
-    fireEvent.click(within(row(PROVIDER)).getByRole('button', { name: 'Update' }));
+    fireEvent.click(screen.getByRole('button', { name: `Update ${PROVIDER}` }));
     await settle();
     expect(mockedInvoke).toHaveBeenCalledWith('refresh_epg', { sourceId: 7 });
   });
@@ -220,7 +222,7 @@ describe('EpgTab', () => {
     renderTab(
       statusWith([epgSource({ id: 4, origin: 'manual', display_url: 'http://e.example/g.xml' })])
     );
-    fireEvent.click(within(row('http://e.example/g.xml')).getByRole('button', { name: 'Remove' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove http://e.example/g.xml' }));
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText('Remove this guide source?')).toBeInTheDocument();
     expect(calls('remove_epg_source')).toHaveLength(0);
@@ -228,6 +230,29 @@ describe('EpgTab', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Remove' }));
     await settle();
     expect(mockedInvoke).toHaveBeenCalledWith('remove_epg_source', { id: 4 });
+  });
+
+  it('shows a refused enable or remove in the row', async () => {
+    answer({
+      update_epg_source: () => Promise.reject({ code: 'Database', details: 'database is locked' }),
+      remove_epg_source: () => Promise.reject({ code: 'InvalidInput', details: 'Not found' }),
+    });
+    const name = 'http://e.example/g.xml';
+    renderTab(statusWith([epgSource({ id: 4, origin: 'manual', display_url: name })]));
+
+    fireEvent.click(screen.getByRole('checkbox', { name: `Enable ${name}` }));
+    await settle();
+    expect(within(row(name)).getByRole('alert')).toHaveTextContent(
+      'Could not disable the source: database is locked'
+    );
+    expect(screen.getByRole('checkbox', { name: `Enable ${name}` })).toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: `Remove ${name}` }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }));
+    await settle();
+    expect(within(row(name)).getByRole('alert')).toHaveTextContent(
+      'Could not remove the source: Not found'
+    );
   });
 });
 
@@ -278,6 +303,7 @@ describe('EpgTab time correction', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
     expect(value()).toHaveTextContent('none');
     expect(screen.queryByRole('button', { name: 'Reset' })).toBeNull();
+    expect(earlier()).toHaveFocus();
   });
 
   it('clamps at −12 h and +14 h', () => {
@@ -325,32 +351,11 @@ describe('EpgTab time correction', () => {
     expect(within(row(PROVIDER)).getByText('Takes effect at the next update')).toBeInTheDocument();
   });
 
-  it('reads "Applying…" until the first status after the answer', async () => {
-    vi.useFakeTimers();
-    openCorrection();
-    fireEvent.click(later());
-    expect(screen.getByText('Applying…')).toBeInTheDocument();
-    act(() => vi.advanceTimersByTime(POLICY_DEBOUNCE_MS));
-    await settle();
-    expect(screen.getByText('Applying…')).toBeInTheDocument();
+  /** The status with source 9 changed by `overrides`. */
+  const setSource = (overrides: Partial<EpgSource>) =>
+    act(() => useEpgStore.getState().setStatus(statusWith([epgSource({ id: 9, ...overrides })])));
 
-    // A re-read that failed sends only a status: the policy stays pending.
-    act(() =>
-      useEpgStore.getState().setStatus(
-        statusWith([
-          epgSource({
-            id: 9,
-            policy: { interpret: 'as_written', shift_minutes: 30 },
-            policy_pending: true,
-          }),
-        ])
-      )
-    );
-    expect(screen.queryByText('Applying…')).toBeNull();
-    expect(screen.getByText('Takes effect at the next update')).toBeInTheDocument();
-  });
-
-  it('ends "Applying…" when the guide is refreshed for the source', async () => {
+  it('reads "Applying…" from the click until the call returns, then from the backend', async () => {
     vi.useFakeTimers();
     let release = () => {};
     answer({
@@ -358,19 +363,109 @@ describe('EpgTab time correction', () => {
     });
     openCorrection();
     fireEvent.click(later());
+    expect(screen.getByText('Applying…')).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(POLICY_DEBOUNCE_MS));
     expect(screen.getByText('Applying…')).toBeInTheDocument();
 
-    act(() =>
-      useEpgStore.getState().invalidate({ reason: 'reingest', source_id: 8, matches_changed: 0 })
-    );
-    expect(screen.getByText('Applying…')).toBeInTheDocument();
-    act(() =>
-      useEpgStore.getState().invalidate({ reason: 'reingest', source_id: 9, matches_changed: 0 })
-    );
-    expect(screen.queryByText('Applying…')).toBeNull();
+    // The backend's status arrives before the answer: it says applying.
+    const shifted = { interpret: 'as_written' as const, shift_minutes: 30 };
+    setSource({ policy: shifted, policy_pending: true, applying: true });
     release();
     await settle();
+    expect(screen.getByText('Applying…')).toBeInTheDocument();
+
+    // A re-read that failed: no longer applying, still pending.
+    setSource({ policy: shifted, policy_pending: true, applying: false });
+    expect(screen.queryByText('Applying…')).toBeNull();
+    expect(screen.getByText('Takes effect at the next update')).toBeInTheDocument();
+    expect(value()).toHaveTextContent('+30 min');
+
+    setSource({ policy: shifted, policy_pending: false, applying: false });
+    expect(screen.queryByText('Takes effect at the next update')).toBeNull();
+  });
+
+  it('a refused change shows the error, ends "Applying…" and puts the stepper back', async () => {
+    vi.useFakeTimers();
+    answer({
+      set_epg_time_policy: () =>
+        Promise.reject({ code: 'InvalidInput', details: 'Guide source 9 not found' }),
+    });
+    openCorrection();
+    fireEvent.click(later());
+    act(() => vi.advanceTimersByTime(POLICY_DEBOUNCE_MS));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Could not change the time correction: Guide source 9 not found'
+    );
+    expect(screen.queryByText('Applying…')).toBeNull();
+    expect(value()).toHaveTextContent('none');
+  });
+
+  it('does not show the error of a call a later change replaced', async () => {
+    vi.useFakeTimers();
+    const rejects: Array<(e: unknown) => void> = [];
+    answer({
+      set_epg_time_policy: () => new Promise<void>((_, reject) => rejects.push(reject)),
+    });
+    openCorrection();
+    fireEvent.click(later());
+    act(() => vi.advanceTimersByTime(POLICY_DEBOUNCE_MS));
+    fireEvent.click(later());
+    rejects[0]({ code: 'Database', details: 'database is locked' });
+    await settle();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText('Applying…')).toBeInTheDocument();
+    expect(value()).toHaveTextContent('+1 h');
+    act(() => vi.advanceTimersByTime(POLICY_DEBOUNCE_MS));
+    expect(calls('set_epg_time_policy').map(([, args]) => args)).toEqual([
+      { sourceId: 9, policy: { interpret: 'as_written', shift_minutes: 30 } },
+      { sourceId: 9, policy: { interpret: 'as_written', shift_minutes: 60 } },
+    ]);
+  });
+
+  it('sends the last change when Settings closes inside the pause', () => {
+    vi.useFakeTimers();
+    renderTab(statusWith([epgSource({ id: 9 })]));
+    fireEvent.click(within(row(PROVIDER)).getByRole('button', { name: /time correction/i }));
+    fireEvent.click(later());
+    fireEvent.click(later());
+    cleanup();
+    expect(calls('set_epg_time_policy')).toEqual([
+      [
+        'set_epg_time_policy',
+        { sourceId: 9, policy: { interpret: 'as_written', shift_minutes: 60 } },
+      ],
+    ]);
+    act(() => vi.advanceTimersByTime(POLICY_DEBOUNCE_MS));
+    expect(calls('set_epg_time_policy')).toHaveLength(1);
+  });
+
+  it('removing a source inside the pause sends no change for it', async () => {
+    vi.useFakeTimers();
+    const name = 'http://e.example/g.xml';
+    renderTab(statusWith([epgSource({ id: 9, origin: 'manual', display_url: name })]));
+    fireEvent.click(within(row(name)).getByRole('button', { name: /time correction/i }));
+    fireEvent.click(later());
+    fireEvent.click(screen.getByRole('button', { name: `Remove ${name}` }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }));
+    await settle();
+    expect(mockedInvoke).toHaveBeenCalledWith('remove_epg_source', { id: 9 });
+    // The backend's status no longer lists it, and the row goes.
+    act(() => useEpgStore.getState().setStatus(statusWith([])));
+    act(() => vi.advanceTimersByTime(2 * POLICY_DEBOUNCE_MS));
+    cleanup();
+    expect(calls('set_epg_time_policy')).toHaveLength(0);
+  });
+
+  it('opens Advanced when unknown zones appear later, unless it was collapsed', () => {
+    openCorrection();
+    expect(screen.queryByRole('checkbox', { name: /local time/ })).toBeNull();
+    setSource({ unknown_zone_count: 3 });
+    expect(screen.getByRole('checkbox', { name: /local time/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+    setSource({ unknown_zone_count: 5 });
+    expect(screen.queryByRole('checkbox', { name: /local time/ })).toBeNull();
   });
 
   it('sends the local-time reading from the Advanced checkbox', () => {

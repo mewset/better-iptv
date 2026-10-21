@@ -115,6 +115,10 @@ describe('status line', () => {
     expect(details).toContain('312 programme times name a time zone the app does not know');
     expect(details).toContain('"CEST"');
     expect(details).toContain('1 character in the guide could not be read and was replaced');
+    expect(details).toContain('Time correction can fix them.');
+    expect(statusDetails(epgSource({ unknown_zone_count: 1 }))).toBe(
+      '1 programme time names a time zone the app does not know. Time correction can fix it.'
+    );
   });
 });
 

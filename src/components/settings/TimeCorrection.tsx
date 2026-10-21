@@ -1,11 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Minus, Plus } from 'lucide-react';
-import {
-  setEpgTimePolicy,
-  type EpgSource,
-  type EpgStatus,
-  type TimePolicy,
-} from '../../lib/epgIpc';
+import { setEpgTimePolicy, type EpgSource, type TimePolicy } from '../../lib/epgIpc';
 import {
   SHIFT_MAX_MINUTES,
   SHIFT_MIN_MINUTES,
@@ -13,34 +8,20 @@ import {
   clampShift,
   errorText,
   formatShift,
-  samePolicy,
   shiftPreview,
 } from '../../lib/epgSourceView';
 import { describeClock, nextClockChangeText } from '../../lib/clockChange';
-import { useEpgStore } from '../../stores/epg-store';
 import { logger } from '../../lib/logger';
 
 /** A change waits this long for the next one before it is sent. */
 export const POLICY_DEBOUNCE_MS = 800;
 
-/**
- * A policy change on its way: waiting out the debounce, sent, or answered.
- * `generation` is the store's when it was sent, so only a later
- * `epg-refreshed` counts; `statusAtAnswer` the status when the call
- * returned, so only a later one counts.
- */
-interface Applying {
-  phase: 'waiting' | 'sent' | 'answered';
-  policy: TimePolicy;
-  seq: number;
-  generation: number;
-  statusAtAnswer: EpgStatus | null;
-}
-
 interface TimeCorrectionProps {
   source: EpgSource;
   /** Epoch ms, from the shared ticker. */
   now: number;
+  /** The source is being removed: a change still waiting is dropped, not sent. */
+  removing?: boolean;
 }
 
 const stepButton =
@@ -49,95 +30,77 @@ const stepButton =
 /**
  * A source's time correction, behind a disclosure: the shift stepper
  * first, the local-time reading behind "Advanced". Every change is sent on
- * its own after a short pause (no Save); the row reads "Applying…" until
- * the backend has re-read the guide or said it could not yet.
+ * its own after a short pause (no Save). "Applying…" comes from the
+ * backend's `applying` flag; from the click until the call returns the row
+ * shows it on its own.
  */
-export default function TimeCorrection({ source, now }: TimeCorrectionProps) {
+export default function TimeCorrection({ source, now, removing = false }: TimeCorrectionProps) {
   const id = useId();
   const [open, setOpen] = useState(false);
-  // Open by default only where there is something to look at.
-  const [advancedOpen, setAdvancedOpen] = useState(
-    () =>
-      source.policy.shift_minutes !== 0 ||
+  // Null follows the source: open where there is something to look at,
+  // unknown zones that appear later included. A click decides from then on.
+  const [advancedChoice, setAdvancedChoice] = useState<boolean | null>(null);
+  const advancedOpen =
+    advancedChoice ??
+    (source.policy.shift_minutes !== 0 ||
       source.policy.interpret === 'local_zone' ||
-      source.unknown_zone_count > 0
-  );
+      source.unknown_zone_count > 0);
   const [draft, setDraft] = useState<TimePolicy>(source.policy);
-  const [applying, setApplying] = useState<Applying | null>(null);
+  // A change made here that its call has not answered yet.
+  const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const status = useEpgStore((s) => s.status);
-  const generation = useEpgStore((s) => s.generation);
-  const lastRefreshed = useEpgStore((s) => s.lastRefreshed);
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftRef = useRef(draft);
+  // Bumped by every change: an answer to an older call is not this change's.
   const seqRef = useRef(0);
   const sourceRef = useRef(source);
   sourceRef.current = source;
+  const earlierRef = useRef<globalThis.HTMLButtonElement>(null);
 
-  // Follow the backend's policy while nothing is being changed here.
+  // Follow the backend's policy while no change of this row is on its way;
+  // after a refused change this puts the stepper back.
   const { interpret, shift_minutes } = source.policy;
   useEffect(() => {
-    if (applying !== null || timer.current !== null) return;
+    if (waiting) return;
     const policy = { interpret, shift_minutes };
     draftRef.current = policy;
     setDraft(policy);
-  }, [interpret, shift_minutes, applying]);
+  }, [interpret, shift_minutes, waiting]);
 
-  // "Applying…" ends when the new policy is in the store, when the guide
-  // was refreshed for this source, when there is no cached feed to re-read
-  // (the next download applies it), or at the first status after the call
-  // returned: a re-read that failed only sends a status, so waiting longer
-  // could wait forever.
-  useEffect(() => {
-    if (applying === null || applying.phase === 'waiting') return;
-    const row = status?.sources.find((s) => s.id === source.id);
-    const written = row !== undefined && samePolicy(row.policy, applying.policy);
-    const applied = written && !row.policy_pending;
-    const nothingToReRead = written && !row.has_cached_feed;
-    const refreshed =
-      generation > applying.generation &&
-      lastRefreshed !== null &&
-      (lastRefreshed.source_id === null || lastRefreshed.source_id === source.id);
-    const statusAfterAnswer = applying.phase === 'answered' && status !== applying.statusAtAnswer;
-    if (row === undefined || applied || nothingToReRead || refreshed || statusAfterAnswer) {
-      setApplying(null);
-    }
-  }, [applying, status, generation, lastRefreshed, source.id]);
-
-  const send = () => {
+  const send = (seq: number) => {
     timer.current = null;
-    const policy = draftRef.current;
-    const seq = ++seqRef.current;
-    const store = useEpgStore.getState();
-    setApplying({
-      phase: 'sent',
-      policy,
-      seq,
-      generation: store.generation,
-      statusAtAnswer: null,
-    });
-    setEpgTimePolicy(sourceRef.current.id, policy)
-      .then(() => {
-        const statusAtAnswer = useEpgStore.getState().status;
-        setApplying((a) => (a?.seq === seq ? { ...a, phase: 'answered', statusAtAnswer } : a));
-      })
+    setEpgTimePolicy(sourceRef.current.id, draftRef.current)
       .catch((err) => {
         logger.error('Failed to set the guide time correction:', err);
-        setError(`Could not change the time correction: ${errorText(err)}`);
-        setApplying((a) => (a?.seq === seq ? null : a));
+        if (seq === seqRef.current) {
+          setError(`Could not change the time correction: ${errorText(err)}`);
+        }
+      })
+      .finally(() => {
+        if (seq === seqRef.current) setWaiting(false);
       });
   };
   const sendRef = useRef(send);
   sendRef.current = send;
 
-  // Leaving Settings inside the pause still sends the last change.
+  // Leaving Settings inside the pause still sends the last change; a
+  // source on its way out gets none.
+  const removingRef = useRef(removing);
+  removingRef.current = removing;
+  useEffect(() => {
+    if (!removing || timer.current === null) return;
+    clearTimeout(timer.current);
+    timer.current = null;
+    seqRef.current++;
+    setWaiting(false);
+  }, [removing]);
   useEffect(
     () => () => {
       if (timer.current === null) return;
       clearTimeout(timer.current);
       timer.current = null;
+      if (removingRef.current) return;
       setEpgTimePolicy(sourceRef.current.id, draftRef.current).catch((err) =>
         logger.error('Failed to set the guide time correction:', err)
       );
@@ -149,11 +112,10 @@ export default function TimeCorrection({ source, now }: TimeCorrectionProps) {
     draftRef.current = next;
     setDraft(next);
     setError(null);
-    // seq 0 matches no call: an answer to an earlier one must not end
-    // the wait for this change.
-    setApplying({ phase: 'waiting', policy: next, seq: 0, generation, statusAtAnswer: null });
+    setWaiting(true);
+    const seq = ++seqRef.current;
     if (timer.current !== null) clearTimeout(timer.current);
-    timer.current = setTimeout(() => sendRef.current(), POLICY_DEBOUNCE_MS);
+    timer.current = setTimeout(() => sendRef.current(seq), POLICY_DEBOUNCE_MS);
   };
 
   const shift = draft.shift_minutes;
@@ -163,11 +125,12 @@ export default function TimeCorrection({ source, now }: TimeCorrectionProps) {
   const summary = [localZone ? 'local time' : null, shift !== 0 ? formatShift(shift) : null]
     .filter(Boolean)
     .join(', ');
-  const note = applying
-    ? 'Applying…'
-    : source.policy_pending
-      ? 'Takes effect at the next update'
-      : null;
+  const note =
+    waiting || source.applying
+      ? 'Applying…'
+      : source.policy_pending
+        ? 'Takes effect at the next update'
+        : null;
 
   const panelId = `${id}-panel`;
   const advancedId = `${id}-advanced`;
@@ -209,6 +172,7 @@ export default function TimeCorrection({ source, now }: TimeCorrectionProps) {
               className="flex items-center gap-2"
             >
               <button
+                ref={earlierRef}
                 type="button"
                 aria-label="Shift guide times 30 minutes earlier"
                 disabled={shift <= SHIFT_MIN_MINUTES}
@@ -237,7 +201,11 @@ export default function TimeCorrection({ source, now }: TimeCorrectionProps) {
             {shift !== 0 && (
               <button
                 type="button"
-                onClick={() => setShift(0)}
+                onClick={() => {
+                  setShift(0);
+                  // The Reset button goes away; keep focus on the stepper.
+                  earlierRef.current?.focus();
+                }}
                 className="rounded px-2 py-1 text-sm text-text-muted transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 Reset
@@ -251,7 +219,7 @@ export default function TimeCorrection({ source, now }: TimeCorrectionProps) {
               type="button"
               aria-expanded={advancedOpen}
               aria-controls={advancedId}
-              onClick={() => setAdvancedOpen((o) => !o)}
+              onClick={() => setAdvancedChoice(!advancedOpen)}
               className="flex items-center gap-1 rounded text-xs font-medium text-text-muted transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               {advancedOpen ? (
@@ -284,9 +252,7 @@ export default function TimeCorrection({ source, now }: TimeCorrectionProps) {
                   computer&apos;s clock changes, and during the hour that repeats when clocks go
                   back, programmes without a stated offset are placed in the first occurrence.
                 </p>
-                <p className="text-xs tabular-nums text-text-muted">
-                  Your clock: {describeClock(now)}
-                </p>
+                <p className="text-xs text-text-muted">Your clock: {describeClock(now)}</p>
                 {nextChange && (
                   <p className="text-xs text-text-muted">Next clock change: {nextChange}</p>
                 )}

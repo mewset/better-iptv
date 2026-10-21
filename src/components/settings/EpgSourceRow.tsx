@@ -25,21 +25,33 @@ export default function EpgSourceRow({ source, now }: EpgSourceRowProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   const title = sourceTitle(source);
   const line = statusLine(source, now);
   const details = statusDetails(source);
 
-  const run = async (what: string, action: () => Promise<void>) => {
+  /** Runs one action; false when it failed (its error is shown). */
+  const run = async (what: string, action: () => Promise<void>): Promise<boolean> => {
     setBusy(true);
     setError(null);
     try {
       await action();
+      return true;
     } catch (err) {
       logger.error(`Failed to ${what}:`, err);
       setError(`Could not ${what}: ${errorText(err)}`);
+      return false;
     } finally {
       setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    // Drops a time correction still waiting to be sent for this source.
+    setRemoving(true);
+    if (!(await run('remove the source', () => removeEpgSource(source.id)))) {
+      setRemoving(false);
     }
   };
 
@@ -58,7 +70,7 @@ export default function EpgSourceRow({ source, now }: EpgSourceRowProps) {
           </h4>
           <p
             className={cn(
-              'mt-1 text-[13px] tabular-nums',
+              'mt-1 text-[13px]',
               source.last_result === 'error' && !source.refreshing
                 ? 'text-danger'
                 : 'text-text-muted'
@@ -76,6 +88,7 @@ export default function EpgSourceRow({ source, now }: EpgSourceRowProps) {
               type="checkbox"
               checked={source.enabled}
               disabled={busy}
+              aria-label={`Enable ${title}`}
               onChange={(e) => {
                 const enabled = e.target.checked;
                 run(enabled ? 'enable the source' : 'disable the source', () =>
@@ -89,6 +102,7 @@ export default function EpgSourceRow({ source, now }: EpgSourceRowProps) {
           <button
             type="button"
             disabled={busy || source.refreshing || !source.enabled}
+            aria-label={`Update ${title}`}
             onClick={() => run('update the source', () => refreshEpg(source.id))}
             className="flex items-center gap-2 rounded-lg border border-border-strong bg-text/5 px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-text/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-text/5"
           >
@@ -102,6 +116,7 @@ export default function EpgSourceRow({ source, now }: EpgSourceRowProps) {
             <button
               type="button"
               disabled={busy}
+              aria-label={`Remove ${title}`}
               onClick={() => setConfirmRemove(true)}
               className={cn(textButton, 'hover:text-danger')}
             >
@@ -111,7 +126,7 @@ export default function EpgSourceRow({ source, now }: EpgSourceRowProps) {
         </div>
       </div>
 
-      <TimeCorrection source={source} now={now} />
+      <TimeCorrection source={source} now={now} removing={removing} />
 
       {error && (
         <p role="alert" className="mt-2 text-xs text-danger">
@@ -122,7 +137,7 @@ export default function EpgSourceRow({ source, now }: EpgSourceRowProps) {
       <ConfirmationModal
         isOpen={confirmRemove}
         onClose={() => setConfirmRemove(false)}
-        onConfirm={() => run('remove the source', () => removeEpgSource(source.id))}
+        onConfirm={remove}
         title="Remove this guide source?"
         message={`${title} and its programmes are removed from every profile. Channels it covered show no guide until another source has them.`}
         confirmText="Remove"

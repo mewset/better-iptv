@@ -274,7 +274,11 @@ describe('Settings as a view', () => {
     });
 
     // An action is sent straight away, without Save.
-    fireEvent.click(within(source).getByRole('checkbox', { name: 'Enabled' }));
+    fireEvent.click(
+      within(source).getByRole('checkbox', {
+        name: "Enable Your provider's guide · signed in with your account",
+      })
+    );
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('update_epg_source', { id: 3, patch: { enabled: false } })
     );

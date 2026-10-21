@@ -39,7 +39,11 @@ export function nextClockChange(
   return null;
 }
 
-/** "20:12 (Europe/Stockholm, CEST)": this computer's clock, its zone and the zone's short name. */
+/**
+ * This computer's clock, its zone and the zone's short name in the user's
+ * locale: "20:12 (Europe/Stockholm, CEST)" in sv-SE, "20:12
+ * (Europe/Stockholm, GMT+2)" in en-US, which has no name for that zone.
+ */
 export function describeClock(now: number): string {
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const abbr = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
