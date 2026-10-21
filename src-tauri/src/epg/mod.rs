@@ -74,6 +74,10 @@ pub enum AbandonReason {
     SourceDisabled,
     /// The source's URL changed while the feed of the old one was read.
     UrlChanged,
+    /// Between two transactions of a swap, something else changed the
+    /// source's applied policy: another write got in, and the rest of this
+    /// feed is not laid over it.
+    Overtaken,
 }
 
 /// What one stored ingest did, for the log line and the caller's events.
@@ -87,6 +91,8 @@ pub struct IngestReport {
     pub keys: u32,
     /// The time policy the feed was read with, recorded as applied.
     pub policy: TimePolicy,
+    /// The scope the swap used: `WholeSource` when a `Feed` ingest found
+    /// rows read under another or an unknown policy.
     pub scope: IngestScope,
     pub elapsed: StageTimes,
     /// Write transactions the swap took: one up to
@@ -259,11 +265,12 @@ async fn run(
         }
         Stored::Committed(report) => report,
     };
-    let report = ingest_report(report, policy, scope, download_time);
+    let report = ingest_report(report, policy, download_time);
     info!(
-        "EPG ingest of source {source_id} ({fetch:?}, {scope:?}): {} programmes on {} channels \
+        "EPG ingest of source {source_id} ({fetch:?}, {:?}): {} programmes on {} channels \
          stored{}; {} seen, normalise {:?}; download {:?}, parse {:?}, normalise {:?}, \
          store {:?}, lock held {:?} at most over {} transactions",
+        report.scope,
         report.stored,
         report.keys,
         if report.parse.complete {
@@ -283,17 +290,12 @@ async fn run(
     Ok(IngestOutcome::Stored(Box::new(report)))
 }
 
-fn ingest_report(
-    report: Box<StoreReport>,
-    policy: TimePolicy,
-    scope: IngestScope,
-    download: Duration,
-) -> IngestReport {
+fn ingest_report(report: Box<StoreReport>, policy: TimePolicy, download: Duration) -> IngestReport {
     IngestReport {
         stored: report.stored,
         keys: report.keys,
         policy,
-        scope,
+        scope: report.scope,
         elapsed: StageTimes {
             download,
             parse: report.parse_time,

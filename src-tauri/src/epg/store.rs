@@ -578,6 +578,10 @@ pub(crate) enum Swapped {
     Committed {
         /// Rows inserted from this feed.
         stored: u32,
+        /// The scope the swap used: `WholeSource` when it escalated a
+        /// `Feed` request because the stored rows were read under another
+        /// or an unknown policy.
+        scope: IngestScope,
         /// Write transactions the swap took.
         transactions: u32,
         /// The longest of them, `BEGIN IMMEDIATE` to `COMMIT`: the longest
@@ -725,7 +729,10 @@ fn plan_chunks(channels: usize, bounds: &[Option<&KeyBounds>], max_rows: u32) ->
 /// `req.scope` says, so rows of two policies never sit side by side. The
 /// first transaction decides for all of them; a whole-source replace that
 /// takes several transactions clears the applied policy in its first, so if
-/// a later one fails, the next ingest replaces the whole source again.
+/// a later one fails, the next ingest replaces the whole source again. A
+/// later transaction that finds the applied policy changed since the first
+/// left it stops as `Overtaken`: something else wrote the source in
+/// between, and the rest of this feed must not be laid over it.
 ///
 /// `conn` should be an `IngestConnection`: foreign keys off, no automatic
 /// checkpoint.
@@ -747,6 +754,9 @@ fn swap_in_chunks(
     let chunks = plan_chunks(keys.keys.len(), &by_knum, max_rows);
 
     let mut scope = req.scope;
+    // The applied policy as the first transaction left it; a later one that
+    // finds another wrote between them and stops.
+    let mut left_applied = None;
     let (mut stored, mut hold) = (0u32, Duration::ZERO);
     for (n, &(from, to)) in chunks.iter().enumerate() {
         let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
@@ -765,7 +775,12 @@ fn swap_in_chunks(
             }
             if scope == IngestScope::WholeSource && chunks.len() > 1 {
                 tx.execute(CLEAR_APPLIED, params![req.source_id])?;
+                left_applied = None;
+            } else {
+                left_applied = state.applied;
             }
+        } else if state.applied != left_applied {
+            return Ok(Swapped::Abandoned(AbandonReason::Overtaken));
         }
 
         let channels = upsert_channels(&tx, req.source_id, keys, from, to)?;
@@ -789,6 +804,7 @@ fn swap_in_chunks(
 
     Ok(Swapped::Committed {
         stored,
+        scope,
         transactions: u32::try_from(chunks.len()).unwrap_or(u32::MAX),
         hold,
     })
@@ -1072,6 +1088,8 @@ pub(crate) struct StoreReport {
     pub parse: ParseReport,
     pub normalise: NormaliseReport,
     pub stored: u32,
+    /// The scope the swap used, `WholeSource` when it escalated.
+    pub scope: IngestScope,
     /// Channels with programmes in this feed.
     pub keys: u32,
     /// Decode, parse and staging.
@@ -1117,9 +1135,11 @@ pub(crate) fn store_feed<R: BufRead, Tz: TimeZone>(
         Swapped::Abandoned(reason) => Stored::Abandoned(reason),
         Swapped::Committed {
             stored,
+            scope,
             transactions,
             hold,
         } => Stored::Committed(Box::new(StoreReport {
+            scope,
             transactions,
             keys: prepared.channels_with_programmes(),
             stored,
@@ -1935,7 +1955,7 @@ mod tests {
         f.set_shift(s, 60);
         let report = f.store(s, &feed.xml(), NOW).await;
 
-        assert_eq!(report.scope, IngestScope::Feed);
+        assert_eq!(report.scope, IngestScope::WholeSource, "escalated");
         assert_eq!(
             f.programmes(s),
             rows(&[
@@ -2069,8 +2089,107 @@ mod tests {
                     "{scope:?} {how}: {progs:?}"
                 );
                 assert_summaries_exact(&f.conn());
+                // A whole-source replace cleared the applied policy in its
+                // first transaction: c1 is new, c3 old, so it is unknown.
+                let applied = f.status::<Option<i64>>(s, "applied_shift_minutes");
+                match scope {
+                    IngestScope::WholeSource => assert_eq!(applied, None, "{how}"),
+                    IngestScope::Feed => assert_eq!(applied, Some(0), "{how}"),
+                }
             }
         }
+    }
+
+    #[tokio::test]
+    async fn a_swap_overtaken_between_transactions_stops() {
+        for scope in [IngestScope::Feed, IngestScope::WholeSource] {
+            let f = Fixture::new("store");
+            let s = source(&f);
+            let old = Feed::new()
+                .programme("c2.se", NOW, NOW + H, "old 2")
+                .programme("c3.se", NOW, NOW + H, "old 3");
+            f.store(s, &old.xml(), NOW).await;
+            // Another ingest writing the source while the first transaction
+            // runs, as one that got past the refresh lock would.
+            add_trigger(
+                &f,
+                "CREATE TRIGGER overtake AFTER INSERT ON epg_programme
+                 WHEN NEW.title = 'c1 b' BEGIN
+                     UPDATE epg_source SET applied_interpret = 'as_written',
+                         applied_shift_minutes = 90;
+                 END;",
+            );
+
+            let outcome = swap_feed(&f, &request(s, scope), &three_channels(), 2);
+
+            assert_eq!(
+                outcome.unwrap(),
+                Swapped::Abandoned(AbandonReason::Overtaken),
+                "{scope:?}"
+            );
+            let progs = f.programmes(s);
+            assert!(
+                progs.contains(&("c3.se".into(), NOW, NOW + H, "old 3".into())),
+                "{scope:?}: nothing after the first transaction: {progs:?}"
+            );
+            assert!(!progs.iter().any(|p| p.3 == "c3 a"), "{scope:?}");
+            assert_summaries_exact(&f.conn());
+        }
+    }
+
+    #[tokio::test]
+    async fn a_re_read_failing_between_transactions_leaves_the_policy_pending() {
+        let f = Fixture::new("store");
+        let s = source(&f);
+        f.store(s, &three_channels().xml(), NOW).await;
+        f.conn()
+            .execute(
+                "UPDATE epg_source SET last_result = 'partial', last_success_at = ?2
+                 WHERE id = ?1",
+                params![s, NOW - H],
+            )
+            .unwrap();
+        add_trigger(
+            &f,
+            "CREATE TRIGGER fail_c3 BEFORE INSERT ON epg_programme
+             WHEN NEW.title = 'c3 a' BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        );
+        f.set_shift(s, 60);
+        let req = SwapRequest {
+            policy: shifted(60),
+            network: false,
+            ..request(s, IngestScope::WholeSource)
+        };
+
+        assert!(swap_feed(&f, &req, &three_channels(), 2).is_err());
+
+        let source = crate::epg::sources::get_source(&f.conn(), s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(source.applied_policy, None);
+        assert!(
+            source.policy_pending(),
+            "c1 is under the new policy, c3 not"
+        );
+        assert_eq!(
+            source.last_result,
+            LastResult::Partial,
+            "provider status kept"
+        );
+        assert_eq!(source.last_success_at, Some(NOW - H));
+        assert_summaries_exact(&f.conn());
+
+        f.conn().execute_batch("DROP TRIGGER fail_c3").unwrap();
+        let outcome = reingest(&f, s, IngestScope::Feed, NOW).await.unwrap();
+        let IngestOutcome::Stored(report) = outcome else {
+            panic!("not stored: {outcome:?}");
+        };
+        assert_eq!(report.scope, IngestScope::WholeSource);
+        let source = crate::epg::sources::get_source(&f.conn(), s)
+            .unwrap()
+            .unwrap();
+        assert!(!source.policy_pending());
+        assert!(f.programmes(s).iter().all(|p| p.1 >= NOW + H));
     }
 
     #[tokio::test]
