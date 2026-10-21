@@ -14,6 +14,7 @@ A simple overview of new features and improvements.
 - Settings → EPG shows each guide's status: when it was last updated, how many programmes it has, and why an update failed
 - Channels without a guide id now find their TV guide by name, when the guide lists a channel with the same name
 - Settings → EPG shows how many of your channels are matched to the TV guide
+- If a channel shows the wrong TV guide or none at all, you can pick its guide channel yourself with "Fix a channel…" in Settings → EPG
 
 ### Improvements
 
