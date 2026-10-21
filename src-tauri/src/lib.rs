@@ -165,10 +165,6 @@ pub fn run() {
                 }
             });
 
-            // Off the boot path, once per database: match the channels to a
-            // guide stored before channel matching existed.
-            tauri::async_runtime::spawn(epg_service.clone().match_after_upgrade());
-
             // TMDB enrichment: one search per visible title, plus the opt-in
             // library scan once the first channel load is out of the way.
             tmdb::enrich::spawn_worker(app.handle().clone());
@@ -180,7 +176,9 @@ pub fn run() {
 
             // Background guide refresh: every source due for the active
             // profile, one at a time. Parsing and storing run on the
-            // blocking pool inside the ingest.
+            // blocking pool inside the ingest. Before its first check it
+            // matches the channels to a guide stored before channel matching
+            // existed, once per database.
             tauri::async_runtime::spawn(epg_service.run_background());
 
             // iptv-org logo fallbacks: expire dead marks and refresh the list

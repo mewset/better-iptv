@@ -351,10 +351,12 @@ impl EpgService {
         }
     }
 
-    /// Once per database, at startup and off its critical path: match every
-    /// playlist against the guide already stored (`epg::matching::
-    /// recompute_once_after_upgrade`).
-    pub async fn match_after_upgrade(self) {
+    /// Once per database: match every playlist against the guide already
+    /// stored (`epg::matching::recompute_once_after_upgrade`). Run by the
+    /// background task before its first due-check, well after the WebView
+    /// listens for `epg-refreshed`: an event sent during boot would be lost
+    /// and the keys with it.
+    async fn match_after_upgrade(&self) {
         let report = self
             .db(|conn| Ok(recompute_once_after_upgrade(conn)?))
             .await;
@@ -515,12 +517,21 @@ impl EpgService {
     /// start, then one every `AUTO_REFRESH_POLL_INTERVAL`. Never returns.
     pub async fn run_background(self) {
         tokio::time::sleep(AUTO_REFRESH_INITIAL_DELAY).await;
+        let mut runs = self.first_check().await;
         loop {
-            for run in self.tick().await {
+            for run in runs {
                 log_run(&run);
             }
             tokio::time::sleep(AUTO_REFRESH_POLL_INTERVAL).await;
+            runs = self.tick().await;
         }
+    }
+
+    /// The background task's first check: the one-time match after an
+    /// upgrade, then the first poll.
+    async fn first_check(&self) -> Vec<SourceRun> {
+        self.match_after_upgrade().await;
+        self.tick().await
     }
 
     /// Download and store one source, then apply a policy that changed
@@ -1675,23 +1686,41 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_upgrade_match_runs_once_and_announces_its_changes() {
+    async fn the_upgrade_match_runs_once_before_the_first_poll_and_announces_its_changes() {
         let f = Fixture::new("service");
         let (svt1, _) = playlist_with_channels(&f);
-        let s = add_manual(&f.conn(), "http://epg.example/epg.xml");
-        f.store(s, &feed(), NOW).await;
+        let stored_before = add_manual(&f.conn(), "http://epg.example/epg.xml");
+        f.store(stored_before, &feed(), NOW).await;
+        schedule(&f, stored_before, Some(NOW), Some(NOW));
+        let server = serve(vec![respond("200 OK", feed().as_bytes())]).await;
+        let due = manual(&f, &server.base, 20);
         let (service, events) = service(&f);
 
-        service.clone().match_after_upgrade().await;
+        let runs = service.first_check().await;
+
+        assert_eq!(runs.len(), 1, "the first poll ran after it");
+        assert_eq!(match_key(&f, svt1).as_deref(), Some("svt1.se"));
+        assert_eq!(
+            events.reasons(),
+            [
+                (RefreshReason::Match, None),
+                (RefreshReason::Ingest, Some(due))
+            ]
+        );
+        assert_eq!(
+            events.matches(),
+            [(RefreshReason::Match, 1), (RefreshReason::Ingest, 0)]
+        );
+
+        // The next start: the guard holds, nothing is matched again.
         f.conn()
             .execute(
                 "UPDATE channels SET epg_match_key = NULL, epg_match_source = NULL",
                 [],
             )
             .unwrap();
-        service.clone().match_after_upgrade().await;
-
-        assert_eq!(events.matches(), [(RefreshReason::Match, 1)]);
+        assert!(service.first_check().await.is_empty(), "nothing due");
+        assert_eq!(events.matches().len(), 2);
         assert_eq!(match_key(&f, svt1), None, "not run a second time");
     }
 }
