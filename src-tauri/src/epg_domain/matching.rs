@@ -175,7 +175,9 @@ pub struct MatchReport {
     pub manual_kept: u32,
     /// Live rows with an id the guide does not know.
     pub unmatched_with_id: u32,
-    /// See `GuideIndex::ambiguous_names`.
+    /// See `GuideIndex::ambiguous_names`. Over several playlists, the most
+    /// any one of them had: they share the global sources, whose names a
+    /// sum would count once per playlist.
     pub ambiguous_names: u32,
     /// Rows whose stored match changed, live or not.
     pub changed: u32,
@@ -193,7 +195,7 @@ impl MatchReport {
         self.by_name += other.by_name;
         self.manual_kept += other.manual_kept;
         self.unmatched_with_id += other.unmatched_with_id;
-        self.ambiguous_names += other.ambiguous_names;
+        self.ambiguous_names = self.ambiguous_names.max(other.ambiguous_names);
         self.changed += other.changed;
         self.failed_playlists += other.failed_playlists;
     }
@@ -584,27 +586,33 @@ mod tests {
     }
 
     #[test]
-    fn reports_add_up() {
+    fn reports_add_up_except_the_shared_ambiguous_names() {
         let mut total = MatchReport {
             by_id: 1,
             changed: 2,
-            ..MatchReport::default()
-        };
-        total.add(&MatchReport {
-            by_id: 3,
-            by_name: 1,
-            changed: 1,
             ambiguous_names: 2,
             ..MatchReport::default()
-        });
+        };
+        // Two more playlists under the same global source.
+        for _ in 0..2 {
+            total.add(&MatchReport {
+                by_id: 3,
+                by_name: 1,
+                changed: 1,
+                ambiguous_names: 2,
+                failed_playlists: 1,
+                ..MatchReport::default()
+            });
+        }
         assert_eq!(
             (
                 total.by_id,
                 total.by_name,
                 total.changed,
+                total.failed_playlists,
                 total.ambiguous_names
             ),
-            (4, 1, 3, 2)
+            (7, 2, 4, 2, 2)
         );
     }
 }

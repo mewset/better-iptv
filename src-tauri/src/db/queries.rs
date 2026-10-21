@@ -160,8 +160,9 @@ fn map_summary_row(row: &Row) -> rusqlite::Result<ChannelSummary> {
 
 /// The channel list as the frontend reads it: only the `ChannelSummary`
 /// columns, so the stream URLs are never read. Same rows and ORDER BY as
-/// `get_channels`, mapped as `ChannelSummary::from(Channel)` does, except
-/// that `epg_id` is the matched guide key.
+/// `get_channels`. `epg_id` here is the match key (`epg_match_key`), which a
+/// `Channel` does not hold: `ChannelSummary::from(Channel)` leaves it `None`,
+/// so the two agree only for a channel without a match.
 pub fn get_channel_summaries(
     conn: &Connection,
     playlist_id: Option<i64>,
