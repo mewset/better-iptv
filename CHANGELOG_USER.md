@@ -4,7 +4,7 @@ A simple overview of new features and improvements.
 
 ---
 
-## Unreleased
+## Version 3.2.0 (October 22, 2026)
 
 ### New Features
 
@@ -16,12 +16,9 @@ A simple overview of new features and improvements.
 - Channels without a guide id now find their TV guide by name
 - Settings → EPG shows how many channels are matched to the TV guide, and "Fix a channel…" lets you pick a channel's guide yourself when it shows the wrong one or none
 
-**Other**
-
-- Channels with a missing or broken logo now get one from the open iptv-org database. You can turn this off in Settings → Metadata
-
 ### Improvements
 
+- Channels with a missing or broken logo now get one from the open iptv-org database. You can turn this off in Settings → Metadata
 - Updating a large TV guide uses a fraction of the memory it used to
 - Settings → About has new crypto addresses for donations, now also Litecoin and Dogecoin, and shows which network to send each one on
 
