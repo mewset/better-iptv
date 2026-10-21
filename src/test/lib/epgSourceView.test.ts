@@ -4,6 +4,8 @@ import {
   clampShift,
   errorText,
   formatShift,
+  matchingDetails,
+  matchingText,
   nextUpdateText,
   shiftPreview,
   sourceTitle,
@@ -11,6 +13,7 @@ import {
   statusLine,
 } from '../../lib/epgSourceView';
 import { formatClockAt } from '../../lib/epgTime';
+import type { MatchCounts } from '../../lib/epgIpc';
 import { epgSource, epgStatus } from '../epgFixtures';
 
 const NOW = Date.parse('2026-10-21T12:00:00Z');
@@ -118,6 +121,59 @@ describe('status line', () => {
     expect(details).toContain('Time correction can fix them.');
     expect(statusDetails(epgSource({ unknown_zone_count: 1 }))).toBe(
       '1 programme time names a time zone the app does not know. Time correction can fix it.'
+    );
+  });
+});
+
+describe('channel matching', () => {
+  const counts = (overrides: Partial<MatchCounts> = {}): MatchCounts => ({
+    by_id: 0,
+    by_tvg_name: 0,
+    by_name: 0,
+    manual: 0,
+    unmatched_with_id: 0,
+    ambiguous_names: 0,
+    ...overrides,
+  });
+
+  it('says the guide is not downloaded while there are no counts', () => {
+    expect(matchingText(null)).toBe('Guide not downloaded yet');
+    expect(matchingDetails(null)).toBeNull();
+  });
+
+  it('names a single way of matching without brackets', () => {
+    expect(matchingText(counts({ by_id: 1250 }))).toBe('1,250 channels matched by id');
+    expect(matchingText(counts({ by_name: 1 }))).toBe('1 channel matched by name');
+    expect(matchingText(counts({ manual: 7 }))).toBe('7 channels matched by hand');
+  });
+
+  it('breaks mixed counts down, leaving out the ways at 0', () => {
+    expect(
+      matchingText(
+        counts({ by_id: 1250, by_tvg_name: 10, by_name: 20, manual: 7, unmatched_with_id: 13137 })
+      )
+    ).toBe(
+      '1,287 channels matched (1,250 by id, 30 by name, 7 set by hand) · 13,137 channels have an id the guide does not know'
+    );
+    expect(matchingText(counts({ by_id: 5, manual: 1 }))).toBe(
+      '6 channels matched (5 by id, 1 set by hand)'
+    );
+  });
+
+  it('says so when nothing matched', () => {
+    expect(matchingText(counts())).toBe('No channel matched');
+    expect(matchingText(counts({ unmatched_with_id: 1 }))).toBe(
+      'No channel matched · 1 channel has an id the guide does not know'
+    );
+  });
+
+  it('puts ambiguous guide names in the details', () => {
+    expect(matchingDetails(counts({ by_id: 3 }))).toBeNull();
+    expect(matchingDetails(counts({ ambiguous_names: 1 }))).toBe(
+      '1 name in the guide belongs to more than one guide channel and matches no channel.'
+    );
+    expect(matchingDetails(counts({ ambiguous_names: 2 }))).toBe(
+      '2 names in the guide belong to more than one guide channel and match no channel.'
     );
   });
 });

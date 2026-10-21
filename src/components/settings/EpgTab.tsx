@@ -1,7 +1,7 @@
 import { useId, useState, type FormEvent } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import { addEpgSource, refreshEpg } from '../../lib/epgIpc';
-import { errorText, nextUpdateText } from '../../lib/epgSourceView';
+import { errorText, matchingDetails, matchingText, nextUpdateText } from '../../lib/epgSourceView';
 import { isAppError } from '../../types/errors';
 import { useEpgStatus } from '../../hooks/useEpgStatus';
 import { useNow } from '../../hooks/useNow';
@@ -12,9 +12,9 @@ import EpgSourceRow from './EpgSourceRow';
 
 /**
  * Settings → EPG: the guide sources of the active profile with their
- * status and time correction, adding a guide URL, and the automatic
- * updates. Every action takes effect at once, like Profiles; nothing here
- * waits for Save.
+ * status and time correction, adding a guide URL, how its channels are
+ * matched to the guide, and the automatic updates. Every action takes
+ * effect at once, like Profiles; nothing here waits for Save.
  */
 export default function EpgTab() {
   const { status, failed } = useEpgStatus();
@@ -66,6 +66,15 @@ export default function EpgTab() {
 
         <AddSource />
       </section>
+
+      {status && (
+        <section>
+          <h3 className="mb-4 text-lg font-semibold text-text">Channel matching</h3>
+          <p className="text-sm text-text" title={matchingDetails(status.matches) ?? undefined}>
+            {matchingText(status.matches)}
+          </p>
+        </section>
+      )}
 
       <section>
         <h3 className="mb-4 text-lg font-semibold text-text">Automatic updates</h3>

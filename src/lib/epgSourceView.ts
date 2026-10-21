@@ -1,4 +1,4 @@
-import type { EpgSource, EpgStatus, TimePolicy } from './epgIpc';
+import type { EpgSource, EpgStatus, MatchCounts, TimePolicy } from './epgIpc';
 import { formatClockAt } from './epgTime';
 
 // Wording for the Settings EPG tab, kept apart from the components so it
@@ -125,6 +125,44 @@ export function statusDetails(source: EpgSource): string | null {
     );
   }
   return lines.length > 0 ? lines.join('\n') : null;
+}
+
+/**
+ * The "Channel matching" line: "1,287 channels matched (1,250 by id,
+ * 30 by name, 7 set by hand) · 13,137 channels have an id the guide does
+ * not know". Parts that are 0 are left out; with one way of matching only,
+ * it is named without brackets. `null` (no guide channel yet) reads
+ * "Guide not downloaded yet".
+ */
+export function matchingText(matches: MatchCounts | null): string {
+  if (matches === null) return 'Guide not downloaded yet';
+  const byName = matches.by_tvg_name + matches.by_name;
+  const ways: Array<[number, string, string]> = [
+    [matches.by_id, 'by id', 'by id'],
+    [byName, 'by name', 'by name'],
+    [matches.manual, 'set by hand', 'by hand'],
+  ];
+  const used = ways.filter(([n]) => n > 0);
+  const total = used.reduce((sum, [n]) => sum + n, 0);
+  let matched: string;
+  if (total === 0) {
+    matched = 'No channel matched';
+  } else if (used.length === 1) {
+    matched = `${count(total, 'channel', 'channels')} matched ${used[0][2]}`;
+  } else {
+    const parts = used.map(([n, label]) => `${n.toLocaleString('en-US')} ${label}`);
+    matched = `${count(total, 'channel', 'channels')} matched (${parts.join(', ')})`;
+  }
+  const unknown = matches.unmatched_with_id;
+  if (unknown === 0) return matched;
+  return `${matched} · ${count(unknown, 'channel has', 'channels have')} an id the guide does not know`;
+}
+
+/** The matching line's tooltip: names the guide gives to two channels; null when none. */
+export function matchingDetails(matches: MatchCounts | null): string | null {
+  const n = matches?.ambiguous_names ?? 0;
+  if (n === 0) return null;
+  return `${count(n, 'name', 'names')} in the guide ${n === 1 ? 'belongs' : 'belong'} to more than one guide channel and ${n === 1 ? 'matches' : 'match'} no channel.`;
 }
 
 /** "Next automatic update around 14:30", or why there is none. */

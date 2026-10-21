@@ -481,4 +481,51 @@ describe('EpgTab time correction', () => {
       ],
     ]);
   });
+
+  describe('channel matching', () => {
+    const matching = () => screen.getByRole('heading', { name: 'Channel matching' }).parentElement!;
+    const counts = {
+      by_id: 0,
+      by_tvg_name: 0,
+      by_name: 0,
+      manual: 0,
+      unmatched_with_id: 0,
+      ambiguous_names: 0,
+    };
+
+    it('says the guide is not downloaded without counts', () => {
+      renderTab(epgStatus(true, { matches: null }));
+      expect(within(matching()).getByText('Guide not downloaded yet')).toBeInTheDocument();
+    });
+
+    it('shows a count matched by id only', () => {
+      renderTab(epgStatus(true, { matches: { ...counts, by_id: 1250 } }));
+      expect(within(matching()).getByText('1,250 channels matched by id')).toBeInTheDocument();
+    });
+
+    it('breaks mixed counts down and adds the unknown ids', () => {
+      renderTab(
+        epgStatus(true, {
+          matches: {
+            ...counts,
+            by_id: 1250,
+            by_name: 30,
+            manual: 7,
+            unmatched_with_id: 13137,
+            ambiguous_names: 2,
+          },
+        })
+      );
+      const line = within(matching()).getByText(
+        '1,287 channels matched (1,250 by id, 30 by name, 7 set by hand) · 13,137 channels have an id the guide does not know'
+      );
+      expect(line).toHaveAttribute('title', expect.stringContaining('2 names in the guide'));
+      expect(line.className).not.toContain('tabular-nums');
+    });
+
+    it('is not shown before the status is known', () => {
+      renderTab(null);
+      expect(screen.queryByRole('heading', { name: 'Channel matching' })).toBeNull();
+    });
+  });
 });
