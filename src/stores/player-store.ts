@@ -9,6 +9,7 @@ import {
   toggleFavorite,
 } from '../lib/tauri';
 import type { TmdbCard, TmdbStatus } from '../lib/tauri';
+import { applyEpgKeys } from '../lib/epgKeys';
 import { logger } from '../lib/logger';
 
 /**
@@ -27,6 +28,39 @@ export type ChannelLoadStatus = 'loading' | 'loaded' | 'error';
  * current was superseded and drops its results, including its status.
  */
 let channelLoadToken = 0;
+
+/** Guide keys of one playlist, as `get_channel_epg_keys` returns them. */
+export interface EpgKeys {
+  playlistId: number;
+  pairs: Array<[number, string]>;
+}
+
+/**
+ * The state after setting guide keys on the channels held (`applyEpgKeys`):
+ * only live channels change, so the vod and series lists keep their
+ * identity, and nothing changes at all when every key already holds.
+ */
+function withEpgKeys(state: PlayerState, pairs: EpgKeys['pairs']): Partial<PlayerState> {
+  const channels = applyEpgKeys(state.channels, pairs);
+  if (channels === state.channels) return {};
+  const result: Partial<PlayerState> = {
+    channels,
+    liveChannels:
+      state.liveChannels === state.channels
+        ? channels
+        : channels.filter((c) => c.content_type === 'live'),
+    favoriteChannels: channels.filter((c) => c.is_favorite),
+  };
+  // The dock reads the playing channel's key; it may be a copy of the row.
+  const current = state.currentChannel;
+  if (current?.content_type === 'live') {
+    const row = channels.find((c) => c.id === current.id);
+    if (row && (row.epg_id ?? undefined) !== (current.epg_id ?? undefined)) {
+      result.currentChannel = { ...current, epg_id: row.epg_id };
+    }
+  }
+  return result;
+}
 
 /** Starts a load: takes a new token and returns the guard that says whether it may still write. */
 function beginChannelLoad(playlistId: number): () => boolean {
@@ -103,6 +137,12 @@ interface PlayerState {
   pendingFavorites: Map<number, boolean>;
   /** Live and library status; setChannels marks both loaded. */
   channelLoad: { live: ChannelLoadStatus; library: ChannelLoadStatus };
+  /**
+   * Guide keys that arrived while the live part was loading: that load may
+   * have read the channels before the match that sent them, so they are
+   * set on its live part when it lands.
+   */
+  pendingEpgKeys: EpgKeys | null;
   setChannels: (channels: Channel[]) => void;
   /** Fetches live channels, then the library, and merges them. Never rejects. */
   loadChannels: (playlistId: number) => Promise<void>;
@@ -114,6 +154,12 @@ interface PlayerState {
    * for a title that is not in `channels` yet.
    */
   toggleChannelFavorite: (channelId: number, currentValue?: boolean) => Promise<void>;
+  /**
+   * Sets the guide keys of the current playlist's live channels in place,
+   * after a match changed them (`epg-refreshed`), without reading the list
+   * again. Keys of another playlist than the current one are dropped.
+   */
+  setEpgKeys: (keys: EpgKeys) => void;
 
   // Search
   searchQuery: string;
@@ -197,6 +243,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   favoriteChannels: [],
   pendingFavorites: new Map<number, boolean>(),
   channelLoad: { live: 'loading', library: 'loading' },
+  pendingEpgKeys: null,
   setChannels: (channels) => {
     // Supersedes a load in flight (refresh flows and Setup)
     channelLoadToken++;
@@ -213,6 +260,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set({
       channels: grouped,
       pendingFavorites: new Map(),
+      pendingEpgKeys: null,
       liveChannels,
       vodChannels,
       seriesChannels,
@@ -245,14 +293,17 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     } catch (error) {
       if (!isCurrent()) return;
       logger.error('Failed to load live channels:', error);
-      set({ channelLoad: { live: 'error', library: 'error' } });
+      set({ channelLoad: { live: 'error', library: 'error' }, pendingEpgKeys: null });
       return;
     }
     if (!isCurrent()) return;
+    const pending = get().pendingEpgKeys;
+    const keyed = pending?.playlistId === playlistId ? applyEpgKeys(live, pending.pairs) : live;
     set({
-      channels: live,
-      liveChannels: live,
-      favoriteChannels: live.filter((c) => c.is_favorite),
+      channels: keyed,
+      liveChannels: keyed,
+      favoriteChannels: keyed.filter((c) => c.is_favorite),
+      pendingEpgKeys: null,
       channelLoad: { live: 'loaded', library: 'loading' },
     });
 
@@ -313,6 +364,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       return result;
     });
   },
+
+  setEpgKeys: ({ playlistId, pairs }) =>
+    set((state) => {
+      if (state.currentPlaylist?.id !== playlistId) return {};
+      if (state.channelLoad.live === 'loading') {
+        return { pendingEpgKeys: { playlistId, pairs } };
+      }
+      return withEpgKeys(state, pairs);
+    }),
 
   // Search
   searchQuery: '',

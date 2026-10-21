@@ -621,5 +621,74 @@ describe('usePlayerStore', () => {
       await usePlayerStore.getState().retryChannels();
       expect(vi.mocked(invoke)).not.toHaveBeenCalled();
     });
+
+    describe('setEpgKeys', () => {
+      const keyed = (id: number, epg_id?: string, is_favorite = false): Channel => ({
+        ...ch(id, 'live', is_favorite),
+        epg_id,
+      });
+
+      it('sets the keys on the live channels held and keeps the library lists', () => {
+        const svt1 = keyed(1, undefined, true);
+        const gone = keyed(2, 'gone.se');
+        const film = ch(3, 'vod', true);
+        usePlayerStore.getState().setChannels([svt1, gone, film]);
+        usePlayerStore.setState({ currentChannel: { ...svt1 } });
+        const before = usePlayerStore.getState();
+
+        usePlayerStore.getState().setEpgKeys({ playlistId: 1, pairs: [[1, 'svt1.se']] });
+
+        const state = usePlayerStore.getState();
+        expect(state.liveChannels.map((c) => c.epg_id)).toEqual(['svt1.se', undefined]);
+        expect(state.channels.slice(0, 2)).toEqual(state.liveChannels);
+        expect(state.channels[2]).toBe(film);
+        expect(state.vodChannels).toBe(before.vodChannels);
+        expect(state.seriesChannels).toBe(before.seriesChannels);
+        expect(state.favoriteChannels.map((c) => [c.id, c.epg_id])).toEqual([
+          [1, 'svt1.se'],
+          [3, undefined],
+        ]);
+        expect(state.currentChannel?.epg_id).toBe('svt1.se');
+      });
+
+      it('changes nothing when every key already holds', () => {
+        usePlayerStore.getState().setChannels([keyed(1, 'svt1.se'), keyed(2)]);
+        const before = usePlayerStore.getState();
+
+        usePlayerStore.getState().setEpgKeys({ playlistId: 1, pairs: [[1, 'svt1.se']] });
+
+        const state = usePlayerStore.getState();
+        expect(state.channels).toBe(before.channels);
+        expect(state.liveChannels).toBe(before.liveChannels);
+        expect(state.favoriteChannels).toBe(before.favoriteChannels);
+      });
+
+      it('drops keys of a playlist that is no longer current', () => {
+        usePlayerStore.getState().setChannels([keyed(1)]);
+        const before = usePlayerStore.getState().channels;
+
+        usePlayerStore.getState().setEpgKeys({ playlistId: 2, pairs: [[1, 'svt1.se']] });
+
+        expect(usePlayerStore.getState().channels).toBe(before);
+        expect(usePlayerStore.getState().pendingEpgKeys).toBeNull();
+      });
+
+      it('keys that arrive while the live part loads are set on it when it lands', async () => {
+        const load = usePlayerStore.getState().loadChannels(1);
+
+        usePlayerStore.getState().setEpgKeys({ playlistId: 1, pairs: [[1, 'svt1.se']] });
+        // The load read the channels before the match: its rows carry the old key
+        call('1:live').resolve([keyed(1, 'old.se'), keyed(2, 'old.se')]);
+        await flush();
+
+        const state = usePlayerStore.getState();
+        expect(state.liveChannels.map((c) => c.epg_id)).toEqual(['svt1.se', undefined]);
+        expect(state.channels).toBe(state.liveChannels);
+        expect(state.pendingEpgKeys).toBeNull();
+
+        call('1:vod,series').resolve([]);
+        await load;
+      });
+    });
   });
 });

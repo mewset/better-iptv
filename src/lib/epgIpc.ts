@@ -70,12 +70,14 @@ export interface EpgStatus {
   matches: MatchCounts | null;
 }
 
-export type RefreshReason = 'ingest' | 'reingest' | 'source_changed' | 'profile_switch';
+/** `match`: a playlist's channels were matched again after an import, refresh or upgrade. */
+export type RefreshReason = 'ingest' | 'reingest' | 'source_changed' | 'profile_switch' | 'match';
 
 /** The `epg-refreshed` payload: cached now/next and guide data is stale. */
 export interface EpgRefreshed {
   reason: RefreshReason;
   source_id: number | null;
+  /** Channels whose guide key the preceding match changed; above 0, re-read the keys. */
   matches_changed: number;
 }
 
@@ -124,6 +126,14 @@ export async function getEpgGuide(
  */
 export async function getEpgGuideKeys(from: string, to: string): Promise<string[]> {
   return await invoke('get_epg_guide_keys', { from, to });
+}
+
+/**
+ * `[channel id, guide key]` of the playlist's live channels that are matched
+ * to the guide. A live channel left out has no key.
+ */
+export async function getChannelEpgKeys(playlistId: number): Promise<Array<[number, string]>> {
+  return await invoke('get_channel_epg_keys', { playlistId });
 }
 
 export async function getEpgStatus(): Promise<EpgStatus> {
