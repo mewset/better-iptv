@@ -31,13 +31,19 @@ use rusqlite::{params, Connection};
 use sources::{feed_path, get_source, remove_if_present, SourceRecord};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use store::{source_mismatch, store_feed, StoreReport, Stored, SwapRequest};
+use store::{source_mismatch, store_feed, IngestConnection, StoreReport, Stored, SwapRequest};
 
 /// Shown when a feed downloads fine but leaves no programme to store: an
 /// empty file, a page that is not XMLTV, or a feed whose programmes all
 /// ended. Nothing is stored and the previous guide and cached feed stay.
 pub const EMPTY_GUIDE_MESSAGE: &str =
     "The EPG server sent a program guide without any programmes, so the current guide was kept";
+
+/// A re-read of the cached feed (after a time policy change) left no
+/// programme to store, mostly because every programme in it has ended. The
+/// provider's status is not touched; the next download brings new ones.
+pub const EMPTY_CACHE_MESSAGE: &str =
+    "The saved guide has no programmes left to show, so the current guide was kept";
 
 /// Where an ingest reads its feed from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,6 +107,9 @@ pub enum IngestOutcome {
 /// What an ingest needs from the app.
 pub struct IngestEnv<'a> {
     pub pool: &'a Pool<SqliteConnectionManager>,
+    /// The app database the pool is opened on: the store runs on a
+    /// connection of its own (`store::IngestConnection`).
+    pub db_path: &'a Path,
     /// `<app_data>/epg/`.
     pub cache_dir: &'a Path,
     pub client: &'a reqwest::Client,
@@ -118,9 +127,11 @@ pub struct IngestEnv<'a> {
 /// policy is read once, after the download, and the swap records it as
 /// applied. A source that is removed, disabled or given another URL before
 /// the swap ends the ingest as `Abandoned`, with nothing stored or recorded.
-/// Any other failure keeps the stored programmes and the cached feed,
-/// records `last_result = 'error'` with a credential-free sentence in
-/// `last_error`, and returns that sentence.
+/// Any other failure keeps the stored programmes and the cached feed and
+/// returns a credential-free sentence; after a download it is also recorded
+/// as `last_result = 'error'` and `last_error`. A re-read of the cached feed
+/// records only the applied policy and the counters when it succeeds and
+/// nothing when it fails: `last_result` describes the provider.
 pub async fn ingest(
     env: &IngestEnv<'_>,
     source_id: i64,
@@ -147,6 +158,17 @@ pub async fn ingest(
     // credentials; the status and the caller get the top-level sentence.
     warn!("EPG ingest of source {source_id} failed: {failure:#}");
     let message = failure.to_string();
+    if fetch == Fetch::Cache {
+        // The provider's status describes its last answer, not this re-read.
+        let changed = blocking(env.pool, move |conn| {
+            Ok(source_mismatch(conn, source_id, expected_url.as_deref())?)
+        })
+        .await;
+        return match changed {
+            Ok(Some(reason)) => Ok(IngestOutcome::Abandoned(reason)),
+            _ => Err(AppError::Epg(message)),
+        };
+    }
     let recorded = {
         let message = message.clone();
         blocking(env.pool, move |conn| {
@@ -210,6 +232,7 @@ async fn run(
     };
 
     let job = Job {
+        db_path: env.db_path.to_path_buf(),
         cache_dir: env.cache_dir.to_path_buf(),
         feed,
         source_id,
@@ -218,14 +241,15 @@ async fn run(
         network,
         now,
     };
-    let (stored, policy) = blocking(env.pool, move |conn| {
-        let result = read_and_store(conn, &job);
+    let (stored, policy) = tokio::task::spawn_blocking(move || {
+        let result = read_and_store(&job);
         if network {
             settle_download(&job, &result);
         }
         result
     })
-    .await?;
+    .await
+    .context("The EPG update task failed")??;
 
     let report = match stored {
         Stored::Abandoned(reason) => {
@@ -371,6 +395,7 @@ fn on_xtream_server(conn: &Connection, url: &str) -> rusqlite::Result<bool> {
 
 /// The blocking half of an ingest: the feed file and what the swap checks.
 struct Job {
+    db_path: PathBuf,
     cache_dir: PathBuf,
     /// The download, or the cached feed.
     feed: PathBuf,
@@ -381,12 +406,14 @@ struct Job {
     now: i64,
 }
 
-/// Read the configured policy, then stage, normalise and swap the feed.
-/// Returns the outcome with the policy the feed was read with.
-fn read_and_store(conn: &Connection, job: &Job) -> Result<(Stored, TimePolicy)> {
+/// Read the configured policy, then stage, normalise and swap the feed on
+/// a connection of the ingest's own, closed before this returns. Returns the
+/// outcome with the policy the feed was read with.
+fn read_and_store(job: &Job) -> Result<(Stored, TimePolicy)> {
+    let ingest = IngestConnection::open(&job.db_path, &job.cache_dir)?;
     // Read once, at parse start: a policy set later applies from the next
     // ingest, and the swap records the one used here.
-    let Some(source) = get_source(conn, job.source_id)? else {
+    let Some(source) = get_source(ingest.conn(), job.source_id)? else {
         return Ok((
             Stored::Abandoned(AbandonReason::SourceRemoved),
             TimePolicy::default(),
@@ -407,7 +434,7 @@ fn read_and_store(conn: &Connection, job: &Job) -> Result<(Stored, TimePolicy)> 
         now: job.now,
     };
     let stored = store_feed(
-        conn,
+        &ingest,
         &job.cache_dir,
         std::io::BufReader::new(file),
         &request,
@@ -474,7 +501,7 @@ mod tests {
     use super::*;
     use crate::epg::sources::{download_path, ensure_xtream_source, update_source, SourcePatch};
     use crate::epg::test_support::*;
-    use crate::http::test_server::{respond, serve, trickle};
+    use crate::http::test_server::{head, respond, serve, trickle, Step};
     use std::io::Read;
 
     fn feed() -> String {
@@ -564,6 +591,78 @@ mod tests {
         assert_eq!(f.programmes(s), rows_before);
         assert_eq!(std::fs::read(feed_path(&f.dir.0, s)).unwrap(), cache_before);
         assert!(!download_path(&f.dir.0, s).exists());
+    }
+
+    /// The sentence a failed download leaves, checked for the URL and login.
+    fn assert_credential_free(f: &Fixture, source_id: i64, base: &str, expected: &str) {
+        let last_error: String = f.status(source_id, "last_error");
+        assert_eq!(last_error, expected);
+        for leak in ["secret", "john", "http", base.trim_start_matches("http://")] {
+            assert!(!last_error.contains(leak), "{leak} in {last_error}");
+        }
+        assert_eq!(
+            f.status::<Option<String>>(source_id, "last_result")
+                .as_deref(),
+            Some("error")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stalled_download_records_a_sentence_without_the_url() {
+        let f = Fixture::new("ingest");
+        let server = serve(vec![vec![
+            head("200 OK", 100_000),
+            Step::Write(feed().into_bytes()),
+            Step::Hang,
+        ]])
+        .await;
+        let s = manual_on(&f, &server.base);
+
+        let err = fetch(&f, s, NOW).await.unwrap_err();
+
+        let sentence = "The EPG server stopped sending data";
+        assert_eq!(err.to_string(), format!("EPG error: {sentence}"));
+        assert_credential_free(&f, s, &server.base, sentence);
+        assert_eq!(server.connections(), 1, "no retry");
+        assert!(!download_path(&f.dir.0, s).exists());
+    }
+
+    #[tokio::test]
+    async fn a_refused_connection_records_a_sentence_without_the_url() {
+        let f = Fixture::new("ingest");
+        // A port that was free a moment ago and has no listener now.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        drop(listener);
+        let s = manual_on(&f, &base);
+
+        let err = fetch(&f, s, NOW).await.unwrap_err();
+
+        let sentence = "Could not connect to the EPG server";
+        assert_eq!(err.to_string(), format!("EPG error: {sentence}"));
+        assert_credential_free(&f, s, &base, sentence);
+    }
+
+    #[tokio::test]
+    async fn a_download_that_breaks_off_is_stored_as_partial() {
+        let f = Fixture::new("ingest");
+        let cut = Feed::new()
+            .programme("svt1.se", NOW, NOW + H, "News")
+            .truncated_xml();
+        let server = serve(vec![respond("200 OK", cut.as_bytes())]).await;
+        let s = manual_on(&f, &server.base);
+
+        let outcome = fetch(&f, s, NOW).await.unwrap();
+
+        let IngestOutcome::Stored(report) = outcome else {
+            panic!("not stored: {outcome:?}");
+        };
+        assert!(!report.parse.complete);
+        assert_eq!(
+            f.status::<Option<String>>(s, "last_result").as_deref(),
+            Some("partial")
+        );
+        assert_eq!(f.status::<Option<i64>>(s, "last_success_at"), Some(NOW));
     }
 
     #[tokio::test]

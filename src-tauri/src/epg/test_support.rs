@@ -2,6 +2,7 @@
 //! file database set up like the app's pool, and an XMLTV feed builder.
 
 use super::sources::feed_path;
+use super::store::IngestConnection;
 use super::{ingest, Fetch, IngestEnv, IngestOutcome, IngestReport, IngestScope};
 use crate::db::schema::init_schema;
 use chrono::DateTime;
@@ -140,6 +141,7 @@ impl Feed {
 /// A database, a cache directory and a client for ingest tests.
 pub struct Fixture {
     pub dir: TestDir,
+    pub db_path: PathBuf,
     pub pool: Pool<SqliteConnectionManager>,
     pub client: reqwest::Client,
 }
@@ -153,12 +155,18 @@ impl Fixture {
             std::time::Duration::from_millis(500),
             std::time::Duration::from_millis(500),
         );
-        Fixture { dir, pool, client }
+        Fixture {
+            db_path: dir.0.join("app.db"),
+            dir,
+            pool,
+            client,
+        }
     }
 
     pub fn env(&self) -> IngestEnv<'_> {
         IngestEnv {
             pool: &self.pool,
+            db_path: &self.db_path,
             cache_dir: &self.dir.0,
             client: &self.client,
             download_deadline: std::time::Duration::from_secs(10),
@@ -167,6 +175,11 @@ impl Fixture {
 
     pub fn conn(&self) -> PooledConnection<SqliteConnectionManager> {
         self.pool.get().unwrap()
+    }
+
+    /// A connection set up as an ingest's own.
+    pub fn ingest_connection(&self) -> IngestConnection {
+        IngestConnection::open(&self.db_path, &self.dir.0).unwrap()
     }
 
     /// Make `xml` the source's cached feed, gzipped as a download would be.
@@ -267,4 +280,12 @@ pub fn assert_summaries_exact(conn: &Connection) {
         .collect::<rusqlite::Result<_>>()
         .unwrap();
     assert!(sources.is_empty(), "source counts differ: {sources:?}");
+    let dangling = conn
+        .prepare("PRAGMA foreign_key_check")
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert!(dangling.is_empty(), "rows without a parent in {dangling:?}");
 }

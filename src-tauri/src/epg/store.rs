@@ -1,26 +1,29 @@
 //! Storing a feed: staging, normalisation and the swap into the guide tables.
 //!
+//! The ingest runs on a connection of its own (`IngestConnection`), opened
+//! on the app database for one ingest and closed after it, so its settings
+//! (small page cache, no foreign keys, no automatic checkpoint) never reach
+//! the pool and nothing it attached outlives it.
+//!
 //! The parse sink corrects each programme's times with the source's policy,
 //! writes the programme to a staging table in a separate database file
 //! (`<cache_dir>/ingest.db`, attached for one ingest) in short transactions,
 //! and keeps only a 32-byte `Slot` per programme in memory. `normalise`
 //! decides per programme from those slots, the verdicts are written back to
 //! staging, and one transaction on the main database then replaces the
-//! source's programmes with an `INSERT … SELECT` from staging. A feed above
+//! source's programmes with `INSERT … SELECT` from staging. A feed above
 //! `SWAP_CHUNK_ROWS` programmes is swapped per range of channels, one
 //! transaction each, so the write lock is never held for long; each channel
 //! is still replaced whole in one transaction.
-//!
-//! The ingest's connection runs with a small page cache and without foreign
-//! keys or automatic checkpoints while it swaps, so its memory stays flat
-//! however large the feed (see `IngestPragmas` and `ForeignKeysOff`).
 //!
 //! Stored rows are never updated in place. For each channel in the feed the
 //! rows that reach past its first new start are deleted before the new rows
 //! go in, so a programme whose start moved leaves nothing behind, and the
 //! primary key turns two rows at one start into a failed swap instead of a
 //! duplicate. Rows that ended before a channel's first new start, and
-//! channels the feed no longer lists, stay until they ended a day ago.
+//! channels the feed no longer lists, stay until they ended a day ago,
+//! unless the stored rows were read under another time policy: then every
+//! row of the source is replaced, so two policies never mix.
 //!
 //! Staging and main are separate databases, and a transaction is atomic per
 //! database in WAL mode, not across them. Staging is disposable: the swap
@@ -28,10 +31,12 @@
 
 use super::parse::{parse_feed, ParseSink, ParsedChannel, ParsedProgramme};
 use super::sources::{remove_if_present, staging_path};
-use super::{AbandonReason, IngestScope, EMPTY_GUIDE_MESSAGE};
+use super::{AbandonReason, IngestScope, EMPTY_CACHE_MESSAGE, EMPTY_GUIDE_MESSAGE};
 use crate::epg_domain::key::{channel_key, name_key};
-use crate::epg_domain::normalize::{normalise, KeyBounds, Slot, Verdict, ENDED_GRACE_SECS};
-use crate::epg_domain::policy::TimePolicy;
+use crate::epg_domain::normalize::{
+    normalise, KeyBounds, Slot, Verdict, ENDED_GRACE_SECS, NO_STOP,
+};
+use crate::epg_domain::policy::{Interpret, TimePolicy};
 use crate::epg_domain::report::{NormaliseReport, ParseReport};
 use crate::epg_domain::source::{success_after, LastResult};
 use anyhow::{bail, ensure, Context, Result};
@@ -46,11 +51,22 @@ use std::time::{Duration, Instant};
 /// Programmes per staging transaction.
 pub const STAGING_BATCH: usize = 1000;
 
-/// Kept programmes per swap transaction. A feed the size of the one the
-/// rewrite was measured on (about 43k) is swapped in one transaction;
-/// larger ones commit per range of channels, so another writer never waits
-/// on the lock for long (measured: under 0.5 s per transaction at 430k).
-pub const SWAP_CHUNK_ROWS: u32 = 50_000;
+/// Kept programmes per swap transaction; a larger feed commits per range of
+/// channels, so another writer never waits on the lock for long. Measured
+/// in release on the weak dev machine: about 50-135 ms per transaction for
+/// 43k and 430k programmes, against 105-230 ms with 50,000, at a slightly
+/// longer ingest. Each channel is still replaced in one transaction.
+pub const SWAP_CHUNK_ROWS: u32 = 20_000;
+
+/// The ingest connection's page cache, in KiB. The pool's connections get
+/// 10,000 pages (about 40 MB); the swap writes every page of the source's
+/// programmes and would fill a cache that size, so the ingest's memory
+/// would grow with the feed instead of staying flat.
+const INGEST_CACHE_KIB: i64 = 2048;
+
+/// The WAL is cut back to this size, in bytes, when the ingest connection
+/// restarts it, and truncated when the ingest ends if no one is reading.
+const WAL_SIZE_LIMIT: i64 = 4 * 1024 * 1024;
 
 const STAGE_FAILURE: &str = "Failed to stage the EPG";
 const STORE_FAILURE: &str = "Failed to store the EPG";
@@ -60,14 +76,13 @@ const STORE_FAILURE: &str = "Failed to store the EPG";
 ///
 /// Rows are stored in feed order. The index on the channel number (`knum`,
 /// the order channels first appear in the feed) lets the swap read one
-/// channel range at a time without a sorter; it costs a few bytes per row
-/// and stays cheap to extend whatever order the feed lists programmes in.
+/// channel at a time without a sorter; it costs a few bytes per row and
+/// stays cheap to extend whatever order the feed lists programmes in.
 const STAGING_SETUP: &str = "PRAGMA ingest.journal_mode = OFF;
     PRAGMA ingest.synchronous = OFF;
     CREATE TABLE IF NOT EXISTS ingest.epg_ingest (
         seq INTEGER PRIMARY KEY,
         knum INTEGER NOT NULL,
-        key TEXT NOT NULL,
         start INTEGER NOT NULL,
         stop INTEGER,                     -- NULL until a verdict infers it
         keep INTEGER NOT NULL DEFAULT 1,  -- 0 = dropped by its verdict
@@ -79,8 +94,7 @@ const STAGING_SETUP: &str = "PRAGMA ingest.journal_mode = OFF;
     DELETE FROM ingest.epg_ingest;";
 
 const STAGE_ROW: &str = "INSERT INTO ingest.epg_ingest
-    (knum, seq, key, start, stop, title, description, category)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
+    (knum, seq, start, stop, title, description, category) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
 const MARK_STOP: &str = "UPDATE ingest.epg_ingest SET stop = ?2 WHERE seq = ?1";
 const MARK_DROPPED: &str = "UPDATE ingest.epg_ingest SET keep = 0 WHERE seq = ?1";
 
@@ -98,18 +112,15 @@ const DELETE_FROM_FIRST_START: &str =
     "DELETE FROM epg_programme WHERE channel_id = ?1 AND stop > ?2";
 const DELETE_WINDOW: &str =
     "DELETE FROM epg_programme WHERE channel_id = ?1 AND stop > ?2 AND start < ?3";
-/// One range of channel numbers from staging, which drives the join
-/// (`CROSS JOIN` fixes the order) through its `knum` index, so the rows
-/// arrive in the programmes' primary-key order. No `ORDER BY`:
-/// under `temp_store = memory` a sorter would sit in RAM. `OR FAIL` still
-/// fails the statement, and with it the swap, on a duplicate start; the
-/// default `ABORT` would make SQLite keep a statement journal of every page
-/// the insert reuses, in RAM as well.
+/// One channel's kept rows from staging, through its `knum` index in feed
+/// order. No `ORDER BY`: under `temp_store = memory` a sorter would sit in
+/// RAM. `OR FAIL` still fails the statement, and with it the swap, on a
+/// duplicate start; the default `ABORT` would make SQLite keep a statement
+/// journal of every page the insert reuses, in RAM as well.
 const INSERT_FROM_STAGING: &str = "INSERT OR FAIL INTO epg_programme
         (channel_id, start, stop, title, description, category)
-    SELECT c.id, i.start, i.stop, i.title, i.description, i.category
-    FROM ingest.epg_ingest i CROSS JOIN epg_channel c
-    WHERE i.knum >= ?2 AND i.knum < ?3 AND i.keep = 1 AND c.source_id = ?1 AND c.key = i.key";
+    SELECT ?1, start, stop, title, description, category
+    FROM ingest.epg_ingest WHERE knum = ?2 AND keep = 1";
 /// `stop > start` holds for every stored row, so `start < cutoff` only
 /// narrows the primary-key range to the rows that can qualify.
 const PRUNE: &str = "DELETE FROM epg_programme WHERE channel_id = ?1 AND start < ?2 AND stop <= ?2";
@@ -121,16 +132,108 @@ const RECOUNT: &str =
     "SELECT MIN(start), MAX(stop), COUNT(*) FROM epg_programme WHERE channel_id = ?1";
 const UPDATE_SUMMARY: &str = "UPDATE epg_channel
     SET first_start = ?2, last_stop = ?3, programme_count = ?4 WHERE id = ?1";
-const SOURCE_STATE: &str = "SELECT enabled, url, last_success_at FROM epg_source WHERE id = ?1";
+const SOURCE_STATE: &str = "SELECT enabled, url, last_success_at, applied_interpret,
+        applied_shift_minutes
+    FROM epg_source WHERE id = ?1";
+/// Written in the first transaction of a swap that replaces the whole
+/// source over several transactions: until the last one commits, the
+/// source's rows are under two policies, and an unknown applied policy makes
+/// the next ingest replace them all.
+const CLEAR_APPLIED: &str = "UPDATE epg_source
+    SET applied_interpret = NULL, applied_shift_minutes = NULL WHERE id = ?1";
 /// After every swap transaction, so the source's count matches its rows
 /// even when a later one fails. Reads `epg_channel`, never the programmes.
 const UPDATE_COUNT: &str = "UPDATE epg_source SET programme_count =
         (SELECT COALESCE(SUM(programme_count), 0) FROM epg_channel WHERE source_id = ?1)
     WHERE id = ?1";
+/// After a download: the provider answered, so its result is recorded.
 const UPDATE_STATUS: &str = "UPDATE epg_source SET last_result = ?2, last_error = NULL,
         unknown_zone_count = ?3, unknown_zone_sample = ?4, decode_replacements = ?5,
         applied_interpret = ?6, applied_shift_minutes = ?7, last_success_at = ?8
     WHERE id = ?1";
+/// After a re-read of the cached feed: `last_result` and `last_error`
+/// describe the provider's last answer and stay as they are.
+const UPDATE_CACHE_STATUS: &str = "UPDATE epg_source SET
+        unknown_zone_count = ?2, unknown_zone_sample = ?3, decode_replacements = ?4,
+        applied_interpret = ?5, applied_shift_minutes = ?6
+    WHERE id = ?1";
+
+// ========== The ingest's connection ==========
+
+/// The ingest's own connection to the app database, closed on drop.
+///
+/// Separate from the pool so that what an ingest sets never reaches a pooled
+/// connection: foreign keys are off (with them on, SQLite gives every
+/// insert into a child table of an immediate foreign key a statement
+/// journal, `defer_foreign_keys` or not, which holds every reused page in
+/// RAM under `temp_store = memory`; every id the swap writes was read in the
+/// same transaction), the page cache is small, and automatic checkpoints are
+/// off because the swap checkpoints after each transaction itself. On drop
+/// the WAL is truncated if no one is reading, the connection closes, and the
+/// staging file goes with it.
+pub(crate) struct IngestConnection {
+    conn: Option<Connection>,
+    staging: PathBuf,
+}
+
+impl IngestConnection {
+    /// Open `db_path`, which must exist; `cache_dir` holds the staging file.
+    pub fn open(db_path: &Path, cache_dir: &Path) -> Result<Self> {
+        const OPEN_FAILURE: &str = "Could not open the database for the EPG update";
+        // The flags allow creating files, which `ATTACH` of the staging
+        // database needs; the app database itself must already be there.
+        ensure!(db_path.is_file(), OPEN_FAILURE);
+        let open = || -> rusqlite::Result<Connection> {
+            let conn = Connection::open(db_path)?;
+            conn.busy_timeout(Duration::from_secs(5))?;
+            conn.execute_batch(&format!(
+                "PRAGMA journal_mode = WAL;
+                 PRAGMA synchronous = NORMAL;
+                 PRAGMA foreign_keys = OFF;
+                 PRAGMA temp_store = memory;
+                 PRAGMA cache_size = -{INGEST_CACHE_KIB};
+                 PRAGMA wal_autocheckpoint = 0;
+                 PRAGMA journal_size_limit = {WAL_SIZE_LIMIT};"
+            ))?;
+            Ok(conn)
+        };
+        Ok(IngestConnection {
+            conn: Some(open().context(OPEN_FAILURE)?),
+            staging: staging_path(cache_dir),
+        })
+    }
+
+    pub fn conn(&self) -> &Connection {
+        self.conn
+            .as_ref()
+            .expect("the ingest connection is open until dropped")
+    }
+}
+
+impl Drop for IngestConnection {
+    fn drop(&mut self) {
+        let Some(conn) = self.conn.take() else {
+            return;
+        };
+        // Truncate only if it costs nobody a wait: no busy handler.
+        let truncated = conn.busy_timeout(Duration::ZERO).and_then(|()| {
+            conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
+                r.get::<_, i64>(0)
+            })
+        });
+        match truncated {
+            Ok(0) => {}
+            Ok(_) => log::debug!("EPG ingest: WAL not truncated, the database is in use"),
+            Err(e) => warn!("EPG ingest: WAL not truncated: {e}"),
+        }
+        if let Err((_, e)) = conn.close() {
+            warn!("EPG ingest: database connection not closed cleanly: {e}");
+        }
+        if let Err(e) = remove_staging_files(&self.staging) {
+            warn!("EPG staging database not deleted: {e}");
+        }
+    }
+}
 
 // ========== Staging ==========
 
@@ -145,7 +248,6 @@ impl<'c> Staging<'c> {
     /// Attach a fresh, empty staging database to `conn`. The caller holds
     /// the EPG refresh lock: every ingest shares the one file.
     pub fn attach(conn: &'c Connection, cache_dir: &Path) -> Result<Self> {
-        // A pooled connection keeps an attachment whose detach failed.
         if is_attached(conn).context(STAGE_FAILURE)? {
             conn.execute_batch("DETACH DATABASE ingest")
                 .context(STAGE_FAILURE)?;
@@ -166,7 +268,7 @@ impl<'c> Staging<'c> {
 impl Drop for Staging<'_> {
     fn drop(&mut self) {
         if let Err(e) = self.conn.execute_batch("DETACH DATABASE ingest") {
-            // The next attach detaches it; the file stays until then.
+            // Closing the ingest connection releases it; the file goes then.
             warn!("EPG staging database not detached: {e}");
             return;
         }
@@ -193,7 +295,7 @@ fn remove_staging_files(path: &Path) -> io::Result<()> {
 }
 
 /// The channel keys of one feed, numbered in order of first appearance;
-/// `Slot::key` and `KeyBounds::key` are these numbers.
+/// `Slot::key`, `KeyBounds::key` and the staging `knum` are these numbers.
 #[derive(Default)]
 pub(crate) struct FeedKeys {
     keys: Vec<String>,
@@ -237,6 +339,9 @@ struct StagingSink<'c, 'z, Tz: TimeZone> {
     conn: &'c Connection,
     policy: TimePolicy,
     local: &'z Tz,
+    /// Programmes that ended by this instant are never stored (see
+    /// `staged_row`).
+    cutoff: i64,
     keys: FeedKeys,
     slots: Vec<Slot>,
     batch: Vec<StagedRow>,
@@ -255,7 +360,6 @@ impl<Tz: TimeZone> StagingSink<'_, '_, Tz> {
                     .execute(params![
                         row.key,
                         row.seq,
-                        self.keys.key(row.key),
                         row.start,
                         row.stop,
                         row.title,
@@ -267,6 +371,14 @@ impl<Tz: TimeZone> StagingSink<'_, '_, Tz> {
         }
         tx.commit().context(STAGE_FAILURE)
     }
+}
+
+/// Whether a slot's programme went to staging. One whose stop the feed gave
+/// and that ended by the cutoff did not: `normalise` drops it as `Ended`
+/// or for another reason (a kept programme's stop only ever moves earlier),
+/// so only its slot is needed, to infer the stop of the one before it.
+fn staged_row(slot: &Slot, cutoff: i64) -> bool {
+    slot.stop == NO_STOP || slot.stop > cutoff
 }
 
 impl<Tz: TimeZone> ParseSink for StagingSink<'_, '_, Tz> {
@@ -282,8 +394,11 @@ impl<Tz: TimeZone> ParseSink for StagingSink<'_, '_, Tz> {
         let start = self.policy.resolve_detailed(&p.start, self.local);
         let stop = p.stop.map(|stop| self.policy.resolve(&stop, self.local));
         let clump = p.clumpidx.map(|(index, _)| index);
-        self.slots
-            .push(Slot::new(p.seq, key, start.at, stop, clump).with_start_in_gap(start.in_gap));
+        let slot = Slot::new(p.seq, key, start.at, stop, clump).with_start_in_gap(start.in_gap);
+        self.slots.push(slot);
+        if !staged_row(&slot, self.cutoff) {
+            return Ok(());
+        }
         self.batch.push(StagedRow {
             seq: p.seq,
             key,
@@ -321,17 +436,20 @@ pub(crate) struct Staged {
 }
 
 /// Parse a feed into staging, every time resolved with `policy`; `local`
-/// is the zone `Interpret::LocalZone` reads in.
+/// is the zone `Interpret::LocalZone` reads in, and `now` decides which
+/// programmes ended too long ago to stage.
 pub(crate) fn stage<R: BufRead, Tz: TimeZone>(
     staging: &Staging,
     input: R,
     policy: TimePolicy,
     local: &Tz,
+    now: i64,
 ) -> Result<Staged> {
     let mut sink = StagingSink {
         conn: staging.conn,
         policy,
         local,
+        cutoff: now.saturating_sub(ENDED_GRACE_SECS),
         keys: FeedKeys::default(),
         slots: Vec::new(),
         batch: Vec::with_capacity(STAGING_BATCH),
@@ -366,10 +484,16 @@ impl Prepared {
 
 /// Normalise the staged programmes and write the verdicts to staging.
 ///
-/// A feed with nothing left to store fails with `EMPTY_GUIDE_MESSAGE`: an
-/// empty or non-XMLTV body, or a stale feed whose programmes all ended a day
-/// ago. The stored guide is then left as it is.
-pub(crate) fn prepare(staging: &Staging, staged: Staged, now: i64) -> Result<Prepared> {
+/// A feed with nothing left to store fails, and the stored guide is left as
+/// it is: after a download with `EMPTY_GUIDE_MESSAGE` (an empty or
+/// non-XMLTV body, or a stale feed whose programmes all ended a day ago),
+/// for a re-read of the cached feed with `EMPTY_CACHE_MESSAGE`.
+pub(crate) fn prepare(
+    staging: &Staging,
+    staged: Staged,
+    now: i64,
+    network: bool,
+) -> Result<Prepared> {
     let Staged {
         keys,
         mut slots,
@@ -381,11 +505,15 @@ pub(crate) fn prepare(staging: &Staging, staged: Staged, now: i64) -> Result<Pre
     // At most one kept slot per programme, and programmes are numbered in u32.
     let kept = bounds.iter().map(|b| b.count).sum::<u32>();
     if kept == 0 {
-        bail!(EMPTY_GUIDE_MESSAGE);
+        if network {
+            bail!(EMPTY_GUIDE_MESSAGE);
+        }
+        bail!(EMPTY_CACHE_MESSAGE);
     }
 
     let started = Instant::now();
-    mark(staging.conn, &slots, &verdicts).context(STAGE_FAILURE)?;
+    let cutoff = now.saturating_sub(ENDED_GRACE_SECS);
+    mark(staging.conn, &slots, &verdicts, cutoff).context(STAGE_FAILURE)?;
     Ok(Prepared {
         keys,
         bounds,
@@ -399,7 +527,13 @@ pub(crate) fn prepare(staging: &Staging, staged: Staged, now: i64) -> Result<Pre
 
 /// Write each verdict to its staged row: an inferred or trimmed stop, or
 /// `keep = 0`. Two prepared statements, one row each; no `IN` lists.
-fn mark(conn: &Connection, slots: &[Slot], verdicts: &[Verdict]) -> rusqlite::Result<()> {
+/// Programmes that were never staged need no mark.
+fn mark(
+    conn: &Connection,
+    slots: &[Slot],
+    verdicts: &[Verdict],
+    cutoff: i64,
+) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
     {
         let mut set_stop = tx.prepare(MARK_STOP)?;
@@ -410,9 +544,11 @@ fn mark(conn: &Connection, slots: &[Slot], verdicts: &[Verdict]) -> rusqlite::Re
                 Verdict::KeepWithStop(stop) => {
                     set_stop.execute(params![slot.seq, stop])?;
                 }
-                Verdict::Drop(_) => {
+                // A dropped slot still has the stop the feed gave.
+                Verdict::Drop(_) if staged_row(slot, cutoff) => {
                     drop_row.execute(params![slot.seq])?;
                 }
+                Verdict::Drop(_) => {}
             }
         }
     }
@@ -430,7 +566,8 @@ pub(crate) struct SwapRequest<'a> {
     /// The policy the sink resolved times with, recorded as applied.
     pub policy: TimePolicy,
     pub scope: IngestScope,
-    /// A network fetch advances `last_success_at`; a cache re-ingest does not.
+    /// A download, whose result is recorded on the source and which
+    /// advances `last_success_at`; otherwise a re-read of the cached feed.
     pub network: bool,
     pub now: i64,
 }
@@ -469,6 +606,9 @@ struct SourceState {
     enabled: bool,
     url: Option<String>,
     last_success_at: Option<i64>,
+    /// The policy the stored rows were read under; `None` before the first
+    /// stored ingest and while a whole-source replace is half done.
+    applied: Option<TimePolicy>,
 }
 
 impl SourceState {
@@ -485,10 +625,23 @@ impl SourceState {
 
 fn source_state(conn: &Connection, source_id: i64) -> rusqlite::Result<Option<SourceState>> {
     conn.query_row(SOURCE_STATE, params![source_id], |r| {
+        let interpret: Option<String> = r.get(3)?;
+        let shift_minutes: Option<i32> = r.get(4)?;
+        let applied = match (
+            interpret.as_deref().and_then(Interpret::from_db),
+            shift_minutes,
+        ) {
+            (Some(interpret), Some(shift_minutes)) => Some(TimePolicy {
+                interpret,
+                shift_minutes,
+            }),
+            _ => None,
+        };
         Ok(SourceState {
             enabled: r.get(0)?,
             url: r.get(1)?,
             last_success_at: r.get(2)?,
+            applied,
         })
     })
     .optional()
@@ -566,6 +719,16 @@ fn plan_chunks(channels: usize, bounds: &[Option<&KeyBounds>], max_rows: u32) ->
 /// pruned, the summary written. The last transaction also settles the
 /// source's channels the feed did not list, and writes the source's status.
 /// A failure, a duplicate start included, rolls back its transaction.
+///
+/// When the stored rows were read under another policy than this feed, or
+/// under an unknown one, the swap replaces the whole source whatever
+/// `req.scope` says, so rows of two policies never sit side by side. The
+/// first transaction decides for all of them; a whole-source replace that
+/// takes several transactions clears the applied policy in its first, so if
+/// a later one fails, the next ingest replaces the whole source again.
+///
+/// `conn` should be an `IngestConnection`: foreign keys off, no automatic
+/// checkpoint.
 pub(crate) fn swap(conn: &Connection, prepared: &Prepared, req: &SwapRequest) -> Result<Swapped> {
     swap_in_chunks(conn, prepared, req, SWAP_CHUNK_ROWS)
 }
@@ -576,7 +739,6 @@ fn swap_in_chunks(
     req: &SwapRequest,
     max_rows: u32,
 ) -> Result<Swapped> {
-    let _fk = ForeignKeysOff::apply(conn)?;
     let keys = &prepared.keys;
     let mut by_knum: Vec<Option<&KeyBounds>> = vec![None; keys.keys.len()];
     for b in &prepared.bounds {
@@ -584,6 +746,7 @@ fn swap_in_chunks(
     }
     let chunks = plan_chunks(keys.keys.len(), &by_knum, max_rows);
 
+    let mut scope = req.scope;
     let (mut stored, mut hold) = (0u32, Duration::ZERO);
     for (n, &(from, to)) in chunks.iter().enumerate() {
         let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
@@ -596,29 +759,25 @@ fn swap_in_chunks(
         if let Some(reason) = state.mismatch(req.expected_url) {
             return Ok(Swapped::Abandoned(reason));
         }
+        if n == 0 {
+            if state.applied != Some(req.policy) {
+                scope = IngestScope::WholeSource;
+            }
+            if scope == IngestScope::WholeSource && chunks.len() > 1 {
+                tx.execute(CLEAR_APPLIED, params![req.source_id])?;
+            }
+        }
 
         let channels = upsert_channels(&tx, req.source_id, keys, from, to)?;
         write_names(&tx, &channels, keys, from)?;
         let fresh = &by_knum[from as usize..to as usize];
-        let survivors = delete_replaced(&tx, &channels, fresh, req.scope, prepared.parse.complete)?;
-
-        let inserted = changed(tx.execute(INSERT_FROM_STAGING, params![req.source_id, from, to])?);
-        let expected = fresh.iter().flatten().map(|b| b.count).sum::<u32>();
-        ensure!(
-            inserted == expected,
-            "The EPG store inserted {inserted} programmes instead of {expected}"
-        );
-        settle(
-            &tx,
-            &channels,
-            fresh,
-            &survivors,
-            req,
-            prepared.parse.complete,
-        )?;
+        let complete = prepared.parse.complete;
+        let survivors = delete_replaced(&tx, &channels, fresh, scope, complete)?;
+        let inserted = insert_staged(&tx, &channels, fresh, from)?;
+        settle(&tx, &channels, fresh, &survivors, req.now, complete)?;
 
         if n + 1 == chunks.len() {
-            settle_unlisted(&tx, keys, req)?;
+            settle_unlisted(&tx, keys, req, scope)?;
             write_status(&tx, prepared, req, state.last_success_at)?;
         }
         tx.execute(UPDATE_COUNT, params![req.source_id])?;
@@ -716,6 +875,31 @@ fn delete_replaced(
     Ok(survivors)
 }
 
+/// Insert each channel's kept rows from staging, with the channel id known,
+/// and check the count against what `normalise` kept.
+fn insert_staged(
+    tx: &Connection,
+    channels: &[StoredChannel],
+    fresh: &[Option<&KeyBounds>],
+    from: u32,
+) -> Result<u32> {
+    let mut insert = tx.prepare(INSERT_FROM_STAGING)?;
+    let mut inserted = 0;
+    for ((knum, c), new) in (from..).zip(channels).zip(fresh) {
+        let Some(b) = new else {
+            continue;
+        };
+        let rows = changed(insert.execute(params![c.id, knum])?);
+        ensure!(
+            rows == b.count,
+            "The EPG store inserted {rows} programmes for a channel instead of {}",
+            b.count
+        );
+        inserted += rows;
+    }
+    Ok(inserted)
+}
+
 /// Prune and write the summary of each channel. New rows never qualify for
 /// the prune: `normalise` dropped them.
 fn settle(
@@ -723,10 +907,10 @@ fn settle(
     channels: &[StoredChannel],
     fresh: &[Option<&KeyBounds>],
     survivors: &[Option<u32>],
-    req: &SwapRequest,
+    now: i64,
     complete: bool,
 ) -> rusqlite::Result<()> {
-    let cutoff = req.now.saturating_sub(ENDED_GRACE_SECS);
+    let cutoff = now.saturating_sub(ENDED_GRACE_SECS);
     let mut prune = tx.prepare(PRUNE)?;
     let mut update = tx.prepare(UPDATE_SUMMARY)?;
     for ((c, new), survived) in channels.iter().zip(fresh).zip(survivors) {
@@ -760,7 +944,12 @@ fn settle(
 
 /// The source's channels the feed did not list: all their rows go for
 /// `WholeSource`; otherwise they stay until pruned.
-fn settle_unlisted(tx: &Connection, keys: &FeedKeys, req: &SwapRequest) -> rusqlite::Result<()> {
+fn settle_unlisted(
+    tx: &Connection,
+    keys: &FeedKeys,
+    req: &SwapRequest,
+    scope: IngestScope,
+) -> rusqlite::Result<()> {
     let unlisted: Vec<StoredChannel> = tx
         .prepare(SELECT_CHANNELS)?
         .query_map(params![req.source_id], map_channel)?
@@ -770,8 +959,8 @@ fn settle_unlisted(tx: &Connection, keys: &FeedKeys, req: &SwapRequest) -> rusql
         })
         .collect::<rusqlite::Result<_>>()?;
     let fresh = vec![None; unlisted.len()];
-    let survivors = delete_replaced(tx, &unlisted, &fresh, req.scope, true)?;
-    settle(tx, &unlisted, &fresh, &survivors, req, true)
+    let survivors = delete_replaced(tx, &unlisted, &fresh, scope, true)?;
+    settle(tx, &unlisted, &fresh, &survivors, req.now, true)
 }
 
 fn write_status(
@@ -780,12 +969,27 @@ fn write_status(
     req: &SwapRequest,
     last_success_at: Option<i64>,
 ) -> rusqlite::Result<()> {
-    let result = if prepared.parse.complete {
+    let parse = &prepared.parse;
+    let replacements = i64::try_from(parse.decode_replacements).unwrap_or(i64::MAX);
+    if !req.network {
+        tx.execute(
+            UPDATE_CACHE_STATUS,
+            params![
+                req.source_id,
+                parse.unknown_zone_count,
+                parse.unknown_zone_sample,
+                replacements,
+                req.policy.interpret.as_str(),
+                req.policy.shift_minutes,
+            ],
+        )?;
+        return Ok(());
+    }
+    let result = if parse.complete {
         LastResult::Ok
     } else {
         LastResult::Partial
     };
-    let parse = &prepared.parse;
     tx.execute(
         UPDATE_STATUS,
         params![
@@ -793,50 +997,22 @@ fn write_status(
             result.as_db(),
             parse.unknown_zone_count,
             parse.unknown_zone_sample,
-            i64::try_from(parse.decode_replacements).unwrap_or(i64::MAX),
+            replacements,
             req.policy.interpret.as_str(),
             req.policy.shift_minutes,
-            success_after(last_success_at, result, req.network, req.now),
+            success_after(last_success_at, result, true, req.now),
         ],
     )?;
     Ok(())
 }
 
 /// Copy the WAL back into the database after a swap transaction, on the
-/// ingest's thread. The ingest switches the connection's automatic
-/// checkpoint off, which would otherwise run inside `COMMIT`, and the WAL
-/// then grows to one transaction instead of the whole feed. Passive: it
-/// waits for no reader and no writer waits for it.
+/// ingest's thread instead of inside `COMMIT` or another connection's next
+/// write, and so the WAL grows to one transaction instead of the whole
+/// feed. Passive: it waits for no reader, and no writer waits for it.
 fn checkpoint(conn: &Connection) {
     if let Err(e) = conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(())) {
         warn!("EPG ingest: WAL checkpoint failed: {e}");
-    }
-}
-
-/// Foreign keys off on the ingest's connection for the swap, restored on
-/// drop. With them on, SQLite gives every insert into a child table of an
-/// immediate foreign key a statement journal, `defer_foreign_keys` or not,
-/// and under `temp_store = memory` that journal holds every reused page of
-/// the replaced programmes in RAM. Every row the swap writes references an
-/// id it read in the same transaction, so nothing is left unchecked.
-struct ForeignKeysOff<'c> {
-    conn: &'c Connection,
-}
-
-impl<'c> ForeignKeysOff<'c> {
-    /// Outside a transaction only: the pragma is a no-op inside one.
-    fn apply(conn: &'c Connection) -> rusqlite::Result<Self> {
-        conn.execute_batch("PRAGMA foreign_keys = OFF")?;
-        Ok(ForeignKeysOff { conn })
-    }
-}
-
-impl Drop for ForeignKeysOff<'_> {
-    fn drop(&mut self) {
-        // After every transaction of the swap has ended.
-        if let Err(e) = self.conn.execute_batch("PRAGMA foreign_keys = ON") {
-            warn!("EPG ingest: foreign keys not switched back on: {e}");
-        }
     }
 }
 
@@ -890,48 +1066,6 @@ fn recount(tx: &Connection, channel_id: i64) -> rusqlite::Result<Summary> {
 
 // ========== The whole store ==========
 
-/// The main database's page cache while an ingest runs, in KiB. The pool
-/// gives each connection 10,000 pages (about 40 MB); the swap writes every
-/// page of the source's programmes and would fill that cache, so the
-/// ingest's memory would grow with the feed instead of staying flat.
-const INGEST_CACHE_KIB: i64 = 2048;
-
-/// The ingest connection's page cache capped and its automatic checkpoint
-/// off (the swap checkpoints after each transaction itself), both restored
-/// on drop: the connection goes back to the pool.
-struct IngestPragmas<'c> {
-    conn: &'c Connection,
-    cache_size: i64,
-    autocheckpoint: i64,
-}
-
-impl<'c> IngestPragmas<'c> {
-    fn apply(conn: &'c Connection) -> rusqlite::Result<Self> {
-        let cache_size = conn.query_row("PRAGMA main.cache_size", [], |r| r.get(0))?;
-        let autocheckpoint = conn.query_row("PRAGMA wal_autocheckpoint", [], |r| r.get(0))?;
-        conn.execute_batch(&format!(
-            "PRAGMA main.cache_size = -{INGEST_CACHE_KIB}; PRAGMA wal_autocheckpoint = 0;"
-        ))?;
-        Ok(IngestPragmas {
-            conn,
-            cache_size,
-            autocheckpoint,
-        })
-    }
-}
-
-impl Drop for IngestPragmas<'_> {
-    fn drop(&mut self) {
-        let restore = format!(
-            "PRAGMA main.cache_size = {}; PRAGMA wal_autocheckpoint = {};",
-            self.cache_size, self.autocheckpoint
-        );
-        if let Err(e) = self.conn.execute_batch(&restore) {
-            warn!("EPG ingest: connection settings not restored: {e}");
-        }
-    }
-}
-
 /// What storing one feed did.
 #[derive(Debug)]
 pub(crate) struct StoreReport {
@@ -957,22 +1091,23 @@ pub(crate) enum Stored {
     Abandoned(AbandonReason),
 }
 
-/// Stage, normalise and swap one feed into the source `req` names. Runs on
-/// a blocking thread; the caller holds the EPG refresh lock.
+/// Stage, normalise and swap one feed into the source `req` names, on the
+/// ingest's own connection. Runs on a blocking thread; the caller holds the
+/// EPG refresh lock.
 pub(crate) fn store_feed<R: BufRead, Tz: TimeZone>(
-    conn: &Connection,
+    ingest: &IngestConnection,
     cache_dir: &Path,
     input: R,
     req: &SwapRequest,
     local: &Tz,
 ) -> Result<Stored> {
-    let _pragmas = IngestPragmas::apply(conn).context(STAGE_FAILURE)?;
+    let conn = ingest.conn();
     let staging = Staging::attach(conn, cache_dir)?;
     let started = Instant::now();
-    let staged = stage(&staging, input, req.policy, local)?;
+    let staged = stage(&staging, input, req.policy, local, req.now)?;
     let parse_time = started.elapsed();
 
-    let prepared = prepare(&staging, staged, req.now)?;
+    let prepared = prepare(&staging, staged, req.now, req.network)?;
     let started = Instant::now();
     let swapped = swap(conn, &prepared, req).context(STORE_FAILURE)?;
     let swap_time = started.elapsed();
@@ -1155,10 +1290,6 @@ mod tests {
                 ("svt1.se", NOW + 3 * H, NOW + 5 * H, "D"),
             ])
         );
-        assert_eq!(
-            f.status::<Option<String>>(s, "last_result").as_deref(),
-            Some("partial")
-        );
     }
 
     #[tokio::test]
@@ -1218,14 +1349,9 @@ mod tests {
             .collect::<rusqlite::Result<_>>()
             .unwrap();
         assert_eq!(names, ["SVT1"]);
-        assert_eq!(
-            f.status::<Option<String>>(s, "last_result").as_deref(),
-            Some("error")
-        );
-        assert_eq!(
-            f.status::<Option<String>>(s, "last_error").as_deref(),
-            Some("Failed to store the EPG")
-        );
+        // A re-read of the cache leaves the provider's status alone.
+        assert_eq!(f.status::<Option<String>>(s, "last_result"), None);
+        assert_eq!(f.status::<Option<String>>(s, "last_error"), None);
         assert_eq!(f.status::<i64>(s, "programme_count"), 2);
     }
 
@@ -1240,7 +1366,7 @@ mod tests {
 
         f.cache(s, &Feed::new().xml());
         let err = reingest(&f, s, IngestScope::Feed, NOW).await.unwrap_err();
-        assert_eq!(err.to_string(), format!("EPG error: {EMPTY_GUIDE_MESSAGE}"));
+        assert_eq!(err.to_string(), format!("EPG error: {EMPTY_CACHE_MESSAGE}"));
         assert!(!staging_left(&f));
         assert!(!attached_anywhere(&f));
 
@@ -1277,8 +1403,8 @@ mod tests {
 
     fn prepared(staging: &Staging, feed: &Feed) -> Prepared {
         let xml = feed.xml();
-        let staged = stage(staging, xml.as_bytes(), TimePolicy::default(), &Utc).unwrap();
-        prepare(staging, staged, NOW).unwrap()
+        let staged = stage(staging, xml.as_bytes(), TimePolicy::default(), &Utc, NOW).unwrap();
+        prepare(staging, staged, NOW, true).unwrap()
     }
 
     #[tokio::test]
@@ -1289,31 +1415,30 @@ mod tests {
         f.store(s, &first.xml(), NOW).await;
         let before = f.programmes(s);
 
-        let conn = f.conn();
-        let staging = Staging::attach(&conn, &f.dir.0).unwrap();
+        let ingest = f.ingest_connection();
+        let conn = ingest.conn();
+        let staging = Staging::attach(conn, &f.dir.0).unwrap();
         let next = Feed::new().programme("svt1.se", NOW, NOW + H, "News 2");
         let prepared = prepared(&staging, &next);
         // A second row at the same start, as a broken `normalise` would leave.
         conn.execute(
-            "INSERT INTO ingest.epg_ingest (knum, seq, key, start, stop, title)
-             VALUES (0, 99, 'svt1.se', ?1, ?2, 'Twin')",
+            "INSERT INTO ingest.epg_ingest (knum, seq, start, stop, title)
+             VALUES (0, 99, ?1, ?2, 'Twin')",
             params![NOW, NOW + H],
         )
         .unwrap();
 
-        let err = swap(&conn, &prepared, &request(s, IngestScope::Feed)).unwrap_err();
+        let err = swap(conn, &prepared, &request(s, IngestScope::Feed)).unwrap_err();
         drop(staging);
+        drop(ingest);
 
         assert!(
             format!("{err:#}").contains("UNIQUE constraint failed"),
             "{err:#}"
         );
         assert_eq!(f.programmes(s), before);
-        assert_eq!(
-            f.status::<Option<String>>(s, "last_result").as_deref(),
-            Some("ok")
-        );
-        assert_summaries_exact(&conn);
+        assert_eq!(f.status::<Option<String>>(s, "last_result"), None);
+        assert_summaries_exact(&f.conn());
     }
 
     #[tokio::test]
@@ -1560,7 +1685,7 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert_eq!(err.to_string(), format!("EPG error: {EMPTY_GUIDE_MESSAGE}"));
+        assert_eq!(err.to_string(), format!("EPG error: {EMPTY_CACHE_MESSAGE}"));
         assert_eq!(f.programmes(s), rows(&[("svt1.se", NOW, NOW + H, "News")]));
         assert_eq!(f.status::<Option<i64>>(s, "applied_shift_minutes"), Some(0));
     }
@@ -1667,6 +1792,8 @@ mod tests {
             SOURCE_STATE,
             UPDATE_COUNT,
             UPDATE_STATUS,
+            UPDATE_CACHE_STATUS,
+            CLEAR_APPLIED,
             MARK_STOP,
             MARK_DROPPED,
         ] {
@@ -1696,15 +1823,9 @@ mod tests {
                 "{sql}\n{lines:?}"
             );
         }
-        let insert = plan(&conn, INSERT_FROM_STAGING);
-        assert_eq!(insert.len(), 2, "{insert:?}");
-        assert!(
-            insert[0].starts_with("SEARCH i USING INDEX epg_ingest_knum (knum>? AND knum<?)"),
-            "{insert:?}"
-        );
-        assert!(
-            insert[1].starts_with("SEARCH c USING COVERING INDEX"),
-            "{insert:?}"
+        assert_eq!(
+            plan(&conn, INSERT_FROM_STAGING),
+            ["SEARCH ingest.epg_ingest USING INDEX epg_ingest_knum (knum=?)"]
         );
     }
 
@@ -1737,16 +1858,17 @@ mod tests {
         let f = Fixture::new("store");
         let s = source(&f);
         f.store(s, &first.xml(), NOW).await;
-        let conn = f.conn();
-        let staging = Staging::attach(&conn, &f.dir.0).unwrap();
+        let ingest = f.ingest_connection();
+        let staging = Staging::attach(ingest.conn(), &f.dir.0).unwrap();
         let prepared = prepared(&staging, second);
-        let outcome = swap_in_chunks(&conn, &prepared, &request(s, IngestScope::Feed), max_rows);
+        let req = request(s, IngestScope::Feed);
+        let outcome = swap_in_chunks(ingest.conn(), &prepared, &req, max_rows);
         drop(staging);
+        drop(ingest);
         let Swapped::Committed { transactions, .. } = outcome.unwrap() else {
             panic!("abandoned");
         };
-        assert_summaries_exact(&conn);
-        drop(conn);
+        assert_summaries_exact(&f.conn());
         (f, s, transactions)
     }
 
@@ -1775,6 +1897,272 @@ mod tests {
         assert_eq!(snapshot(&one.conn()), snapshot(&many.conn()));
         assert_eq!(one.programmes(s1), many.programmes(s2));
         assert_eq!(many.status::<i64>(s2, "programme_count"), 7);
+    }
+
+    fn shifted(minutes: i32) -> TimePolicy {
+        TimePolicy {
+            interpret: Interpret::AsWritten,
+            shift_minutes: minutes,
+        }
+    }
+
+    /// Stage and prepare `feed` read with `policy`, then swap it with at
+    /// most `max_rows` programmes per transaction.
+    fn swap_feed(f: &Fixture, req: &SwapRequest, feed: &Feed, max_rows: u32) -> Result<Swapped> {
+        let ingest = f.ingest_connection();
+        let staging = Staging::attach(ingest.conn(), &f.dir.0).unwrap();
+        let xml = feed.xml();
+        let staged = stage(&staging, xml.as_bytes(), req.policy, &Utc, req.now).unwrap();
+        let prepared = prepare(&staging, staged, req.now, req.network).unwrap();
+        swap_in_chunks(ingest.conn(), &prepared, req, max_rows)
+    }
+
+    fn add_trigger(f: &Fixture, sql: &str) {
+        f.conn().execute_batch(sql).unwrap();
+    }
+
+    #[tokio::test]
+    async fn rows_read_under_another_policy_are_all_replaced() {
+        let f = Fixture::new("store");
+        let s = source(&f);
+        let feed = Feed::new()
+            .programme("svt1.se", NOW, NOW + H, "News")
+            .programme("svt1.se", NOW + H, NOW + 2 * H, "Film");
+        f.store(s, &feed.xml(), NOW).await;
+
+        // A policy set while a download ran: the next per-channel replace
+        // would keep "News" at its old time, ending at the new first start.
+        f.set_shift(s, 60);
+        let report = f.store(s, &feed.xml(), NOW).await;
+
+        assert_eq!(report.scope, IngestScope::Feed);
+        assert_eq!(
+            f.programmes(s),
+            rows(&[
+                ("svt1.se", NOW + H, NOW + 2 * H, "News"),
+                ("svt1.se", NOW + 2 * H, NOW + 3 * H, "Film"),
+            ])
+        );
+        assert_eq!(
+            f.status::<Option<i64>>(s, "applied_shift_minutes"),
+            Some(60)
+        );
+    }
+
+    fn three_channels() -> Feed {
+        let mut feed = Feed::new();
+        for c in 1..=3 {
+            let key = format!("c{c}.se");
+            feed = feed
+                .programme(&key, NOW, NOW + H, &format!("c{c} a"))
+                .programme(&key, NOW + H, NOW + 2 * H, &format!("c{c} b"));
+        }
+        feed
+    }
+
+    #[tokio::test]
+    async fn a_whole_source_replace_failing_half_way_is_finished_by_the_next_ingest() {
+        for next_shift in [60, 0] {
+            let f = Fixture::new("store");
+            let s = source(&f);
+            let feed = three_channels();
+            f.store(s, &feed.xml(), NOW).await;
+            add_trigger(
+                &f,
+                "CREATE TRIGGER fail_c3 BEFORE INSERT ON epg_programme
+                 WHEN NEW.title = 'c3 a' BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+            );
+
+            let req = SwapRequest {
+                policy: shifted(60),
+                ..request(s, IngestScope::WholeSource)
+            };
+            assert!(swap_feed(&f, &req, &feed, 2).is_err());
+
+            // c1 is under the new policy, c3 under the old, and the source
+            // says it does not know which.
+            assert_eq!(f.status::<Option<i64>>(s, "applied_shift_minutes"), None);
+            let progs = f.programmes(s);
+            assert!(progs.contains(&("c1.se".into(), NOW + H, NOW + 2 * H, "c1 a".into())));
+            assert!(progs.contains(&("c3.se".into(), NOW, NOW + H, "c3 a".into())));
+            assert_summaries_exact(&f.conn());
+
+            f.conn().execute_batch("DROP TRIGGER fail_c3").unwrap();
+            f.set_shift(s, next_shift);
+            f.store(s, &feed.xml(), NOW).await;
+
+            let shift = i64::from(next_shift) * 60;
+            let expected: Vec<_> = (1..=3)
+                .flat_map(|c| {
+                    [
+                        (
+                            format!("c{c}.se"),
+                            NOW + shift,
+                            NOW + H + shift,
+                            format!("c{c} a"),
+                        ),
+                        (
+                            format!("c{c}.se"),
+                            NOW + H + shift,
+                            NOW + 2 * H + shift,
+                            format!("c{c} b"),
+                        ),
+                    ]
+                })
+                .collect();
+            assert_eq!(f.programmes(s), expected, "next shift {next_shift}");
+            assert_eq!(
+                f.status::<Option<i64>>(s, "applied_shift_minutes"),
+                Some(i64::from(next_shift))
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_chunked_swap_stopped_between_transactions_leaves_exact_summaries() {
+        let stops = [
+            (
+                "abandon",
+                "CREATE TRIGGER stop_mid AFTER INSERT ON epg_programme
+                 WHEN NEW.title = 'c1 a' BEGIN UPDATE epg_source SET enabled = 0; END;",
+            ),
+            (
+                "failure",
+                "CREATE TRIGGER stop_mid BEFORE INSERT ON epg_programme
+                 WHEN NEW.title = 'c3 a' BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+            ),
+        ];
+        for scope in [IngestScope::Feed, IngestScope::WholeSource] {
+            for (how, trigger) in stops {
+                let f = Fixture::new("store");
+                let s = source(&f);
+                let old = Feed::new()
+                    .programme("c1.se", NOW - 2 * H, NOW - H, "old 1")
+                    .programme("c2.se", NOW, NOW + H, "old 2")
+                    .programme("c3.se", NOW, NOW + 3 * H, "old 3")
+                    .programme("c4.se", NOW, NOW + H, "old 4");
+                f.store(s, &old.xml(), NOW).await;
+                add_trigger(&f, trigger);
+
+                let outcome = swap_feed(&f, &request(s, scope), &three_channels(), 2);
+
+                match how {
+                    "abandon" => assert_eq!(
+                        outcome.unwrap(),
+                        Swapped::Abandoned(AbandonReason::SourceDisabled),
+                        "{scope:?}"
+                    ),
+                    _ => assert!(outcome.is_err(), "{scope:?}"),
+                }
+                // The first transaction committed, the rest did not run.
+                let progs = f.programmes(s);
+                assert!(
+                    progs.contains(&("c1.se".into(), NOW, NOW + H, "c1 a".into())),
+                    "{scope:?} {how}: {progs:?}"
+                );
+                assert!(
+                    progs.contains(&("c3.se".into(), NOW, NOW + 3 * H, "old 3".into())),
+                    "{scope:?} {how}: {progs:?}"
+                );
+                assert!(
+                    progs.contains(&("c4.se".into(), NOW, NOW + H, "old 4".into())),
+                    "{scope:?} {how}: {progs:?}"
+                );
+                assert_summaries_exact(&f.conn());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_feed_larger_than_one_staging_batch_is_stored_whole() {
+        let f = Fixture::new("store");
+        let s = source(&f);
+        let mut feed = Feed::new();
+        for c in 0..5 {
+            for n in 0..500 {
+                let start = NOW + n * H;
+                feed = feed.programme(&format!("c{c}.se"), start, start + H, "Show");
+            }
+        }
+
+        let report = f.store(s, &feed.xml(), NOW).await;
+
+        assert_eq!(report.stored, 2_500);
+        assert_eq!(f.programmes(s).len(), 2_500);
+        assert_eq!(f.status::<i64>(s, "programme_count"), 2_500);
+        // The ingest truncated the WAL on its way out: nobody was reading.
+        let wal = std::fs::metadata(f.dir.0.join("app.db-wal")).map_or(0, |m| m.len());
+        assert_eq!(wal, 0);
+    }
+
+    #[tokio::test]
+    async fn programmes_that_ended_long_ago_are_not_staged() {
+        let f = Fixture::new("store");
+        let ingest = f.ingest_connection();
+        let staging = Staging::attach(ingest.conn(), &f.dir.0).unwrap();
+        let feed = Feed::new()
+            .programme("svt1.se", NOW - 30 * H, NOW - 29 * H, "Gone")
+            .programme("svt1.se", NOW - 25 * H, NOW - 24 * H, "Gone at the cutoff")
+            .programme("svt1.se", NOW - 24 * H, NOW - 23 * H, "Kept")
+            .programme("svt1.se", NOW, NOW + H, "Now");
+        let xml = feed.xml();
+
+        let staged = stage(&staging, xml.as_bytes(), TimePolicy::default(), &Utc, NOW).unwrap();
+        let in_staging: i64 = ingest
+            .conn()
+            .query_row("SELECT COUNT(*) FROM ingest.epg_ingest", [], |r| r.get(0))
+            .unwrap();
+        let prepared = prepare(&staging, staged, NOW, true).unwrap();
+
+        assert_eq!(in_staging, 2);
+        assert_eq!(prepared.kept, 2);
+        assert_eq!(prepared.normalise.ended_before_cutoff_dropped, 2);
+    }
+
+    #[tokio::test]
+    async fn a_re_read_from_the_cache_leaves_the_providers_status_alone() {
+        let f = Fixture::new("store");
+        let s = source(&f);
+        let feed = Feed::new().programme("svt1.se", NOW, NOW + H, "News");
+        f.store(s, &feed.xml(), NOW).await;
+        let provider = "The EPG server answered 500 Internal Server Error";
+        f.conn()
+            .execute(
+                "UPDATE epg_source SET last_result = 'error', last_error = ?2,
+                     last_success_at = ?3, last_attempt_at = ?4, unknown_zone_count = 5
+                 WHERE id = ?1",
+                params![s, provider, NOW - 7 * H, NOW - H],
+            )
+            .unwrap();
+        let provider_status = |f: &Fixture| {
+            (
+                f.status::<Option<String>>(s, "last_result"),
+                f.status::<Option<String>>(s, "last_error"),
+                f.status::<Option<i64>>(s, "last_success_at"),
+                f.status::<Option<i64>>(s, "last_attempt_at"),
+            )
+        };
+        let before = provider_status(&f);
+
+        f.set_shift(s, 30);
+        let outcome = reingest(&f, s, IngestScope::WholeSource, NOW)
+            .await
+            .unwrap();
+        assert!(matches!(outcome, IngestOutcome::Stored(_)), "{outcome:?}");
+        assert_eq!(provider_status(&f), before);
+        assert_eq!(
+            f.status::<Option<i64>>(s, "applied_shift_minutes"),
+            Some(30)
+        );
+        assert_eq!(f.status::<i64>(s, "unknown_zone_count"), 0);
+
+        f.cache(s, &Feed::new().xml());
+        let err = reingest(&f, s, IngestScope::WholeSource, NOW)
+            .await
+            .unwrap_err();
+        assert_eq!(err.to_string(), format!("EPG error: {EMPTY_CACHE_MESSAGE}"));
+        assert!(!EMPTY_CACHE_MESSAGE.contains("server"));
+        assert_eq!(provider_status(&f), before);
     }
 
     /// Release benches over synthetic feeds, one process per test so peak
