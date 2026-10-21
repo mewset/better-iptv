@@ -31,8 +31,10 @@ use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, Connection};
 use sources::{feed_path, get_source, remove_if_present, SourceRecord};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::{source_mismatch, store_feed, IngestConnection, StoreReport, Stored, SwapRequest};
+use tokio::sync::OwnedMutexGuard;
 
 /// Shown when a feed downloads fine but leaves no programme to store: an
 /// empty file, a page that is not XMLTV, or a feed whose programmes all
@@ -111,6 +113,27 @@ pub enum IngestOutcome {
     Abandoned(AbandonReason),
 }
 
+/// Proof that the caller holds `AppState::epg_refresh_lock`.
+///
+/// Ingests share the staging database and a source's download file, so only
+/// one may run at a time. The ingest clones the permit into its blocking
+/// half: when its future is dropped (a cancelled task) while that half still
+/// stages or swaps, the lock is released only once the half has ended and
+/// closed the staging database, never while a second ingest could attach
+/// the same file.
+#[derive(Clone)]
+pub struct IngestPermit {
+    _guard: Arc<OwnedMutexGuard<()>>,
+}
+
+impl IngestPermit {
+    pub fn new(guard: OwnedMutexGuard<()>) -> Self {
+        IngestPermit {
+            _guard: Arc::new(guard),
+        }
+    }
+}
+
 /// What an ingest needs from the app.
 pub struct IngestEnv<'a> {
     pub pool: &'a Pool<SqliteConnectionManager>,
@@ -122,12 +145,15 @@ pub struct IngestEnv<'a> {
     pub client: &'a reqwest::Client,
     /// Total deadline of the download, `http::BULK_DOWNLOAD_TIMEOUT` in use.
     pub download_deadline: Duration,
+    /// The refresh lock, held for the whole ingest.
+    pub permit: &'a IngestPermit,
 }
 
 /// Fetch (or re-read) one source's feed and store its programmes.
 ///
-/// The caller holds `AppState::epg_refresh_lock`: ingests share the staging
-/// database and a source's download file. `now` is Unix seconds; it stamps
+/// The caller holds `AppState::epg_refresh_lock` and passes it as
+/// `env.permit`: ingests share the staging database and a source's download
+/// file. `now` is Unix seconds; it stamps
 /// the attempt and decides which programmes have ended.
 ///
 /// A network ingest stamps `last_attempt_at` before the request. The time
@@ -248,11 +274,14 @@ async fn run(
         network,
         now,
     };
+    let permit = env.permit.clone();
     let (stored, policy) = tokio::task::spawn_blocking(move || {
         let result = read_and_store(&job);
         if network {
             settle_download(&job, &result);
         }
+        // Released only here, even when the ingest's future is gone.
+        drop(permit);
         result
     })
     .await
@@ -752,6 +781,62 @@ mod tests {
         );
         assert_eq!(server.connections(), 0);
         assert_eq!(f.status::<Option<i64>>(s, "last_attempt_at"), None);
+    }
+
+    #[tokio::test]
+    async fn a_dropped_ingest_holds_the_lock_until_its_blocking_half_ends() {
+        let f = Fixture::new("ingest");
+        let s = add_manual(&f.conn(), "http://guide.example/epg.xml");
+        f.cache(s, &feed());
+        let lock = Arc::new(tokio::sync::Mutex::new(()));
+        let permit = IngestPermit::new(lock.clone().try_lock_owned().unwrap());
+        // Another writer holds the database, so the swap waits in BEGIN
+        // IMMEDIATE while the ingest's future is dropped.
+        let writer = Connection::open(&f.db_path).unwrap();
+        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let task = {
+            let (pool, db_path, cache_dir, client) = (
+                f.pool.clone(),
+                f.db_path.clone(),
+                f.dir.0.clone(),
+                f.client.clone(),
+            );
+            let permit = permit.clone();
+            tokio::spawn(async move {
+                let env = IngestEnv {
+                    pool: &pool,
+                    db_path: &db_path,
+                    cache_dir: &cache_dir,
+                    client: &client,
+                    download_deadline: Duration::from_secs(10),
+                    permit: &permit,
+                };
+                ingest(&env, s, Fetch::Cache, IngestScope::Feed, NOW).await
+            })
+        };
+        let staging = crate::epg::sources::staging_path(&f.dir.0);
+        let started = Instant::now();
+        while !staging.exists() {
+            assert!(started.elapsed() < Duration::from_secs(5), "never staged");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        drop(permit);
+
+        assert!(
+            lock.try_lock().is_err(),
+            "the blocking half still holds the lock"
+        );
+        writer.execute_batch("ROLLBACK").unwrap();
+        let guard = tokio::time::timeout(Duration::from_secs(10), lock.lock())
+            .await
+            .expect("released once the blocking half ended");
+        assert!(!staging.exists(), "closed before the lock was released");
+        drop(guard);
+        // The swap the dropped ingest started went through whole.
+        assert_eq!(f.programmes(s).len(), 2);
     }
 
     fn add_xtream_playlist(conn: &Connection, server: &str, username: &str, password: &str) -> i64 {

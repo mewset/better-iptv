@@ -3,7 +3,7 @@
 
 use super::sources::feed_path;
 use super::store::IngestConnection;
-use super::{ingest, Fetch, IngestEnv, IngestOutcome, IngestReport, IngestScope};
+use super::{ingest, Fetch, IngestEnv, IngestOutcome, IngestPermit, IngestReport, IngestScope};
 use crate::db::schema::init_schema;
 use chrono::DateTime;
 use flate2::write::GzEncoder;
@@ -144,6 +144,14 @@ pub struct Fixture {
     pub db_path: PathBuf,
     pub pool: Pool<SqliteConnectionManager>,
     pub client: reqwest::Client,
+    /// A refresh lock of the fixture's own, held for its lifetime.
+    pub permit: IngestPermit,
+}
+
+/// A permit on a lock nobody else knows.
+pub fn free_permit() -> IngestPermit {
+    let lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+    IngestPermit::new(lock.try_lock_owned().unwrap())
 }
 
 impl Fixture {
@@ -160,6 +168,7 @@ impl Fixture {
             dir,
             pool,
             client,
+            permit: free_permit(),
         }
     }
 
@@ -170,6 +179,7 @@ impl Fixture {
             cache_dir: &self.dir.0,
             client: &self.client,
             download_deadline: std::time::Duration::from_secs(10),
+            permit: &self.permit,
         }
     }
 
