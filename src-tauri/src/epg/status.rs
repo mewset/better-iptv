@@ -5,11 +5,14 @@
 //! a URL leaves masked, an Xtream source's URL (built from the login) not at
 //! all.
 
+use super::matching::guide_index;
 use super::read::{active_profile, rfc3339};
 use super::sources::{has_cached_feed, list_sources, SourceRecord};
+use crate::epg_domain::key::channel_key;
+use crate::epg_domain::matching::MatchSource;
 use crate::epg_domain::policy::TimePolicy;
 use crate::epg_domain::source::{applies_to, next_due_at, LastResult, SourceOrigin};
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::path::Path;
@@ -55,15 +58,18 @@ pub struct EpgSourceStatus {
     pub applying: bool,
 }
 
-/// Channels matched to the guide, per way of matching. Filled once channel
-/// matching exists; `None` until then.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+/// The active profile's live channels and the guide, as `epg::matching`
+/// stored them.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct MatchCounts {
     pub by_id: u32,
     pub by_tvg_name: u32,
     pub by_name: u32,
+    /// Matched by hand.
     pub manual: u32,
+    /// Live channels with an id the guide does not know.
     pub unmatched_with_id: u32,
+    /// Display names one source gives to two channels, which match nothing.
     pub ambiguous_names: u32,
 }
 
@@ -79,6 +85,8 @@ pub struct EpgStatus {
     /// When the background task will next find a source due (RFC 3339,
     /// UTC; it polls, so "around"); `None` without an enabled source.
     pub next_auto_refresh: Option<String>,
+    /// `None` while no enabled source has a guide channel with programmes
+    /// ("Guide not downloaded yet" rather than "0 matched").
     pub matches: Option<MatchCounts>,
 }
 
@@ -175,6 +183,60 @@ pub fn source_status(source: &SourceRecord, cache_dir: &Path, busy: &Busy) -> Ep
     }
 }
 
+/// Whether an enabled source that applies to the profile has a guide
+/// channel with programmes.
+const HAS_GUIDE_CHANNELS: &str = "SELECT EXISTS (SELECT 1 FROM epg_channel c
+    JOIN epg_source s ON s.id = c.source_id
+    WHERE s.enabled = 1 AND (s.playlist_id IS NULL OR s.playlist_id = ?1)
+      AND c.programme_count > 0)";
+
+/// The live rows the counts need: matched ones, and unmatched ones that
+/// carry an id.
+const MATCH_ROWS: &str = "SELECT epg_match_source, epg_id FROM channels
+    WHERE playlist_id = ?1 AND content_type = 'live'
+      AND (epg_match_source IS NOT NULL OR (epg_match_key IS NULL AND epg_id IS NOT NULL))";
+
+/// How the profile's live channels are matched; `None` without a profile
+/// or before any guide channel with programmes exists for it.
+pub fn match_counts(
+    conn: &Connection,
+    profile: Option<i64>,
+) -> rusqlite::Result<Option<MatchCounts>> {
+    let Some(playlist_id) = profile else {
+        return Ok(None);
+    };
+    let has_guide: bool = conn.query_row(HAS_GUIDE_CHANNELS, params![playlist_id], |r| r.get(0))?;
+    if !has_guide {
+        return Ok(None);
+    }
+    let mut counts = MatchCounts {
+        ambiguous_names: guide_index(conn, playlist_id)?.ambiguous_names(),
+        ..MatchCounts::default()
+    };
+    let mut stmt = conn.prepare(MATCH_ROWS)?;
+    let mut rows = stmt.query(params![playlist_id])?;
+    while let Some(row) = rows.next()? {
+        let source = row.get_ref(0)?.as_str_or_null()?;
+        let counter = match source.map(MatchSource::from_db) {
+            Some(Some(MatchSource::Id)) => &mut counts.by_id,
+            Some(Some(MatchSource::TvgName)) => &mut counts.by_tvg_name,
+            Some(Some(MatchSource::Name)) => &mut counts.by_name,
+            Some(Some(MatchSource::Manual)) => &mut counts.manual,
+            // Written by a newer version.
+            Some(None) => continue,
+            None => {
+                let epg_id = row.get_ref(1)?.as_str_or_null()?;
+                if epg_id.and_then(channel_key).is_none() {
+                    continue;
+                }
+                &mut counts.unmatched_with_id
+            }
+        };
+        *counter += 1;
+    }
+    Ok(Some(counts))
+}
+
 /// The status for the active profile at `now` (Unix seconds); `busy`
 /// holds the ids with a download or a policy re-read queued or running.
 pub fn epg_status(
@@ -198,7 +260,7 @@ pub fn epg_status(
             .map(|s| next_due_at(&s.schedule(), now))
             .min()
             .and_then(rfc3339),
-        matches: None,
+        matches: match_counts(conn, profile)?,
         sources: sources
             .iter()
             .map(|s| source_status(s, cache_dir, busy))
@@ -392,6 +454,77 @@ mod tests {
         assert_eq!(status.programme_count, 0);
         assert!(!status.guide_downloaded);
         assert_eq!(status.next_auto_refresh, None);
+    }
+
+    #[tokio::test]
+    async fn match_counts_describe_the_active_profile_once_a_guide_exists() {
+        let f = Fixture::new("status");
+        let conn = f.conn();
+        conn.execute("INSERT INTO playlists (id, name) VALUES (1, 'P')", [])
+            .unwrap();
+        let add = |name: &str, epg_id: Option<&str>, tvg_name: Option<&str>, kind: &str| {
+            conn.execute(
+                "INSERT INTO channels (playlist_id, name, url, epg_id, tvg_name, content_type)
+                 VALUES (1, ?1, 'http://p', ?2, ?3, ?4)",
+                params![name, epg_id, tvg_name, kind],
+            )
+            .unwrap();
+            conn.last_insert_rowid()
+        };
+        add("SVT1 HD", Some("SVT1.se"), None, "live");
+        add("Ettan", None, Some("SVT1"), "live");
+        add("SVT2", None, None, "live");
+        add("TV4", Some("tv4.nl"), None, "live");
+        add("Kanal 9", Some("  "), None, "live");
+        add("Film", Some("film.se"), None, "vod");
+        let manual = add("Sjuan", Some("sjuan.se"), None, "live");
+        conn.execute(
+            "UPDATE channels SET epg_match_key = 'tv7.se', epg_match_source = 'manual'
+             WHERE id = ?1",
+            params![manual],
+        )
+        .unwrap();
+        set_active(&conn, 1);
+        let s = add_manual(&conn, "http://epg.example/epg.xml");
+        drop(conn);
+
+        let status = epg_status(&f.conn(), &f.dir.0, &Busy::default(), NOW).unwrap();
+        assert_eq!(status.matches, None, "no guide downloaded yet");
+
+        let feed = Feed::new()
+            .channel("svt1.se", &["SVT1"])
+            .channel("svt2.se", &["SVT2", "Kanal 9"])
+            .channel("svt24.se", &["SVT2"])
+            .programme("svt1.se", NOW, NOW + H, "News")
+            .programme("svt2.se", NOW, NOW + H, "News")
+            .programme("svt24.se", NOW, NOW + H, "News")
+            .programme("film.se", NOW, NOW + H, "Film");
+        f.store(s, &feed.xml(), NOW).await;
+        crate::epg::matching::recompute_playlist(&f.conn(), 1).unwrap();
+
+        let status = epg_status(&f.conn(), &f.dir.0, &Busy::default(), NOW).unwrap();
+        assert_eq!(
+            status.matches,
+            Some(MatchCounts {
+                by_id: 1,
+                by_tvg_name: 1,
+                by_name: 1,
+                manual: 1,
+                unmatched_with_id: 1,
+                ambiguous_names: 1,
+            })
+        );
+
+        set_active(&f.conn(), 2);
+        let status = epg_status(&f.conn(), &f.dir.0, &Busy::default(), NOW).unwrap();
+        assert_eq!(
+            status.matches,
+            Some(MatchCounts {
+                ambiguous_names: 1,
+                ..MatchCounts::default()
+            }),
+            "another profile: the global guide applies, it has no channels"
+        );
     }
 
     #[test]

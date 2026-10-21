@@ -68,6 +68,12 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
     // Migration: fallback logo chosen for a live channel (see db::logo_fallbacks)
     let _ = conn.execute("ALTER TABLE channels ADD COLUMN logo_override TEXT", []);
 
+    // Migration: the guide channel a live channel shows and how it was found
+    // ('id' | 'tvg_name' | 'name' | 'manual'). Written only by the matcher
+    // (epg::matching); epg_id and tvg_name stay as the provider sent them.
+    let _ = conn.execute("ALTER TABLE channels ADD COLUMN epg_match_key TEXT", []);
+    let _ = conn.execute("ALTER TABLE channels ADD COLUMN epg_match_source TEXT", []);
+
     // iptv-org fallback logos, keyed by normalized EPG id
     conn.execute(
         "CREATE TABLE IF NOT EXISTS logo_fallbacks (epg_key TEXT PRIMARY KEY, url TEXT NOT NULL) WITHOUT ROWID",
@@ -1333,8 +1339,16 @@ mod epg_source_seed_tests {
             .query_row("SELECT id FROM epg_source", [], |r| r.get(0))
             .unwrap();
         add_guide_rows(&conn, source);
+        // TV4 matched to the guide row above.
+        assert_eq!(
+            crate::epg::matching::recompute_playlist(&conn, 2)
+                .unwrap()
+                .changed,
+            1
+        );
         let guide = new_tables(&conn);
         let channel_columns = columns(&conn, "channels");
+        assert!(channel_columns.contains(&"epg_match_key".to_string()));
         let channels = snapshot(&conn, "channels", &channel_columns);
 
         init_schema_v3_1(&conn).unwrap();
@@ -1400,6 +1414,12 @@ mod epg_source_seed_tests {
         ensure_active_profile(&conn).unwrap();
         let provider_sources = sources(&conn);
         assert_eq!(provider_sources.len(), 1);
+        conn.execute(
+            "UPDATE channels SET epg_match_key = 'tv4.se', epg_match_source = 'manual'
+             WHERE name = 'TV4'",
+            [],
+        )
+        .unwrap();
         let svt1_id = |conn: &Connection| -> Option<String> {
             conn.query_row(
                 "SELECT epg_id FROM channels WHERE name = 'SVT1 HD SE'",
@@ -1424,6 +1444,18 @@ mod epg_source_seed_tests {
         assert!(has_setting(&conn, EPG_IDS_BACKFILLED_KEY));
         // Its backfill ran over that row on the boot path, as 3.1.2 does.
         assert_eq!(svt1_id(&conn).as_deref(), Some("SVT1.se"));
+        // The match columns, which 3.1.2 does not know, are still there.
+        let tv4_match: (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT epg_match_key, epg_match_source FROM channels WHERE name = 'TV4'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            tv4_match,
+            (Some("tv4.se".to_string()), Some("manual".to_string()))
+        );
 
         // Back on this version.
         init_schema(&conn).unwrap();

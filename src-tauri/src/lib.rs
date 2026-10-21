@@ -165,6 +165,10 @@ pub fn run() {
                 }
             });
 
+            // Off the boot path, once per database: match the channels to a
+            // guide stored before channel matching existed.
+            tauri::async_runtime::spawn(epg_service.clone().match_after_upgrade());
+
             // TMDB enrichment: one search per visible title, plus the opt-in
             // library scan once the first channel load is out of the way.
             tmdb::enrich::spawn_worker(app.handle().clone());

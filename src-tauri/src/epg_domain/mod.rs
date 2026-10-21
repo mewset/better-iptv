@@ -4,6 +4,7 @@
 //! database and command layers for better testability and maintainability.
 
 pub mod key;
+pub mod matching;
 pub mod normalize;
 pub mod policy;
 pub mod report;

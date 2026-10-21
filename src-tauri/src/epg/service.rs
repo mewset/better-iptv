@@ -17,12 +17,22 @@
 //! were stored under (it changed while the feed was read) is applied at once
 //! by re-reading the cached feed.
 //!
+//! Whatever can change which guide channel a playlist channel shows (a
+//! stored ingest, a source enabled, disabled, re-prioritised, given another
+//! URL or removed, a playlist imported or refreshed) is followed by a match
+//! recompute (`epg::matching`) for the playlists concerned; the event that
+//! follows carries how many channels it changed. A failed recompute is
+//! logged and leaves the stored matches as they were.
+//!
 //! Events go through `EpgEvents`, so the service runs without a Tauri
 //! runtime in tests: `epg-refreshed` (`EpgRefreshed`) after anything that
 //! changes what the guide shows, `epg-status` (`EpgStatus`) whenever a
 //! source's row in Settings changes, including the start and end of every
 //! attempt. The app emits both to the WebView through its `AppHandle`.
 
+use super::matching::{
+    recompute_for_source, recompute_once_after_upgrade, recompute_playlist, recompute_where_applies,
+};
 use super::read::active_profile;
 use super::sources::{
     self, add_manual_source, get_source, has_cached_feed, list_sources, SourcePatch,
@@ -30,6 +40,7 @@ use super::sources::{
 use super::status::{epg_status, source_status, Busy, EpgSourceStatus, EpgStatus};
 use super::{ingest_counted, Fetch, IngestEnv, IngestOutcome, IngestPermit, IngestScope};
 use crate::commands::with_db;
+use crate::epg_domain::matching::MatchReport;
 use crate::epg_domain::policy::TimePolicy;
 use crate::epg_domain::source::{applies_to, source_due};
 use crate::error::AppError;
@@ -68,6 +79,9 @@ pub enum RefreshReason {
     SourceChanged,
     /// Another profile became active; other sources apply.
     ProfileSwitch,
+    /// A playlist's channels were matched again after it was imported or
+    /// refreshed, or once after an upgrade; sent only when a match changed.
+    Match,
 }
 
 /// The `epg-refreshed` payload: cached now/next and guide data is stale.
@@ -75,18 +89,10 @@ pub enum RefreshReason {
 pub struct EpgRefreshed {
     pub reason: RefreshReason,
     pub source_id: Option<i64>,
-    /// Channels whose match changed; 0 until channel matching exists.
+    /// Channels whose match the recompute that preceded this event changed;
+    /// above 0, the frontend reads the playlist's keys again
+    /// (`get_channel_epg_keys`).
     pub matches_changed: u32,
-}
-
-impl EpgRefreshed {
-    fn new(reason: RefreshReason, source_id: Option<i64>) -> Self {
-        EpgRefreshed {
-            reason,
-            source_id,
-            matches_changed: 0,
-        }
-    }
 }
 
 /// Where the service's events go: the app emits them to the WebView as
@@ -292,10 +298,78 @@ impl EpgService {
 
     // ========== Events ==========
 
-    fn refreshed(&self, reason: RefreshReason, source_id: Option<i64>) {
-        self.parts
-            .events
-            .refreshed(&EpgRefreshed::new(reason, source_id));
+    fn refreshed(&self, reason: RefreshReason, source_id: Option<i64>, matches_changed: u32) {
+        self.parts.events.refreshed(&EpgRefreshed {
+            reason,
+            source_id,
+            matches_changed,
+        });
+    }
+
+    // ========== Channel matching ==========
+
+    /// Run a recompute on the blocking pool; returns the rows it changed.
+    /// A failure is logged and counts as no change: the stored matches
+    /// stay as they were.
+    async fn rematch<F>(&self, what: String, recompute: F) -> u32
+    where
+        F: FnOnce(&Connection) -> rusqlite::Result<MatchReport> + Send + 'static,
+    {
+        match self.db(move |conn| Ok(recompute(conn)?)).await {
+            Ok(report) => {
+                log_match(&what, &report);
+                report.changed
+            }
+            Err(e) => {
+                warn!("EPG channel matching for {what} failed: {e}");
+                0
+            }
+        }
+    }
+
+    /// Recompute the playlists a source applies to.
+    async fn rematch_source(&self, source_id: i64) -> u32 {
+        self.rematch(format!("source {source_id}"), move |conn| {
+            recompute_for_source(conn, source_id)
+        })
+        .await
+    }
+
+    /// After a playlist's channels were written (an import or a refresh,
+    /// committed): match them to the guide. Never fails: a failure is
+    /// logged and the import or refresh stands as it is.
+    pub async fn playlist_written(&self, playlist_id: i64) {
+        let changed = self
+            .rematch(format!("playlist {playlist_id}"), move |conn| {
+                recompute_playlist(conn, playlist_id)
+            })
+            .await;
+        if changed > 0 {
+            self.refreshed(RefreshReason::Match, None, changed);
+            self.emit_status().await;
+        }
+    }
+
+    /// Once per database, at startup and off its critical path: match every
+    /// playlist against the guide already stored (`epg::matching::
+    /// recompute_once_after_upgrade`).
+    pub async fn match_after_upgrade(self) {
+        let report = self
+            .db(|conn| Ok(recompute_once_after_upgrade(conn)?))
+            .await;
+        match report {
+            Ok(Some(report)) => {
+                log_match("every playlist, once after the upgrade", &report);
+                if report.changed > 0 {
+                    self.refreshed(RefreshReason::Match, None, report.changed);
+                    self.emit_status().await;
+                }
+            }
+            Ok(None) => {}
+            Err(e) => warn!(
+                "EPG channel matching after the upgrade failed, retried at the next start: {e}"
+            ),
+        }
     }
 
     /// The guide's status for the active profile, as `epg-status` sends it.
@@ -459,7 +533,8 @@ impl EpgService {
         .await;
         // A large feed that stopped part way still changed some channels.
         if run.guide_changed() {
-            self.refreshed(RefreshReason::Ingest, Some(source_id));
+            let changed = self.rematch_source(source_id).await;
+            self.refreshed(RefreshReason::Ingest, Some(source_id), changed);
         }
         let mut reingest = None;
         if matches!(run.result, Ok(IngestOutcome::Stored(_))) {
@@ -560,7 +635,8 @@ impl EpgService {
         )
         .await;
         if run.guide_changed() {
-            self.refreshed(RefreshReason::Reingest, Some(source_id));
+            let changed = self.rematch_source(source_id).await;
+            self.refreshed(RefreshReason::Reingest, Some(source_id), changed);
         }
         if let Err(e) = &run.result {
             warn!("EPG source {source_id}: the new time policy is not applied: {e}");
@@ -570,7 +646,9 @@ impl EpgService {
 
     // ========== Sources and profiles ==========
 
-    /// Add a URL as a global source and start its first download.
+    /// Add a URL as a global source and start its first download. No
+    /// recompute: a new source has no guide channels yet (ids are never
+    /// reused), and its first stored ingest recomputes.
     pub async fn add_source(
         &self,
         url: String,
@@ -606,7 +684,9 @@ impl EpgService {
             .db(move |conn| sources::update_source(conn, &cache_dir, source_id, &patch))
             .await?;
         if update.enabled_changed || update.url_changed || priority_set {
-            self.refreshed(RefreshReason::SourceChanged, Some(source_id));
+            // Which keys and names apply, and in what order, changed.
+            let changed = self.rematch_source(source_id).await;
+            self.refreshed(RefreshReason::SourceChanged, Some(source_id), changed);
         }
         self.emit_status().await;
         if (enabling && update.enabled_changed) || update.url_changed {
@@ -620,7 +700,13 @@ impl EpgService {
         let cache_dir = self.parts.cache_dir.clone();
         self.db(move |conn| sources::remove_source(conn, &cache_dir, source_id))
             .await?;
-        self.refreshed(RefreshReason::SourceChanged, Some(source_id));
+        // Only a source added by URL can be removed, and it is global.
+        let changed = self
+            .rematch(format!("removed source {source_id}"), |conn| {
+                recompute_where_applies(conn, None)
+            })
+            .await;
+        self.refreshed(RefreshReason::SourceChanged, Some(source_id), changed);
         self.emit_status().await;
         Ok(())
     }
@@ -628,7 +714,7 @@ impl EpgService {
     /// Another profile became active: other sources apply, and one of them
     /// may be due.
     pub async fn profile_switched(&self) -> Result<Option<RunHandle>, AppError> {
-        self.refreshed(RefreshReason::ProfileSwitch, None);
+        self.refreshed(RefreshReason::ProfileSwitch, None, 0);
         self.emit_status().await;
         self.check_due().await
     }
@@ -636,9 +722,26 @@ impl EpgService {
     /// Sources went away with a deleted profile (the database cascades):
     /// the guide and Settings change with them.
     pub async fn sources_removed(&self) {
-        self.refreshed(RefreshReason::SourceChanged, None);
+        self.refreshed(RefreshReason::SourceChanged, None, 0);
         self.emit_status().await;
     }
+}
+
+/// One line per recompute.
+fn log_match(what: &str, report: &MatchReport) {
+    info!(
+        "EPG channel matching for {what}: {} changed; of {} live channels {} by id, {} by \
+         tvg-name, {} by name, {} set by hand, {} with an id the guide does not know; \
+         {} ambiguous guide names",
+        report.changed,
+        report.considered,
+        report.by_id,
+        report.by_tvg_name,
+        report.by_name,
+        report.manual_kept,
+        report.unmatched_with_id,
+        report.ambiguous_names,
+    );
 }
 
 #[cfg(test)]
@@ -667,6 +770,16 @@ mod tests {
     }
 
     impl Recorder {
+        /// (reason, matches_changed) of each `epg-refreshed` sent.
+        fn matches(&self) -> Vec<(RefreshReason, u32)> {
+            self.refreshed
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|e| (e.reason, e.matches_changed))
+                .collect()
+        }
+
         fn reasons(&self) -> Vec<(RefreshReason, Option<i64>)> {
             self.refreshed
                 .lock()
@@ -781,9 +894,15 @@ mod tests {
         assert_eq!(json(RefreshReason::Reingest), "\"reingest\"");
         assert_eq!(json(RefreshReason::SourceChanged), "\"source_changed\"");
         assert_eq!(json(RefreshReason::ProfileSwitch), "\"profile_switch\"");
+        assert_eq!(json(RefreshReason::Match), "\"match\"");
+        let event = EpgRefreshed {
+            reason: RefreshReason::Ingest,
+            source_id: Some(3),
+            matches_changed: 2,
+        };
         assert_eq!(
-            serde_json::to_value(EpgRefreshed::new(RefreshReason::Ingest, Some(3))).unwrap(),
-            serde_json::json!({"reason": "ingest", "source_id": 3, "matches_changed": 0})
+            serde_json::to_value(event).unwrap(),
+            serde_json::json!({"reason": "ingest", "source_id": 3, "matches_changed": 2})
         );
         assert_eq!(REFRESHED_EVENT, "epg-refreshed");
         assert_eq!(STATUS_EVENT, "epg-status");
@@ -1337,5 +1456,200 @@ mod tests {
             !feed_path(&f.dir.0, s).exists(),
             "no cache older than the rows"
         );
+    }
+
+    // ========== Channel matching ==========
+
+    /// Playlist 1, active, with live channels for `svt1.se` and `tv4.se`.
+    fn playlist_with_channels(f: &Fixture) -> (i64, i64) {
+        let conn = f.conn();
+        conn.execute("INSERT INTO playlists (id, name) VALUES (1, 'P')", [])
+            .unwrap();
+        let mut ids = Vec::new();
+        for (name, epg_id) in [("SVT1", "SVT1.se"), ("TV4", "tv4.se")] {
+            conn.execute(
+                "INSERT INTO channels (playlist_id, name, url, epg_id) VALUES (1, ?1, 'http://p', ?2)",
+                params![name, epg_id],
+            )
+            .unwrap();
+            ids.push(conn.last_insert_rowid());
+        }
+        drop(conn);
+        set_active(f, 1);
+        (ids[0], ids[1])
+    }
+
+    fn match_key(f: &Fixture, channel: i64) -> Option<String> {
+        f.conn()
+            .query_row(
+                "SELECT epg_match_key FROM channels WHERE id = ?1",
+                params![channel],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_ingest_and_a_source_change_rematch_and_say_how_many_changed() {
+        let f = Fixture::new("service");
+        let (svt1, tv4) = playlist_with_channels(&f);
+        let server = serve(vec![respond("200 OK", feed().as_bytes())]).await;
+        let s = manual(&f, &server.base, 10);
+        let (service, events) = service(&f);
+
+        service
+            .refresh(Some(s))
+            .await
+            .unwrap()
+            .unwrap()
+            .await
+            .unwrap();
+        assert_eq!(match_key(&f, svt1).as_deref(), Some("svt1.se"));
+        assert_eq!(match_key(&f, tv4), None);
+        let counts = events.last_status().matches.expect("a guide exists");
+        assert_eq!((counts.by_id, counts.unmatched_with_id), (1, 1));
+
+        let off = SourcePatch {
+            enabled: Some(false),
+            ..SourcePatch::default()
+        };
+        service.update_source(s, off).await.unwrap();
+        assert_eq!(match_key(&f, svt1), None);
+        assert_eq!(events.last_status().matches, None);
+
+        let on = SourcePatch {
+            enabled: Some(true),
+            ..SourcePatch::default()
+        };
+        service.update_source(s, on).await.unwrap();
+        service.remove_source(s).await.unwrap();
+
+        assert_eq!(
+            events.matches(),
+            [
+                (RefreshReason::Ingest, 1),
+                (RefreshReason::SourceChanged, 1),
+                (RefreshReason::SourceChanged, 1),
+                (RefreshReason::SourceChanged, 1),
+            ]
+        );
+        assert_eq!(match_key(&f, svt1), None);
+    }
+
+    #[tokio::test]
+    async fn a_policy_re_read_rematches_too() {
+        let f = Fixture::new("service");
+        let (svt1, _) = playlist_with_channels(&f);
+        let s = add_manual(&f.conn(), "http://epg.example/epg.xml");
+        f.store(s, &feed(), NOW).await;
+        let (service, events) = service(&f);
+
+        let run = service.set_time_policy(s, shift(60)).await.unwrap();
+        run.unwrap().await.unwrap();
+
+        assert_eq!(events.matches(), [(RefreshReason::Reingest, 1)]);
+        assert_eq!(match_key(&f, svt1).as_deref(), Some("svt1.se"));
+    }
+
+    #[tokio::test]
+    async fn a_written_playlist_is_matched_and_announced_only_when_a_match_changed() {
+        let f = Fixture::new("service");
+        let (svt1, _) = playlist_with_channels(&f);
+        let s = add_manual(&f.conn(), "http://epg.example/epg.xml");
+        f.store(s, &feed(), NOW).await;
+        let (service, events) = service(&f);
+
+        service.playlist_written(1).await;
+        service.playlist_written(1).await;
+
+        assert_eq!(match_key(&f, svt1).as_deref(), Some("svt1.se"));
+        assert_eq!(events.matches(), [(RefreshReason::Match, 1)]);
+        assert_eq!(
+            events.reasons(),
+            [(RefreshReason::Match, None)],
+            "the second write changed nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failing_match_after_an_import_keeps_the_import_and_writes_nothing() {
+        let f = Fixture::new("service");
+        let conn = f.conn();
+        let playlist = crate::playlist_domain::build_xtream_playlist(
+            "Provider".to_string(),
+            "http://provider.example:8080".to_string(),
+            "john".to_string(),
+            "secret".to_string(),
+        )
+        .unwrap();
+        let channel = |name: &str| crate::db::models::Channel {
+            id: None,
+            playlist_id: 0,
+            name: name.to_string(),
+            url: format!("http://provider.example/{name}"),
+            logo: None,
+            group_name: Some("News".to_string()),
+            epg_id: Some(format!("{name}.se")),
+            tvg_name: None,
+            content_type: "live".to_string(),
+            is_favorite: false,
+            sort_order: 0,
+            category_order: 0,
+            created_at: None,
+        };
+        let s = add_manual(&conn, "http://epg.example/epg.xml");
+        drop(conn);
+        f.store(s, &feed(), NOW).await;
+        f.conn()
+            .execute_batch(
+                "CREATE TRIGGER fail_match BEFORE UPDATE OF epg_match_key ON channels
+                 BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+            )
+            .unwrap();
+        let imported = crate::commands::playlist::write_xtream_import(
+            &f.conn(),
+            playlist,
+            vec![channel("svt1"), channel("tv4")],
+        )
+        .unwrap();
+        let (service, events) = service(&f);
+
+        service.playlist_written(imported.id.unwrap()).await;
+
+        let rows: Vec<(String, Option<String>)> = f
+            .conn()
+            .prepare("SELECT name, epg_match_key FROM channels ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(
+            rows,
+            [("svt1".to_string(), None), ("tv4".to_string(), None)],
+            "the import stands, no match is half written"
+        );
+        assert!(events.matches().is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_upgrade_match_runs_once_and_announces_its_changes() {
+        let f = Fixture::new("service");
+        let (svt1, _) = playlist_with_channels(&f);
+        let s = add_manual(&f.conn(), "http://epg.example/epg.xml");
+        f.store(s, &feed(), NOW).await;
+        let (service, events) = service(&f);
+
+        service.clone().match_after_upgrade().await;
+        f.conn()
+            .execute(
+                "UPDATE channels SET epg_match_key = NULL, epg_match_source = NULL",
+                [],
+            )
+            .unwrap();
+        service.clone().match_after_upgrade().await;
+
+        assert_eq!(events.matches(), [(RefreshReason::Match, 1)]);
+        assert_eq!(match_key(&f, svt1), None, "not run a second time");
     }
 }

@@ -32,6 +32,7 @@ fn get_playlist_user_agent(db: &rusqlite::Connection) -> Result<String, AppError
 pub async fn import_playlist(
     app: AppHandle,
     state: State<'_, AppState>,
+    epg: State<'_, EpgService>,
     name: String,
     source: String,
 ) -> Result<Playlist, AppError> {
@@ -102,6 +103,9 @@ pub async fn import_playlist(
         Ok(result)
     })
     .await?;
+    if let Some(id) = imported.id {
+        epg.playlist_written(id).await;
+    }
     schedule_library_scan(app);
     Ok(imported)
 }
@@ -110,6 +114,7 @@ pub async fn import_playlist(
 pub async fn import_xtream_playlist(
     app: AppHandle,
     state: State<'_, AppState>,
+    epg: State<'_, EpgService>,
     name: String,
     server_url: String,
     username: String,
@@ -153,6 +158,9 @@ pub async fn import_xtream_playlist(
         write_xtream_import(conn, playlist, channels)
     })
     .await?;
+    if let Some(id) = imported.id {
+        epg.playlist_written(id).await;
+    }
     schedule_library_scan(app);
     Ok(imported)
 }
@@ -289,6 +297,7 @@ pub async fn get_subscription_expiry(
 pub async fn refresh_playlist(
     app: AppHandle,
     state: State<'_, AppState>,
+    epg: State<'_, EpgService>,
     playlist_id: i64,
 ) -> Result<MergeResult, AppError> {
     let (playlist, is_xtream, playlist_user_agent) = with_db(&state.pool, move |conn| {
@@ -372,6 +381,9 @@ pub async fn refresh_playlist(
         Ok(result)
     })
     .await?;
+    // After the commit and in its own transaction, so a failure can neither
+    // fail the refresh nor leave part of it applied.
+    epg.playlist_written(playlist_id).await;
 
     info!(
         "Playlist '{}' refreshed: {} added, {} updated, {} removed ({} total)",
