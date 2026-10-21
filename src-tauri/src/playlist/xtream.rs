@@ -208,7 +208,7 @@ struct XtreamStream {
     #[serde(default, deserialize_with = "de_lenient_opt_string")]
     container_extension: Option<String>,
     // Provider-side EPG channel id, matching the ids in the provider's
-    // xmltv.php feed. Fallback for names the Swedish heuristic does not cover.
+    // xmltv.php feed. Stored as sent; a channel without one has none.
     #[serde(default, deserialize_with = "de_lenient_opt_string")]
     epg_channel_id: Option<String>,
     #[serde(rename = "type")]
@@ -642,7 +642,7 @@ async fn fetch_series(
     ))
 }
 
-use crate::channel_domain::effective_epg_id;
+use crate::channel_domain::provider_epg_id;
 
 /// Convert Xtream streams to our Channel format
 fn convert_streams_to_channels(
@@ -670,11 +670,10 @@ fn convert_streams_to_channels(
                 safe_container_extension(stream.container_extension.as_deref()),
             );
 
-            // Live channels use the provider's own EPG id first: it is the id the
-            // provider's xmltv.php uses, so it matches its guide. The Swedish name
-            // heuristic is only a fallback for channels the provider gave no id.
+            // A live channel keeps the provider's own EPG id, the one its
+            // xmltv.php uses, as sent.
             let epg_id = if content_type == "live" {
-                effective_epg_id(stream.epg_channel_id.as_deref(), &stream.name, "live")
+                provider_epg_id(stream.epg_channel_id.as_deref())
             } else {
                 None
             };
@@ -1079,29 +1078,25 @@ mod epg_id_tests {
     }
 
     #[test]
-    fn xtream_live_falls_back_to_generated_epg_id() {
+    fn xtream_live_without_a_provider_epg_id_has_none() {
         for json in [
             r#"{"name":"nickelodeon FHD SE","stream_id":6}"#,
             r#"{"name":"nickelodeon FHD SE","stream_id":6,"epg_channel_id":null}"#,
             r#"{"name":"nickelodeon FHD SE","stream_id":6,"epg_channel_id":""}"#,
             r#"{"name":"nickelodeon FHD SE","stream_id":6,"epg_channel_id":"  "}"#,
         ] {
-            assert_eq!(
-                convert(json, "live").as_deref(),
-                Some("nickelodeon.se"),
-                "{json}"
-            );
+            assert_eq!(convert(json, "live"), None, "{json}");
         }
     }
 
     #[test]
-    fn provider_id_is_used_when_the_heuristic_has_nothing() {
+    fn a_provider_id_without_a_country_suffix_is_kept() {
         let json = r#"{"name":"BBC One","stream_id":2,"epg_channel_id":"bbc1.uk"}"#;
         assert_eq!(convert(json, "live").as_deref(), Some("bbc1.uk"));
     }
 
     #[test]
-    fn empty_or_missing_provider_id_without_a_heuristic_match_leaves_epg_id_unset() {
+    fn an_empty_or_missing_provider_id_leaves_epg_id_unset() {
         assert_eq!(
             convert(
                 r#"{"name":"BBC One","stream_id":3,"epg_channel_id":""}"#,

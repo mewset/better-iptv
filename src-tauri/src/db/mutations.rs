@@ -1,5 +1,5 @@
 use super::models::*;
-use crate::channel_domain::effective_epg_id;
+use crate::channel_domain::provider_epg_id;
 use crate::series_domain::{EpisodeInput, SeriesGroup};
 use log::{debug, warn};
 use rusqlite::{params, Connection, Result};
@@ -93,11 +93,7 @@ pub fn create_channels_batch(conn: &Connection, channels: &[Channel]) -> Result<
         )?;
 
         for channel in channels {
-            let epg_id = effective_epg_id(
-                channel.epg_id.as_deref(),
-                &channel.name,
-                &channel.content_type,
-            );
+            let epg_id = provider_epg_id(channel.epg_id.as_deref());
             stmt.execute(params![
                 channel.playlist_id,
                 channel.name,
@@ -334,7 +330,7 @@ pub fn merge_channels(
                     .or_else(|| lookup.get(&format!("name:{}", ch.name)))
             };
 
-            let epg_id = effective_epg_id(ch.epg_id.as_deref(), &ch.name, &ch.content_type);
+            let epg_id = provider_epg_id(ch.epg_id.as_deref());
 
             if let Some(&(db_id, _is_favorite)) = matched {
                 // Update existing channel (preserve is_favorite)
@@ -660,16 +656,29 @@ mod tests {
     }
 
     #[test]
-    fn create_channels_batch_fills_missing_epg_id() {
+    fn create_channels_batch_stores_the_provider_epg_id_as_sent() {
         let conn = setup_test_db();
         let pid = create_test_playlist(&conn, "P");
-        let ch = live_channel(pid, "TV4 HD SE", None, "http://x/1");
-        create_channels_batch(&conn, &[ch]).unwrap();
-        assert_eq!(stored_epg_id(&conn, "TV4 HD SE").as_deref(), Some("TV4.se"));
+        let channels = [
+            live_channel(pid, "TV4 HD SE", None, "http://x/1"),
+            live_channel(pid, "SVT1 HD SE", Some("  "), "http://x/2"),
+            live_channel(pid, "Kanal 5", Some("Kanal5.se"), "http://x/3"),
+        ];
+        create_channels_batch(&conn, &channels).unwrap();
+        assert_eq!(
+            stored_epg_id(&conn, "TV4 HD SE"),
+            None,
+            "no id from the name"
+        );
+        assert_eq!(stored_epg_id(&conn, "SVT1 HD SE"), None, "blank is none");
+        assert_eq!(
+            stored_epg_id(&conn, "Kanal 5").as_deref(),
+            Some("Kanal5.se")
+        );
     }
 
     #[test]
-    fn merge_channels_keeps_generated_id_when_provider_drops_it() {
+    fn a_refresh_replaces_a_generated_id_with_nothing_when_the_provider_sends_none() {
         let conn = setup_test_db();
         let pid = create_test_playlist(&conn, "P");
         conn.execute(
@@ -680,7 +689,7 @@ mod tests {
         .unwrap();
         let ch = live_channel(pid, "TV4 HD SE", None, "http://x/1");
         merge_channels(&conn, pid, &[ch], false).unwrap();
-        assert_eq!(stored_epg_id(&conn, "TV4 HD SE").as_deref(), Some("TV4.se"));
+        assert_eq!(stored_epg_id(&conn, "TV4 HD SE"), None);
     }
 
     #[test]
@@ -699,12 +708,12 @@ mod tests {
     }
 
     #[test]
-    fn merge_channels_inserts_with_generated_id() {
+    fn merge_channels_inserts_without_an_id_the_provider_did_not_send() {
         let conn = setup_test_db();
         let pid = create_test_playlist(&conn, "P");
         let ch = live_channel(pid, "TV4 HD SE", None, "http://x/9");
         merge_channels(&conn, pid, &[ch], false).unwrap();
-        assert_eq!(stored_epg_id(&conn, "TV4 HD SE").as_deref(), Some("TV4.se"));
+        assert_eq!(stored_epg_id(&conn, "TV4 HD SE"), None);
     }
 
     // ========== Playlist Tests ==========

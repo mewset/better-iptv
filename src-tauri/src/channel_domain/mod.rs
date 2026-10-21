@@ -11,16 +11,14 @@ const VALID_CONTENT_TYPES: &[&str] = &["live", "vod", "series"];
 
 // ========== EPG ids ==========
 
-/// The EPG id a channel row is stored with: the provider's id when it has a
-/// non-blank one, otherwise (live channels only) the id generated from the name.
-pub fn effective_epg_id(epg_id: Option<&str>, name: &str, content_type: &str) -> Option<String> {
-    if let Some(id) = epg_id.filter(|id| !id.trim().is_empty()) {
-        return Some(id.to_string());
-    }
-    if content_type == "live" {
-        return crate::utils::generate_epg_id_swedish(name);
-    }
-    None
+/// The EPG id a channel row is stored with: exactly what the provider sent,
+/// or `None` when it sent nothing or only whitespace. Nothing is made up from
+/// the channel name; matching to the guide happens on read
+/// (`epg_domain::key::channel_key`).
+pub fn provider_epg_id(epg_id: Option<&str>) -> Option<String> {
+    epg_id
+        .filter(|id| !id.trim().is_empty())
+        .map(str::to_string)
 }
 
 // ========== Validation Functions ==========
@@ -262,56 +260,27 @@ pub fn toggle_favorite_state(current_favorite: bool) -> bool {
     !current_favorite
 }
 
-/// Check if channel has EPG data
-///
-/// Returns true if channel has an EPG ID configured.
-///
-/// # Arguments
-/// * `channel` - The channel to check
-#[allow(dead_code)]
-pub fn has_epg_data(channel: &Channel) -> bool {
-    channel.epg_id.is_some() || channel.tvg_name.is_some()
-}
-
-/// Get EPG identifier for channel
-///
-/// Returns the EPG ID, falling back to TVG name if EPG ID is not set.
-///
-/// # Arguments
-/// * `channel` - The channel to get EPG identifier for
-#[allow(dead_code)]
-pub fn get_epg_identifier(channel: &Channel) -> Option<&str> {
-    channel.epg_id.as_deref().or(channel.tvg_name.as_deref())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn effective_epg_id_keeps_provider_id() {
+    fn the_provider_epg_id_is_stored_as_sent() {
         assert_eq!(
-            effective_epg_id(Some("svt1.se"), "SVT1 HD SE", "live"),
-            Some("svt1.se".to_string())
+            provider_epg_id(Some("SVT1.se")),
+            Some("SVT1.se".to_string())
+        );
+        assert_eq!(
+            provider_epg_id(Some(" svt1.se ")),
+            Some(" svt1.se ".to_string())
         );
     }
 
     #[test]
-    fn effective_epg_id_generates_for_live() {
-        assert_eq!(
-            effective_epg_id(None, "SVT1 HD SE", "live"),
-            Some("SVT1.se".to_string())
-        );
-        assert_eq!(
-            effective_epg_id(Some("  "), "SVT1 HD SE", "live"),
-            Some("SVT1.se".to_string())
-        );
-    }
-
-    #[test]
-    fn effective_epg_id_never_for_vod_or_series() {
-        assert_eq!(effective_epg_id(None, "SVT1 HD SE", "vod"), None);
-        assert_eq!(effective_epg_id(None, "SVT1 HD SE", "series"), None);
+    fn a_missing_or_blank_provider_epg_id_is_none() {
+        assert_eq!(provider_epg_id(None), None);
+        assert_eq!(provider_epg_id(Some("")), None);
+        assert_eq!(provider_epg_id(Some("  ")), None);
     }
 
     fn mock_channel(name: &str, content_type: &str, is_favorite: bool) -> Channel {
@@ -393,27 +362,6 @@ mod tests {
     fn test_toggle_favorite_state() {
         assert!(!toggle_favorite_state(true));
         assert!(toggle_favorite_state(false));
-    }
-
-    #[test]
-    fn test_has_epg_data() {
-        let mut channel = mock_channel("Test", "live", false);
-        assert!(!has_epg_data(&channel));
-
-        channel.epg_id = Some("epg123".to_string());
-        assert!(has_epg_data(&channel));
-    }
-
-    #[test]
-    fn test_get_epg_identifier() {
-        let mut channel = mock_channel("Test", "live", false);
-        assert_eq!(get_epg_identifier(&channel), None);
-
-        channel.tvg_name = Some("tvg123".to_string());
-        assert_eq!(get_epg_identifier(&channel), Some("tvg123"));
-
-        channel.epg_id = Some("epg123".to_string());
-        assert_eq!(get_epg_identifier(&channel), Some("epg123"));
     }
 
     #[test]
