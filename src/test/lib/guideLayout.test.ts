@@ -82,11 +82,20 @@ describe('blockGeometry', () => {
 });
 
 describe('normalizeEpgId', () => {
-  it('trims and lower-cases ASCII only, like the backend', () => {
+  // Pairs the backend's channel_key test (`epg_domain/key.rs`) gives the
+  // same answer for: the guide matches its keys against these.
+  it('trims and lower-cases like the backend', () => {
     expect(normalizeEpgId('  SVT1.se ')).toBe('svt1.se');
     expect(normalizeEpgId('KANAL5.SE')).toBe('kanal5.se');
-    // Non-ASCII letters keep their case, as Rust's to_ascii_lowercase does.
-    expect(normalizeEpgId('ÖRESUND.dk')).toBe('Öresund.dk');
+    expect(normalizeEpgId('Ämne.se')).toBe('ämne.se');
+    expect(normalizeEpgId('ÖRESUND.dk')).toBe('öresund.dk');
+    // Final sigma, mapped by both languages.
+    expect(normalizeEpgId('\u039F\u0394\u039F\u03A3')).toBe('\u03BF\u03B4\u03BF\u03C2');
+  });
+
+  it('trims a byte order mark but not U+0085, as the backend does', () => {
+    expect(normalizeEpgId('\uFEFFSVT1.se\u00A0')).toBe('svt1.se');
+    expect(normalizeEpgId('\u0085SVT1.se')).toBe('\u0085svt1.se');
   });
 });
 

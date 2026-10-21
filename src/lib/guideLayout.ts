@@ -53,11 +53,12 @@ export function blockGeometry(
 }
 
 /**
- * An EPG id in the form the backend stores and returns: trimmed, ASCII
- * lower case (`epg_domain::normalize_epg_id`). Only A-Z is lowered, as in Rust.
+ * An EPG id in the form the backend stores and returns: trimmed and lower
+ * case with Unicode case mapping (`epg_domain::key::channel_key`). The Rust
+ * side trims exactly what `trim()` trims here, so both give one key per id.
  */
 export function normalizeEpgId(id: string): string {
-  return id.trim().replace(/[A-Z]/g, (c) => c.toLowerCase());
+  return id.trim().toLowerCase();
 }
 
 /**
