@@ -3,6 +3,7 @@ import { renderHook, waitFor, act } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useHomeRows } from '../../hooks/useHomeRows';
+import { NOW_TICK_MS } from '../../hooks/useNow';
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
@@ -141,13 +142,13 @@ describe('useHomeRows', () => {
 
     it('refetches when the local date changes while Home stays open', async () => {
       // shouldAdvanceTime: waitFor's own polling still needs real elapsed
-      // time to fire; only the app's setInterval is driven explicitly below.
+      // time to fire; only the shared clock's tick is driven explicitly below.
       vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.setSystemTime(new Date('2026-09-26T23:59:30'));
       const { result } = renderHook(() => useHomeRows(1, true));
       await waitFor(() => expect(rowCalls()).toBe(1));
       vi.setSystemTime(new Date('2026-09-27T00:00:30'));
-      act(() => vi.advanceTimersByTime(60_000));
+      act(() => vi.advanceTimersByTime(NOW_TICK_MS));
       await waitFor(() => expect(rowCalls()).toBe(2));
       void result;
     });

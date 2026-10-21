@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useNow } from '../hooks/useNow';
 import type { HomeRow, TmdbCard } from '../lib/tauri';
 import type { Channel } from '../types';
 import { MoviesHero } from './MoviesHero';
@@ -32,6 +32,17 @@ const dateFormat = new Intl.DateTimeFormat(undefined, {
   month: 'long',
 });
 
+/** The greeting and the date on the shared clock; only these re-render on its tick. */
+function HomeGreeting() {
+  const now = new Date(useNow());
+  return (
+    <>
+      <h2 className="font-display text-[44px] font-bold leading-none">{greeting(now)}</h2>
+      <p className="mt-2 text-sm text-text-faint">{dateFormat.format(now)}</p>
+    </>
+  );
+}
+
 /**
  * The Home section: a greeting by the clock and the day's genre slideshows.
  * Rows arrive filtered for parental controls from MainScreen.
@@ -46,19 +57,12 @@ export function HomeView({
   progress,
   onOpen,
 }: HomeViewProps) {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date()), 60_000);
-    return () => window.clearInterval(id);
-  }, []);
-
   const scanLine = progress?.running ? backgroundProgressLine(progress) : '';
 
   return (
     <div className="flex-1 overflow-y-auto px-10 pb-32 pt-6" role="region" aria-label="Home">
       <header className="mb-8">
-        <h2 className="font-display text-[44px] font-bold leading-none">{greeting(now)}</h2>
-        <p className="mt-2 text-sm text-text-faint">{dateFormat.format(now)}</p>
+        <HomeGreeting />
         <p className="mt-4 max-w-[640px] text-sm text-text-muted">
           Your daily pick and six genre slideshows, drawn from the best-rated movies and series
           already in your playlist. A new set every day.
