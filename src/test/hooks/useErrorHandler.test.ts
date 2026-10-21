@@ -38,7 +38,7 @@ describe('useErrorHandler', () => {
     });
 
     expect(result.current.toasts).toHaveLength(1);
-    expect(result.current.toasts[0].message).toContain('Databasfel');
+    expect(result.current.toasts[0].message).toContain('Database error');
     expect(result.current.toasts[0].severity).toBe('error');
   });
 

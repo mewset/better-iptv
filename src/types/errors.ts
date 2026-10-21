@@ -46,27 +46,27 @@ export function isAppError(e: unknown): e is AppError {
 export function getErrorMessage(error: AppError): string {
   switch (error.code) {
     case 'Database':
-      return 'Databasfel. Försök igen senare.';
+      return 'Database error. Try again later.';
     case 'Http':
-      return 'Nätverksfel. Kontrollera din anslutning.';
+      return 'Network error. Check your connection.';
     case 'InvalidInput':
-      return error.details || 'Ogiltig indata.';
+      return error.details || 'Invalid input.';
     case 'PlaylistNotFound':
-      return 'Spellistan kunde inte hittas.';
+      return 'Playlist not found.';
     case 'ChannelNotFound':
-      return 'Kanalen kunde inte hittas.';
+      return 'Channel not found.';
     case 'Mpv':
-      return `Uppspelningsfel: ${error.details}`;
+      return `Playback error: ${error.details}`;
     case 'Parse':
-      return 'Kunde inte läsa filen. Kontrollera formatet.';
+      return 'Could not read the file. Check its format.';
     case 'Epg':
-      return 'Kunde inte hämta programguiden.';
+      return 'Could not fetch the programme guide.';
     case 'Io':
-      return 'Filfel. Kontrollera behörigheter.';
+      return 'File error. Check permissions.';
     case 'Config':
-      return 'Konfigurationsfel.';
+      return 'Configuration error.';
     default:
-      return 'Ett oväntat fel inträffade.';
+      return 'An unexpected error occurred.';
   }
 }
 
@@ -109,5 +109,5 @@ export function parseError(error: unknown): string {
     return error;
   }
 
-  return 'Ett oväntat fel inträffade.';
+  return 'An unexpected error occurred.';
 }

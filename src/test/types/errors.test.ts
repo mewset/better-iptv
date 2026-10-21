@@ -38,14 +38,14 @@ describe('Error Types', () => {
   });
 
   describe('getErrorMessage', () => {
-    it('should return Swedish message for Database error', () => {
+    it('should return the message for Database error', () => {
       const error: AppError = { code: 'Database', details: 'Connection failed' };
-      expect(getErrorMessage(error)).toBe('Databasfel. Försök igen senare.');
+      expect(getErrorMessage(error)).toBe('Database error. Try again later.');
     });
 
-    it('should return Swedish message for Http error', () => {
+    it('should return the message for Http error', () => {
       const error: AppError = { code: 'Http', details: 'timeout' };
-      expect(getErrorMessage(error)).toBe('Nätverksfel. Kontrollera din anslutning.');
+      expect(getErrorMessage(error)).toBe('Network error. Check your connection.');
     });
 
     it('should return details for InvalidInput error', () => {
@@ -53,29 +53,40 @@ describe('Error Types', () => {
       expect(getErrorMessage(error)).toBe('Name cannot be empty');
     });
 
-    it('should return Swedish message for Mpv error with details', () => {
+    it('should return the message for Mpv error with details', () => {
       const error: AppError = { code: 'Mpv', details: 'Failed to start' };
-      expect(getErrorMessage(error)).toBe('Uppspelningsfel: Failed to start');
+      expect(getErrorMessage(error)).toBe('Playback error: Failed to start');
     });
 
-    it('should return Swedish message for Parse error', () => {
+    it('should return the message for Parse error', () => {
       const error: AppError = { code: 'Parse', details: 'Invalid XML' };
-      expect(getErrorMessage(error)).toBe('Kunde inte läsa filen. Kontrollera formatet.');
+      expect(getErrorMessage(error)).toBe('Could not read the file. Check its format.');
     });
 
-    it('should return Swedish message for Epg error', () => {
+    it('should return the message for Epg error', () => {
       const error: AppError = { code: 'Epg', details: 'fetch failed' };
-      expect(getErrorMessage(error)).toBe('Kunde inte hämta programguiden.');
+      expect(getErrorMessage(error)).toBe('Could not fetch the programme guide.');
     });
 
-    it('should return Swedish message for PlaylistNotFound', () => {
+    it('should return the message for PlaylistNotFound', () => {
       const error: AppError = { code: 'PlaylistNotFound', details: '42' };
-      expect(getErrorMessage(error)).toBe('Spellistan kunde inte hittas.');
+      expect(getErrorMessage(error)).toBe('Playlist not found.');
     });
 
-    it('should return Swedish message for ChannelNotFound', () => {
+    it('should return the message for ChannelNotFound', () => {
       const error: AppError = { code: 'ChannelNotFound', details: '123' };
-      expect(getErrorMessage(error)).toBe('Kanalen kunde inte hittas.');
+      expect(getErrorMessage(error)).toBe('Channel not found.');
+    });
+
+    it('should return the message for Io and Config errors', () => {
+      expect(getErrorMessage({ code: 'Io', details: 'denied' })).toBe(
+        'File error. Check permissions.'
+      );
+      expect(getErrorMessage({ code: 'Config', details: 'bad' })).toBe('Configuration error.');
+    });
+
+    it('should fall back to a generic message for InvalidInput without details', () => {
+      expect(getErrorMessage({ code: 'InvalidInput', details: '' })).toBe('Invalid input.');
     });
   });
 
@@ -114,7 +125,7 @@ describe('Error Types', () => {
   describe('parseError', () => {
     it('should parse AppError objects', () => {
       const error: AppError = { code: 'Database', details: 'Connection failed' };
-      expect(parseError(error)).toBe('Databasfel. Försök igen senare.');
+      expect(parseError(error)).toBe('Database error. Try again later.');
     });
 
     it('should parse Error objects', () => {
@@ -127,8 +138,8 @@ describe('Error Types', () => {
     });
 
     it('should return default message for unknown types', () => {
-      expect(parseError({})).toBe('Ett oväntat fel inträffade.');
-      expect(parseError(123)).toBe('Ett oväntat fel inträffade.');
+      expect(parseError({})).toBe('An unexpected error occurred.');
+      expect(parseError(123)).toBe('An unexpected error occurred.');
     });
   });
 });
