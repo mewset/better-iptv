@@ -1,6 +1,6 @@
 //! EPG (Electronic Program Guide): fetching, parsing and storing guide feeds.
 //!
-//! `ingest` runs one source through the whole pipeline: the feed is
+//! `ingest_counted` runs one source through the whole pipeline: the feed is
 //! downloaded to `<id>.download` (or the cached `<id>.feed.gz` is read
 //! again), parsed into staging with the source's time policy, normalised and
 //! swapped into the guide tables in one transaction (`store`). Only then does
@@ -181,19 +181,8 @@ pub struct IngestEnv<'a> {
 /// as `last_result = 'error'` and `last_error`. A re-read of the cached feed
 /// records only the applied policy and the counters when it succeeds and
 /// nothing when it fails: `last_result` describes the provider.
-pub async fn ingest(
-    env: &IngestEnv<'_>,
-    source_id: i64,
-    fetch: Fetch,
-    scope: IngestScope,
-    now: i64,
-) -> Result<IngestOutcome, AppError> {
-    ingest_counted(env, source_id, fetch, scope, now)
-        .await
-        .result
-}
-
-/// `ingest`, also telling whether a failed or abandoned swap had already
+///
+/// The run also tells whether a failed or abandoned swap had already
 /// committed part of the feed.
 pub async fn ingest_counted(
     env: &IngestEnv<'_>,
@@ -205,6 +194,20 @@ pub async fn ingest_counted(
     let mut committed = 0;
     let result = ingest_inner(env, source_id, fetch, scope, now, &mut committed).await;
     IngestRun { result, committed }
+}
+
+/// `ingest_counted` without the commit count, for tests.
+#[cfg(test)]
+pub async fn ingest(
+    env: &IngestEnv<'_>,
+    source_id: i64,
+    fetch: Fetch,
+    scope: IngestScope,
+    now: i64,
+) -> Result<IngestOutcome, AppError> {
+    ingest_counted(env, source_id, fetch, scope, now)
+        .await
+        .result
 }
 
 async fn ingest_inner(
