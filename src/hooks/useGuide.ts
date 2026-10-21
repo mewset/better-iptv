@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getEpgGuide, getEpgGuideKeys, GUIDE_BATCH, type Programme } from '../lib/epgIpc';
 import { useEpgStore } from '../stores/epg-store';
 import { guideChannels, guideDataRange, guideWindow, normalizeEpgId } from '../lib/guideLayout';
 import { logger } from '../lib/logger';
 import type { Channel } from '../types';
+import { useNow } from './useNow';
 
-const REFRESH_MS = 5 * 60_000;
 // Joins ids into one dependency key; a NUL never appears in an EPG id.
 const SEP = '\u0000';
 /** Ids per get_epg_guide request (the backend's GUIDE_MAX_IDS). */
@@ -38,29 +38,19 @@ function dayStart(now: number): number {
  * answers with the keys whose stored guide (first start to last stop)
  * touches the range, which for five days is the same as "has a programme
  * in it". Step 2 fetches the visible window for all rows at once (on a new
- * id set, a day change and every 5 minutes), in requests of at most
- * `GUIDE_REQUEST_IDS` ids. A failed
+ * id set, a day change, and when Today's window moves on with the shared
+ * clock), in requests of at most `GUIDE_REQUEST_IDS` ids. A failed
  * lookup falls back to every channel with an id; a failed programme request
  * leaves rows without programmes. Both are logged, not shown.
  */
 export function useGuide(channels: Channel[], dayOffset: number): GuideState {
-  const [tick, setTick] = useState(0);
-  const [today, setToday] = useState(() => dayStart(Date.now()));
-  // A new calendar day goes through step 1, whose answer reads the
-  // programmes again; the tick only refreshes programmes within a day.
-  const todayRef = useRef(today);
-  useEffect(() => {
-    const id = setInterval(() => {
-      const start = dayStart(Date.now());
-      if (start !== todayRef.current) {
-        todayRef.current = start;
-        setToday(start);
-      } else {
-        setTick((t) => t + 1);
-      }
-    }, REFRESH_MS);
-    return () => clearInterval(id);
-  }, []);
+  // The one clock the guide's now line runs on. A new calendar day goes
+  // through step 1, whose answer reads the programmes again; within a day
+  // only a new window does, which on Today is every half hour. Guide data
+  // itself changes only with `epg-refreshed`.
+  const now = useNow();
+  const today = dayStart(now);
+  const { from: winFrom, to: winTo } = guideWindow(now, dayOffset);
 
   // Step 1. null: not answered yet; 'all': the lookup failed.
   const [idsWithData, setIdsWithData] = useState<Set<string> | 'all' | null>(null);
@@ -111,13 +101,13 @@ export function useGuide(channels: Channel[], dayOffset: number): GuideState {
     Omit<GuideState, 'rows' | 'rowsLoading'> & { forKey: string | null }
   >(() => ({
     programs: {},
-    window: guideWindow(Date.now(), dayOffset),
+    window: { from: winFrom, to: winTo },
     loading: true,
     forKey: null,
   }));
   useEffect(() => {
     const forKey = `${idsKey}\u0001${dayOffset}`;
-    const win = guideWindow(Date.now(), dayOffset);
+    const win = { from: winFrom, to: winTo };
     const ids = idsKey === '' ? [] : idsKey.split(SEP);
     if (ids.length === 0) {
       setState({ programs: {}, window: win, loading: false, forKey });
@@ -147,7 +137,7 @@ export function useGuide(channels: Channel[], dayOffset: number): GuideState {
     };
     // answers: a new lookup answer (refresh, new day) reads the programmes
     // again once, with the ids it brought.
-  }, [idsKey, dayOffset, tick, answers]);
+  }, [idsKey, dayOffset, winFrom, winTo, answers]);
 
   return {
     programs: state.programs,

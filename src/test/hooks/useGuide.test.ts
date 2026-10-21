@@ -3,6 +3,7 @@ import { renderHook, waitFor, act } from '@testing-library/react';
 import { useGuide, GUIDE_REQUEST_IDS } from '../../hooks/useGuide';
 import { getEpgGuide, getEpgGuideKeys } from '../../lib/epgIpc';
 import { useEpgStore } from '../../stores/epg-store';
+import { NOW_TICK_MS } from '../../hooks/useNow';
 import type { Channel } from '../../types';
 
 vi.mock('../../lib/epgIpc', async (importOriginal) => ({
@@ -109,7 +110,7 @@ describe('useGuide', () => {
     expect(mockedGetGuide.mock.calls[1][0]).toEqual(['b']);
   });
 
-  it('refetches programmes every five minutes, and the ids when the date has changed', async () => {
+  it('reads the programmes again when the window moves on, and the ids when the date changes', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 9, 8, 23, 58));
     renderHook(() => useGuide([ch(1, 'a')], 0));
@@ -117,17 +118,28 @@ describe('useGuide', () => {
     expect(mockedGetIds).toHaveBeenCalledTimes(1);
     expect(mockedGetGuide).toHaveBeenCalledTimes(1);
 
+    // A tick inside the same half hour asks for nothing.
     await act(async () => {
-      vi.advanceTimersByTime(5 * 60_000); // 00:03 the next day
+      vi.advanceTimersByTime(NOW_TICK_MS); // 23:58:30
     });
-    expect(mockedGetGuide).toHaveBeenCalledTimes(2);
-    expect(mockedGetIds).toHaveBeenCalledTimes(2);
-    expect(new Date(mockedGetIds.mock.calls[1][0]).getDate()).toBe(9);
+    expect(mockedGetGuide).toHaveBeenCalledTimes(1);
+    expect(mockedGetIds).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      vi.advanceTimersByTime(5 * 60_000); // same day: ids stay
+      vi.advanceTimersByTime(4 * NOW_TICK_MS); // 00:00:30 the next day
     });
-    expect(mockedGetGuide).toHaveBeenCalledTimes(3);
+    expect(mockedGetIds).toHaveBeenCalledTimes(2);
+    expect(new Date(mockedGetIds.mock.calls[1][0]).getDate()).toBe(9);
+    const windowFrom = () => Date.parse(mockedGetGuide.mock.calls.at(-1)![1]);
+    expect(windowFrom()).toBe(new Date(2026, 9, 8, 23, 30).getTime());
+
+    // Same day: the window moves on at the half hour, the ids stay.
+    const calls = mockedGetGuide.mock.calls.length;
+    await act(async () => {
+      vi.advanceTimersByTime(30 * 60_000); // 00:30:30
+    });
+    expect(mockedGetGuide).toHaveBeenCalledTimes(calls + 1);
+    expect(windowFrom()).toBe(new Date(2026, 9, 9, 0, 0).getTime());
     expect(mockedGetIds).toHaveBeenCalledTimes(2);
   });
 
