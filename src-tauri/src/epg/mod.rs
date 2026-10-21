@@ -40,7 +40,7 @@ use tokio::sync::OwnedMutexGuard;
 /// empty file, a page that is not XMLTV, or a feed whose programmes all
 /// ended. Nothing is stored and the previous guide and cached feed stay.
 pub const EMPTY_GUIDE_MESSAGE: &str =
-    "The EPG server sent a program guide without any programmes, so the current guide was kept";
+    "The EPG server sent a programme guide without any programmes, so the current guide was kept";
 
 /// A re-read of the cached feed (after a time policy change) left no
 /// programme to store, mostly because every programme in it has ended. The
