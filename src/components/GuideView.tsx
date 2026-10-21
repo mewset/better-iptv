@@ -4,7 +4,14 @@ import { CalendarRange, Lock, Play, X } from 'lucide-react';
 import { usePlayerStore, type ChannelLoadStatus } from '../stores/player-store';
 import type { Channel } from '../types';
 import type { Programme } from '../lib/epgIpc';
-import { blockGeometry, guideDayLabels, normalizeEpgId } from '../lib/guideLayout';
+import {
+  blockGeometry,
+  guideDayLabels,
+  layoutLanes,
+  normalizeEpgId,
+  type Lane,
+  type LaneLayout,
+} from '../lib/guideLayout';
 import { formatClock, formatClockAt, minutesLeft, progressPercent } from '../lib/epgTime';
 import { cn } from '../lib/utils';
 import { useChannelLogo } from '../hooks/useChannelLogo';
@@ -75,47 +82,67 @@ function LogoTile({
 
 interface Selection {
   channel: Channel;
-  program: Programme;
+  programme: Programme;
+  lane: Lane;
+}
+
+/**
+ * A block's identity within its row. Two lanes can hold programmes with one
+ * start (a film opening a movie-night block), so the start alone is not.
+ */
+function blockKey(start: string, lane: Lane): string {
+  return `${start}|${lane}`;
+}
+
+/** "1 overlapping programme not shown", "3 overlapping programmes not shown". */
+function droppedLabel(n: number): string {
+  return `${n} overlapping programme${n === 1 ? '' : 's'} not shown`;
 }
 
 interface GuideRowProps {
   channel: Channel;
   /** 1-based position among all rows, for aria-rowindex. */
   rowIndex: number;
-  programmes: Programme[] | undefined;
+  /** The row's programmes in lanes; laid out once per answer by GuideView. */
+  layout: LaneLayout | undefined;
   from: number;
   to: number;
   now: number;
   loading: boolean;
   playing: boolean;
   blocked: boolean;
-  selectedStart: string | null;
-  onSelect: (channel: Channel, program: Programme) => void;
+  /** `blockKey` of the selected block when it is in this row. */
+  selectedKey: string | null;
+  onSelect: (channel: Channel, programme: Programme, lane: Lane) => void;
 }
 
 const GuideRow = memo(function GuideRow({
   channel,
   rowIndex,
-  programmes,
+  layout,
   from,
   to,
   now,
   loading,
   playing,
   blocked,
-  selectedStart,
+  selectedKey,
   onSelect,
 }: GuideRowProps) {
-  // Pure per programmes/window: geometry in percent of the track.
+  // Pure per layout/window: geometry in percent of the track.
   const blocks = useMemo(() => {
-    if (!programmes) return [];
-    const out: Array<{ program: Programme; left: number; width: number }> = [];
-    for (const program of programmes) {
-      const g = blockGeometry(program.start, program.stop, from, to, 100);
-      if (g) out.push({ program, ...g });
+    if (!layout) return [];
+    const out: Array<{ programme: Programme; lane: Lane; left: number; width: number }> = [];
+    for (const { programme, lane } of layout.blocks) {
+      const g = blockGeometry(programme.start, programme.stop, from, to, 100);
+      if (g) out.push({ programme, lane, ...g });
     }
     return out;
-  }, [programmes, from, to]);
+  }, [layout, from, to]);
+  // A row with a second lane draws both as half-height blocks in the same
+  // 64 px, so the virtualizer's fixed row height holds.
+  const twoLanes = layout?.laneCount === 2;
+  const dropped = layout?.dropped ?? 0;
 
   return (
     <div
@@ -144,47 +171,72 @@ const GuideRow = memo(function GuideRow({
             <p className="flex h-full items-center text-[13px] text-text-faint">No guide data</p>
           )
         ) : (
-          blocks.map(({ program, left, width }) => {
-            const selected = selectedStart === program.start;
-            const airing = isAiring(program, now);
-            const range = timeRange(program);
-            return (
-              <button
-                key={`${program.start}|${program.title}`}
-                type="button"
-                aria-label={[program.title, range, channel.name].filter(Boolean).join(', ')}
-                // Native tooltip: short blocks truncate long names (children's
-                // programmes especially), so hovering shows the whole thing.
-                title={[program.title, range].filter(Boolean).join(' · ')}
-                aria-pressed={selected}
-                onClick={() => onSelect(channel, program)}
-                style={{
-                  left: `calc(${left}% + 2px)`,
-                  width: `max(0px, calc(${width}% - 4px))`,
-                }}
-                className={cn(
-                  'absolute top-1 h-14 overflow-hidden rounded-[10px] border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
-                  selected
-                    ? 'border-accent bg-accent text-on-accent'
-                    : airing
-                      ? 'border-accent bg-accent/15 text-text hover:bg-accent/25'
-                      : 'border-border bg-text/5 text-text-muted hover:bg-text/10'
-                )}
-              >
-                <span className="block truncate text-[13px] font-semibold">{program.title}</span>
-                {range && (
+          <>
+            {blocks.map(({ programme, lane, left, width }) => {
+              const key = blockKey(programme.start, lane);
+              const selected = selectedKey === key;
+              const airing = isAiring(programme, now);
+              const range = timeRange(programme);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-label={[programme.title, range, channel.name].filter(Boolean).join(', ')}
+                  // Native tooltip: short blocks truncate long names (children's
+                  // programmes especially), and half-height blocks show no
+                  // times, so hovering shows the whole thing.
+                  title={[programme.title, range].filter(Boolean).join(' · ')}
+                  aria-pressed={selected}
+                  onClick={() => onSelect(channel, programme, lane)}
+                  style={{
+                    left: `calc(${left}% + 2px)`,
+                    width: `max(0px, calc(${width}% - 4px))`,
+                  }}
+                  className={cn(
+                    'absolute overflow-hidden border px-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
+                    twoLanes
+                      ? cn('h-[26px] rounded-lg py-1', lane === 0 ? 'top-1' : 'top-[34px]')
+                      : 'top-1 h-14 rounded-[10px] py-2',
+                    selected
+                      ? 'border-accent bg-accent text-on-accent'
+                      : airing
+                        ? 'border-accent bg-accent/15 text-text hover:bg-accent/25'
+                        : 'border-border bg-text/5 text-text-muted hover:bg-text/10'
+                  )}
+                >
                   <span
                     className={cn(
-                      'block truncate text-[11px] tabular-nums',
-                      selected ? 'text-on-accent' : 'text-text-muted'
+                      'block truncate font-semibold',
+                      twoLanes ? 'text-[12px] leading-4' : 'text-[13px]'
                     )}
                   >
-                    {range}
+                    {programme.title}
                   </span>
-                )}
-              </button>
-            );
-          })
+                  {range && !twoLanes && (
+                    <span
+                      className={cn(
+                        'block truncate text-[11px] tabular-nums',
+                        selected ? 'text-on-accent' : 'text-text-muted'
+                      )}
+                    >
+                      {range}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            {/* After the blocks, so it paints over the track's right end. */}
+            {dropped > 0 && (
+              <span
+                role="note"
+                aria-label={droppedLabel(dropped)}
+                title={droppedLabel(dropped)}
+                className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full border border-border-strong bg-surface-2 px-1.5 text-[11px] font-semibold tabular-nums text-text-muted"
+              >
+                +{dropped}
+              </span>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -202,12 +254,12 @@ interface DetailPanelProps {
 }
 
 function DetailPanel({ selection, now, dockVisible, playing, onWatch, onClose }: DetailPanelProps) {
-  const { channel, program } = selection;
+  const { channel, programme } = selection;
   const logo = useChannelLogo(channel);
-  const airing = isAiring(program, now);
-  const range = timeRange(program);
-  const mins = airing ? minutesLeft(program.stop, now) : null;
-  const pct = airing ? progressPercent(program.start, program.stop, now) : null;
+  const airing = isAiring(programme, now);
+  const range = timeRange(programme);
+  const mins = airing ? minutesLeft(programme.stop, now) : null;
+  const pct = airing ? progressPercent(programme.start, programme.stop, now) : null;
   const meta = [channel.name, range, mins !== null ? `${mins} min left` : '']
     .filter(Boolean)
     .join(' · ');
@@ -237,10 +289,10 @@ function DetailPanel({ selection, now, dockVisible, playing, onWatch, onClose }:
       </div>
 
       <div className="min-w-0 flex-1">
-        <h2 className="truncate font-display text-xl font-semibold text-text">{program.title}</h2>
+        <h2 className="truncate font-display text-xl font-semibold text-text">{programme.title}</h2>
         <p className="truncate text-sm text-text-muted">{meta}</p>
-        {program.description && (
-          <p className="truncate text-sm text-text-muted">{program.description}</p>
+        {programme.description && (
+          <p className="truncate text-sm text-text-muted">{programme.description}</p>
         )}
         {pct !== null && (
           <div data-progress className="mt-2 h-1 w-[360px] max-w-full rounded-full bg-text/10">
@@ -296,8 +348,9 @@ export interface GuideViewProps {
 
 /**
  * TV Guide (board 4): day chips and categories, a half-hour time header,
- * one 64 px row per channel with its programmes as positioned blocks, a now
- * line on Today, and a glass detail panel for the selected programme.
+ * one 64 px row per channel with its programmes as positioned blocks (in two
+ * half-height lanes where programmes nest), a now line on Today, and a glass
+ * detail panel for the selected programme.
  */
 export function GuideView({
   channels,
@@ -325,6 +378,14 @@ export function GuideView({
     [channels, favoritesOnly]
   );
   const { rows, programs, window: win, loading, rowsLoading } = useGuide(listed, dayOffset);
+  // Lanes per guide key, once per programme answer: rows remount as they
+  // scroll into view and re-render on every now tick, and neither lays out
+  // again.
+  const lanes = useMemo(() => {
+    const out = new Map<string, LaneLayout>();
+    for (const key in programs) out.set(key, layoutLanes(programs[key]));
+    return out;
+  }, [programs]);
 
   // Rows are virtualized: a guide can list over a thousand channels, and only
   // the rows in view (plus overscan) are in the DOM. Fixed height, so no
@@ -375,8 +436,8 @@ export function GuideView({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [selection]);
 
-  const handleSelect = useCallback((channel: Channel, program: Programme) => {
-    setSelection({ channel, program });
+  const handleSelect = useCallback((channel: Channel, programme: Programme, lane: Lane) => {
+    setSelection({ channel, programme, lane });
   }, []);
 
   // Clicking the day already shown keeps the selection.
@@ -543,15 +604,17 @@ export function GuideView({
                       <GuideRow
                         channel={channel}
                         rowIndex={virtualRow.index + 1}
-                        programmes={programs[normalizeEpgId(channel.epg_id!)]}
+                        layout={lanes.get(normalizeEpgId(channel.epg_id!))}
                         from={win.from}
                         to={win.to}
                         now={now}
                         loading={loading}
                         playing={playingChannelId === channel.id}
                         blocked={blockedMap?.get(channel.id) ?? false}
-                        selectedStart={
-                          selection?.channel.id === channel.id ? selection.program.start : null
+                        selectedKey={
+                          selection?.channel.id === channel.id
+                            ? blockKey(selection.programme.start, selection.lane)
+                            : null
                         }
                         onSelect={handleSelect}
                       />

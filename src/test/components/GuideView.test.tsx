@@ -4,6 +4,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { GuideView } from '../../components/GuideView';
 import { usePlayerStore } from '../../stores/player-store';
 import { formatClock } from '../../lib/epgTime';
+import { layoutLanes } from '../../lib/guideLayout';
+import { NOW_TICK_MS } from '../../hooks/useNow';
 import { resetLogoFallbackSession, useLogoFallbackStore } from '../../lib/logoFallback';
 import type { Programme } from '../../lib/epgIpc';
 import { useEpgStore } from '../../stores/epg-store';
@@ -44,9 +46,17 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
 }));
 
+// The real layout, counted: lanes are laid out once per programme answer.
+vi.mock('../../lib/guideLayout', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/guideLayout')>();
+  return { ...actual, layoutLanes: vi.fn(actual.layoutLanes) };
+});
+const mockedLayoutLanes = vi.mocked(layoutLanes);
+
 const mockedInvoke = vi.mocked(invoke);
 
 const at = (min: number) => new Date(Date.now() + min * 60_000).toISOString();
+const span = (from: number, to: number) => ({ start: at(from), stop: at(to) });
 
 function channel(id: number, name: string, epg_id: string | null): Channel {
   return {
@@ -112,6 +122,7 @@ const blockName = (p: Programme, ch: string) =>
 describe('GuideView', () => {
   beforeEach(() => {
     mockedInvoke.mockReset();
+    mockedLayoutLanes.mockClear();
     guide = { 'svt1.se': [airing, later], 'tv4.se': [] };
     guideIds = ['svt1.se', 'tv4.se'];
     virtualiser.scrollOffset = 0;
@@ -203,6 +214,110 @@ describe('GuideView', () => {
     expect(now.className).toContain('border-accent');
     const next = screen.getByRole('button', { name: blockName(later, 'SVT1') });
     expect(next.className).not.toContain('border-accent');
+  });
+
+  it('draws a row without nested programmes as full-height blocks', async () => {
+    renderGuide();
+    const block = await screen.findByRole('button', { name: blockName(airing, 'SVT1') });
+    expect(block.className).toContain('h-14');
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('draws a nested pair as two half-height blocks, both airing while both run', async () => {
+    const container: Programme = { title: 'Movie night', description: null, ...span(-30, 90) };
+    const nested: Programme = { title: 'Film', description: null, ...span(-15, 45) };
+    guide = { 'svt1.se': [container, nested], 'tv4.se': [airing] };
+    renderGuide();
+    const row = await screen.findByRole('row', { name: 'SVT1' });
+    const top = await within(row).findByRole('button', { name: blockName(container, 'SVT1') });
+    const below = within(row).getByRole('button', { name: blockName(nested, 'SVT1') });
+    for (const block of [top, below]) {
+      expect(block.className).toContain('h-[26px]');
+      expect(block.className).toContain('border-accent');
+      // Half-height blocks show no times; the tooltip still has them.
+      expect(block.textContent).not.toContain('–');
+    }
+    expect(top.className).toContain('top-1');
+    expect(below.className).toContain('top-[34px]');
+    // TV4 has no second lane and keeps its full-height block.
+    const tv4Row = screen.getByRole('row', { name: 'TV4' });
+    expect(within(tv4Row).getByRole('button').className).toContain('h-14');
+  });
+
+  it('counts programmes that fit in neither lane in a +N chip', async () => {
+    const block: Programme = { title: 'Block', description: null, ...span(-30, 120) };
+    const first: Programme = { title: 'First', description: null, ...span(-20, 40) };
+    const second: Programme = { title: 'Second', description: null, ...span(0, 60) };
+    const third: Programme = { title: 'Third', description: null, ...span(10, 50) };
+    guide = { 'svt1.se': [block, first, second, third], 'tv4.se': [] };
+    renderGuide();
+    const row = await screen.findByRole('row', { name: 'SVT1' });
+    const chip = await within(row).findByRole('note', {
+      name: '2 overlapping programmes not shown',
+    });
+    expect(chip).toHaveTextContent('+2');
+    expect(within(row).getAllByRole('button')).toHaveLength(2);
+    expect(within(row).queryByRole('button', { name: blockName(second, 'SVT1') })).toBeNull();
+  });
+
+  it('names a single programme left out in the singular', async () => {
+    const block: Programme = { title: 'Block', description: null, ...span(-30, 120) };
+    const first: Programme = { title: 'First', description: null, ...span(-20, 40) };
+    const second: Programme = { title: 'Second', description: null, ...span(0, 60) };
+    guide = { 'svt1.se': [block, first, second], 'tv4.se': [] };
+    renderGuide();
+    const row = await screen.findByRole('row', { name: 'SVT1' });
+    expect(
+      await within(row).findByRole('note', { name: '1 overlapping programme not shown' })
+    ).toHaveTextContent('+1');
+  });
+
+  it('selects one of two programmes with one start, and only that one', async () => {
+    const container: Programme = { title: 'Movie night', description: null, ...span(-10, 110) };
+    const opener: Programme = { title: 'Film', description: 'The first film.', ...span(-10, 50) };
+    guide = { 'svt1.se': [container, opener], 'tv4.se': [] };
+    renderGuide();
+    const row = await screen.findByRole('row', { name: 'SVT1' });
+    const film = await within(row).findByRole('button', { name: blockName(opener, 'SVT1') });
+    const night = within(row).getByRole('button', { name: blockName(container, 'SVT1') });
+
+    fireEvent.click(film);
+    expect(film).toHaveAttribute('aria-pressed', 'true');
+    expect(night).toHaveAttribute('aria-pressed', 'false');
+    const panel = screen.getByRole('region', { name: 'Selected programme' });
+    expect(within(panel).getByText('The first film.')).toBeInTheDocument();
+
+    fireEvent.click(night);
+    expect(night).toHaveAttribute('aria-pressed', 'true');
+    expect(film).toHaveAttribute('aria-pressed', 'false');
+    expect(within(panel).getByRole('heading', { name: 'Movie night' })).toBeInTheDocument();
+  });
+
+  it('lays out each row once per answer, not again on a re-render or a now tick', async () => {
+    // Mid half hour, so the tick does not move the window and fetch again.
+    const mid = new Date();
+    mid.setMinutes(mid.getMinutes() >= 30 ? 40 : 10, 0, 0);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(mid);
+    try {
+      guide = { 'svt1.se': [{ title: 'News', description: null, ...span(-5, 20) }], 'tv4.se': [] };
+      renderGuide();
+      await screen.findByRole('button', { name: /^News/ });
+      const calls = mockedLayoutLanes.mock.calls.length;
+      expect(calls).toBe(2);
+      const line = screen.getByTestId('guide-now-line');
+      const before = line.style.left;
+
+      act(() => usePlayerStore.setState({ categories: ['Sweden'] }));
+      await act(async () => {
+        vi.advanceTimersByTime(NOW_TICK_MS);
+      });
+      // The tick reached the guide (the now line moved) without a new layout.
+      expect(screen.getByTestId('guide-now-line').style.left).not.toBe(before);
+      expect(mockedLayoutLanes.mock.calls.length).toBe(calls);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows no detail panel until a block is selected', async () => {
