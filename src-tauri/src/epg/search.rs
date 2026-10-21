@@ -1,6 +1,6 @@
 //! Searching the stored guide's channels for the picker that matches a
 //! channel by hand. The database finds every display name and key that
-//! contains the query; `epg_domain::search` ranks them.
+//! contains the query; `epg_domain::search` ranks them and keeps the best.
 //!
 //! Only guide channels that have programmes, in the enabled sources that
 //! apply to the active profile, are searched: a channel matched to anything
@@ -8,9 +8,10 @@
 
 use super::sources::list_sources;
 use super::status::picker_label;
-use crate::epg_domain::search::{best_hits, clamp_search_limit, Candidate, SearchQuery};
+use crate::epg_domain::search::{clamp_search_limit, BestHits, CandidateRow, SearchQuery};
 use crate::epg_domain::source::applies_to;
-use rusqlite::{params, Connection};
+use rusqlite::types::Type;
+use rusqlite::{params, Connection, Row};
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -39,8 +40,16 @@ const CANDIDATES: &str = "SELECT c.key, n.name, n.name_key, COALESCE(n.position,
       AND c.programme_count > 0
       AND (instr(c.key, ?2) > 0 OR instr(n.name_key, ?3) > 0)";
 
+/// The text in column `idx`, borrowed from the row; `None` for NULL.
+fn text_at<'r>(row: &'r Row<'_>, idx: usize) -> rusqlite::Result<Option<&'r str>> {
+    row.get_ref(idx)?
+        .as_str_or_null()
+        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(idx, Type::Text, Box::new(e)))
+}
+
 /// The guide channels of `profile`'s sources that `query` finds, best
-/// first, at most `limit` (clamped to 1..=50). An empty query finds nothing.
+/// first, at most `limit` (clamped to 1..=50). A query under two characters
+/// (see `SearchQuery::new`) finds nothing.
 pub fn search_channels(
     conn: &Connection,
     profile: Option<i64>,
@@ -50,20 +59,24 @@ pub fn search_channels(
     let Some(query) = SearchQuery::new(query) else {
         return Ok(Vec::new());
     };
-    let candidates: Vec<Candidate> = conn
-        .prepare_cached(CANDIDATES)?
-        .query_map(params![profile, query.key, query.name], |r| {
-            Ok(Candidate {
-                key: r.get(0)?,
-                name: r.get(1)?,
-                name_key: r.get(2)?,
+    let mut best = BestHits::new(&query, clamp_search_limit(limit));
+    {
+        let mut stmt = conn.prepare_cached(CANDIDATES)?;
+        let mut rows = stmt.query(params![profile, query.key, query.name])?;
+        while let Some(r) = rows.next()? {
+            let key = text_at(r, 0)?
+                .ok_or_else(|| rusqlite::Error::InvalidColumnType(0, "key".into(), Type::Null))?;
+            best.offer(CandidateRow {
+                key,
+                name: text_at(r, 1)?,
+                name_key: text_at(r, 2)?,
                 position: r.get(3)?,
                 source_id: r.get(4)?,
                 priority: r.get(5)?,
-            })
-        })?
-        .collect::<rusqlite::Result<_>>()?;
-    let hits = best_hits(&query, candidates, clamp_search_limit(limit));
+            });
+        }
+    }
+    let hits = best.into_hits();
     if hits.is_empty() {
         return Ok(Vec::new());
     }
@@ -176,12 +189,15 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_query_finds_nothing() {
+    fn an_empty_or_one_character_query_finds_nothing() {
         let conn = setup_test_db();
         let s = source(&conn, None, "manual", 10);
         guide_channel(&conn, s, "svt1.se", &["SVT1"], 5);
         assert!(search_channels(&conn, None, "", 50).unwrap().is_empty());
         assert!(search_channels(&conn, None, "  ", 50).unwrap().is_empty());
+        assert!(search_channels(&conn, None, "s", 50).unwrap().is_empty());
+        assert!(search_channels(&conn, None, " 1_ ", 50).unwrap().is_empty());
+        assert_eq!(search_channels(&conn, None, "sv", 50).unwrap().len(), 1);
     }
 
     #[test]

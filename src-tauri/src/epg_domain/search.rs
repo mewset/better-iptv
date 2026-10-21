@@ -10,9 +10,14 @@
 //! the same order every time.
 
 use super::key::{channel_key, name_key};
+use std::cmp::Ordering;
 
 /// At most this many hits per search.
 pub const MAX_SEARCH_HITS: usize = 50;
+
+/// A query shorter than this, in either of its two forms, searches nothing:
+/// one character is in nearly every name of a large guide.
+pub const MIN_QUERY_CHARS: usize = 2;
 
 /// The number of hits a request for `limit` gets: 1 to `MAX_SEARCH_HITS`.
 pub fn clamp_search_limit(limit: u32) -> usize {
@@ -29,17 +34,20 @@ pub struct SearchQuery {
 }
 
 impl SearchQuery {
-    /// `None` for a query that is empty after trimming: nothing is searched.
+    /// `None` for a query that is empty after trimming, or shorter than
+    /// `MIN_QUERY_CHARS` as a name or as a key: nothing is searched.
     pub fn new(raw: &str) -> Option<Self> {
-        Some(SearchQuery {
+        let query = SearchQuery {
             name: name_key(raw)?,
             key: channel_key(raw)?,
-        })
+        };
+        let long_enough = |form: &str| form.chars().count() >= MIN_QUERY_CHARS;
+        (long_enough(&query.name) && long_enough(&query.key)).then_some(query)
     }
 }
 
 /// One display name of a guide channel (or the channel alone, when the feed
-/// names it nowhere) that the database found for the query.
+/// names it nowhere) that the search keeps.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Candidate {
     pub key: String,
@@ -51,6 +59,31 @@ pub struct Candidate {
     pub source_id: i64,
     /// The source's `priority`: lower wins.
     pub priority: i32,
+}
+
+/// A row the database found, borrowed from it, so a row the search does
+/// not keep is never copied.
+#[derive(Clone, Copy, Debug)]
+pub struct CandidateRow<'a> {
+    pub key: &'a str,
+    pub name: Option<&'a str>,
+    pub name_key: Option<&'a str>,
+    pub position: i64,
+    pub source_id: i64,
+    pub priority: i32,
+}
+
+impl CandidateRow<'_> {
+    fn to_candidate(self) -> Candidate {
+        Candidate {
+            key: self.key.to_string(),
+            name: self.name.map(str::to_string),
+            name_key: self.name_key.map(str::to_string),
+            position: self.position,
+            source_id: self.source_id,
+            priority: self.priority,
+        }
+    }
 }
 
 /// How closely `text` meets `query`: 0 equal, 1 starts with it, 2 contains
@@ -67,42 +100,93 @@ fn closeness(text: &str, query: &str) -> Option<u8> {
     }
 }
 
-/// The candidate's rank for the query; `None` when it does not match.
-fn rank(query: &SearchQuery, candidate: &Candidate) -> Option<u8> {
-    let by_name = candidate
-        .name_key
-        .as_deref()
-        .and_then(|name| closeness(name, &query.name));
-    let by_key = closeness(&candidate.key, &query.key);
+/// The row's rank for the query; `None` when it does not match.
+fn rank(query: &SearchQuery, row: &CandidateRow<'_>) -> Option<u8> {
+    let by_name = row.name_key.and_then(|name| closeness(name, &query.name));
+    let by_key = closeness(row.key, &query.key);
     match (by_name, by_key) {
         (Some(a), Some(b)) => Some(a.min(b)),
         (a, b) => a.or(b),
     }
 }
 
-/// The best `limit` candidates, one per guide key, best first. For a key
-/// several candidates reach (two names, two sources), the best ranked one
-/// stands for it, so the name shown is the one that matched.
-pub fn best_hits(query: &SearchQuery, candidates: Vec<Candidate>, limit: usize) -> Vec<Candidate> {
-    let mut ranked: Vec<(u8, Candidate)> = candidates
-        .into_iter()
-        .filter_map(|c| rank(query, &c).map(|r| (r, c)))
-        .collect();
-    ranked.sort_by(|(ra, a), (rb, b)| {
-        ra.cmp(rb)
-            .then(a.priority.cmp(&b.priority))
-            .then(a.source_id.cmp(&b.source_id))
-            .then(a.name_key.cmp(&b.name_key))
-            .then(a.key.cmp(&b.key))
-            .then(a.position.cmp(&b.position))
-    });
-    let mut seen = std::collections::HashSet::new();
-    ranked
-        .into_iter()
-        .map(|(_, c)| c)
-        .filter(|c| seen.insert(c.key.clone()))
-        .take(limit)
-        .collect()
+/// The order hits are listed in: rank, source priority, source, name, key,
+/// then the name's position.
+type OrderKey<'a> = (u8, i32, i64, Option<&'a str>, &'a str, i64);
+
+fn kept_order(rank: u8, c: &Candidate) -> OrderKey<'_> {
+    (
+        rank,
+        c.priority,
+        c.source_id,
+        c.name_key.as_deref(),
+        &c.key,
+        c.position,
+    )
+}
+
+fn row_order<'a>(rank: u8, row: &CandidateRow<'a>) -> OrderKey<'a> {
+    (
+        rank,
+        row.priority,
+        row.source_id,
+        row.name_key,
+        row.key,
+        row.position,
+    )
+}
+
+/// The best `limit` candidates offered so far, one per guide key, best
+/// first. For a key several rows reach (two names, two sources), the best
+/// ranked one stands for it, so the name shown is the one that matched; of
+/// two rows that order the same, the first offered stays.
+///
+/// Only `limit` candidates are ever held: a row that would land past the
+/// last kept one is dropped before anything is copied out of it.
+#[derive(Debug)]
+pub struct BestHits<'q> {
+    query: &'q SearchQuery,
+    limit: usize,
+    kept: Vec<(u8, Candidate)>,
+}
+
+impl<'q> BestHits<'q> {
+    pub fn new(query: &'q SearchQuery, limit: usize) -> Self {
+        BestHits {
+            query,
+            limit,
+            kept: Vec::with_capacity(limit),
+        }
+    }
+
+    /// Considers one row the database found.
+    pub fn offer(&mut self, row: CandidateRow<'_>) {
+        let Some(rank) = rank(self.query, &row) else {
+            return;
+        };
+        let order = row_order(rank, &row);
+        // Everything before `at` orders before the row or the same.
+        let at = self
+            .kept
+            .partition_point(|(r, c)| kept_order(*r, c).cmp(&order) != Ordering::Greater);
+        if at >= self.limit {
+            // At least `limit` keys order before it, its own among them if
+            // it is kept already.
+            return;
+        }
+        if let Some(same_key) = self.kept.iter().position(|(_, c)| c.key == row.key) {
+            if same_key < at {
+                return;
+            }
+            self.kept.remove(same_key);
+        }
+        self.kept.insert(at, (rank, row.to_candidate()));
+        self.kept.truncate(self.limit);
+    }
+
+    pub fn into_hits(self) -> Vec<Candidate> {
+        self.kept.into_iter().map(|(_, c)| c).collect()
+    }
 }
 
 #[cfg(test)]
@@ -131,6 +215,47 @@ mod tests {
         }
     }
 
+    fn row(c: &Candidate) -> CandidateRow<'_> {
+        CandidateRow {
+            key: &c.key,
+            name: c.name.as_deref(),
+            name_key: c.name_key.as_deref(),
+            position: c.position,
+            source_id: c.source_id,
+            priority: c.priority,
+        }
+    }
+
+    /// Offers the candidates in the order given, as the database would.
+    fn best_hits(query: &SearchQuery, candidates: Vec<Candidate>, limit: usize) -> Vec<Candidate> {
+        let mut best = BestHits::new(query, limit);
+        for c in &candidates {
+            best.offer(row(c));
+        }
+        best.into_hits()
+    }
+
+    /// The selection as a full stable sort of every match, then the first
+    /// row per key: what `BestHits` must equal.
+    fn sorted_hits(
+        query: &SearchQuery,
+        candidates: Vec<Candidate>,
+        limit: usize,
+    ) -> Vec<Candidate> {
+        let mut ranked: Vec<(u8, Candidate)> = candidates
+            .into_iter()
+            .filter_map(|c| rank(query, &row(&c)).map(|r| (r, c)))
+            .collect();
+        ranked.sort_by(|(ra, a), (rb, b)| kept_order(*ra, a).cmp(&kept_order(*rb, b)));
+        let mut seen = std::collections::HashSet::new();
+        ranked
+            .into_iter()
+            .map(|(_, c)| c)
+            .filter(|c| seen.insert(c.key.clone()))
+            .take(limit)
+            .collect()
+    }
+
     fn keys(hits: &[Candidate]) -> Vec<&str> {
         hits.iter().map(|h| h.key.as_str()).collect()
     }
@@ -152,6 +277,20 @@ mod tests {
         assert_eq!(SearchQuery::new(""), None);
         assert_eq!(SearchQuery::new("   "), None);
         assert_eq!(SearchQuery::new(" _ "), None);
+    }
+
+    #[test]
+    fn a_query_under_two_characters_searches_nothing() {
+        assert_eq!(SearchQuery::new("s"), None);
+        assert_eq!(SearchQuery::new("  Ä "), None);
+        assert_eq!(
+            SearchQuery::new("1_"),
+            None,
+            "one character once normalised"
+        );
+        assert_eq!(SearchQuery::new("_ _"), None);
+        assert!(SearchQuery::new("tv").is_some());
+        assert!(SearchQuery::new(" äm ").is_some());
     }
 
     #[test]
@@ -255,6 +394,56 @@ mod tests {
         assert_eq!(hits.len(), 50);
         assert_eq!(hits[0].key, "kanal00.se");
         assert_eq!(hits[49].key, "kanal49.se");
+    }
+
+    #[test]
+    fn keeping_only_the_best_equals_sorting_everything() {
+        // A deterministic mix: keys reached by several names and sources,
+        // equal names in different sources, ties down to the position, and
+        // rows that do not match at all, offered in a scrambled order.
+        let names = [
+            "Kanal",
+            "Kanal 1",
+            "Min kanal",
+            "Kanalen HD",
+            "Sport",
+            "kanal",
+        ];
+        let mut candidates = Vec::new();
+        let mut seed: u64 = 0x2545_f491_4f6c_dd1d;
+        for i in 0..3_000u64 {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            let key = format!("k{:03}.se", seed % 400);
+            let name = names[(seed >> 9) as usize % names.len()];
+            let source_id = ((seed >> 17) % 4) as i64 + 1;
+            let mut c = if (seed >> 23).is_multiple_of(7) {
+                Candidate {
+                    name: None,
+                    name_key: None,
+                    ..named(&key, name, source_id, 0)
+                }
+            } else {
+                named(&key, name, source_id, 0)
+            };
+            c.priority = [10, 10, 20, 5][(source_id - 1) as usize];
+            c.position = ((seed >> 29) % 3) as i64;
+            if i.is_multiple_of(11) {
+                c.key = format!("kanal{:02}.se", seed % 60);
+            }
+            candidates.push(c);
+        }
+        for raw in ["kanal", "kanal 1", "k1", "k00", "sport", "kanal0"] {
+            let q = query(raw);
+            for limit in [1, 7, 50] {
+                assert_eq!(
+                    best_hits(&q, candidates.clone(), limit),
+                    sorted_hits(&q, candidates.clone(), limit),
+                    "query {raw:?}, limit {limit}"
+                );
+            }
+        }
     }
 
     #[test]

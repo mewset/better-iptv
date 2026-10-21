@@ -200,8 +200,8 @@ pub async fn set_channel_epg_match(
 }
 
 /// Guide channels of the active profile's sources whose display name or
-/// key contains `query`, best first, at most `limit` (1 to 50). An empty
-/// query finds nothing.
+/// key contains `query`, best first, at most `limit` (1 to 50). A query
+/// under two characters finds nothing.
 #[tauri::command]
 pub async fn search_epg_channels(
     state: State<'_, AppState>,
