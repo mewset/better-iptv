@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Wrench } from 'lucide-react';
 import { setChannelEpgMatch, type ManualMatch } from '../../lib/epgIpc';
 import { manualTarget, matchLookup } from '../../lib/epgMatchView';
@@ -26,11 +26,18 @@ export default function ChannelMatchFixes({ playlistId, hasGuide }: ChannelMatch
   const lookup = useMemo(() => (details ? matchLookup(details) : null), [details]);
   const manual = useVisibleManualMatches(details?.manual);
   const [picking, setPicking] = useState(false);
+  const fixButton = useRef<globalThis.HTMLButtonElement>(null);
+  const closePicker = useCallback(() => {
+    setPicking(false);
+    // Back where the picker was opened from, not at the top of the page.
+    fixButton.current?.focus();
+  }, []);
 
   if (playlistId === undefined) return null;
   return (
     <div className="mt-3 space-y-4">
       <button
+        ref={fixButton}
         type="button"
         onClick={() => setPicking(true)}
         disabled={!hasGuide}
@@ -51,7 +58,7 @@ export default function ChannelMatchFixes({ playlistId, hasGuide }: ChannelMatch
       )}
       <GuideChannelPicker
         isOpen={picking}
-        onClose={() => setPicking(false)}
+        onClose={closePicker}
         lookup={lookup}
         onChanged={reload}
       />

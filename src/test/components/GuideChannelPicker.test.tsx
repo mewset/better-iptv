@@ -403,6 +403,23 @@ describe('Fixing a channel by hand in Settings → EPG', () => {
     expect(removed.some((text) => text.includes('No guide channel'))).toBe(false);
   });
 
+  it('gives the focus back to "Fix a channel…" when it closes', async () => {
+    vi.useFakeTimers();
+    await renderTab();
+    const opener = screen.getByRole('button', { name: 'Fix a channel…' });
+    await openPicker();
+    expect(opener).not.toHaveFocus();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(opener).toHaveFocus();
+
+    await openPicker();
+    await pick('SVT1');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(opener).toHaveFocus();
+  });
+
   it('goes back to your channels and closes with Escape', async () => {
     vi.useFakeTimers();
     await renderTab();
