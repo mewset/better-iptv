@@ -49,7 +49,7 @@ import { useHomeRows } from '../hooks/useHomeRows';
 import type { HomePickView } from './HomeView';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { newestTitles } from '../lib/newestTitle';
-import { formatClockAt } from '../lib/epgTime';
+import { cardEpg, formatClockAt } from '../lib/epgTime';
 
 const SECTION_TITLES: Record<Section, string> = {
   home: 'Home',
@@ -969,8 +969,7 @@ export default function MainScreen() {
                                 isPlaying={currentChannel?.id === channel.id && isPlaying}
                                 onPlay={handlePlayChannel}
                                 onToggleFavorite={toggleChannelFavorite}
-                                epg={nowNextFor(nowNext, channel)}
-                                now={now}
+                                {...cardEpg(nowNextFor(nowNext, channel), now)}
                                 tmdb={tmdbCards.get(channel.id)}
                                 isBlocked={isChannelBlocked}
                                 parentalVisibility={parentalVisibility}

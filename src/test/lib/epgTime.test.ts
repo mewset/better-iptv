@@ -4,7 +4,9 @@ import {
   formatClockAt,
   progressPercent,
   minutesLeft,
+  cardEpg,
   isNowNextStale,
+  shownNowNext,
   nowNextBoundary,
 } from '../../lib/epgTime';
 import { nowNext, programme } from '../epgFixtures';
@@ -63,5 +65,21 @@ describe('epgTime', () => {
     expect(isNowNextStale(nowNext(programme('A', iso(-30), 'bad')), T)).toBe(false);
     expect(isNowNextStale(nowNext(null, null), T)).toBe(false);
     expect(nowNextBoundary(nowNext(null, null))).toBeNull();
+  });
+  it('hides a stale entry from cards and the dock alike', () => {
+    const ended = nowNext(programme('A', iso(-30), iso(-1)));
+    const airing = nowNext(programme('A', iso(-30), iso(30)));
+    expect(shownNowNext(ended, T)).toBeUndefined();
+    expect(shownNowNext(airing, T)).toBe(airing);
+    expect(shownNowNext(undefined, T)).toBeUndefined();
+    expect(cardEpg(ended, T)).toEqual({ epg: undefined, progress: null });
+  });
+  it('gives a card the entry itself and its rounded progress', () => {
+    const airing = nowNext(programme('A', iso(-15), iso(45)));
+    const card = cardEpg(airing, T);
+    expect(card.epg).toBe(airing);
+    expect(card.progress).toBe(25);
+    const offAir = nowNext(null, programme('B', iso(30), iso(60)));
+    expect(cardEpg(offAir, T)).toEqual({ epg: offAir, progress: null });
   });
 });

@@ -3,7 +3,7 @@ import { useChannelLogo } from '../hooks/useChannelLogo';
 import { Play, Square, Star, Lock } from 'lucide-react';
 import type { Channel } from '../types';
 import type { NowNext } from '../lib/epgIpc';
-import { formatClock, progressPercent } from '../lib/epgTime';
+import { formatClock } from '../lib/epgTime';
 import { ColorBars } from './ColorBars';
 import { metaLine } from '../lib/tmdb';
 import type { TmdbCard } from '../lib/tauri';
@@ -14,10 +14,10 @@ interface ChannelCardProps {
   isPlaying: boolean;
   /** Callback when play/stop button is clicked */
   onPlay: (channel: Channel) => void;
-  /** Now and next on this channel, if the guide has them */
+  /** Now and next on this channel as shown now (`cardEpg`), if the guide has them */
   epg?: NowNext;
-  /** The current time (epoch ms) for the progress line; `useNow` */
-  now: number;
+  /** Rounded percent of the programme on now that has aired (`cardEpg`); null hides the line */
+  progress?: number | null;
   /** Whether this channel is blocked by parental controls */
   isBlocked?: boolean;
   /** Visibility mode for blocked channels */
@@ -42,7 +42,7 @@ export const ChannelCard = memo(function ChannelCard({
   isPlaying,
   onPlay,
   epg,
-  now,
+  progress = null,
   isBlocked = false,
   parentalVisibility = 'hide',
   onToggleFavorite,
@@ -61,7 +61,7 @@ export const ChannelCard = memo(function ChannelCard({
 
   const current = epg?.now ?? null;
   const next = epg?.next ?? null;
-  const pct = current ? progressPercent(current.start, current.stop, now) : null;
+  const pct = current ? progress : null;
   const nowTime = current ? formatClock(current.start) : '';
   const nextTime = next ? formatClock(next.start) : '';
 

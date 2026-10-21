@@ -75,3 +75,26 @@ export function isNowNextStale(entry: NowNext, now: number = Date.now()): boolea
   const boundary = nowNextBoundary(entry);
   return boundary !== null && boundary <= now;
 }
+
+/**
+ * The entry as cards and the dock show it at `now`: hidden once stale, so an
+ * ended programme is never shown as on now while its refetch is on its way.
+ */
+export function shownNowNext(entry: NowNext | undefined, now: number): NowNext | undefined {
+  return entry && isNowNextStale(entry, now) ? undefined : entry;
+}
+
+/**
+ * A channel card's guide props at `now`: the entry it shows and the rounded
+ * progress of the programme on now (null without one). Both change only
+ * when the card's output does, so the 30 s clock re-renders only the cards
+ * whose progress line moved or whose programme ended.
+ */
+export function cardEpg(
+  entry: NowNext | undefined,
+  now: number
+): { epg: NowNext | undefined; progress: number | null } {
+  const epg = shownNowNext(entry, now);
+  const current = epg?.now;
+  return { epg, progress: current ? progressPercent(current.start, current.stop, now) : null };
+}

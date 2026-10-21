@@ -3,7 +3,7 @@ import { Square } from 'lucide-react';
 import { useChannelLogo } from '../hooks/useChannelLogo';
 import type { Channel } from '../types';
 import type { NowNext } from '../lib/epgIpc';
-import { formatClock, progressPercent, minutesLeft, isNowNextStale } from '../lib/epgTime';
+import { formatClock, progressPercent, minutesLeft, shownNowNext } from '../lib/epgTime';
 import { ColorBars } from './ColorBars';
 
 interface NowPlayingBarProps {
@@ -38,7 +38,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   // An entry that no longer describes the present (its programme ended, or
   // an off-air entry's next programme began) is not shown while the
   // refetch, asked for just after that boundary, is on its way.
-  const epg = cachedEpg && isNowNextStale(cachedEpg, now) ? undefined : cachedEpg;
+  const epg = shownNowNext(cachedEpg, now);
 
   const current = epg?.now ?? null;
   const programme = current?.title ?? null;
