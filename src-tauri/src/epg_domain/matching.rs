@@ -14,9 +14,10 @@
 //! it a key either (a lower-precedence source is often another country's
 //! guide). Between sources, the higher-precedence source's name wins.
 //!
-//! A match set by hand (`manual`) is never changed here, even when its key
-//! has left the guide. VOD and series rows never get a match; one they hold
-//! from before (a channel the provider turned into VOD) is cleared.
+//! A match set by hand (`manual`) is never changed by the matcher, even when
+//! its key has left the guide; only `clear_by_hand` gives such a channel back
+//! to it. VOD and series rows never get a match; one they hold from before (a
+//! channel the provider turned into VOD) is cleared.
 
 use super::key::{channel_key, name_key};
 use std::collections::hash_map::Entry;
@@ -265,6 +266,41 @@ impl<'g> Matcher<'g> {
     pub fn finish(self) -> MatchReport {
         self.report
     }
+}
+
+/// The update that sets `key` (already a `channel_key`) on a live channel
+/// by hand; `None` when that is its stored match already.
+pub fn set_by_hand(channel: &ChannelRow<'_>, key: String) -> Option<MatchUpdate> {
+    if channel.match_key == Some(key.as_str())
+        && channel.match_source == Some(MatchSource::Manual.as_db())
+    {
+        return None;
+    }
+    Some(MatchUpdate {
+        channel_id: channel.id,
+        key: Some(key),
+        source: Some(MatchSource::Manual),
+    })
+}
+
+/// The update that clears a match set by hand: the channel gets the match
+/// the matcher gives it, as if it had never been set. `None` when nothing
+/// changes, which for a row not set by hand means its automatic match
+/// stands.
+pub fn clear_by_hand(index: &GuideIndex, channel: &ChannelRow<'_>) -> Option<MatchUpdate> {
+    let manual = channel.match_source.and_then(MatchSource::from_db) == Some(MatchSource::Manual);
+    let row = ChannelRow {
+        match_source: if manual { None } else { channel.match_source },
+        ..*channel
+    };
+    Matcher::new(index).visit(&row).or_else(|| {
+        // A manual row without a key: nothing to compare, still cleared.
+        manual.then_some(MatchUpdate {
+            channel_id: channel.id,
+            key: None,
+            source: None,
+        })
+    })
 }
 
 #[cfg(test)]
@@ -583,6 +619,73 @@ mod tests {
         };
         let (updates, _) = run(&index, &[row]);
         assert_eq!(updates, [set(1, "svt1.se", MatchSource::Id)]);
+    }
+
+    #[test]
+    fn setting_by_hand_writes_manual_unless_it_is_already_set() {
+        let row = live(1, Some("tv4.se"), "TV4");
+        assert_eq!(
+            set_by_hand(&row, "tv4hd.se".to_string()),
+            Some(set(1, "tv4hd.se", MatchSource::Manual))
+        );
+        // The same key found automatically becomes a manual one.
+        let automatic = ChannelRow {
+            match_key: Some("tv4.se"),
+            match_source: Some("id"),
+            ..row
+        };
+        assert_eq!(
+            set_by_hand(&automatic, "tv4.se".to_string()),
+            Some(set(1, "tv4.se", MatchSource::Manual))
+        );
+        let manual = ChannelRow {
+            match_key: Some("tv4hd.se"),
+            match_source: Some("manual"),
+            ..row
+        };
+        assert_eq!(set_by_hand(&manual, "tv4hd.se".to_string()), None);
+    }
+
+    #[test]
+    fn clearing_by_hand_gives_the_automatic_match_back() {
+        let index = GuideIndex::build([source(&["tv4.se"], &[("svt1", "svt1.se")])]);
+        let manual = |epg_id: Option<&'static str>, name: &'static str| ChannelRow {
+            match_key: Some("tv4hd.se"),
+            match_source: Some("manual"),
+            ..live(1, epg_id, name)
+        };
+
+        // By id; the stored key equal to the automatic one still changes
+        // the source.
+        assert_eq!(
+            clear_by_hand(&index, &manual(Some("TV4.se"), "TV4")),
+            Some(set(1, "tv4.se", MatchSource::Id))
+        );
+        let same_key = ChannelRow {
+            match_key: Some("tv4.se"),
+            ..manual(Some("tv4.se"), "TV4")
+        };
+        assert_eq!(
+            clear_by_hand(&index, &same_key),
+            Some(set(1, "tv4.se", MatchSource::Id))
+        );
+        // Nothing found automatically: cleared.
+        assert_eq!(
+            clear_by_hand(&index, &manual(Some("tv4.nl"), "TV4")),
+            Some(cleared(1))
+        );
+        let keyless = ChannelRow {
+            match_key: None,
+            ..manual(Some("tv4.nl"), "TV4")
+        };
+        assert_eq!(clear_by_hand(&index, &keyless), Some(cleared(1)));
+        // An automatic match that stands is left alone.
+        let standing = ChannelRow {
+            match_key: Some("tv4.se"),
+            match_source: Some("id"),
+            ..live(1, Some("tv4.se"), "TV4")
+        };
+        assert_eq!(clear_by_hand(&index, &standing), None);
     }
 
     #[test]

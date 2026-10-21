@@ -9,14 +9,21 @@
 //! with only the rows whose match changes collected, and then those rows
 //! are updated. SQLite does not define whether a query sees rows its own
 //! connection changes while it runs, so the reads never overlap the writes.
+//!
+//! A match set by hand (`set_manual_match`) is written the same way, for one row:
+//! its key must have programmes in a source that applies to the channel's
+//! playlist when it is set. It stays when the key later loses them.
 
 use crate::db::mutations::set_setting;
 use crate::db::queries::get_setting;
+use crate::epg_domain::key::channel_key;
 use crate::epg_domain::matching::{
-    ChannelRow, GuideIndex, MatchReport, MatchUpdate, Matcher, SourceGuide,
+    self, ChannelRow, GuideIndex, MatchReport, MatchUpdate, Matcher, SourceGuide,
 };
+use crate::error::AppError;
 use log::warn;
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
+use serde::Serialize;
 
 /// Settings key that records the one-time recompute of every playlist for a
 /// database whose guide was stored before matching existed.
@@ -169,6 +176,177 @@ pub fn recompute_once_after_upgrade(conn: &Connection) -> rusqlite::Result<Optio
         set_setting(conn, MATCHES_INITIALISED_KEY, "1")?;
     }
     Ok(Some(report))
+}
+
+// ========== Matches set by hand ==========
+
+/// The first display name of `key` in the highest-precedence enabled
+/// source that applies to the playlist and has programmes for it. No row:
+/// no such source.
+const GUIDE_CHANNEL: &str = "SELECT n.name FROM epg_channel c
+    JOIN epg_source s ON s.id = c.source_id
+    LEFT JOIN epg_channel_name n ON n.channel_id = c.id
+        AND n.position = (SELECT MIN(position) FROM epg_channel_name WHERE channel_id = c.id)
+    WHERE c.key = ?1 AND c.programme_count > 0
+      AND s.enabled = 1 AND (s.playlist_id IS NULL OR s.playlist_id = ?2)
+    ORDER BY s.priority, s.id
+    LIMIT 1";
+const CHANNEL_FOR_MATCH: &str = "SELECT playlist_id, content_type, epg_id, tvg_name, name,
+        epg_match_key, epg_match_source
+    FROM channels WHERE id = ?1";
+const MANUAL_MATCHES: &str = "SELECT id, name, epg_match_key FROM channels
+    WHERE playlist_id = ?1 AND content_type = 'live' AND epg_match_source = 'manual'
+    ORDER BY name COLLATE NOCASE, id";
+const NAME_MATCHES: &str = "SELECT id FROM channels
+    WHERE playlist_id = ?1 AND content_type = 'live'
+      AND epg_match_source IN ('tvg_name', 'name')
+    ORDER BY id";
+
+/// Whether `key` has programmes in a source that applies to the playlist,
+/// and the guide's name for it: `None` when it has none, `Some(None)`
+/// when the feed names it nowhere.
+fn guide_channel(
+    conn: &Connection,
+    playlist_id: i64,
+    key: &str,
+) -> rusqlite::Result<Option<Option<String>>> {
+    conn.prepare_cached(GUIDE_CHANNEL)?
+        .query_row(params![key, playlist_id], |r| r.get(0))
+        .optional()
+}
+
+/// A `channels` row as `set_manual_match` reads it.
+struct StoredChannel {
+    playlist_id: i64,
+    live: bool,
+    epg_id: Option<String>,
+    tvg_name: Option<String>,
+    name: String,
+    match_key: Option<String>,
+    match_source: Option<String>,
+}
+
+impl StoredChannel {
+    fn row(&self, id: i64) -> ChannelRow<'_> {
+        ChannelRow {
+            id,
+            live: self.live,
+            epg_id: self.epg_id.as_deref(),
+            tvg_name: self.tvg_name.as_deref(),
+            name: &self.name,
+            match_key: self.match_key.as_deref(),
+            match_source: self.match_source.as_deref(),
+        }
+    }
+}
+
+/// Match a live channel to the guide channel `key` by hand, or with `None`
+/// clear a match set by hand and match the channel automatically again.
+/// The key must have programmes in an enabled source that applies to the
+/// channel's playlist. Returns whether the stored match changed.
+pub fn set_manual_match(
+    conn: &Connection,
+    channel_id: i64,
+    key: Option<&str>,
+) -> Result<bool, AppError> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    let channel = tx
+        .query_row(CHANNEL_FOR_MATCH, params![channel_id], |r| {
+            Ok(StoredChannel {
+                playlist_id: r.get(0)?,
+                live: r.get_ref(1)?.as_str_or_null()? == Some("live"),
+                epg_id: r.get(2)?,
+                tvg_name: r.get(3)?,
+                name: r.get(4)?,
+                match_key: r.get(5)?,
+                match_source: r.get(6)?,
+            })
+        })
+        .optional()?
+        .ok_or(AppError::ChannelNotFound(channel_id))?;
+    if !channel.live {
+        return Err(AppError::InvalidInput(
+            "Only live channels can be matched to the guide".to_string(),
+        ));
+    }
+    let row = channel.row(channel_id);
+    let update = match key {
+        Some(raw) => {
+            let key = channel_key(raw)
+                .ok_or_else(|| AppError::InvalidInput("Choose a guide channel".to_string()))?;
+            if guide_channel(&tx, channel.playlist_id, &key)?.is_none() {
+                return Err(AppError::InvalidInput(format!(
+                    "The guide of this profile has no programmes for \"{}\"",
+                    raw.trim()
+                )));
+            }
+            matching::set_by_hand(&row, key)
+        }
+        None => {
+            let index = guide_index(&tx, channel.playlist_id)?;
+            matching::clear_by_hand(&index, &row)
+        }
+    };
+    let changed = update.is_some();
+    if let Some(update) = update {
+        apply_updates(&tx, &[update])?;
+    }
+    tx.commit()?;
+    Ok(changed)
+}
+
+/// A live channel matched by hand, as Settings lists it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ManualMatch {
+    pub channel_id: i64,
+    pub channel_name: String,
+    pub key: String,
+    /// The guide's name for the key; `None` when it has none or has no
+    /// programmes now.
+    pub guide_name: Option<String>,
+    /// The key has programmes in a source that applies to the playlist. A
+    /// match set by hand stays when they go.
+    pub has_programmes: bool,
+}
+
+/// What the channel list does not carry about a playlist's matches: which
+/// were set by hand, and which were found by name. Every other live channel
+/// with a guide key was matched by its id.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct MatchDetails {
+    /// By channel name.
+    pub manual: Vec<ManualMatch>,
+    /// Channel ids, ascending.
+    pub by_name: Vec<i64>,
+}
+
+/// The matches of a playlist's live channels that were set by hand or
+/// found by name.
+pub fn match_details(conn: &Connection, playlist_id: i64) -> rusqlite::Result<MatchDetails> {
+    let rows: Vec<(i64, String, Option<String>)> = conn
+        .prepare(MANUAL_MATCHES)?
+        .query_map(params![playlist_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut manual = Vec::with_capacity(rows.len());
+    for (channel_id, channel_name, key) in rows {
+        // A manual row always has a key; one without is not listed.
+        let Some(key) = key else { continue };
+        let guide = guide_channel(conn, playlist_id, &key)?;
+        manual.push(ManualMatch {
+            channel_id,
+            channel_name,
+            has_programmes: guide.is_some(),
+            guide_name: guide.flatten(),
+            key,
+        });
+    }
+    let by_name = conn
+        .prepare(NAME_MATCHES)?
+        .query_map(params![playlist_id], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(MatchDetails { manual, by_name })
 }
 
 #[cfg(test)]
@@ -742,6 +920,213 @@ mod tests {
                 (svt1, "svt1.se".to_string()),
                 (manual, "tv7.se".to_string())
             ]
+        );
+    }
+
+    // ========== Matches set by hand ==========
+
+    fn invalid_input(result: Result<bool, AppError>) -> String {
+        match result {
+            Err(AppError::InvalidInput(details)) => details,
+            other => panic!("expected InvalidInput, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn only_an_existing_live_channel_can_be_matched_by_hand() {
+        let conn = setup_test_db();
+        let p = create_test_playlist(&conn, "P");
+        add_source(&conn, None, 10, &[("film.se", &[])]);
+        let vod = add_channel(&conn, p, "Film", Some("film.se"), "vod");
+        let series = add_channel(&conn, p, "Serie", None, "series");
+
+        for id in [vod, series] {
+            invalid_input(set_manual_match(&conn, id, Some("film.se")));
+            invalid_input(set_manual_match(&conn, id, None));
+            assert_eq!(stored(&conn, id), (None, None));
+        }
+        assert!(matches!(
+            set_manual_match(&conn, 999, Some("film.se")),
+            Err(AppError::ChannelNotFound(999))
+        ));
+        assert!(conn.is_autocommit(), "no transaction left open");
+    }
+
+    #[test]
+    fn a_key_without_programmes_for_the_playlist_is_refused() {
+        let conn = setup_test_db();
+        let p = create_test_playlist(&conn, "P");
+        let other = create_test_playlist(&conn, "Other");
+        add_source(&conn, Some(other), 30, &[("tv4.no", &[])]);
+        let off = add_source(&conn, None, 20, &[("tv4.dk", &[])]);
+        conn.execute(
+            "UPDATE epg_source SET enabled = 0 WHERE id = ?1",
+            params![off],
+        )
+        .unwrap();
+        let s = add_source(&conn, None, 10, &[]);
+        add_guide_channel(&conn, s, "tv4.fi", &[], 0);
+        let tv4 = add_channel(&conn, p, "TV4", Some("tv4.se"), "live");
+
+        let details = invalid_input(set_manual_match(&conn, tv4, Some("unknown.se")));
+        assert_eq!(
+            details,
+            "The guide of this profile has no programmes for \"unknown.se\""
+        );
+        for key in ["tv4.no", "tv4.dk", "tv4.fi"] {
+            invalid_input(set_manual_match(&conn, tv4, Some(key)));
+        }
+        invalid_input(set_manual_match(&conn, tv4, Some("   ")));
+        assert_eq!(stored(&conn, tv4), (None, None));
+        assert!(conn.is_autocommit(), "no transaction left open");
+    }
+
+    #[test]
+    fn a_match_set_by_hand_is_normalised_and_written_once() {
+        let conn = setup_test_db();
+        let p = create_test_playlist(&conn, "P");
+        add_source(&conn, Some(p), 30, &[("tv4hd.se", &["TV4 HD"])]);
+        let tv4 = add_channel(&conn, p, "TV4", Some("tv4.nl"), "live");
+        log_match_writes(&conn);
+
+        assert!(set_manual_match(&conn, tv4, Some(" TV4HD.se ")).unwrap());
+        assert_eq!(stored(&conn, tv4), matched("tv4hd.se", "manual"));
+        assert!(!set_manual_match(&conn, tv4, Some("tv4hd.se")).unwrap());
+        assert_eq!(match_writes(&conn), [tv4], "the second set wrote nothing");
+    }
+
+    #[test]
+    fn a_match_set_by_hand_survives_a_recompute_a_refresh_and_its_key_leaving() {
+        let conn = setup_test_db();
+        let p = create_test_playlist(&conn, "P");
+        let s = add_source(&conn, None, 10, &[("svt1.se", &[]), ("tv4hd.se", &[])]);
+        let channel = |epg_id: &str| Channel {
+            id: None,
+            playlist_id: p,
+            name: "TV4".to_string(),
+            url: "http://p.example/tv4".to_string(),
+            logo: None,
+            group_name: Some("G".to_string()),
+            epg_id: Some(epg_id.to_string()),
+            tvg_name: None,
+            content_type: "live".to_string(),
+            is_favorite: false,
+            sort_order: 0,
+            category_order: 0,
+            created_at: None,
+        };
+        merge_channels(&conn, p, &[channel("tv4.se")], false).unwrap();
+        let tv4: i64 = conn
+            .query_row("SELECT id FROM channels WHERE name = 'TV4'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+
+        set_manual_match(&conn, tv4, Some("tv4hd.se")).unwrap();
+        recompute_playlist(&conn, p).unwrap();
+        // The provider now sends an id the guide knows.
+        merge_channels(&conn, p, &[channel("svt1.se")], false).unwrap();
+        let report = recompute_playlist(&conn, p).unwrap();
+        assert_eq!((report.manual_kept, report.changed), (1, 0));
+        assert_eq!(stored(&conn, tv4), matched("tv4hd.se", "manual"));
+
+        conn.execute(
+            "UPDATE epg_channel SET programme_count = 0 WHERE source_id = ?1 AND key = 'tv4hd.se'",
+            params![s],
+        )
+        .unwrap();
+        recompute_playlist(&conn, p).unwrap();
+        assert_eq!(stored(&conn, tv4), matched("tv4hd.se", "manual"));
+        let details = match_details(&conn, p).unwrap();
+        assert_eq!(
+            details.manual,
+            [ManualMatch {
+                channel_id: tv4,
+                channel_name: "TV4".to_string(),
+                key: "tv4hd.se".to_string(),
+                guide_name: None,
+                has_programmes: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn clearing_a_match_set_by_hand_matches_the_channel_automatically_again() {
+        let conn = setup_test_db();
+        let p = create_test_playlist(&conn, "P");
+        add_source(
+            &conn,
+            None,
+            10,
+            &[("tv4.se", &[]), ("tv4hd.se", &[]), ("sjuan.se", &["Sjuan"])],
+        );
+        let by_id = add_channel(&conn, p, "TV4", Some("tv4.se"), "live");
+        let by_name = add_channel(&conn, p, "Sjuan", None, "live");
+        let unknown = add_channel(&conn, p, "Kanal 9", Some("kanal9.se"), "live");
+        recompute_playlist(&conn, p).unwrap();
+        for id in [by_id, by_name, unknown] {
+            set_manual_match(&conn, id, Some("tv4hd.se")).unwrap();
+        }
+
+        for id in [by_id, by_name, unknown] {
+            assert!(set_manual_match(&conn, id, None).unwrap());
+        }
+
+        assert_eq!(stored(&conn, by_id), matched("tv4.se", "id"));
+        assert_eq!(stored(&conn, by_name), matched("sjuan.se", "name"));
+        assert_eq!(stored(&conn, unknown), (None, None));
+        // Clearing an automatic match changes nothing.
+        assert!(!set_manual_match(&conn, by_id, None).unwrap());
+        assert_eq!(stored(&conn, by_id), matched("tv4.se", "id"));
+    }
+
+    #[test]
+    fn match_details_list_the_hand_set_and_the_name_matches_of_one_playlist() {
+        let conn = setup_test_db();
+        let p = create_test_playlist(&conn, "P");
+        let other = create_test_playlist(&conn, "Other");
+        add_source(&conn, Some(p), 30, &[("tv4hd.se", &["TV4 HD", "TV4"])]);
+        add_source(
+            &conn,
+            None,
+            10,
+            &[("svt1.se", &["SVT1"]), ("sjuan.se", &["Sjuan"])],
+        );
+        add_channel(&conn, p, "SVT1", Some("svt1.se"), "live");
+        let sjuan = add_channel(&conn, p, "Sjuan", None, "live");
+        let tv4 = add_channel(&conn, p, "tv4", Some("tv4.nl"), "live");
+        let ettan = add_channel(&conn, p, "Ettan", Some("x.se"), "live");
+        let elsewhere = add_channel(&conn, other, "Sjuan", None, "live");
+        recompute_where_applies(&conn, None).unwrap();
+        set_manual_match(&conn, tv4, Some("tv4hd.se")).unwrap();
+        set_manual_match(&conn, ettan, Some("svt1.se")).unwrap();
+
+        let details = match_details(&conn, p).unwrap();
+
+        let manual = |id: i64, channel: &str, key: &str, guide: &str| ManualMatch {
+            channel_id: id,
+            channel_name: channel.to_string(),
+            key: key.to_string(),
+            guide_name: Some(guide.to_string()),
+            has_programmes: true,
+        };
+        assert_eq!(
+            details,
+            MatchDetails {
+                manual: vec![
+                    manual(ettan, "Ettan", "svt1.se", "SVT1"),
+                    manual(tv4, "tv4", "tv4hd.se", "TV4 HD"),
+                ],
+                by_name: vec![sjuan],
+            }
+        );
+        assert_eq!(match_details(&conn, other).unwrap().by_name, [elsewhere]);
+        assert_eq!(
+            serde_json::to_value(&details.manual[0]).unwrap(),
+            serde_json::json!({
+                "channel_id": ettan, "channel_name": "Ettan", "key": "svt1.se",
+                "guide_name": "SVT1", "has_programmes": true
+            })
         );
     }
 

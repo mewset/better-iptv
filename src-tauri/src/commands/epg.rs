@@ -1,12 +1,13 @@
 //! Guide commands: thin handlers over `epg::read` (what the guide shows),
-//! `epg::service` (downloads, sources, time policy), `epg::search` and
-//! `epg::status`.
+//! `epg::service` (downloads, sources, time policy, matches set by hand),
+//! `epg::search`, `epg::matching` and `epg::status`.
 //!
 //! Times cross IPC as RFC 3339 strings and are Unix seconds inside. Keys are
 //! the channel ids as the playlist spells them; answers are keyed the same
 //! way (`epg::read`).
 
 use crate::commands::with_db;
+use crate::epg::matching::{self, MatchDetails};
 use crate::epg::read::{self, active_profile, NowNext, Programme};
 use crate::epg::search::{self, EpgChannelHit};
 use crate::epg::service::EpgService;
@@ -185,6 +186,19 @@ pub async fn get_channel_epg_keys(
     .await
 }
 
+/// Match a live channel to the guide channel `key` by hand, or with `None`
+/// clear its manual match and match it automatically again. A key without
+/// programmes in the channel's profile is refused (`InvalidInput`). A change
+/// is announced with `epg-refreshed` (`match`, one channel) and `epg-status`.
+#[tauri::command]
+pub async fn set_channel_epg_match(
+    epg: State<'_, EpgService>,
+    channel_id: i64,
+    key: Option<String>,
+) -> Result<(), AppError> {
+    epg.set_channel_match(channel_id, key).await
+}
+
 /// Guide channels of the active profile's sources whose display name or
 /// key contains `query`, best first, at most `limit` (1 to 50). An empty
 /// query finds nothing.
@@ -197,6 +211,20 @@ pub async fn search_epg_channels(
     with_db(&state.pool, move |conn| {
         let profile = active_profile(conn)?;
         Ok(search::search_channels(conn, profile, &query, limit)?)
+    })
+    .await
+}
+
+/// The playlist's channels matched by hand (with the guide's name for each
+/// key) and the ids of those matched by name, which the channel list does
+/// not tell apart from a match by id.
+#[tauri::command]
+pub async fn get_channel_match_details(
+    state: State<'_, AppState>,
+    playlist_id: i64,
+) -> Result<MatchDetails, AppError> {
+    with_db(&state.pool, move |conn| {
+        Ok(matching::match_details(conn, playlist_id)?)
     })
     .await
 }

@@ -20,7 +20,8 @@
 //! Whatever can change which guide channel a playlist channel shows (a
 //! stored ingest, a source enabled, disabled, re-prioritised, given another
 //! URL or removed, a playlist imported or refreshed) is followed by a match
-//! recompute (`epg::matching`) for the playlists concerned; the event that
+//! recompute (`epg::matching`) for the playlists concerned, and a match set
+//! or cleared by hand by one for that channel; the event that
 //! follows carries how many channels it changed. A failed recompute is
 //! logged and leaves the stored matches of that playlist as they were; the
 //! other playlists are still matched, and their changes still announced.
@@ -32,7 +33,8 @@
 //! attempt. The app emits both to the WebView through its `AppHandle`.
 
 use super::matching::{
-    recompute_for_source, recompute_once_after_upgrade, recompute_playlist, recompute_where_applies,
+    recompute_for_source, recompute_once_after_upgrade, recompute_playlist,
+    recompute_where_applies, set_manual_match,
 };
 use super::read::active_profile;
 use super::sources::{
@@ -81,7 +83,8 @@ pub enum RefreshReason {
     /// Another profile became active; other sources apply.
     ProfileSwitch,
     /// A playlist's channels were matched again after it was imported or
-    /// refreshed, or once after an upgrade; sent only when a match changed.
+    /// refreshed, or once after an upgrade, or a channel's match was set or
+    /// cleared by hand; sent only when a match changed.
     Match,
 }
 
@@ -349,6 +352,26 @@ impl EpgService {
             self.refreshed(RefreshReason::Match, None, changed);
             self.emit_status().await;
         }
+    }
+
+    /// Match a channel to a guide key by hand, or with `None` give it back
+    /// to the automatic matcher (`epg::matching::set_manual_match`). When
+    /// its match changed, the frontend is told as after a recompute that
+    /// changed one row, so the card and the counts follow.
+    pub async fn set_channel_match(
+        &self,
+        channel_id: i64,
+        key: Option<String>,
+    ) -> Result<(), AppError> {
+        let changed = self
+            .db(move |conn| set_manual_match(conn, channel_id, key.as_deref()))
+            .await?;
+        if changed {
+            info!("EPG channel matching: channel {channel_id} changed by hand");
+            self.refreshed(RefreshReason::Match, None, 1);
+            self.emit_status().await;
+        }
+        Ok(())
     }
 
     /// Once per database: match every playlist against the guide already
@@ -1587,6 +1610,50 @@ mod tests {
             events.reasons(),
             [(RefreshReason::Match, None)],
             "the second write changed nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_match_set_or_cleared_by_hand_is_announced_when_it_changed() {
+        let f = Fixture::new("service");
+        let (svt1, tv4) = playlist_with_channels(&f);
+        let s = add_manual(&f.conn(), "http://epg.example/epg.xml");
+        f.store(s, &feed(), NOW).await;
+        let (service, events) = service(&f);
+        service.playlist_written(1).await;
+
+        service
+            .set_channel_match(tv4, Some("SVT1.se".to_string()))
+            .await
+            .unwrap();
+        assert_eq!(match_key(&f, tv4).as_deref(), Some("svt1.se"));
+        let counts = events.last_status().matches.unwrap();
+        assert_eq!((counts.by_id, counts.manual), (1, 1));
+        // The same key again, and clearing an automatic match: no change.
+        service
+            .set_channel_match(tv4, Some("svt1.se".to_string()))
+            .await
+            .unwrap();
+        service.set_channel_match(svt1, None).await.unwrap();
+        let refused = service
+            .set_channel_match(tv4, Some("tv4.se".to_string()))
+            .await;
+        assert!(matches!(refused, Err(AppError::InvalidInput(_))));
+        service.set_channel_match(tv4, None).await.unwrap();
+
+        assert_eq!(match_key(&f, tv4), None);
+        assert_eq!(
+            events.matches(),
+            [
+                (RefreshReason::Match, 1),
+                (RefreshReason::Match, 1),
+                (RefreshReason::Match, 1)
+            ]
+        );
+        let counts = events.last_status().matches.unwrap();
+        assert_eq!(
+            (counts.by_id, counts.manual, counts.unmatched_with_id),
+            (1, 0, 1)
         );
     }
 
