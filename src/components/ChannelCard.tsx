@@ -175,14 +175,12 @@ export const ChannelCard = memo(function ChannelCard({
         ) : current ? (
           <>
             <div className="flex items-baseline gap-1.5 text-[13px]">
-              {nowTime && (
-                <span className="font-semibold tabular-nums text-accent-text">{nowTime}</span>
-              )}
+              {nowTime && <span className="font-semibold text-accent-text">{nowTime}</span>}
               <span className="truncate text-text">{current.title}</span>
             </div>
             {next && (
               <div className="flex items-baseline gap-1.5 text-xs">
-                {nextTime && <span className="tabular-nums text-text-faint">{nextTime}</span>}
+                {nextTime && <span className="text-text-faint">{nextTime}</span>}
                 <span className="truncate text-text-faint">{next.title}</span>
               </div>
             )}
@@ -191,7 +189,7 @@ export const ChannelCard = memo(function ChannelCard({
           <>
             <p className="text-[13px] text-text-muted">Off air</p>
             <div className="flex items-baseline gap-1.5 text-xs">
-              {nextTime && <span className="tabular-nums text-text-faint">{nextTime}</span>}
+              {nextTime && <span className="text-text-faint">{nextTime}</span>}
               <span className="truncate text-text-faint">{next.title}</span>
             </div>
           </>

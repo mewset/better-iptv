@@ -201,6 +201,9 @@ describe('NowPlayingBar', () => {
     const timeRange = container.querySelector('[data-time-range]');
     expect(timeRange).not.toBeNull();
     expect(timeRange!.className).toMatch(/shrink-0/);
+    // Proportional figures: tabular ones widen the colons to a digit's width.
+    expect(timeRange!.textContent).toMatch(/\d:\d/);
+    expect(timeRange!.closest('.tabular-nums')).toBeNull();
   });
 
   it('gives the Stop button a visible-only focus ring', () => {

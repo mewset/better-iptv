@@ -225,7 +225,7 @@ const GuideRow = memo(function GuideRow({
                   {range && !twoLanes && (
                     <span
                       className={cn(
-                        'block truncate text-[11px] tabular-nums',
+                        'block truncate text-[11px]',
                         selected ? 'text-on-accent' : 'text-text-muted'
                       )}
                     >
@@ -571,7 +571,7 @@ export function GuideView({
                 {ticks.map((tick) => (
                   <span
                     key={tick.at}
-                    className="absolute top-1 text-xs tabular-nums text-text-faint"
+                    className="absolute top-1 text-xs text-text-faint"
                     style={{ left: `${tick.pct}%` }}
                   >
                     {tick.label}
@@ -579,7 +579,7 @@ export function GuideView({
                 ))}
                 {nowPct !== null && (
                   <span
-                    className="absolute top-0 -translate-x-1/2 rounded-md bg-accent px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-on-accent"
+                    className="absolute top-0 -translate-x-1/2 rounded-md bg-accent px-1.5 py-0.5 text-[11px] font-bold text-on-accent"
                     style={{ left: `${nowPct}%` }}
                   >
                     {nowLabel}

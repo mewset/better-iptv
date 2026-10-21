@@ -99,6 +99,20 @@ describe('ProfileManager subscription expiry', () => {
     expect(line).not.toHaveClass('text-accent-text');
   });
 
+  it('sets the counts line in proportional figures, so dates keep their punctuation tight', async () => {
+    // Schibsted Grotesk's tabular figures widen `,` `.` and `:` to a digit's
+    // width: "March 15, 2099" would read "March 15 , 2099".
+    vi.mocked(getPlaylistChannelCounts).mockResolvedValue({ 2: 42809 });
+    setProfiles([playlist(2, 'Live Provider', true)]);
+
+    render(<ProfileManager onClose={vi.fn()} />);
+
+    const expiry = await screen.findByText(/Subscription ends/);
+    const count = await screen.findByText('42809 channels');
+    expect(expiry.closest('.tabular-nums')).toBeNull();
+    expect(count.closest('.tabular-nums')).toBeNull();
+  });
+
   it('flags a playlist refreshed more than a week ago', async () => {
     const nineDaysAgo = new Date(Date.now() - 9 * 86_400_000).toISOString();
     setProfiles([playlist(5, 'Stale Cabin', false, { last_updated: nineDaysAgo })]);

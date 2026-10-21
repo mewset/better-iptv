@@ -5,7 +5,7 @@ import { REPORT_BATCH_MS, resetLogoFallbackSession } from '../../lib/logoFallbac
 import { ChannelCard } from '../../components/ChannelCard';
 import type { Channel } from '../../types';
 import { nowNext, programme } from '../epgFixtures';
-import { cardEpg } from '../../lib/epgTime';
+import { cardEpg, formatClock } from '../../lib/epgTime';
 
 const ch: Channel = {
   id: 1,
@@ -34,6 +34,10 @@ describe('live ChannelCard', () => {
     expect(screen.getByText('Sport')).toBeInTheDocument();
     const bar = container.querySelector('[data-progress] > div') as HTMLElement;
     expect(bar.style.width).toBe('25%');
+    // Proportional figures: tabular ones widen the colon to a digit's width.
+    for (const time of [formatClock(iso(-15)), formatClock(iso(45))]) {
+      expect(screen.getByText(time).closest('.tabular-nums')).toBeNull();
+    }
   });
 
   it('renders without EPG: no progress line, no NaN, a quiet placeholder line', () => {

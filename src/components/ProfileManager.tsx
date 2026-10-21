@@ -317,7 +317,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
                     </div>
                   )}
 
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] tabular-nums text-text-muted">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-text-muted">
                     {countKnown && <span>{count === 1 ? '1 channel' : `${count} channels`}</span>}
                     {refreshedLine && <span>{refreshedLine}</span>}
                     {expiryLine && (

@@ -260,6 +260,31 @@ describe('GuideView', () => {
     expect(within(row).queryByRole('button', { name: blockName(second, 'SVT1') })).toBeNull();
   });
 
+  it('keeps tabular figures to text of digits only: clock times stay proportional', async () => {
+    // Schibsted Grotesk's tabular figures widen `:` to a digit's width,
+    // so "20:00" would read "20 : 00".
+    const block: Programme = { title: 'Block', description: null, ...span(-30, 120) };
+    const first: Programme = { title: 'First', description: null, ...span(-20, 40) };
+    const second: Programme = { title: 'Second', description: null, ...span(0, 60) };
+    guide = { 'svt1.se': [airing, later], 'tv4.se': [block, first, second] };
+    renderGuide();
+    const tv4Row = await screen.findByRole('row', { name: 'TV4' });
+    const chip = await within(tv4Row).findByRole('note');
+    // The +N chip is digits only and keeps them.
+    expect(chip.className).toContain('tabular-nums');
+    const range = await screen.findByText(
+      `${formatClock(airing.start)}–${formatClock(airing.stop)}`
+    );
+    expect(range.closest('.tabular-nums')).toBeNull();
+    // Hour ticks and the now marker.
+    const clocks = screen.getAllByText(/^\d{2}:\d{2}$/);
+    expect(clocks.length).toBeGreaterThan(1);
+    for (const clock of clocks) expect(clock.closest('.tabular-nums')).toBeNull();
+    for (const el of document.querySelectorAll('.tabular-nums')) {
+      expect(el.textContent).not.toMatch(/\d[,.:]\d/);
+    }
+  });
+
   it('keeps the +N chip clear of the blocks: in its row they end before the chip', async () => {
     // Block runs past the window's right edge, the chip's corner.
     const block: Programme = { title: 'Block', description: null, ...span(-30, 600) };

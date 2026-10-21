@@ -86,10 +86,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             <span className="min-w-0 flex-1 truncate text-sm text-text-muted">{programme}</span>
           )}
           {(hasRange || minsLeft !== null) && (
-            <span
-              data-time-range
-              className="shrink-0 whitespace-nowrap text-xs tabular-nums text-text-muted"
-            >
+            <span data-time-range className="shrink-0 whitespace-nowrap text-xs text-text-muted">
               {hasRange && `${startTime}–${endTime}`}
               {minsLeft !== null && ` · ${minsLeft} min left`}
             </span>
