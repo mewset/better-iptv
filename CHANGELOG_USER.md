@@ -9,6 +9,9 @@ A simple overview of new features and improvements.
 ### New Features
 
 - Channels with a missing or broken logo now get one from the open iptv-org database. You can turn this off in Settings → Metadata
+- Each profile now has its own TV guide. Your provider's guide is set up automatically, and you can add more guide addresses in Settings → EPG
+- If your provider's guide times are off, you can correct them per guide in Settings → EPG, in half-hour steps, without downloading the guide again
+- Settings → EPG shows each guide's status: when it was last updated, how many programmes it has, and why an update failed
 
 ### Improvements
 
@@ -18,6 +21,9 @@ A simple overview of new features and improvements.
 
 - Broken images no longer show in the TV guide's programme panel, the Movies banner or detail pages
 - TV guide times are no longer off by a few hours with EPG sources that write their time zone in a less common format
+- A programme no longer shows twice in the TV guide when the provider moves it to another time
+- Programmes no longer go missing from the TV guide with guides that use special characters, other text encodings or leave out end times
+- Switching profile now switches the TV guide too
 
 ## Version 3.1.2 (October 18, 2026)
 
