@@ -137,7 +137,7 @@ pub fn run() {
             }
 
             // Create and manage app state
-            let state = AppState::new(pool, epg_cache_dir);
+            let state = AppState::new(pool, db_path.clone(), epg_cache_dir);
             let logo_pool = state.pool.clone();
             let logo_lock = state.logo_fallback_lock.clone();
             app.manage(state);

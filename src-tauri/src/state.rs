@@ -58,10 +58,18 @@ pub struct AppState {
     /// `<app_data>/epg/`: each guide source's cached feed and the ingest's
     /// staging database (see `epg::sources`).
     pub epg_cache_dir: PathBuf,
+
+    /// The database file the pool is opened on. A guide ingest opens a
+    /// connection of its own on it (`epg::store::IngestConnection`).
+    pub db_path: PathBuf,
 }
 
 impl AppState {
-    pub fn new(pool: Pool<SqliteConnectionManager>, epg_cache_dir: PathBuf) -> Self {
+    pub fn new(
+        pool: Pool<SqliteConnectionManager>,
+        db_path: PathBuf,
+        epg_cache_dir: PathBuf,
+    ) -> Self {
         Self {
             pool,
             current_channel: Arc::new(RwLock::new(None)),
@@ -71,6 +79,7 @@ impl AppState {
             launch_id: chrono::Utc::now().timestamp_millis(),
             logo_fallback_lock: Arc::new(tokio::sync::Mutex::new(())),
             epg_cache_dir,
+            db_path,
         }
     }
 }
