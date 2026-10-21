@@ -147,6 +147,20 @@ pub fn source_due(source: &SourceSchedule, active_profile: Option<i64>, now: i64
         && retry_allowed(source.last_attempt_at, now)
 }
 
+/// When `source_due` next holds for an enabled source that applies: six
+/// hours after the last success and an hour after the last attempt, but not
+/// before `now`. The background task polls, so the fetch follows within
+/// one poll interval.
+pub fn next_due_at(source: &SourceSchedule, now: i64) -> i64 {
+    let after_success = source
+        .last_success_at
+        .map_or(now, |last| last + EPG_AUTO_REFRESH_INTERVAL_HOURS * 3600);
+    let after_attempt = source
+        .last_attempt_at
+        .map_or(now, |last| last + EPG_AUTO_REFRESH_RETRY_MINUTES * 60);
+    after_success.max(after_attempt).max(now)
+}
+
 /// Rank of a source when several have programmes for one channel: lower
 /// priority wins, ties go to the older source. Ordered so the minimum wins.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -398,6 +412,30 @@ mod tests {
             ..schedule()
         };
         assert!(source_due(&stale, Some(1), NOW));
+    }
+
+    #[test]
+    fn the_next_due_time_is_when_source_due_turns_true() {
+        let cases = [
+            (None, None, NOW),
+            (Some(NOW - H), Some(NOW - H), NOW + 5 * H),
+            (Some(NOW - 7 * H), Some(NOW - 10 * 60), NOW + 50 * 60),
+            (Some(NOW - 7 * H), Some(NOW - 7 * H), NOW),
+            (None, Some(NOW - 30 * 60), NOW + 30 * 60),
+        ];
+        for (last_success_at, last_attempt_at, expected) in cases {
+            let source = SourceSchedule {
+                last_success_at,
+                last_attempt_at,
+                ..schedule()
+            };
+            let at = next_due_at(&source, NOW);
+            assert_eq!(at, expected, "{source:?}");
+            assert!(source_due(&source, Some(1), at), "{source:?}");
+            if at > NOW {
+                assert!(!source_due(&source, Some(1), at - 1), "{source:?}");
+            }
+        }
     }
 
     #[test]

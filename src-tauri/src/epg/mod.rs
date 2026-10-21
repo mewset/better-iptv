@@ -11,6 +11,7 @@ pub mod download;
 pub mod parse;
 pub mod read;
 pub mod sources;
+pub mod status;
 pub mod store;
 #[cfg(test)]
 mod test_support;
