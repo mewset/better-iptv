@@ -12,6 +12,8 @@ A simple overview of new features and improvements.
 - Each profile now has its own TV guide. Your provider's guide is set up automatically, and you can add more guide addresses in Settings → EPG
 - If your provider's guide times are off, you can correct them per guide in Settings → EPG, in half-hour steps, without downloading the guide again
 - Settings → EPG shows each guide's status: when it was last updated, how many programmes it has, and why an update failed
+- Channels without a guide id now find their TV guide by name, when the guide lists a channel with the same name
+- Settings → EPG shows how many of your channels are matched to the TV guide
 
 ### Improvements
 
