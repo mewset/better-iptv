@@ -2,15 +2,12 @@ import { useState, useEffect, useRef, useImperativeHandle } from 'react';
 import {
   getSetting,
   setSetting,
-  fetchEpgData,
   resetParentalPin,
-  getLegacyEpgStatus,
-  forceRefreshEpg,
   getChannels,
   getTmdbStatus,
   deleteTmdbCache,
 } from '../lib/tauri';
-import type { LegacyEpgStatus, TmdbStatus } from '../lib/tauri';
+import type { TmdbStatus } from '../lib/tauri';
 import { usePlayerStore } from '../stores/player-store';
 import { logger } from '../lib/logger';
 import { resetLogoFallbackSession } from '../lib/logoFallback';
@@ -63,7 +60,7 @@ interface SettingsProps {
 const SECTIONS: Array<{ value: string; name: string; description: string }> = [
   { value: 'general', name: 'General', description: 'Playlist, appearance, updates' },
   { value: 'playback', name: 'Playback', description: 'MPV, video, audio, subtitles' },
-  { value: 'epg', name: 'EPG', description: 'Guide sources and refresh' },
+  { value: 'epg', name: 'EPG', description: 'Sources, updates and time correction' },
   { value: 'metadata', name: 'Metadata', description: 'Posters and details from TMDB' },
   { value: 'parental', name: 'Parental', description: 'PIN and blocked content' },
   { value: 'profiles', name: 'Profiles', description: 'Playlists and providers' },
@@ -92,12 +89,6 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   const [playlistUserAgentMode, setPlaylistUserAgentMode] = useState<UserAgentMode>('default');
   const [playlistUserAgentCustom, setPlaylistUserAgentCustom] = useState('');
   const [updateCheckEnabled, setUpdateCheckEnabled] = useState(true);
-
-  // EPG tab state
-  const [epgUrl, setEpgUrl] = useState('');
-  const [originalEpgUrl, setOriginalEpgUrl] = useState('');
-  const [epgStatus, setEpgStatus] = useState<LegacyEpgStatus | null>(null);
-  const [isUpdatingEpg, setIsUpdatingEpg] = useState(false);
 
   // Playback tab state
   const [hardwareAcceleration, setHardwareAcceleration] = useState(true);
@@ -144,13 +135,13 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
 
   // Unsaved-edits tracking: every value Save writes, serialised, compared
-  // against the same snapshot taken once loading finished.
+  // against the same snapshot taken once loading finished. The EPG tab is
+  // not here: its actions take effect at once, like Profiles.
   const savedValues = JSON.stringify({
     theme,
     playlistUserAgentMode,
     playlistUserAgentCustom,
     updateCheckEnabled,
-    epgUrl,
     hardwareAcceleration,
     videoOutput,
     deinterlace,
@@ -214,7 +205,6 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
     async function loadSettings() {
       try {
         const [
-          savedEpgUrl,
           savedTheme,
           savedAudioIso,
           savedSubtitleIso,
@@ -233,7 +223,6 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
           savedTmdbBackgroundEnrich,
           savedLogoFallback,
         ] = await Promise.all([
-          getSetting('epg_url'),
           getSetting('theme'),
           getSetting('audio_language'),
           getSetting('subtitle_language'),
@@ -253,10 +242,6 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
           getSetting('logo_fallback_enabled'),
         ]);
 
-        if (savedEpgUrl) {
-          setEpgUrl(savedEpgUrl);
-          setOriginalEpgUrl(savedEpgUrl);
-        }
         if (savedTheme) setTheme(savedTheme as Theme);
 
         if (
@@ -316,10 +301,6 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
             return null;
           })
         );
-
-        // Load EPG status
-        const status = await getLegacyEpgStatus();
-        setEpgStatus(status);
 
         // Load parental controls settings
         const { getParentalSettings } = await import('../lib/tauri');
@@ -433,31 +414,6 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
     setShowErrorModal(true);
   };
 
-  // EPG handlers
-  const handleForceEpgUpdate = async () => {
-    if (isUpdatingEpg) return;
-
-    setIsUpdatingEpg(true);
-    try {
-      logger.info('Force refreshing EPG data...');
-      const result = await forceRefreshEpg();
-
-      if (result.success) {
-        logger.info(`EPG refresh successful: ${result.programs_loaded} programs loaded`);
-        const newStatus = await getLegacyEpgStatus();
-        setEpgStatus(newStatus);
-      } else {
-        logger.error('EPG refresh failed:', result.error);
-        showError('EPG Update Failed', result.error || 'Unknown error occurred');
-      }
-    } catch (err) {
-      logger.error('Failed to refresh EPG:', err);
-      showError('EPG Update Failed', `Failed to refresh EPG: ${err}`);
-    } finally {
-      setIsUpdatingEpg(false);
-    }
-  };
-
   // Parental control handlers
   const handleResetPin = () => setShowResetPinModal(true);
 
@@ -499,7 +455,6 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
     if (loadFailed) return;
     try {
       setIsSaving(true);
-      await setSetting('epg_url', epgUrl);
       await setSetting('theme', theme);
 
       // Save language settings (store ISO codes for MPV)
@@ -591,29 +546,11 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       setBlockedChannelIds(updatedBlockedIds);
       await loadParentalSettings();
 
-      // Only fetch EPG data if URL has actually changed
-      const epgUrlChanged = epgUrl.trim() !== originalEpgUrl.trim();
-      if (epgUrlChanged && epgUrl.trim()) {
-        logger.info('EPG URL changed, fetching new data');
-        const count = await fetchEpgData(epgUrl);
-        logger.info(`EPG fetched successfully: ${count} programs`);
-
-        const newStatus = await getLegacyEpgStatus();
-        setEpgStatus(newStatus);
-      } else if (epgUrlChanged) {
-        logger.debug('EPG URL cleared, skipping fetch');
-      } else {
-        logger.debug('EPG URL unchanged, skipping fetch');
-      }
-
       logger.info('Settings saved successfully');
       onClose();
     } catch (err) {
       logger.error('Failed to save settings:', err);
-      showError(
-        'Failed to Save Settings',
-        `Failed to save settings: ${err}. Please check the EPG URL and try again.`
-      );
+      showError('Failed to Save Settings', `Failed to save settings: ${err}`);
     } finally {
       setIsSaving(false);
     }
@@ -702,13 +639,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
             </TabsContent>
 
             <TabsContent value="epg" className="mt-0 min-h-0">
-              <EpgTab
-                epgUrl={epgUrl}
-                onEpgUrlChange={setEpgUrl}
-                epgStatus={epgStatus}
-                isUpdatingEpg={isUpdatingEpg}
-                onForceEpgUpdate={handleForceEpgUpdate}
-              />
+              <EpgTab />
             </TabsContent>
 
             <TabsContent value="metadata" className="mt-0 min-h-0">

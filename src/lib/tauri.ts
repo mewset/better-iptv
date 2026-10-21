@@ -1,6 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Channel, Playlist, SeriesInfo, MergeResult, UpdateInfo } from '../types';
-import { getEpgStatus } from './epgIpc';
 
 // ========== MPV Commands ==========
 
@@ -182,56 +181,6 @@ export async function setActiveProfileId(profileId: number): Promise<void> {
 
 export async function renamePlaylist(playlistId: number, newName: string): Promise<void> {
   return await invoke('rename_playlist', { playlistId, newName });
-}
-
-// ========== EPG Commands ==========
-//
-// The guide's commands live in ./epgIpc. What follows is what the Settings
-// EPG tab still uses until it shows the guide sources itself.
-
-export async function fetchEpgData(epgUrl: string): Promise<number> {
-  return await invoke('fetch_epg_data', { epgUrl });
-}
-
-/** The summary the current Settings EPG tab shows; see `getLegacyEpgStatus`. */
-export interface LegacyEpgStatus {
-  has_url: boolean;
-  last_fetched: string | null;
-  program_count: number;
-}
-
-export interface EpgRefreshResult {
-  success: boolean;
-  programs_loaded: number;
-  timestamp: string;
-  error: string | null;
-}
-
-/**
- * The old status summary, derived from the per-source status for the
- * Settings EPG tab until that tab shows the sources itself: whether an
- * enabled source applies, its latest successful download, and the
- * programmes stored for the enabled sources.
- */
-export async function getLegacyEpgStatus(): Promise<LegacyEpgStatus> {
-  const status = await getEpgStatus();
-  const enabled = status.sources.filter((s) => s.enabled);
-  let lastFetched: string | null = null;
-  for (const source of enabled) {
-    const at = source.last_success_at;
-    if (at !== null && (lastFetched === null || Date.parse(at) > Date.parse(lastFetched))) {
-      lastFetched = at;
-    }
-  }
-  return {
-    has_url: enabled.length > 0,
-    last_fetched: lastFetched,
-    program_count: status.programme_count,
-  };
-}
-
-export async function forceRefreshEpg(): Promise<EpgRefreshResult> {
-  return await invoke('force_refresh_epg');
 }
 
 // ========== Parental Controls Commands ==========

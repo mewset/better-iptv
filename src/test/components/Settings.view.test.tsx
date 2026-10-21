@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useRef } from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { invoke } from '@tauri-apps/api/core';
 import Settings from '../../components/Settings';
 import { usePlayerStore } from '../../stores/player-store';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
@@ -13,6 +14,8 @@ import {
 } from '../../lib/tauri';
 import type { Channel, Playlist } from '../../types';
 import * as logoFallback from '../../lib/logoFallback';
+import { useEpgStore } from '../../stores/epg-store';
+import { epgSource, epgStatus } from '../epgFixtures';
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
@@ -21,15 +24,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 vi.mock('../../lib/tauri', () => ({
   getSetting: vi.fn(async () => null),
   setSetting: vi.fn(async () => {}),
-  fetchEpgData: vi.fn(async () => 0),
   resetParentalPin: vi.fn(async () => {}),
-  getLegacyEpgStatus: vi.fn(async () => ({ has_url: false, last_fetched: null, program_count: 0 })),
-  forceRefreshEpg: vi.fn(async () => ({
-    success: true,
-    programs_loaded: 0,
-    timestamp: '',
-    error: null,
-  })),
   getChannels: vi.fn(async () => []),
   getParentalSettings: vi.fn(async () => ({
     enabled: false,
@@ -97,6 +92,12 @@ describe('Settings as a view', () => {
     // have swapped out.
     vi.mocked(getSetting).mockImplementation(async () => null);
     vi.mocked(setSetting).mockImplementation(async () => {});
+    // The EPG tab's guide commands go through invoke, not the tauri module.
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockImplementation(async (cmd: string) =>
+      cmd === 'get_epg_status' ? epgStatus(true, { sources: [epgSource({ id: 3 })] }) : undefined
+    );
+    useEpgStore.setState(useEpgStore.getInitialState(), true);
     usePlayerStore.setState({
       playlists: [],
       currentPlaylist: null,
@@ -117,7 +118,7 @@ describe('Settings as a view', () => {
     render(<Settings onClose={vi.fn()} />);
 
     // Sequential loading would show exactly one pending call here.
-    await waitFor(() => expect(release).toHaveLength(18));
+    await waitFor(() => expect(release).toHaveLength(17));
     release.forEach((r) => r());
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled());
   });
@@ -150,7 +151,7 @@ describe('Settings as a view', () => {
     const expected: Array<[string, string]> = [
       ['General', 'Playlist, appearance, updates'],
       ['Playback', 'MPV, video, audio, subtitles'],
-      ['EPG', 'Guide sources and refresh'],
+      ['EPG', 'Sources, updates and time correction'],
       ['Metadata', 'Posters and details from TMDB'],
       ['Parental', 'PIN and blocked content'],
       ['Profiles', 'Playlists and providers'],
@@ -262,6 +263,43 @@ describe('Settings as a view', () => {
       expect(screen.getByRole('tab', { name: /^epg$/i })).toHaveAttribute('aria-selected', 'true')
     );
     expect(screen.getByRole('heading', { name: 'EPG' })).toBeInTheDocument();
+  });
+
+  it('the EPG tab acts at once: nothing of it is saved, fetched on save or counted as unsaved', async () => {
+    const onClose = await renderSettings();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /^epg$/i }));
+    await screen.findByRole('heading', { level: 1, name: 'EPG' });
+    const source = await screen.findByRole('article', {
+      name: "Your provider's guide · signed in with your account",
+    });
+
+    // An action is sent straight away, without Save.
+    fireEvent.click(within(source).getByRole('checkbox', { name: 'Enabled' }));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('update_epg_source', { id: 3, patch: { enabled: false } })
+    );
+    // A half-typed URL is not an unsaved setting either.
+    fireEvent.change(screen.getByLabelText('Add a source'), {
+      target: { value: 'http://typed.example/g.xml' },
+    });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Discard changes?')).toBeNull();
+
+    vi.mocked(invoke).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(setSetting).mock.calls.map(([key]) => key)).not.toContain('epg_url');
+    expect(getSetting).not.toHaveBeenCalledWith('epg_url');
+    const guideCalls = vi.mocked(invoke).mock.calls.map(([cmd]) => cmd);
+    for (const cmd of [
+      'add_epg_source',
+      'refresh_epg',
+      'update_epg_source',
+      'set_epg_time_policy',
+    ]) {
+      expect(guideCalls).not.toContain(cmd);
+    }
   });
 
   it('Escape calls onClose', async () => {
