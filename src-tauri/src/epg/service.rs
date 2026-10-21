@@ -19,7 +19,11 @@
 //! runtime in tests: `epg-refreshed` (`EpgRefreshed`) after anything that
 //! changes what the guide shows, `epg-status` (`EpgStatus`) whenever a
 //! source's row in Settings changes, including the start and end of every
-//! attempt.
+//! attempt. The app emits both to the WebView through its `AppHandle`.
+//!
+//! Every download that ends, however it ends, also reports how on a channel
+//! of the service's own, so a caller that must wait for a download already
+//! running (`refresh_and_wait`) can.
 
 use super::read::active_profile;
 use super::sources::{
@@ -41,6 +45,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
 /// First automatic check after startup; leaves the UI's own startup traffic
@@ -96,6 +101,51 @@ pub trait EpgEvents: Send + Sync {
     fn status(&self, status: &EpgStatus);
 }
 
+impl<R: tauri::Runtime> EpgEvents for tauri::AppHandle<R> {
+    fn refreshed(&self, event: &EpgRefreshed) {
+        if let Err(e) = tauri::Emitter::emit(self, REFRESHED_EVENT, event) {
+            warn!("Could not send {REFRESHED_EVENT}: {e}");
+        }
+    }
+
+    fn status(&self, status: &EpgStatus) {
+        if let Err(e) = tauri::Emitter::emit(self, STATUS_EVENT, status) {
+            warn!("Could not send {STATUS_EVENT}: {e}");
+        }
+    }
+}
+
+/// How one source's download ended, as `refresh_and_wait` reports it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Finished {
+    /// Stored, complete or partial: this many programmes.
+    Stored(u32),
+    /// Nothing stored or recorded: the source was removed, disabled or
+    /// given another URL meanwhile.
+    Abandoned,
+    /// Failed with this credential-free sentence.
+    Failed(String),
+}
+
+impl Finished {
+    /// How a download that returned `result` ended.
+    pub fn of_result(result: &Result<IngestOutcome, AppError>) -> Self {
+        match result {
+            Ok(IngestOutcome::Stored(report)) => Finished::Stored(report.stored),
+            Ok(IngestOutcome::Abandoned(_)) => Finished::Abandoned,
+            Err(AppError::Epg(message)) => Finished::Failed(message.clone()),
+            Err(other) => Finished::Failed(other.to_string()),
+        }
+    }
+}
+
+/// A source id with how its download ended.
+type Outcome = (i64, Finished);
+
+/// Downloads that end at the same time without a waiter reading them; a
+/// waiter that falls further behind treats what it missed as unknown.
+const OUTCOME_BACKLOG: usize = 64;
+
 /// Unix seconds now.
 pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 
@@ -149,14 +199,35 @@ pub type RunHandle = JoinHandle<Vec<SourceRun>>;
 
 /// Membership of a source in one of the coalescing sets, released on drop,
 /// so the id leaves the set on every path, a cancelled task included.
+///
+/// A download's mark also reports the outcome when it is released, under
+/// the set's lock: a waiter that subscribed while marking (`mark_downloads`)
+/// hears of every download that ends after it, and of none before.
 struct Mark {
     set: Arc<Mutex<HashSet<i64>>>,
     id: i64,
+    notify: Option<broadcast::Sender<Outcome>>,
+    outcome: Option<Finished>,
+}
+
+impl Mark {
+    fn finish(&mut self, result: &Result<IngestOutcome, AppError>) {
+        self.outcome = Some(Finished::of_result(result));
+    }
 }
 
 impl Drop for Mark {
     fn drop(&mut self) {
-        lock_set(&self.set).remove(&self.id);
+        let mut members = lock_set(&self.set);
+        members.remove(&self.id);
+        if let Some(notify) = &self.notify {
+            let outcome = self
+                .outcome
+                .take()
+                .unwrap_or_else(|| Finished::Failed("The guide update was cancelled".to_string()));
+            // No receiver is fine: nobody is waiting.
+            let _ = notify.send((self.id, outcome));
+        }
     }
 }
 
@@ -166,16 +237,26 @@ fn lock_set(set: &Mutex<HashSet<i64>>) -> std::sync::MutexGuard<'_, HashSet<i64>
 }
 
 /// Put each id into `set`; returns marks for the ids that were not in it,
-/// in the order given.
-fn mark(set: &Arc<Mutex<HashSet<i64>>>, ids: impl IntoIterator<Item = i64>) -> Vec<Mark> {
+/// in the order given. With `notify`, a released mark reports its outcome
+/// there, and the returned receiver was subscribed under the set's lock.
+fn mark(
+    set: &Arc<Mutex<HashSet<i64>>>,
+    ids: impl IntoIterator<Item = i64>,
+    notify: Option<&broadcast::Sender<Outcome>>,
+) -> (Vec<Mark>, Option<broadcast::Receiver<Outcome>>) {
     let mut members = lock_set(set);
-    ids.into_iter()
+    let receiver = notify.map(broadcast::Sender::subscribe);
+    let marks = ids
+        .into_iter()
         .filter(|id| members.insert(*id))
         .map(|id| Mark {
             set: set.clone(),
             id,
+            notify: notify.cloned(),
+            outcome: None,
         })
-        .collect()
+        .collect();
+    (marks, receiver)
 }
 
 /// Sources the background task fetches now, in precedence order: enabled,
@@ -203,12 +284,15 @@ fn applicable_sources(conn: &Connection) -> rusqlite::Result<Vec<i64>> {
 #[derive(Clone)]
 pub struct EpgService {
     parts: Arc<ServiceParts>,
+    /// Where every released download mark reports its outcome.
+    finished: broadcast::Sender<Outcome>,
 }
 
 impl EpgService {
     pub fn new(parts: ServiceParts) -> Self {
         EpgService {
             parts: Arc::new(parts),
+            finished: broadcast::channel(OUTCOME_BACKLOG).0,
         }
     }
 
@@ -273,18 +357,52 @@ impl EpgService {
     /// now, whether or not it is due. Returns at once; `None` when every
     /// source asked for already has a download queued or running.
     pub async fn refresh(&self, source_id: Option<i64>) -> Result<Option<RunHandle>, AppError> {
-        let ids = self
-            .db(move |conn| match source_id {
-                Some(id) => match get_source(conn, id)? {
-                    Some(_) => Ok(vec![id]),
-                    None => Err(AppError::InvalidInput(format!(
-                        "Guide source {id} not found"
-                    ))),
-                },
-                None => Ok(applicable_sources(conn)?),
-            })
-            .await?;
-        Ok(self.spawn_downloads(ids))
+        let ids = self.requested(source_id).await?;
+        Ok(self.spawn_downloads(ids).0)
+    }
+
+    /// `refresh`, then wait until every source asked for has finished a
+    /// download, also one that was already queued or running when it was
+    /// asked for. Returns how each ended, in the order they ended; empty
+    /// when no source applies. A source whose outcome was missed (more
+    /// downloads ended at once than the channel holds) is left out.
+    pub async fn refresh_and_wait(&self, source_id: Option<i64>) -> Result<Vec<Outcome>, AppError> {
+        let ids = self.requested(source_id).await?;
+        let (_, mut finished) = self.spawn_downloads(ids.clone());
+        let mut waiting: HashSet<i64> = ids.into_iter().collect();
+        let mut ended = Vec::with_capacity(waiting.len());
+        while !waiting.is_empty() {
+            match finished.recv().await {
+                Ok((id, outcome)) => {
+                    if waiting.remove(&id) {
+                        ended.push((id, outcome));
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(missed)) => {
+                    warn!("EPG refresh: {missed} download outcome(s) missed");
+                    let busy = lock_set(&self.parts.refreshing).clone();
+                    waiting.retain(|id| busy.contains(id));
+                }
+                // The service holds the sender; reached only if that changes.
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+        Ok(ended)
+    }
+
+    /// The source asked for, checked to exist, or every enabled source of
+    /// the active profile.
+    async fn requested(&self, source_id: Option<i64>) -> Result<Vec<i64>, AppError> {
+        self.db(move |conn| match source_id {
+            Some(id) => match get_source(conn, id)? {
+                Some(_) => Ok(vec![id]),
+                None => Err(AppError::InvalidInput(format!(
+                    "Guide source {id} not found"
+                ))),
+            },
+            None => Ok(applicable_sources(conn)?),
+        })
+        .await
     }
 
     /// Download the sources that are due now, in the background. Run after
@@ -293,24 +411,33 @@ impl EpgService {
     pub async fn check_due(&self) -> Result<Option<RunHandle>, AppError> {
         let now = self.now();
         let ids = self.db(move |conn| Ok(due_sources(conn, now)?)).await?;
-        Ok(self.spawn_downloads(ids))
+        Ok(self.spawn_downloads(ids).0)
+    }
+
+    /// Mark the ids in `epg_refreshing`, subscribing to download outcomes in
+    /// the same step.
+    fn mark_downloads(&self, ids: Vec<i64>) -> (Vec<Mark>, broadcast::Receiver<Outcome>) {
+        let (marks, receiver) = mark(&self.parts.refreshing, ids, Some(&self.finished));
+        (marks, receiver.expect("subscribed with a sender"))
     }
 
     /// Mark the ids now, then download them one at a time in a task, each
-    /// under the refresh lock.
-    fn spawn_downloads(&self, ids: Vec<i64>) -> Option<RunHandle> {
-        let marks = mark(&self.parts.refreshing, ids);
+    /// under the refresh lock. The receiver hears of every download that
+    /// ends from now on, these and ones already running.
+    fn spawn_downloads(&self, ids: Vec<i64>) -> (Option<RunHandle>, broadcast::Receiver<Outcome>) {
+        let (marks, finished) = self.mark_downloads(ids);
         if marks.is_empty() {
-            return None;
+            return (None, finished);
         }
         let service = self.clone();
-        Some(tokio::spawn(async move {
+        let run = tokio::spawn(async move {
             service.emit_status().await;
             let mut runs = Vec::with_capacity(marks.len());
-            for mark in marks {
+            for mut mark in marks {
                 let permit = service.wait_for_lock().await;
                 let run = service.download(mark.id, &permit).await;
                 drop(permit);
+                mark.finish(&run.result);
                 drop(mark);
                 service.emit_status().await;
                 runs.push(run);
@@ -318,7 +445,8 @@ impl EpgService {
             let more = service.follow_up(&runs).await;
             runs.extend(more);
             runs
-        }))
+        });
+        (Some(run), finished)
     }
 
     /// After a download that was abandoned because its source changed (a
@@ -362,17 +490,19 @@ impl EpgService {
                 return Vec::new();
             }
         };
-        let marks = mark(&self.parts.refreshing, due);
+        let (marks, _) = self.mark_downloads(due);
         if marks.is_empty() {
             return Vec::new();
         }
         info!("EPG auto-refresh: {} source(s) due", marks.len());
         self.emit_status().await;
         let mut runs = Vec::with_capacity(marks.len());
-        for mark in marks {
-            runs.push(self.download(mark.id, &permit).await);
+        for mut mark in marks {
+            let run = self.download(mark.id, &permit).await;
+            mark.finish(&run.result);
             drop(mark);
             self.emit_status().await;
+            runs.push(run);
         }
         drop(permit);
         let more = self.follow_up(&runs).await;
@@ -439,7 +569,9 @@ impl EpgService {
         if !has_cached_feed(&self.parts.cache_dir, source_id) {
             return None;
         }
-        let queued = mark(&self.parts.pending_policy, [source_id]).pop()?;
+        let queued = mark(&self.parts.pending_policy, [source_id], None)
+            .0
+            .pop()?;
         let service = self.clone();
         Some(tokio::spawn(async move {
             let permit = service.wait_for_lock().await;
@@ -509,7 +641,7 @@ impl EpgService {
         url: String,
     ) -> Result<(EpgSourceStatus, Option<RunHandle>), AppError> {
         let id = self.db(move |conn| add_manual_source(conn, &url)).await?;
-        let run = self.spawn_downloads(vec![id]);
+        let (run, _) = self.spawn_downloads(vec![id]);
         if run.is_none() {
             self.emit_status().await;
         }
@@ -565,6 +697,13 @@ impl EpgService {
         self.refreshed(RefreshReason::ProfileSwitch, None);
         self.emit_status().await;
         self.check_due().await
+    }
+
+    /// Sources went away with a deleted profile (the database cascades):
+    /// the guide and Settings change with them.
+    pub async fn sources_removed(&self) {
+        self.refreshed(RefreshReason::SourceChanged, None);
+        self.emit_status().await;
     }
 }
 
@@ -1235,5 +1374,71 @@ mod tests {
             !feed_path(&f.dir.0, s).exists(),
             "no cache older than the rows"
         );
+    }
+
+    #[tokio::test]
+    async fn waiting_for_a_refresh_also_waits_for_a_download_already_running() {
+        let f = Fixture::new("service");
+        let body = feed().into_bytes();
+        let server = serve(vec![trickle(&body, 8, Duration::from_millis(50))]).await;
+        let s = manual(&f, &server.base, 10);
+        let (service, _) = service(&f);
+        assert!(service.refresh_and_wait(Some(s + 99)).await.is_err());
+
+        let running = service.refresh(Some(s)).await.unwrap().unwrap();
+        let ended = service.refresh_and_wait(None).await.unwrap();
+
+        assert_eq!(ended, [(s, Finished::Stored(2))]);
+        assert_eq!(
+            server.connections(),
+            1,
+            "the running download is not repeated"
+        );
+        assert!(stored(&running.await.unwrap()[0].result));
+    }
+
+    #[tokio::test]
+    async fn waiting_reports_a_failure_and_a_cancelled_download() {
+        let f = Fixture::new("service");
+        let server = serve(vec![
+            respond("500 Internal Server Error", b"oops"),
+            vec![head("200 OK", 100_000), Step::Hang],
+        ])
+        .await;
+        let s = manual(&f, &server.base, 10);
+        let (service, _) = service(&f);
+
+        let ended = service.refresh_and_wait(Some(s)).await.unwrap();
+        assert_eq!(
+            ended,
+            [(
+                s,
+                Finished::Failed("The EPG server answered 500 Internal Server Error".into())
+            )]
+        );
+
+        let run = service.refresh(Some(s)).await.unwrap().unwrap();
+        let waiter = {
+            let service = service.clone();
+            tokio::spawn(async move { service.refresh_and_wait(Some(s)).await })
+        };
+        while service.finished.receiver_count() == 0 || server.connections() < 2 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        run.abort();
+
+        let ended = waiter.await.unwrap().unwrap();
+        assert_eq!(
+            ended,
+            [(s, Finished::Failed("The guide update was cancelled".into()))]
+        );
+        assert_eq!(server.connections(), 2);
+    }
+
+    #[tokio::test]
+    async fn waiting_without_a_source_ends_at_once() {
+        let f = Fixture::new("service");
+        let (service, _) = service(&f);
+        assert!(service.refresh_and_wait(None).await.unwrap().is_empty());
     }
 }
