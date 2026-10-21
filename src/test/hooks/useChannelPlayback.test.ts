@@ -15,7 +15,6 @@ vi.mock('../../lib/tauri', () => ({
   playChannel: vi.fn(),
   stopPlayback: vi.fn(),
   getPlaybackStatus: vi.fn().mockResolvedValue({ playing: false, failed: false }),
-  getChannelEpg: vi.fn(),
   playEpisodeWithSeason: vi.fn(),
   playSeriesEpisodes: vi.fn().mockResolvedValue(undefined),
 }));
@@ -28,8 +27,6 @@ describe('useChannelPlayback.playLocalEpisodes', () => {
     usePlayerStore.setState({
       currentChannel: null,
       isPlaying: false,
-      currentProgram: 'stale',
-      nextProgram: 'stale',
     });
   });
 
@@ -45,8 +42,6 @@ describe('useChannelPlayback.playLocalEpisodes', () => {
     expect(state.isPlaying).toBe(true);
     expect(state.currentChannel?.name).toBe('Pilot');
     expect(state.currentChannel?.content_type).toBe('series');
-    expect(state.currentProgram).toBeNull();
-    expect(state.nextProgram).toBeNull();
   });
 
   it('rethrows and leaves playback state alone when the backend fails', async () => {

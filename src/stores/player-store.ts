@@ -78,19 +78,6 @@ async function loadLibraryPart(
   });
 }
 
-/**
- * Current/next programme for one channel, with optional start/end times.
- * `current` is absent while the channel is off air between broadcasts; the
- * entry is then kept for its `next` programme.
- */
-export interface EpgEntry {
-  current?: string;
-  currentStart?: string;
-  currentEnd?: string;
-  next?: string;
-  nextStart?: string;
-}
-
 interface PlayerState {
   // Playlists
   playlists: Playlist[];
@@ -149,22 +136,6 @@ interface PlayerState {
   // Playback
   isPlaying: boolean;
   setIsPlaying: (playing: boolean) => void;
-
-  // EPG (Electronic Program Guide)
-  currentProgram: string | null;
-  nextProgram: string | null;
-  setCurrentProgram: (program: string | null) => void;
-  setNextProgram: (program: string | null) => void;
-
-  // EPG data for all channels (channelId -> EpgEntry)
-  channelEpgData: Map<number, EpgEntry>;
-  /** Stores a whole fetch at once: one new Map and one notification, not one per channel. */
-  setChannelEpgs: (entries: Array<[number, EpgEntry]>) => void;
-  /** Drops the stored entries of these channels (their EPG id has no data). */
-  removeChannelEpgs: (ids: number[]) => void;
-  clearAllEpg: () => void;
-  epgRefreshTrigger: number;
-  triggerEpgRefresh: () => void;
 
   // TMDB cards for movies and series (channelId -> card)
   tmdbCards: Map<number, TmdbCard>;
@@ -364,32 +335,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   // Playback
   isPlaying: false,
   setIsPlaying: (playing) => set({ isPlaying: playing }),
-
-  // EPG (Electronic Program Guide)
-  currentProgram: null,
-  nextProgram: null,
-  setCurrentProgram: (program) => set({ currentProgram: program }),
-  setNextProgram: (program) => set({ nextProgram: program }),
-
-  // EPG data for all channels
-  channelEpgData: new Map(),
-  setChannelEpgs: (entries) =>
-    set((state) => {
-      if (entries.length === 0) return {};
-      const newMap = new Map(state.channelEpgData);
-      for (const [channelId, entry] of entries) newMap.set(channelId, entry);
-      return { channelEpgData: newMap };
-    }),
-  removeChannelEpgs: (ids) =>
-    set((state) => {
-      if (!ids.some((id) => state.channelEpgData.has(id))) return {};
-      const newMap = new Map(state.channelEpgData);
-      for (const id of ids) newMap.delete(id);
-      return { channelEpgData: newMap };
-    }),
-  clearAllEpg: () => set({ channelEpgData: new Map() }),
-  epgRefreshTrigger: 0,
-  triggerEpgRefresh: () => set((state) => ({ epgRefreshTrigger: state.epgRefreshTrigger + 1 })),
 
   tmdbCards: new Map(),
   setTmdbCards: (cards) =>

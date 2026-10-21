@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
+import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -57,7 +58,7 @@ function setupInvoke() {
       case 'get_blocked_channels':
       case 'get_tmdb_cards':
         return [];
-      case 'get_channels_epg':
+      case 'get_epg_now_next':
         return {};
       case 'get_parental_settings':
         return {
@@ -83,6 +84,7 @@ async function scrolledList(): Promise<HTMLElement> {
 
 describe('MainScreen: scroll position resets when the list changes', () => {
   beforeEach(() => {
+    useEpgStore.setState(useEpgStore.getInitialState(), true);
     setupInvoke();
     usePlayerStore.setState({
       playlists: [home],

@@ -45,8 +45,6 @@ export function useKeyboardShortcuts(
   const currentChannel = usePlayerStore((s) => s.currentChannel);
   const setIsPlaying = usePlayerStore((s) => s.setIsPlaying);
   const setCurrentChannel = usePlayerStore((s) => s.setCurrentChannel);
-  const setCurrentProgram = usePlayerStore((s) => s.setCurrentProgram);
-  const setNextProgram = usePlayerStore((s) => s.setNextProgram);
 
   const handler = useCallback(
     async (e: globalThis.KeyboardEvent) => {
@@ -72,8 +70,6 @@ export function useKeyboardShortcuts(
             await stopPlayback();
             setIsPlaying(false);
             setCurrentChannel(null);
-            setCurrentProgram(null);
-            setNextProgram(null);
           } catch (err) {
             logger.error('Failed to stop playback via keyboard:', err);
           }
@@ -92,8 +88,6 @@ export function useKeyboardShortcuts(
               await stopPlayback();
               setIsPlaying(false);
               setCurrentChannel(null);
-              setCurrentProgram(null);
-              setNextProgram(null);
             } catch (err) {
               logger.error('Failed to stop playback via keyboard:', err);
             }
@@ -133,8 +127,6 @@ export function useKeyboardShortcuts(
       currentChannel,
       setIsPlaying,
       setCurrentChannel,
-      setCurrentProgram,
-      setNextProgram,
       searchInputRef,
       onToggleGuide,
       onSearchUnavailable,

@@ -1,20 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { useGuide, GUIDE_REQUEST_IDS } from '../../hooks/useGuide';
-import { getGuide, getGuideEpgIds } from '../../lib/tauri';
-import { listen } from '@tauri-apps/api/event';
+import { getEpgGuide, getEpgGuideKeys } from '../../lib/epgIpc';
+import { useEpgStore } from '../../stores/epg-store';
 import type { Channel } from '../../types';
 
-vi.mock('../../lib/tauri', () => ({
-  getGuide: vi.fn(),
-  getGuideEpgIds: vi.fn(),
-}));
-vi.mock('@tauri-apps/api/event', () => ({
-  listen: vi.fn(async () => () => {}),
+vi.mock('../../lib/epgIpc', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/epgIpc')>()),
+  getEpgGuide: vi.fn(),
+  getEpgGuideKeys: vi.fn(),
 }));
 
-const mockedGetGuide = vi.mocked(getGuide);
-const mockedGetIds = vi.mocked(getGuideEpgIds);
+const mockedGetGuide = vi.mocked(getEpgGuide);
+const mockedGetIds = vi.mocked(getEpgGuideKeys);
 
 const ch = (id: number, epg_id: string | null): Channel =>
   ({ id, name: `C${id}`, content_type: 'live', epg_id }) as Channel;
@@ -22,22 +20,15 @@ const ch = (id: number, epg_id: string | null): Channel =>
 const programme = {
   title: 'News',
   description: null,
-  start_time: '2026-09-24T18:00:00Z',
-  end_time: '2026-09-24T18:30:00Z',
+  start: '2026-09-24T18:00:00+00:00',
+  stop: '2026-09-24T18:30:00+00:00',
 };
-
-/** The handler useGuide registered for `epg-refreshed`. */
-function epgRefreshed(): () => void {
-  const call = vi.mocked(listen).mock.calls.find(([name]) => name === 'epg-refreshed');
-  expect(call).toBeDefined();
-  return () => (call![1] as (e: { payload: unknown }) => void)({ payload: null });
-}
 
 describe('useGuide', () => {
   beforeEach(() => {
     mockedGetGuide.mockReset().mockResolvedValue({ a: [programme] });
     mockedGetIds.mockReset().mockResolvedValue(['a', 'b']);
-    vi.mocked(listen).mockClear();
+    useEpgStore.setState(useEpgStore.getInitialState(), true);
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -107,11 +98,11 @@ describe('useGuide', () => {
     expect(mockedGetIds).toHaveBeenCalledTimes(1);
   });
 
-  it('epg-refreshed fetches both steps again', async () => {
+  it('epg-refreshed (a new store generation) fetches both steps again', async () => {
     const { result } = renderHook(() => useGuide([ch(1, 'a'), ch(2, 'b')], 0));
     await waitFor(() => expect(result.current.loading).toBe(false));
     mockedGetIds.mockResolvedValue(['b']);
-    await act(async () => epgRefreshed()());
+    await act(async () => useEpgStore.getState().invalidate());
     await waitFor(() => expect(result.current.rows.map((c) => c.id)).toEqual([2]));
     expect(mockedGetIds).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(mockedGetGuide).toHaveBeenCalledTimes(2));

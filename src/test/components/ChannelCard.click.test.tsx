@@ -27,6 +27,7 @@ function renderCard(props: Partial<React.ComponentProps<typeof ChannelCard>> = {
     <ChannelCard
       channel={channel}
       isPlaying={false}
+      now={Date.now()}
       onPlay={onPlay}
       onToggleFavorite={onToggleFavorite}
       {...props}

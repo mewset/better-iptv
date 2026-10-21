@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
+import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -83,7 +84,7 @@ function setupInvoke(tmdbAvailable = false) {
       case 'get_tmdb_cards':
       case 'get_tmdb_season':
         return [];
-      case 'get_channels_epg':
+      case 'get_epg_now_next':
         return {};
       case 'get_parental_settings':
         return {
@@ -118,6 +119,7 @@ function setupInvoke(tmdbAvailable = false) {
 
 describe('MainScreen opens the detail view', () => {
   beforeEach(() => {
+    useEpgStore.setState(useEpgStore.getInitialState(), true);
     setupInvoke();
     usePlayerStore.setState({
       playlists: [home],

@@ -185,51 +185,12 @@ export async function renamePlaylist(playlistId: number, newName: string): Promi
 }
 
 // ========== EPG Commands ==========
+//
+// The guide's commands live in ./epgIpc. What follows is what the Settings
+// EPG tab still uses until it shows the guide sources itself.
 
 export async function fetchEpgData(epgUrl: string): Promise<number> {
   return await invoke('fetch_epg_data', { epgUrl });
-}
-
-export async function getChannelEpg(channelEpgId: string): Promise<[string | null, string | null]> {
-  return await invoke('get_channel_epg', { channelEpgId });
-}
-
-export interface ChannelEpg {
-  current: string | null;
-  current_start: string | null;
-  current_end: string | null;
-  next: string | null;
-  next_start: string | null;
-}
-
-/** Current/next programme for many channels in one IPC call (max 500 ids). */
-export async function getChannelsEpg(epgIds: string[]): Promise<Record<string, ChannelEpg>> {
-  return await invoke('get_channels_epg', { epgIds });
-}
-
-export interface GuideProgram {
-  title: string;
-  description: string | null;
-  start_time: string;
-  end_time: string;
-}
-
-/**
- * Programmes for many channels within a time window (max 100 ids, max 48h
- * span). `from`/`to` are RFC 3339 strings; every requested id is a key in
- * the result, with an empty array when it has no programmes in the window.
- */
-export async function getGuide(
-  epgIds: string[],
-  from: string,
-  to: string
-): Promise<Record<string, GuideProgram[]>> {
-  return await invoke('get_guide', { epgIds, from, to });
-}
-
-/** EPG ids with programmes between `from` and `to` (RFC 3339, at most seven days), normalized. */
-export async function getGuideEpgIds(from: string, to: string): Promise<string[]> {
-  return await invoke('get_guide_epg_ids', { from, to });
 }
 
 /** The summary the current Settings EPG tab shows; see `getLegacyEpgStatus`. */

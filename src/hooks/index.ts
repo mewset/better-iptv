@@ -19,8 +19,10 @@ export {
 // Channel playback
 export { useChannelPlayback, type PlaylistEpisode } from './useChannelPlayback';
 
-// EPG data
-export { useEpgData, useChannelEpg } from './useEpgData';
+// Guide data
+export { useNowNext, nowNextFor, epgKey } from './useNowNext';
+export { useEpgStatus } from './useEpgStatus';
+export { useNow } from './useNow';
 
 // Keyboard shortcuts
 export { useKeyboardShortcuts } from './useKeyboardShortcuts';

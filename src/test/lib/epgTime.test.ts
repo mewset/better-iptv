@@ -4,8 +4,10 @@ import {
   formatClockAt,
   progressPercent,
   minutesLeft,
-  isEpgEntryStale,
+  isNowNextStale,
+  nowNextBoundary,
 } from '../../lib/epgTime';
+import { nowNext, programme } from '../epgFixtures';
 
 const T = Date.parse('2026-09-24T18:00:00Z');
 const iso = (min: number) => new Date(T + min * 60000).toISOString();
@@ -48,15 +50,18 @@ describe('epgTime', () => {
   });
 
   it('marks an entry stale once its current programme has ended', () => {
-    expect(isEpgEntryStale({ current: 'A', currentEnd: iso(-1) }, T)).toBe(true);
-    expect(isEpgEntryStale({ current: 'A', currentEnd: iso(10) }, T)).toBe(false);
+    expect(isNowNextStale(nowNext(programme('A', iso(-30), iso(-1))), T)).toBe(true);
+    expect(isNowNextStale(nowNext(programme('A', iso(-30), iso(10))), T)).toBe(false);
+    expect(nowNextBoundary(nowNext(programme('A', iso(-30), iso(10))))).toBe(T + 10 * 60000);
   });
   it('marks an off-air entry stale once its next programme has begun', () => {
-    expect(isEpgEntryStale({ next: 'B', nextStart: iso(-1) }, T)).toBe(true);
-    expect(isEpgEntryStale({ next: 'B', nextStart: iso(30) }, T)).toBe(false);
+    expect(isNowNextStale(nowNext(null, programme('B', iso(-1), iso(30))), T)).toBe(true);
+    expect(isNowNextStale(nowNext(null, programme('B', iso(30), iso(60))), T)).toBe(false);
+    expect(nowNextBoundary(nowNext(null, programme('B', iso(30), iso(60))))).toBe(T + 30 * 60000);
   });
   it('never marks an entry without usable times stale', () => {
-    expect(isEpgEntryStale({ current: 'A' }, T)).toBe(false);
-    expect(isEpgEntryStale({ next: 'B', nextStart: 'bad' }, T)).toBe(false);
+    expect(isNowNextStale(nowNext(programme('A', iso(-30), 'bad')), T)).toBe(false);
+    expect(isNowNextStale(nowNext(null, null), T)).toBe(false);
+    expect(nowNextBoundary(nowNext(null, null))).toBeNull();
   });
 });

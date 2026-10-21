@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
+import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -57,6 +58,7 @@ function calls(cmd: string) {
 
 describe('MainScreen: switching profile with a series open', () => {
   beforeEach(() => {
+    useEpgStore.setState(useEpgStore.getInitialState(), true);
     mockedInvoke.mockReset();
     mockedInvoke.mockImplementation(async (cmd: string) => {
       switch (cmd) {
@@ -71,7 +73,7 @@ describe('MainScreen: switching profile with a series open', () => {
         case 'get_blocked_channels':
         case 'get_tmdb_cards':
           return [];
-        case 'get_channels_epg':
+        case 'get_epg_now_next':
           return {};
         case 'get_parental_settings':
           return {

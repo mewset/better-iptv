@@ -3,6 +3,7 @@ import { render, waitFor, act } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import App from '../../App';
 import { usePlayerStore } from '../../stores/player-store';
+import { useEpgStore } from '../../stores/epg-store';
 import type { Playlist } from '../../types';
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -56,6 +57,7 @@ const base: Handler = (cmd) => {
 
 describe('App boot', () => {
   beforeEach(() => {
+    useEpgStore.setState(useEpgStore.getInitialState(), true);
     usePlayerStore.setState({
       isSetupComplete: false,
       contentTypeFilter: 'live',

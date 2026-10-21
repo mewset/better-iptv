@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
+import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
 import { epgStatus } from '../epgFixtures';
 
@@ -48,8 +49,8 @@ function setupInvoke() {
       case 'get_blocked_channels':
       case 'get_tmdb_cards':
         return [];
-      case 'get_channels_epg':
-      case 'get_guide':
+      case 'get_epg_now_next':
+      case 'get_epg_guide':
         return {};
       case 'get_epg_status':
         return epgStatus(hasUrl);
@@ -82,6 +83,7 @@ const dock = () => screen.queryByRole('complementary', { name: 'Now playing' });
 
 describe('MainScreen: Settings view and navigation', () => {
   beforeEach(() => {
+    useEpgStore.setState(useEpgStore.getInitialState(), true);
     hasUrl = true;
     setupInvoke();
     usePlayerStore.setState({

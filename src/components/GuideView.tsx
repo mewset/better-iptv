@@ -3,19 +3,19 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { CalendarRange, Lock, Play, X } from 'lucide-react';
 import { usePlayerStore, type ChannelLoadStatus } from '../stores/player-store';
 import type { Channel } from '../types';
-import { getLegacyEpgStatus, type GuideProgram } from '../lib/tauri';
+import type { Programme } from '../lib/epgIpc';
 import { GUIDE_DAY_COUNT, blockGeometry, normalizeEpgId } from '../lib/guideLayout';
 import { formatClock, formatClockAt, minutesLeft, progressPercent } from '../lib/epgTime';
-import { logger } from '../lib/logger';
 import { cn } from '../lib/utils';
 import { useChannelLogo } from '../hooks/useChannelLogo';
 import { useGuide } from '../hooks/useGuide';
+import { hasNoEnabledSource, useEpgStatus } from '../hooks/useEpgStatus';
+import { useNow } from '../hooks/useNow';
 import { CategoryBar } from './CategoryBar';
 import { ColorBars } from './ColorBars';
 import { ChannelLoadError } from './ChannelLoadError';
 
 const HALF_HOUR = 30 * 60_000;
-const NOW_TICK_MS = 30_000;
 const ROW_HEIGHT = 64; // h-16
 
 const weekdayShort = new Intl.DateTimeFormat(undefined, { weekday: 'short' });
@@ -31,15 +31,15 @@ function dayLabels(now: number): string[] {
 }
 
 /** "HH:MM–HH:MM", or '' when either time cannot be parsed. */
-function timeRange(p: GuideProgram): string {
-  const start = formatClock(p.start_time);
-  const end = formatClock(p.end_time);
+function timeRange(p: Programme): string {
+  const start = formatClock(p.start);
+  const end = formatClock(p.stop);
   return start && end ? `${start}–${end}` : '';
 }
 
-function isAiring(p: GuideProgram, now: number): boolean {
-  const start = Date.parse(p.start_time);
-  const end = Date.parse(p.end_time);
+function isAiring(p: Programme, now: number): boolean {
+  const start = Date.parse(p.start);
+  const end = Date.parse(p.stop);
   return start <= now && now < end;
 }
 
@@ -87,14 +87,14 @@ function LogoTile({
 
 interface Selection {
   channel: Channel;
-  program: GuideProgram;
+  program: Programme;
 }
 
 interface GuideRowProps {
   channel: Channel;
   /** 1-based position among all rows, for aria-rowindex. */
   rowIndex: number;
-  programmes: GuideProgram[] | undefined;
+  programmes: Programme[] | undefined;
   from: number;
   to: number;
   now: number;
@@ -102,7 +102,7 @@ interface GuideRowProps {
   playing: boolean;
   blocked: boolean;
   selectedStart: string | null;
-  onSelect: (channel: Channel, program: GuideProgram) => void;
+  onSelect: (channel: Channel, program: Programme) => void;
 }
 
 const GuideRow = memo(function GuideRow({
@@ -121,9 +121,9 @@ const GuideRow = memo(function GuideRow({
   // Pure per programmes/window: geometry in percent of the track.
   const blocks = useMemo(() => {
     if (!programmes) return [];
-    const out: Array<{ program: GuideProgram; left: number; width: number }> = [];
+    const out: Array<{ program: Programme; left: number; width: number }> = [];
     for (const program of programmes) {
-      const g = blockGeometry(program.start_time, program.end_time, from, to, 100);
+      const g = blockGeometry(program.start, program.stop, from, to, 100);
       if (g) out.push({ program, ...g });
     }
     return out;
@@ -157,12 +157,12 @@ const GuideRow = memo(function GuideRow({
           )
         ) : (
           blocks.map(({ program, left, width }) => {
-            const selected = selectedStart === program.start_time;
+            const selected = selectedStart === program.start;
             const airing = isAiring(program, now);
             const range = timeRange(program);
             return (
               <button
-                key={`${program.start_time}|${program.title}`}
+                key={`${program.start}|${program.title}`}
                 type="button"
                 aria-label={[program.title, range, channel.name].filter(Boolean).join(', ')}
                 // Native tooltip: short blocks truncate long names (children's
@@ -218,8 +218,8 @@ function DetailPanel({ selection, now, dockVisible, playing, onWatch, onClose }:
   const logo = useChannelLogo(channel);
   const airing = isAiring(program, now);
   const range = timeRange(program);
-  const mins = airing ? minutesLeft(program.end_time, now) : null;
-  const pct = airing ? progressPercent(program.start_time, program.end_time, now) : null;
+  const mins = airing ? minutesLeft(program.stop, now) : null;
+  const pct = airing ? progressPercent(program.start, program.stop, now) : null;
   const meta = [channel.name, range, mins !== null ? `${mins} min left` : '']
     .filter(Boolean)
     .join(' · ');
@@ -323,32 +323,14 @@ export function GuideView({
 }: GuideViewProps) {
   const [dayOffset, setDayOffset] = useState(0);
   const [selection, setSelection] = useState<Selection | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-  const [hasSource, setHasSource] = useState<boolean | null>(null);
+  const now = useNow();
+  // Until the status is known the guide shows its loading line: neither
+  // the table nor the empty state, so neither flashes. A failed status
+  // request shows the guide rather than a wrong empty state.
+  const { status, failed: statusFailed } = useEpgStatus();
   // Session-only: the view remembers it while mounted, a fresh guide starts on all.
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const categoryFilter = usePlayerStore((s) => s.categoryFilter);
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), NOW_TICK_MS);
-    return () => clearInterval(id);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    getLegacyEpgStatus()
-      .then((status) => {
-        if (!cancelled) setHasSource(status.has_url);
-      })
-      .catch((err) => {
-        // Unknown status: show the guide rather than a wrong empty state.
-        logger.warn('Failed to read EPG status for the guide:', err);
-        if (!cancelled) setHasSource(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const listed = useMemo(
     () => (favoritesOnly ? channels.filter((c) => c.is_favorite) : channels),
@@ -405,7 +387,7 @@ export function GuideView({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [selection]);
 
-  const handleSelect = useCallback((channel: Channel, program: GuideProgram) => {
+  const handleSelect = useCallback((channel: Channel, program: Programme) => {
     setSelection({ channel, program });
   }, []);
 
@@ -438,7 +420,7 @@ export function GuideView({
     dayOffset === 0 && now >= win.from && now <= win.to ? ((now - win.from) / span) * 100 : null;
   const nowLabel = formatClockAt(now);
 
-  if (hasSource === false) {
+  if (hasNoEnabledSource(status)) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-10 pb-32 text-center">
         <CalendarRange className="h-8 w-8 text-text-muted" aria-hidden="true" />
@@ -505,7 +487,7 @@ export function GuideView({
       >
         {loadStatus === 'error' ? (
           <ChannelLoadError onRetry={onRetry} />
-        ) : loadStatus === 'loading' || rowsLoading ? (
+        ) : loadStatus === 'loading' || rowsLoading || (status === null && !statusFailed) ? (
           <p className="py-16 text-center text-text-muted">Loading guide…</p>
         ) : rows.length === 0 ? (
           <p className="py-16 text-center text-text-muted">
@@ -581,7 +563,7 @@ export function GuideView({
                         playing={playingChannelId === channel.id}
                         blocked={blockedMap?.get(channel.id) ?? false}
                         selectedStart={
-                          selection?.channel.id === channel.id ? selection.program.start_time : null
+                          selection?.channel.id === channel.id ? selection.program.start : null
                         }
                         onSelect={handleSelect}
                       />

@@ -4,7 +4,6 @@ import {
   playChannel as tauriPlayChannel,
   stopPlayback as tauriStopPlayback,
   getPlaybackStatus,
-  getChannelEpg,
   playEpisodeWithSeason,
   playSeriesEpisodes,
 } from '../lib/tauri';
@@ -29,10 +28,6 @@ interface UseChannelPlaybackResult {
   currentChannel: Channel | null;
   /** Whether playback is active */
   isPlaying: boolean;
-  /** Current EPG program title */
-  currentProgram: string | null;
-  /** Next EPG program title */
-  nextProgram: string | null;
   /** Play a channel (or open series view for series content) */
   play: (channel: Channel) => Promise<{ type: 'series'; channel: Channel } | void>;
   /** Stop current playback */
@@ -55,18 +50,16 @@ interface UseChannelPlaybackResult {
  * Consolidates:
  * - Play/stop channel logic
  * - MPV status polling
- * - EPG updates during playback
  * - Episode/series playback
+ *
+ * What the playing channel shows comes from `useNowNext`, which always asks
+ * for it.
  */
 export function useChannelPlayback(): UseChannelPlaybackResult {
   const currentChannel = usePlayerStore((s) => s.currentChannel);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
-  const currentProgram = usePlayerStore((s) => s.currentProgram);
-  const nextProgram = usePlayerStore((s) => s.nextProgram);
   const setCurrentChannel = usePlayerStore((s) => s.setCurrentChannel);
   const setIsPlaying = usePlayerStore((s) => s.setIsPlaying);
-  const setCurrentProgram = usePlayerStore((s) => s.setCurrentProgram);
-  const setNextProgram = usePlayerStore((s) => s.setNextProgram);
   const showToast = usePlayerStore((s) => s.showToast);
 
   // Poll MPV playback status to detect when player is closed externally
@@ -87,8 +80,6 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
           }
           setIsPlaying(false);
           setCurrentChannel(null);
-          setCurrentProgram(null);
-          setNextProgram(null);
         }
       } catch (err) {
         logger.error('Failed to check playback status:', err);
@@ -96,24 +87,7 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [isPlaying, setIsPlaying, setCurrentChannel, setCurrentProgram, setNextProgram, showToast]);
-
-  // Update EPG periodically while playing
-  useEffect(() => {
-    if (!isPlaying || !currentChannel?.epg_id) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const [current, next] = await getChannelEpg(currentChannel.epg_id!);
-        setCurrentProgram(current);
-        setNextProgram(next);
-      } catch (err) {
-        logger.error('Failed to update EPG:', err);
-      }
-    }, 60000); // Update every minute
-
-    return () => clearInterval(interval);
-  }, [isPlaying, currentChannel, setCurrentProgram, setNextProgram]);
+  }, [isPlaying, setIsPlaying, setCurrentChannel, showToast]);
 
   // Play a channel
   const play = useCallback(
@@ -129,8 +103,6 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         if (currentChannel?.id === channel.id && isPlaying) {
           await tauriStopPlayback();
           setIsPlaying(false);
-          setCurrentProgram(null);
-          setNextProgram(null);
           return;
         }
 
@@ -138,22 +110,6 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         await tauriPlayChannel(channel.id);
         setCurrentChannel(channel);
         setIsPlaying(true);
-
-        // Fetch EPG data if channel has EPG ID
-        if (channel.epg_id) {
-          try {
-            const [current, next] = await getChannelEpg(channel.epg_id);
-            setCurrentProgram(current);
-            setNextProgram(next);
-          } catch (err) {
-            logger.error('Failed to fetch EPG:', err);
-            setCurrentProgram(null);
-            setNextProgram(null);
-          }
-        } else {
-          setCurrentProgram(null);
-          setNextProgram(null);
-        }
       } catch (err) {
         logger.error('Failed to play channel:', err);
         showToast(`Couldn't start ${channel.name}.`);
@@ -162,15 +118,7 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         endPlaybackStart();
       }
     },
-    [
-      currentChannel,
-      isPlaying,
-      setCurrentChannel,
-      setIsPlaying,
-      setCurrentProgram,
-      setNextProgram,
-      showToast,
-    ]
+    [currentChannel, isPlaying, setCurrentChannel, setIsPlaying, showToast]
   );
 
   // Stop playback
@@ -178,13 +126,11 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
     try {
       await tauriStopPlayback();
       setIsPlaying(false);
-      setCurrentProgram(null);
-      setNextProgram(null);
     } catch (err) {
       logger.error('Failed to stop playback:', err);
       throw err;
     }
-  }, [setIsPlaying, setCurrentProgram, setNextProgram]);
+  }, [setIsPlaying]);
 
   // Play episode(s) from a series
   const playEpisode = useCallback(
@@ -246,8 +192,6 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
           is_favorite: false,
         });
         setIsPlaying(true);
-        setCurrentProgram(null);
-        setNextProgram(null);
       } catch (err) {
         logger.error('Failed to play local episodes:', err);
         showToast(`Couldn't start ${title}.`);
@@ -256,14 +200,12 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         endPlaybackStart();
       }
     },
-    [setCurrentChannel, setIsPlaying, setCurrentProgram, setNextProgram, showToast]
+    [setCurrentChannel, setIsPlaying, showToast]
   );
 
   return {
     currentChannel,
     isPlaying,
-    currentProgram,
-    nextProgram,
     play,
     stop,
     playEpisode,

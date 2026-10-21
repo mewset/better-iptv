@@ -72,7 +72,6 @@ const SECTIONS: Array<{ value: string; name: string; description: string }> = [
 
 export default function Settings({ onClose, initialTab = 'general', leaveRef }: SettingsProps) {
   const {
-    triggerEpgRefresh,
     channels,
     loadParentalSettings,
     currentPlaylist,
@@ -447,7 +446,6 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
         logger.info(`EPG refresh successful: ${result.programs_loaded} programs loaded`);
         const newStatus = await getLegacyEpgStatus();
         setEpgStatus(newStatus);
-        triggerEpgRefresh();
       } else {
         logger.error('EPG refresh failed:', result.error);
         showError('EPG Update Failed', result.error || 'Unknown error occurred');
@@ -602,7 +600,6 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
 
         const newStatus = await getLegacyEpgStatus();
         setEpgStatus(newStatus);
-        triggerEpgRefresh();
       } else if (epgUrlChanged) {
         logger.debug('EPG URL cleared, skipping fetch');
       } else {

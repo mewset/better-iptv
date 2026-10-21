@@ -2,7 +2,7 @@ import { memo, useEffect, useState } from 'react';
 import { useChannelLogo } from '../hooks/useChannelLogo';
 import { Play, Square, Star, Lock } from 'lucide-react';
 import type { Channel } from '../types';
-import type { EpgEntry } from '../stores/player-store';
+import type { NowNext } from '../lib/epgIpc';
 import { formatClock, progressPercent } from '../lib/epgTime';
 import { ColorBars } from './ColorBars';
 import { metaLine } from '../lib/tmdb';
@@ -14,8 +14,10 @@ interface ChannelCardProps {
   isPlaying: boolean;
   /** Callback when play/stop button is clicked */
   onPlay: (channel: Channel) => void;
-  /** Current/next EPG program for this channel, if any */
-  epg?: EpgEntry;
+  /** Now and next on this channel, if the guide has them */
+  epg?: NowNext;
+  /** The current time (epoch ms) for the progress line; `useNow` */
+  now: number;
   /** Whether this channel is blocked by parental controls */
   isBlocked?: boolean;
   /** Visibility mode for blocked channels */
@@ -40,6 +42,7 @@ export const ChannelCard = memo(function ChannelCard({
   isPlaying,
   onPlay,
   epg,
+  now,
   isBlocked = false,
   parentalVisibility = 'hide',
   onToggleFavorite,
@@ -56,10 +59,11 @@ export const ChannelCard = memo(function ChannelCard({
     channel.content_type === 'vod' ? 'Movie' : channel.content_type === 'series' ? 'Series' : null;
   const blocked = isBlocked && parentalVisibility !== 'hide';
 
-  const pct =
-    epg?.currentStart && epg?.currentEnd ? progressPercent(epg.currentStart, epg.currentEnd) : null;
-  const nowTime = epg?.currentStart ? formatClock(epg.currentStart) : '';
-  const nextTime = epg?.nextStart ? formatClock(epg.nextStart) : '';
+  const current = epg?.now ?? null;
+  const next = epg?.next ?? null;
+  const pct = current ? progressPercent(current.start, current.stop, now) : null;
+  const nowTime = current ? formatClock(current.start) : '';
+  const nextTime = next ? formatClock(next.start) : '';
 
   return (
     // The whole card plays the channel, because that is what every other IPTV
@@ -168,27 +172,27 @@ export const ChannelCard = memo(function ChannelCard({
           <p className="truncate text-xs text-text-faint">
             {channel.group_name ? `${channel.group_name} · Locked` : 'Locked'}
           </p>
-        ) : epg?.current ? (
+        ) : current ? (
           <>
             <div className="flex items-baseline gap-1.5 text-[13px]">
               {nowTime && (
                 <span className="font-semibold tabular-nums text-accent-text">{nowTime}</span>
               )}
-              <span className="truncate text-text">{epg.current}</span>
+              <span className="truncate text-text">{current.title}</span>
             </div>
-            {epg.next && (
+            {next && (
               <div className="flex items-baseline gap-1.5 text-xs">
                 {nextTime && <span className="tabular-nums text-text-faint">{nextTime}</span>}
-                <span className="truncate text-text-faint">{epg.next}</span>
+                <span className="truncate text-text-faint">{next.title}</span>
               </div>
             )}
           </>
-        ) : epg?.next ? (
+        ) : next ? (
           <>
             <p className="text-[13px] text-text-muted">Off air</p>
             <div className="flex items-baseline gap-1.5 text-xs">
               {nextTime && <span className="tabular-nums text-text-faint">{nextTime}</span>}
-              <span className="truncate text-text-faint">{epg.next}</span>
+              <span className="truncate text-text-faint">{next.title}</span>
             </div>
           </>
         ) : kindLabel ? (

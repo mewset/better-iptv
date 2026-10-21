@@ -35,7 +35,9 @@ import { cardFromDetails, homeGateOpen } from '../lib/tmdb';
 import type { Channel, SeriesInfo } from '../types';
 import { logger } from '../lib/logger';
 import { useResponsiveGrid, getGridClasses } from '../hooks/useResponsiveGrid';
-import { useEpgData } from '../hooks/useEpgData';
+import { nowNextFor, useNowNext } from '../hooks/useNowNext';
+import { useNow } from '../hooks/useNow';
+import { startEpgEvents } from '../lib/epgEvents';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useChannelPlayback } from '../hooks/useChannelPlayback';
 import { isAdultContent, shouldBlockChannel } from '../lib/parentalControls';
@@ -101,12 +103,10 @@ export default function MainScreen() {
   // Consolidated channel filtering (content type, category, parental, search)
   const filteredChannels = useChannelFilter(debouncedSearchQuery);
 
-  // Playback (hook handles polling + EPG updates)
+  // Playback (hook handles MPV status polling)
   const {
     currentChannel,
     isPlaying,
-    currentProgram,
-    nextProgram,
     play: playChannelAction,
     stop: stopPlaybackAction,
     playEpisode: playEpisodeAction,
@@ -444,9 +444,14 @@ export default function MainScreen() {
     return out;
   }, [virtualItems, showHero, columns, filteredChannels, loadStatus]);
 
-  // EPG for the live cards in view. The playing channel always rides along so
-  // the dock stays fresh, also in sections without a grid.
-  const { channelEpgData } = useEpgData(visibleChannels, currentChannel);
+  // Guide events feed the epg store for every view below; one listener each.
+  useEffect(() => startEpgEvents(), []);
+  // Now/next for the live cards in view. The playing channel always rides
+  // along so the dock stays fresh, also in sections without a grid; a card
+  // and the dock of one channel read the same entry.
+  const nowNext = useNowNext(visibleChannels, currentChannel);
+  // One clock for the cards' and the dock's progress and the header.
+  const now = useNow();
 
   // Visible poster rows feed the TMDB lookup, after the hero candidates of
   // both sections so the banner is warm before its section opens. Live rows
@@ -752,7 +757,7 @@ export default function MainScreen() {
   let title = SECTION_TITLES[contentTypeFilter];
   let subtitle =
     contentTypeFilter === 'guide'
-      ? guideSubtitle(Date.now())
+      ? guideSubtitle(now)
       : contentTypeFilter === 'home'
         ? ''
         : loadStatus !== 'loaded'
@@ -964,7 +969,8 @@ export default function MainScreen() {
                                 isPlaying={currentChannel?.id === channel.id && isPlaying}
                                 onPlay={handlePlayChannel}
                                 onToggleFavorite={toggleChannelFavorite}
-                                epg={channelEpgData.get(channel.id)}
+                                epg={nowNextFor(nowNext, channel)}
+                                now={now}
                                 tmdb={tmdbCards.get(channel.id)}
                                 isBlocked={isChannelBlocked}
                                 parentalVisibility={parentalVisibility}
@@ -986,9 +992,8 @@ export default function MainScreen() {
         {currentChannel && view !== 'settings' && (
           <NowPlayingBar
             channel={currentChannel}
-            epg={channelEpgData.get(currentChannel.id)}
-            currentProgram={currentProgram}
-            nextProgram={nextProgram}
+            epg={nowNextFor(nowNext, currentChannel)}
+            now={now}
             onStop={handleStop}
           />
         )}

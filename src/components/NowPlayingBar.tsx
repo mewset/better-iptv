@@ -2,19 +2,17 @@ import { memo } from 'react';
 import { Square } from 'lucide-react';
 import { useChannelLogo } from '../hooks/useChannelLogo';
 import type { Channel } from '../types';
-import type { EpgEntry } from '../stores/player-store';
-import { formatClock, progressPercent, minutesLeft, isEpgEntryStale } from '../lib/epgTime';
+import type { NowNext } from '../lib/epgIpc';
+import { formatClock, progressPercent, minutesLeft, isNowNextStale } from '../lib/epgTime';
 import { ColorBars } from './ColorBars';
 
 interface NowPlayingBarProps {
   /** Currently playing channel */
   channel: Channel;
-  /** Current/next EPG entry for this channel, if any */
-  epg?: EpgEntry;
-  /** Fallback current-programme string, used only when `epg` is absent */
-  currentProgram?: string | null;
-  /** Fallback next-programme string, used only when `epg` is absent */
-  nextProgram?: string | null;
+  /** Now and next on this channel, the same entry its card shows */
+  epg?: NowNext;
+  /** The current time (epoch ms); `useNow` */
+  now: number;
   /** Callback when stop button is clicked */
   onStop: () => void;
 }
@@ -30,31 +28,30 @@ interface NowPlayingBarProps {
 export const NowPlayingBar = memo(function NowPlayingBar({
   channel,
   epg: cachedEpg,
-  currentProgram,
-  nextProgram,
+  now,
   onStop,
 }: NowPlayingBarProps) {
   // The dock stays mounted while any channel plays; the hook resets its
   // failure state when the channel or its logo changes.
   const { src: logoSrc, onError: onLogoError } = useChannelLogo(channel);
 
-  // A cached entry that no longer describes the present (its programme ended,
-  // or an off-air entry's next programme began) is stale until the refetch
-  // lands: drop it and use the playback strings instead.
-  const epg = cachedEpg && isEpgEntryStale(cachedEpg) ? undefined : cachedEpg;
+  // An entry that no longer describes the present (its programme ended, or
+  // an off-air entry's next programme began) is not shown while the
+  // refetch, asked for just after that boundary, is on its way.
+  const epg = cachedEpg && isNowNextStale(cachedEpg, now) ? undefined : cachedEpg;
 
-  const programme = epg?.current ?? currentProgram ?? null;
+  const current = epg?.now ?? null;
+  const programme = current?.title ?? null;
   // Between broadcasts: nothing on now, but the guide knows what comes next.
-  const offAir = !programme && Boolean(epg?.next);
-  const next = epg?.next ?? nextProgram ?? null;
+  const offAir = !current && Boolean(epg?.next);
+  const next = epg?.next?.title ?? null;
 
-  const hasRange = Boolean(epg?.currentStart && epg?.currentEnd);
-  const startTime = epg?.currentStart ? formatClock(epg.currentStart) : '';
-  const endTime = epg?.currentEnd ? formatClock(epg.currentEnd) : '';
-  const pct =
-    epg?.currentStart && epg?.currentEnd ? progressPercent(epg.currentStart, epg.currentEnd) : null;
-  const minsLeft = epg?.currentEnd ? minutesLeft(epg.currentEnd) : null;
-  const nextTime = epg?.nextStart ? formatClock(epg.nextStart) : '';
+  const startTime = current ? formatClock(current.start) : '';
+  const endTime = current ? formatClock(current.stop) : '';
+  const hasRange = Boolean(startTime && endTime);
+  const pct = current ? progressPercent(current.start, current.stop, now) : null;
+  const minsLeft = current ? minutesLeft(current.stop, now) : null;
+  const nextTime = epg?.next ? formatClock(epg.next.start) : '';
 
   return (
     <aside

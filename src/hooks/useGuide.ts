@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
-import { getGuide, getGuideEpgIds, type GuideProgram } from '../lib/tauri';
+import { getEpgGuide, getEpgGuideKeys, GUIDE_BATCH, type Programme } from '../lib/epgIpc';
+import { useEpgStore } from '../stores/epg-store';
 import { guideChannels, guideDataRange, guideWindow, normalizeEpgId } from '../lib/guideLayout';
 import { logger } from '../lib/logger';
 import type { Channel } from '../types';
@@ -8,14 +8,14 @@ import type { Channel } from '../types';
 const REFRESH_MS = 5 * 60_000;
 // Joins ids into one dependency key; a NUL never appears in an EPG id.
 const SEP = '\u0000';
-/** Ids per get_guide request (the backend's GUIDE_MAX_IDS). */
-export const GUIDE_REQUEST_IDS = 5000;
+/** Ids per get_epg_guide request (the backend's GUIDE_MAX_IDS). */
+export const GUIDE_REQUEST_IDS = GUIDE_BATCH;
 
 export interface GuideState {
   /** Channels with guide data in the five days (all with an id if the lookup failed). */
   rows: Channel[];
   /** Programmes in the visible window, keyed by normalized EPG id. */
-  programs: Record<string, GuideProgram[]>;
+  programs: Record<string, Programme[]>;
   window: { from: number; to: number };
   /** Programmes for the current window are loading. */
   loading: boolean;
@@ -32,11 +32,14 @@ function dayStart(now: number): number {
 /**
  * The guide's rows and programmes.
  *
- * Step 1 asks which EPG ids have programmes in the five days the guide
+ * Step 1 asks which EPG ids have guide data in the five days the guide
  * offers (on mount, on `epg-refreshed`, and when the date changes); the rows
- * are the channels whose id is among them, in list order. Step 2 fetches the
- * visible window for all rows at once (on a new id set, a day change and
- * every 5 minutes), in requests of at most `GUIDE_REQUEST_IDS` ids. A failed
+ * are the channels whose id is among them, in list order. The backend
+ * answers with the keys whose stored guide (first start to last stop)
+ * touches the range, which for five days is the same as "has a programme
+ * in it". Step 2 fetches the visible window for all rows at once (on a new
+ * id set, a day change and every 5 minutes), in requests of at most
+ * `GUIDE_REQUEST_IDS` ids. A failed
  * lookup falls back to every channel with an id; a failed programme request
  * leaves rows without programmes. Both are logged, not shown.
  */
@@ -64,17 +67,12 @@ export function useGuide(channels: Channel[], dayOffset: number): GuideState {
   // Bumped on every answer, so step 2 reads the programmes again after a
   // refresh even when the set of row ids came back unchanged.
   const [answers, setAnswers] = useState(0);
-  const [lookupKey, setLookupKey] = useState(0);
-  useEffect(() => {
-    const unlisten = listen('epg-refreshed', () => setLookupKey((k) => k + 1));
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, []);
+  // Bumped by every `epg-refreshed` (epgEvents).
+  const generation = useEpgStore((s) => s.generation);
   useEffect(() => {
     let cancelled = false;
     const range = guideDataRange(today);
-    getGuideEpgIds(new Date(range.from).toISOString(), new Date(range.to).toISOString())
+    getEpgGuideKeys(new Date(range.from).toISOString(), new Date(range.to).toISOString())
       .then((ids) => {
         if (cancelled) return;
         setIdsWithData(new Set(ids));
@@ -89,7 +87,7 @@ export function useGuide(channels: Channel[], dayOffset: number): GuideState {
     return () => {
       cancelled = true;
     };
-  }, [today, lookupKey]);
+  }, [today, generation]);
 
   const rows = useMemo(
     () =>
@@ -130,9 +128,9 @@ export function useGuide(channels: Channel[], dayOffset: number): GuideState {
     setState((s) => ({ ...s, window: win, loading: true }));
     const from = new Date(win.from).toISOString();
     const to = new Date(win.to).toISOString();
-    const requests: Array<Promise<Record<string, GuideProgram[]>>> = [];
+    const requests: Array<Promise<Record<string, Programme[]>>> = [];
     for (let i = 0; i < ids.length; i += GUIDE_REQUEST_IDS) {
-      requests.push(getGuide(ids.slice(i, i + GUIDE_REQUEST_IDS), from, to));
+      requests.push(getEpgGuide(ids.slice(i, i + GUIDE_REQUEST_IDS), from, to));
     }
     Promise.all(requests)
       .then((parts) => {

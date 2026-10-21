@@ -4,6 +4,7 @@ import { newestTitles } from '../../lib/newestTitle';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
+import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -123,7 +124,7 @@ function setupInvoke(
         return (args as { channelIds: number[] }).channelIds
           .filter((id) => tmdbCardsFor.includes(id))
           .map(tmdbCard);
-      case 'get_channels_epg':
+      case 'get_epg_now_next':
         return {};
       case 'get_parental_settings':
         return parentalSettings;
@@ -151,6 +152,7 @@ function setupInvoke(
 
 describe('MainScreen: Movies hero', () => {
   beforeEach(() => {
+    useEpgStore.setState(useEpgStore.getInitialState(), true);
     setupInvoke(defaultParentalSettings(), [1, 2]);
     usePlayerStore.setState({
       playlists: [home],
@@ -291,6 +293,7 @@ describe('MainScreen: Series hero', () => {
   const newestShow = movie(12, 'Newest Show', '2026-06-01T00:00:00Z', { content_type: 'series' });
 
   beforeEach(() => {
+    useEpgStore.setState(useEpgStore.getInitialState(), true);
     setupInvoke(defaultParentalSettings(), [11, 12]);
     usePlayerStore.setState({
       playlists: [home],

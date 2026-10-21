@@ -5,7 +5,8 @@ import { GuideView } from '../../components/GuideView';
 import { usePlayerStore } from '../../stores/player-store';
 import { formatClock } from '../../lib/epgTime';
 import { resetLogoFallbackSession, useLogoFallbackStore } from '../../lib/logoFallback';
-import type { GuideProgram } from '../../lib/tauri';
+import type { Programme } from '../../lib/epgIpc';
+import { useEpgStore } from '../../stores/epg-store';
 import type { Channel } from '../../types';
 import { epgStatus } from '../epgFixtures';
 
@@ -64,27 +65,27 @@ function channel(id: number, name: string, epg_id: string | null): Channel {
 const svt1 = channel(1, 'SVT1', 'svt1.se');
 const tv4 = channel(2, 'TV4', 'tv4.se');
 
-const airing: GuideProgram = {
+const airing: Programme = {
   title: 'Rapport',
   description: 'The evening news.',
-  start_time: at(-10),
-  end_time: at(20),
+  start: at(-10),
+  stop: at(20),
 };
-const later: GuideProgram = {
+const later: Programme = {
   title: 'Babel',
   description: null,
-  start_time: at(20),
-  end_time: at(50),
+  start: at(20),
+  stop: at(50),
 };
 
-let guide: Record<string, GuideProgram[]>;
+let guide: Record<string, Programme[]>;
 let guideIds: string[];
 let hasUrl: boolean;
 
 function setupInvoke() {
   mockedInvoke.mockImplementation(async (cmd: string) => {
-    if (cmd === 'get_guide') return guide;
-    if (cmd === 'get_guide_epg_ids') return guideIds;
+    if (cmd === 'get_epg_guide') return guide;
+    if (cmd === 'get_epg_guide_keys') return guideIds;
     if (cmd === 'get_epg_status') return epgStatus(hasUrl);
     return null;
   });
@@ -105,8 +106,8 @@ function renderGuide(overrides: Partial<React.ComponentProps<typeof GuideView>> 
   return props;
 }
 
-const blockName = (p: GuideProgram, ch: string) =>
-  `${p.title}, ${formatClock(p.start_time)}–${formatClock(p.end_time)}, ${ch}`;
+const blockName = (p: Programme, ch: string) =>
+  `${p.title}, ${formatClock(p.start)}–${formatClock(p.stop)}, ${ch}`;
 
 describe('GuideView', () => {
   beforeEach(() => {
@@ -119,6 +120,7 @@ describe('GuideView', () => {
     hasUrl = true;
     setupInvoke();
     usePlayerStore.setState({ categories: [], categoryFilter: null });
+    useEpgStore.setState(useEpgStore.getInitialState(), true);
   });
 
   it('shows Loading guide instead of "No channels in this list" while live channels load', async () => {
@@ -183,15 +185,15 @@ describe('GuideView', () => {
     const block = await within(svtRow).findByRole('button', { name: blockName(airing, 'SVT1') });
     expect(block).toHaveAttribute(
       'title',
-      `${airing.title} · ${formatClock(airing.start_time)}–${formatClock(airing.end_time)}`
+      `${airing.title} · ${formatClock(airing.start)}–${formatClock(airing.stop)}`
     );
   });
 
   it('asks the backend only for channels with an epg id', async () => {
     renderGuide({ channels: [svt1, channel(3, 'No EPG', null), channel(4, 'Blank', '  ')] });
     await screen.findByRole('button', { name: blockName(airing, 'SVT1') });
-    const guideCalls = mockedInvoke.mock.calls.filter((c) => c[0] === 'get_guide');
-    expect(guideCalls[0][1]).toMatchObject({ epgIds: ['svt1.se'] });
+    const guideCalls = mockedInvoke.mock.calls.filter((c) => c[0] === 'get_epg_guide');
+    expect(guideCalls[0][1]).toMatchObject({ keys: ['svt1.se'] });
     expect(screen.queryByRole('row', { name: 'No EPG' })).toBeNull();
   });
 
@@ -282,10 +284,86 @@ describe('GuideView', () => {
     expect(screen.queryByRole('row')).toBeNull();
   });
 
+  it('shows neither the table nor the empty state until the status is known', async () => {
+    let answer!: (status: ReturnType<typeof epgStatus>) => void;
+    mockedInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_epg_status') return new Promise((r) => (answer = r));
+      if (cmd === 'get_epg_guide') return guide;
+      if (cmd === 'get_epg_guide_keys') return guideIds;
+      return null;
+    });
+    renderGuide();
+    // The row lookup answers first; without a status the guide still waits.
+    await waitFor(() =>
+      expect(mockedInvoke.mock.calls.some((c) => c[0] === 'get_epg_guide_keys')).toBe(true)
+    );
+    await act(async () => {});
+    expect(screen.getByText('Loading guide…')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.queryByText('Add an EPG source in Settings to see the guide')).toBeNull();
+
+    await act(async () => answer(epgStatus(false)));
+    expect(screen.getByText('Add an EPG source in Settings to see the guide')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).toBeNull();
+  });
+
+  it('never renders the table before the empty state (no flash)', async () => {
+    hasUrl = false;
+    const seenTable: boolean[] = [];
+    const observer = new globalThis.MutationObserver(() =>
+      seenTable.push(document.querySelector('[role="table"]') !== null)
+    );
+    observer.observe(document.body, { childList: true, subtree: true });
+    renderGuide();
+    expect(
+      await screen.findByText('Add an EPG source in Settings to see the guide')
+    ).toBeInTheDocument();
+    observer.disconnect();
+    expect(seenTable.some(Boolean)).toBe(false);
+  });
+
+  it('treats a profile whose sources are all disabled as having no source', async () => {
+    mockedInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_epg_status') {
+        const status = epgStatus(true);
+        status.sources[0].enabled = false;
+        return status;
+      }
+      if (cmd === 'get_epg_guide') return guide;
+      if (cmd === 'get_epg_guide_keys') return guideIds;
+      return null;
+    });
+    renderGuide();
+    expect(
+      await screen.findByText('Add an EPG source in Settings to see the guide')
+    ).toBeInTheDocument();
+  });
+
+  it('follows epg-status: a source enabled meanwhile brings the guide back', async () => {
+    hasUrl = false;
+    renderGuide();
+    await screen.findByText('Add an EPG source in Settings to see the guide');
+    act(() => useEpgStore.getState().setStatus(epgStatus(true)));
+    expect(await screen.findByRole('row', { name: 'SVT1' })).toBeInTheDocument();
+    expect(mockedInvoke.mock.calls.filter((c) => c[0] === 'get_epg_status')).toHaveLength(1);
+  });
+
+  it('shows the guide when the status cannot be read', async () => {
+    mockedInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_epg_status') throw new Error('db locked');
+      if (cmd === 'get_epg_guide') return guide;
+      if (cmd === 'get_epg_guide_keys') return guideIds;
+      return null;
+    });
+    renderGuide();
+    expect(await screen.findByRole('row', { name: 'SVT1' })).toBeInTheDocument();
+    expect(screen.queryByText('Add an EPG source in Settings to see the guide')).toBeNull();
+  });
+
   it('survives a rejected guide request with "No guide data" rows', async () => {
     mockedInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'get_guide') throw new Error('invalid epg id');
-      if (cmd === 'get_guide_epg_ids') return ['svt1.se', 'tv4.se'];
+      if (cmd === 'get_epg_guide') throw new Error('invalid epg id');
+      if (cmd === 'get_epg_guide_keys') return ['svt1.se', 'tv4.se'];
       if (cmd === 'get_epg_status') return epgStatus(true);
       return null;
     });
@@ -312,9 +390,9 @@ describe('GuideView', () => {
     const days = within(screen.getByRole('tablist', { name: 'Day' })).getAllByRole('tab');
     fireEvent.click(days[1]);
     await waitFor(() =>
-      expect(mockedInvoke.mock.calls.filter((c) => c[0] === 'get_guide')).toHaveLength(2)
+      expect(mockedInvoke.mock.calls.filter((c) => c[0] === 'get_epg_guide')).toHaveLength(2)
     );
-    const args = mockedInvoke.mock.calls.filter((c) => c[0] === 'get_guide')[1][1] as {
+    const args = mockedInvoke.mock.calls.filter((c) => c[0] === 'get_epg_guide')[1][1] as {
       from: string;
     };
     expect(new Date(args.from).getHours()).toBe(18);
@@ -326,7 +404,7 @@ describe('GuideView', () => {
     const row = await screen.findByRole('row', { name: 'SVT1' });
     await screen.findByRole('row', { name: 'TV4' });
     await waitFor(() =>
-      expect(mockedInvoke.mock.calls.some((c) => c[0] === 'get_guide')).toBe(true)
+      expect(mockedInvoke.mock.calls.some((c) => c[0] === 'get_epg_guide')).toBe(true)
     );
     expect(within(row).getByText('Locked')).toBeInTheDocument();
     expect(within(row).queryByText('Rapport')).toBeNull();
@@ -353,8 +431,8 @@ describe('GuideView', () => {
   it('shows "Loading guide…" until it knows which channels have data', async () => {
     let answer!: (ids: string[]) => void;
     mockedInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'get_guide_epg_ids') return new Promise<string[]>((r) => (answer = r));
-      if (cmd === 'get_guide') return guide;
+      if (cmd === 'get_epg_guide_keys') return new Promise<string[]>((r) => (answer = r));
+      if (cmd === 'get_epg_guide') return guide;
       if (cmd === 'get_epg_status') return epgStatus(true);
       return null;
     });
@@ -381,7 +459,7 @@ describe('GuideView', () => {
 
     fireEvent.click(within(screen.getByRole('tablist', { name: 'Day' })).getAllByRole('tab')[1]);
     await waitFor(() =>
-      expect(mockedInvoke.mock.calls.filter((c) => c[0] === 'get_guide')).toHaveLength(2)
+      expect(mockedInvoke.mock.calls.filter((c) => c[0] === 'get_epg_guide')).toHaveLength(2)
     );
     expect(virtualiser.offsetsAsked.every((o) => o === 640)).toBe(true);
 
@@ -426,6 +504,7 @@ describe('GuideView logos', () => {
     hasUrl = true;
     setupInvoke();
     usePlayerStore.setState({ categories: [], categoryFilter: null });
+    useEpgStore.setState(useEpgStore.getInitialState(), true);
     resetLogoFallbackSession();
     useLogoFallbackStore.getState().merge({ 1: 'https://f/x.png' });
   });

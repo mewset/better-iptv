@@ -1,3 +1,5 @@
+import type { NowNext } from './epgIpc';
+
 /**
  * The app's one clock format: two-digit hours 0-23 and minutes, in the
  * user's locale, also where the locale writes 12-hour times. `hourCycle`
@@ -53,15 +55,23 @@ export function minutesLeft(endIso: string, now: number = Date.now()): number | 
 }
 
 /**
- * Whether a cached EPG entry no longer describes the present: its current
- * programme has ended, or, for an off-air entry, its next programme has begun.
+ * When a now/next entry stops describing the present, in epoch ms: the end
+ * of its current programme, or for an off-air entry the start of its next
+ * one. Null without a usable time.
  */
-export function isEpgEntryStale(
-  entry: { current?: string; currentEnd?: string; next?: string; nextStart?: string },
-  now: number = Date.now()
-): boolean {
-  const boundary = entry.current ? entry.currentEnd : entry.nextStart;
-  if (!boundary) return false;
+export function nowNextBoundary(entry: NowNext): number | null {
+  const boundary = entry.now ? entry.now.stop : entry.next?.start;
+  if (!boundary) return null;
   const t = Date.parse(boundary);
-  return !Number.isNaN(t) && t <= now;
+  return Number.isNaN(t) ? null : t;
+}
+
+/**
+ * Whether a cached now/next entry no longer describes the present: its
+ * current programme has ended, or, for an off-air entry, its next
+ * programme has begun.
+ */
+export function isNowNextStale(entry: NowNext, now: number = Date.now()): boolean {
+  const boundary = nowNextBoundary(entry);
+  return boundary !== null && boundary <= now;
 }

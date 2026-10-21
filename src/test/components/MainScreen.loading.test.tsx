@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
+import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -45,7 +46,7 @@ function setupInvoke() {
       case 'get_blocked_channels':
       case 'get_tmdb_cards':
         return [];
-      case 'get_channels_epg':
+      case 'get_epg_now_next':
         return {};
       case 'get_parental_settings':
         return {
@@ -72,6 +73,7 @@ function setupInvoke() {
 
 describe('MainScreen: channel load placeholders', () => {
   beforeEach(() => {
+    useEpgStore.setState(useEpgStore.getInitialState(), true);
     setupInvoke();
     usePlayerStore.setState({
       playlists: [home],
@@ -145,7 +147,7 @@ describe('MainScreen: channel load placeholders', () => {
     expect(await screen.findByTestId('channel-grid-placeholder')).toBeInTheDocument();
     // Longer than the hook's 500 ms debounce
     await new Promise((resolve) => setTimeout(resolve, 800));
-    const epgCalls = () => mockedInvoke.mock.calls.filter((c) => c[0] === 'get_channels_epg');
+    const epgCalls = () => mockedInvoke.mock.calls.filter((c) => c[0] === 'get_epg_now_next');
     expect(epgCalls()).toHaveLength(0);
 
     // Once the card is on screen the lookup runs

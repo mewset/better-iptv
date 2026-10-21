@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, within, act } from '@testing-librar
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
+import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
 import { epgStatus } from '../epgFixtures';
 
@@ -120,8 +121,8 @@ function setupInvoke(
       case 'get_stale_playlist_ids':
       case 'get_tmdb_cards':
         return [];
-      case 'get_channels_epg':
-      case 'get_guide':
+      case 'get_epg_now_next':
+      case 'get_epg_guide':
         return {};
       case 'get_epg_status':
         return epgStatus(false);
@@ -159,6 +160,7 @@ function seedStore() {
 
 describe('MainScreen: Home', () => {
   beforeEach(() => {
+    useEpgStore.setState(useEpgStore.getInitialState(), true);
     seedStore();
   });
 
