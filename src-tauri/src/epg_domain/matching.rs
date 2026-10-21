@@ -10,8 +10,9 @@
 //! The guide is the sources that apply to the playlist, in precedence order.
 //! A display name that one source gives to two different channels says
 //! nothing about either: it is dropped and counted, never resolved by
-//! picking the first. Between sources, the higher-precedence source's name
-//! wins.
+//! picking the first, and no source after it in precedence order may give
+//! it a key either (a lower-precedence source is often another country's
+//! guide). Between sources, the higher-precedence source's name wins.
 //!
 //! A match set by hand (`manual`) is never changed here, even when its key
 //! has left the guide. VOD and series rows never get a match; one they hold
@@ -79,10 +80,13 @@ pub struct GuideIndex {
 impl GuideIndex {
     /// Combine the sources that apply to a playlist, highest precedence
     /// first. Within a source, a name given to more than one key is
-    /// dropped and counted in `ambiguous_names`; across sources, the first
-    /// source that names a key keeps the name.
+    /// dropped and counted in `ambiguous_names`, and the sources after it
+    /// cannot give it a key; across sources, the first source that names a
+    /// key keeps the name.
     pub fn build(sources: impl IntoIterator<Item = SourceGuide>) -> Self {
         let mut index = GuideIndex::default();
+        // Names a source before this one found ambiguous.
+        let mut blocked: HashSet<String> = HashSet::new();
         for source in sources {
             index.keys.extend(source.keys);
             // `None` marks a name this source gives to two keys.
@@ -101,10 +105,14 @@ impl GuideIndex {
             }
             for (name, key) in own {
                 match key {
-                    Some(key) => {
+                    Some(key) if !blocked.contains(&name) => {
                         index.names.entry(name).or_insert(key);
                     }
-                    None => index.ambiguous_names += 1,
+                    Some(_) => {}
+                    None => {
+                        index.ambiguous_names += 1;
+                        blocked.insert(name);
+                    }
                 }
             }
         }
@@ -520,6 +528,39 @@ mod tests {
 
         assert_eq!(updates, [set(1, "tv4.se", MatchSource::Name)]);
         assert_eq!(report.ambiguous_names, 0);
+    }
+
+    #[test]
+    fn a_name_ambiguous_in_a_higher_priority_source_matches_nothing_in_a_lower_one() {
+        let index = GuideIndex::build([
+            source(
+                &["tv4.se", "tv4hd.se"],
+                &[("tv4", "tv4.se"), ("tv4", "tv4hd.se")],
+            ),
+            source(&["tv4.no"], &[("tv4", "tv4.no")]),
+            source(&["tv4.dk"], &[("tv4", "tv4.dk")]),
+        ]);
+
+        let (updates, report) = run(&index, &[live(1, None, "TV4")]);
+
+        assert!(updates.is_empty(), "{updates:?}");
+        assert_eq!((report.by_name, report.ambiguous_names), (0, 1));
+    }
+
+    #[test]
+    fn a_name_unique_in_a_higher_priority_source_wins_over_a_lower_ones_ambiguity() {
+        let index = GuideIndex::build([
+            source(&["tv4.se"], &[("tv4", "tv4.se")]),
+            source(
+                &["tv4.no", "tv4hd.no"],
+                &[("tv4", "tv4.no"), ("tv4", "tv4hd.no")],
+            ),
+        ]);
+
+        let (updates, report) = run(&index, &[live(1, None, "TV4")]);
+
+        assert_eq!(updates, [set(1, "tv4.se", MatchSource::Name)]);
+        assert_eq!(report.ambiguous_names, 1);
     }
 
     #[test]

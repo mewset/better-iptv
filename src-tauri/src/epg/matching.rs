@@ -516,6 +516,25 @@ mod tests {
     }
 
     #[test]
+    fn a_name_ambiguous_in_the_higher_priority_source_is_not_taken_from_a_lower_one() {
+        let conn = setup_test_db();
+        let p = create_test_playlist(&conn, "P");
+        add_source(
+            &conn,
+            None,
+            10,
+            &[("tv4.se", &["TV4"]), ("tv4hd.se", &["TV4"])],
+        );
+        add_source(&conn, Some(p), 30, &[("tv4.no", &["TV4"])]);
+        let tv4 = add_channel(&conn, p, "TV4", None, "live");
+
+        let report = recompute_playlist(&conn, p).unwrap();
+
+        assert_eq!(stored(&conn, tv4), (None, None));
+        assert_eq!((report.by_name, report.ambiguous_names), (0, 1));
+    }
+
+    #[test]
     fn a_manual_match_survives_a_recompute_and_a_refresh() {
         let conn = setup_test_db();
         let p = create_test_playlist(&conn, "P");
