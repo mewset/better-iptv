@@ -24,6 +24,7 @@ A simple overview of new features and improvements.
 - Broken images no longer show in the TV guide's programme panel, the Movies banner or detail pages
 - TV guide times are no longer off by a few hours with EPG sources that write their time zone in a less common format
 - A programme no longer shows twice in the TV guide when the provider moves it to another time
+- Programmes that overlap, like a film inside a movie-night block, no longer cover each other in the TV guide: both are shown, one above the other, in the channel's row
 - Programmes no longer go missing from the TV guide with guides that use special characters, other text encodings or leave out end times
 - Switching profile now switches the TV guide too
 
