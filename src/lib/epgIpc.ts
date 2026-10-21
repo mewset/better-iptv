@@ -70,7 +70,10 @@ export interface EpgStatus {
   matches: MatchCounts | null;
 }
 
-/** `match`: a playlist's channels were matched again after an import, refresh or upgrade. */
+/**
+ * `match`: a playlist's channels were matched again after an import, refresh
+ * or upgrade, or one channel's match was set or cleared by hand.
+ */
 export type RefreshReason = 'ingest' | 'reingest' | 'source_changed' | 'profile_switch' | 'match';
 
 /** The `epg-refreshed` payload: cached now/next and guide data is stale. */
@@ -79,6 +82,39 @@ export interface EpgRefreshed {
   source_id: number | null;
   /** Channels whose guide key the preceding match changed; above 0, re-read the keys. */
   matches_changed: number;
+}
+
+/** A guide channel `search_epg_channels` found. */
+export interface EpgChannelHit {
+  /** The guide key a channel is matched to when this hit is chosen. */
+  key: string;
+  /** The display name that matched best; null when the feed names the channel nowhere. */
+  name: string | null;
+  source_id: number;
+  /** "Your provider's guide", "From the playlist", or the host of a URL added by hand. */
+  source_label: string;
+}
+
+/** A live channel matched to a guide channel by hand. */
+export interface ManualMatch {
+  channel_id: number;
+  channel_name: string;
+  key: string;
+  /** The guide's name for the key; null when it has none or no programmes now. */
+  guide_name: string | null;
+  /** False once the key has no programmes left: the match stays, the card shows nothing. */
+  has_programmes: boolean;
+}
+
+/**
+ * What the channel list does not carry about a playlist's matches. Every
+ * other live channel with an `epg_id` was matched by its id.
+ */
+export interface MatchDetails {
+  /** By channel name. */
+  manual: ManualMatch[];
+  /** Ids of the channels matched by name. */
+  by_name: number[];
 }
 
 /** Fields of a source to change; the ones left out stay. `url` only for a URL added by hand. */
@@ -97,6 +133,9 @@ export const NOW_NEXT_BATCH = 100;
 
 /** Keys per `get_epg_guide` request (the backend's GUIDE_MAX_IDS). */
 export const GUIDE_BATCH = 5000;
+
+/** Hits per `search_epg_channels` request (the backend's maximum). */
+export const GUIDE_SEARCH_LIMIT = 50;
 
 /**
  * Now and next per key, keyed as sent; a key the guide has nothing for is
@@ -134,6 +173,32 @@ export async function getEpgGuideKeys(from: string, to: string): Promise<string[
  */
 export async function getChannelEpgKeys(playlistId: number): Promise<Array<[number, string]>> {
   return await invoke('get_channel_epg_keys', { playlistId });
+}
+
+/**
+ * Match a live channel to a guide key by hand, or with null clear its
+ * manual match and match it automatically again. A key without programmes
+ * in the channel's profile is refused with `InvalidInput`. A change arrives
+ * as `epg-refreshed` (`match`) and `epg-status`.
+ */
+export async function setChannelEpgMatch(channelId: number, key: string | null): Promise<void> {
+  await invoke('set_channel_epg_match', { channelId, key });
+}
+
+/**
+ * Guide channels of the active profile whose name or key contains `query`,
+ * best first, at most `limit` (1 to 50). An empty query finds nothing.
+ */
+export async function searchEpgChannels(
+  query: string,
+  limit: number = GUIDE_SEARCH_LIMIT
+): Promise<EpgChannelHit[]> {
+  return await invoke('search_epg_channels', { query, limit });
+}
+
+/** The playlist's channels matched by hand, and the ids of those matched by name. */
+export async function getChannelMatchDetails(playlistId: number): Promise<MatchDetails> {
+  return await invoke('get_channel_match_details', { playlistId });
 }
 
 export async function getEpgStatus(): Promise<EpgStatus> {

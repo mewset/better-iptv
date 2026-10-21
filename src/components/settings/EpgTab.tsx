@@ -9,16 +9,19 @@ import { usePlayerStore } from '../../stores/player-store';
 import { logger } from '../../lib/logger';
 import { cn } from '../../lib/utils';
 import EpgSourceRow from './EpgSourceRow';
+import ChannelMatchFixes from './ChannelMatchFixes';
 
 /**
  * Settings → EPG: the guide sources of the active profile with their
  * status and time correction, adding a guide URL, how its channels are
- * matched to the guide, and the automatic updates. Every action takes
+ * matched to the guide (and fixing a match by hand), and the automatic
+ * updates. Every action takes
  * effect at once, like Profiles; nothing here waits for Save.
  */
 export default function EpgTab() {
   const { status, failed } = useEpgStatus();
   const profileName = usePlayerStore((s) => s.currentPlaylist?.name);
+  const playlistId = usePlayerStore((s) => s.currentPlaylist?.id);
   const now = useNow();
 
   const sources = status
@@ -73,6 +76,7 @@ export default function EpgTab() {
           <p className="text-sm text-text" title={matchingDetails(status.matches) ?? undefined}>
             {matchingText(status.matches)}
           </p>
+          <ChannelMatchFixes playlistId={playlistId} hasGuide={status.matches !== null} />
         </section>
       )}
 
