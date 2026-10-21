@@ -6,7 +6,14 @@
 //! and keeps only a 32-byte `Slot` per programme in memory. `normalise`
 //! decides per programme from those slots, the verdicts are written back to
 //! staging, and one transaction on the main database then replaces the
-//! source's programmes with an `INSERT … SELECT` from staging.
+//! source's programmes with an `INSERT … SELECT` from staging. A feed above
+//! `SWAP_CHUNK_ROWS` programmes is swapped per range of channels, one
+//! transaction each, so the write lock is never held for long; each channel
+//! is still replaced whole in one transaction.
+//!
+//! The ingest's connection runs with a small page cache and without foreign
+//! keys or automatic checkpoints while it swaps, so its memory stays flat
+//! however large the feed (see `IngestPragmas` and `ForeignKeysOff`).
 //!
 //! Stored rows are never updated in place. For each channel in the feed the
 //! rows that reach past its first new start are deleted before the new rows
@@ -39,15 +46,27 @@ use std::time::{Duration, Instant};
 /// Programmes per staging transaction.
 pub const STAGING_BATCH: usize = 1000;
 
+/// Kept programmes per swap transaction. A feed the size of the one the
+/// rewrite was measured on (about 43k) is swapped in one transaction;
+/// larger ones commit per range of channels, so another writer never waits
+/// on the lock for long (measured: under 0.5 s per transaction at 430k).
+pub const SWAP_CHUNK_ROWS: u32 = 50_000;
+
 const STAGE_FAILURE: &str = "Failed to stage the EPG";
 const STORE_FAILURE: &str = "Failed to store the EPG";
 
 /// Journal off and no syncs: the file is deleted after every ingest and
 /// rebuilt from the feed, so a crash costs nothing worth protecting.
+///
+/// Rows are stored in feed order. The index on the channel number (`knum`,
+/// the order channels first appear in the feed) lets the swap read one
+/// channel range at a time without a sorter; it costs a few bytes per row
+/// and stays cheap to extend whatever order the feed lists programmes in.
 const STAGING_SETUP: &str = "PRAGMA ingest.journal_mode = OFF;
     PRAGMA ingest.synchronous = OFF;
     CREATE TABLE IF NOT EXISTS ingest.epg_ingest (
         seq INTEGER PRIMARY KEY,
+        knum INTEGER NOT NULL,
         key TEXT NOT NULL,
         start INTEGER NOT NULL,
         stop INTEGER,                     -- NULL until a verdict infers it
@@ -56,15 +75,19 @@ const STAGING_SETUP: &str = "PRAGMA ingest.journal_mode = OFF;
         description TEXT,
         category TEXT
     );
+    CREATE INDEX IF NOT EXISTS ingest.epg_ingest_knum ON epg_ingest (knum);
     DELETE FROM ingest.epg_ingest;";
 
 const STAGE_ROW: &str = "INSERT INTO ingest.epg_ingest
-    (seq, key, start, stop, title, description, category) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
+    (knum, seq, key, start, stop, title, description, category)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
 const MARK_STOP: &str = "UPDATE ingest.epg_ingest SET stop = ?2 WHERE seq = ?1";
 const MARK_DROPPED: &str = "UPDATE ingest.epg_ingest SET keep = 0 WHERE seq = ?1";
 
 // The swap's statements, named so the query-plan test checks each one.
 const UPSERT_CHANNEL: &str = "INSERT OR IGNORE INTO epg_channel (source_id, key) VALUES (?1, ?2)";
+const SELECT_CHANNEL: &str = "SELECT id, key, first_start, last_stop, programme_count
+    FROM epg_channel WHERE source_id = ?1 AND key = ?2";
 const SELECT_CHANNELS: &str = "SELECT id, key, first_start, last_stop, programme_count
     FROM epg_channel WHERE source_id = ?1";
 const DELETE_NAMES: &str = "DELETE FROM epg_channel_name WHERE channel_id = ?1";
@@ -75,14 +98,18 @@ const DELETE_FROM_FIRST_START: &str =
     "DELETE FROM epg_programme WHERE channel_id = ?1 AND stop > ?2";
 const DELETE_WINDOW: &str =
     "DELETE FROM epg_programme WHERE channel_id = ?1 AND stop > ?2 AND start < ?3";
-/// Staging drives the join (`CROSS JOIN` fixes the order) and is read in
-/// feed order. No `ORDER BY`: under `temp_store = memory` a sorter over the
-/// whole feed would sit in RAM.
-const INSERT_FROM_STAGING: &str = "INSERT INTO epg_programme
+/// One range of channel numbers from staging, which drives the join
+/// (`CROSS JOIN` fixes the order) through its `knum` index, so the rows
+/// arrive in the programmes' primary-key order. No `ORDER BY`:
+/// under `temp_store = memory` a sorter would sit in RAM. `OR FAIL` still
+/// fails the statement, and with it the swap, on a duplicate start; the
+/// default `ABORT` would make SQLite keep a statement journal of every page
+/// the insert reuses, in RAM as well.
+const INSERT_FROM_STAGING: &str = "INSERT OR FAIL INTO epg_programme
         (channel_id, start, stop, title, description, category)
     SELECT c.id, i.start, i.stop, i.title, i.description, i.category
     FROM ingest.epg_ingest i CROSS JOIN epg_channel c
-    WHERE c.source_id = ?1 AND c.key = i.key AND i.keep = 1";
+    WHERE i.knum >= ?2 AND i.knum < ?3 AND i.keep = 1 AND c.source_id = ?1 AND c.key = i.key";
 /// `stop > start` holds for every stored row, so `start < cutoff` only
 /// narrows the primary-key range to the rows that can qualify.
 const PRUNE: &str = "DELETE FROM epg_programme WHERE channel_id = ?1 AND start < ?2 AND stop <= ?2";
@@ -95,10 +122,14 @@ const RECOUNT: &str =
 const UPDATE_SUMMARY: &str = "UPDATE epg_channel
     SET first_start = ?2, last_stop = ?3, programme_count = ?4 WHERE id = ?1";
 const SOURCE_STATE: &str = "SELECT enabled, url, last_success_at FROM epg_source WHERE id = ?1";
+/// After every swap transaction, so the source's count matches its rows
+/// even when a later one fails. Reads `epg_channel`, never the programmes.
+const UPDATE_COUNT: &str = "UPDATE epg_source SET programme_count =
+        (SELECT COALESCE(SUM(programme_count), 0) FROM epg_channel WHERE source_id = ?1)
+    WHERE id = ?1";
 const UPDATE_STATUS: &str = "UPDATE epg_source SET last_result = ?2, last_error = NULL,
-        programme_count = ?3, unknown_zone_count = ?4, unknown_zone_sample = ?5,
-        decode_replacements = ?6, applied_interpret = ?7, applied_shift_minutes = ?8,
-        last_success_at = ?9
+        unknown_zone_count = ?3, unknown_zone_sample = ?4, decode_replacements = ?5,
+        applied_interpret = ?6, applied_shift_minutes = ?7, last_success_at = ?8
     WHERE id = ?1";
 
 // ========== Staging ==========
@@ -222,6 +253,7 @@ impl<Tz: TimeZone> StagingSink<'_, '_, Tz> {
             for row in self.batch.drain(..) {
                 insert
                     .execute(params![
+                        row.key,
                         row.seq,
                         self.keys.key(row.key),
                         row.start,
@@ -409,12 +441,14 @@ pub(crate) enum Swapped {
     Committed {
         /// Rows inserted from this feed.
         stored: u32,
-        /// The source's rows after the swap, kept older rows included.
-        programme_count: u32,
-        /// From `BEGIN IMMEDIATE` to `COMMIT`: how long other writers waited.
+        /// Write transactions the swap took.
+        transactions: u32,
+        /// The longest of them, `BEGIN IMMEDIATE` to `COMMIT`: the longest
+        /// another writer waited.
         hold: Duration,
     },
-    /// The source changed under the ingest; nothing was written.
+    /// The source changed under the ingest. Nothing was written, or, when
+    /// it changed between two transactions of a large feed, nothing after.
     Abandoned(AbandonReason),
 }
 
@@ -460,7 +494,7 @@ fn source_state(conn: &Connection, source_id: i64) -> rusqlite::Result<Option<So
     .optional()
 }
 
-/// One `epg_channel` row of the source as it was before the swap.
+/// One `epg_channel` row of the source as it was before this transaction.
 struct StoredChannel {
     id: i64,
     key: String,
@@ -485,37 +519,155 @@ impl Summary {
     }
 }
 
-fn load_channels(tx: &Connection, source_id: i64) -> rusqlite::Result<Vec<StoredChannel>> {
-    tx.prepare(SELECT_CHANNELS)?
-        .query_map(params![source_id], |r| {
-            let count: i64 = r.get(4)?;
-            Ok(StoredChannel {
-                id: r.get(0)?,
-                key: r.get(1)?,
-                summary: Summary {
-                    first_start: r.get(2)?,
-                    last_stop: r.get(3)?,
-                    count: u32::try_from(count.max(0)).unwrap_or(u32::MAX),
-                },
-            })
-        })?
+fn map_channel(r: &rusqlite::Row) -> rusqlite::Result<StoredChannel> {
+    let count: i64 = r.get(4)?;
+    Ok(StoredChannel {
+        id: r.get(0)?,
+        key: r.get(1)?,
+        summary: Summary {
+            first_start: r.get(2)?,
+            last_stop: r.get(3)?,
+            count: u32::try_from(count.max(0)).unwrap_or(u32::MAX),
+        },
+    })
+}
+
+fn changed(rows: usize) -> u32 {
+    u32::try_from(rows).unwrap_or(u32::MAX)
+}
+
+/// Ranges of channel numbers, each with at most `max_rows` kept programmes
+/// unless one channel alone has more.
+fn plan_chunks(channels: usize, bounds: &[Option<&KeyBounds>], max_rows: u32) -> Vec<(u32, u32)> {
+    let mut chunks = Vec::new();
+    let (mut start, mut rows) = (0u32, 0u32);
+    for knum in 0..channels as u32 {
+        let count = bounds[knum as usize].map_or(0, |b| b.count);
+        if knum > start && rows.saturating_add(count) > max_rows {
+            chunks.push((start, knum));
+            (start, rows) = (knum, 0);
+        }
+        rows = rows.saturating_add(count);
+    }
+    chunks.push((start, channels as u32));
+    chunks
+}
+
+/// Replace the source's programmes with the staged ones.
+///
+/// Up to `SWAP_CHUNK_ROWS` kept programmes this is one write transaction on
+/// the main database; a larger feed commits per range of channels, each
+/// range complete in itself (the fallback the design names for the lock
+/// budget). Every transaction first checks the source again: removed,
+/// disabled or given another URL since the ingest started means it writes
+/// nothing and the swap stops. Then, per channel in its range: the channel
+/// and its names, the range the feed speaks for deleted (every row for
+/// `WholeSource`), the staged rows inserted, rows that ended a day ago
+/// pruned, the summary written. The last transaction also settles the
+/// source's channels the feed did not list, and writes the source's status.
+/// A failure, a duplicate start included, rolls back its transaction.
+pub(crate) fn swap(conn: &Connection, prepared: &Prepared, req: &SwapRequest) -> Result<Swapped> {
+    swap_in_chunks(conn, prepared, req, SWAP_CHUNK_ROWS)
+}
+
+fn swap_in_chunks(
+    conn: &Connection,
+    prepared: &Prepared,
+    req: &SwapRequest,
+    max_rows: u32,
+) -> Result<Swapped> {
+    let _fk = ForeignKeysOff::apply(conn)?;
+    let keys = &prepared.keys;
+    let mut by_knum: Vec<Option<&KeyBounds>> = vec![None; keys.keys.len()];
+    for b in &prepared.bounds {
+        by_knum[b.key as usize] = Some(b);
+    }
+    let chunks = plan_chunks(keys.keys.len(), &by_knum, max_rows);
+
+    let (mut stored, mut hold) = (0u32, Duration::ZERO);
+    for (n, &(from, to)) in chunks.iter().enumerate() {
+        let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+        // The write lock is held from here: `BEGIN IMMEDIATE` waited for it.
+        let locked = Instant::now();
+        // Dropping `tx` on these returns rolls back.
+        let Some(state) = source_state(&tx, req.source_id)? else {
+            return Ok(Swapped::Abandoned(AbandonReason::SourceRemoved));
+        };
+        if let Some(reason) = state.mismatch(req.expected_url) {
+            return Ok(Swapped::Abandoned(reason));
+        }
+
+        let channels = upsert_channels(&tx, req.source_id, keys, from, to)?;
+        write_names(&tx, &channels, keys, from)?;
+        let fresh = &by_knum[from as usize..to as usize];
+        let survivors = delete_replaced(&tx, &channels, fresh, req.scope, prepared.parse.complete)?;
+
+        let inserted = changed(tx.execute(INSERT_FROM_STAGING, params![req.source_id, from, to])?);
+        let expected = fresh.iter().flatten().map(|b| b.count).sum::<u32>();
+        ensure!(
+            inserted == expected,
+            "The EPG store inserted {inserted} programmes instead of {expected}"
+        );
+        settle(
+            &tx,
+            &channels,
+            fresh,
+            &survivors,
+            req,
+            prepared.parse.complete,
+        )?;
+
+        if n + 1 == chunks.len() {
+            settle_unlisted(&tx, keys, req)?;
+            write_status(&tx, prepared, req, state.last_success_at)?;
+        }
+        tx.execute(UPDATE_COUNT, params![req.source_id])?;
+        tx.commit()?;
+        hold = hold.max(locked.elapsed());
+        stored += inserted;
+        checkpoint(conn);
+    }
+
+    Ok(Swapped::Committed {
+        stored,
+        transactions: u32::try_from(chunks.len()).unwrap_or(u32::MAX),
+        hold,
+    })
+}
+
+/// Create the range's channels in feed order, so new ids, and with them
+/// the inserted rows, follow the primary key; return them as they were.
+fn upsert_channels(
+    tx: &Connection,
+    source_id: i64,
+    keys: &FeedKeys,
+    from: u32,
+    to: u32,
+) -> rusqlite::Result<Vec<StoredChannel>> {
+    let mut upsert = tx.prepare(UPSERT_CHANNEL)?;
+    let mut select = tx.prepare(SELECT_CHANNEL)?;
+    (from..to)
+        .map(|knum| {
+            let key = keys.key(knum);
+            upsert.execute(params![source_id, key])?;
+            select.query_row(params![source_id, key], map_channel)
+        })
         .collect()
 }
 
-/// Replace the display names of every channel the feed described.
+/// Replace the display names of every channel in the range the feed described.
 fn write_names(
     tx: &Connection,
     channels: &[StoredChannel],
-    by_key: &HashMap<&str, usize>,
     keys: &FeedKeys,
-) -> Result<()> {
+    from: u32,
+) -> rusqlite::Result<()> {
     let mut delete = tx.prepare(DELETE_NAMES)?;
     let mut insert = tx.prepare(INSERT_NAME)?;
-    for (key, names) in keys.keys.iter().zip(&keys.names) {
+    for (channel, names) in channels.iter().zip(&keys.names[from as usize..]) {
         let Some(names) = names else {
             continue;
         };
-        let channel = channel_for(channels, by_key, key)?;
         delete.execute(params![channel.id])?;
         let mut position = 0;
         for name in names {
@@ -528,79 +680,21 @@ fn write_names(
     Ok(())
 }
 
-fn channel_for<'a>(
-    channels: &'a [StoredChannel],
-    by_key: &HashMap<&str, usize>,
-    key: &str,
-) -> Result<&'a StoredChannel> {
-    by_key
-        .get(key)
-        .map(|&i| &channels[i])
-        .context("A guide channel was not created before its programmes")
-}
-
-fn changed(rows: usize) -> u32 {
-    u32::try_from(rows).unwrap_or(u32::MAX)
-}
-
-/// Replace the source's programmes with the staged ones, in one write
-/// transaction on the main database.
-///
-/// First the source is checked again: removed, disabled or given another URL
-/// since the ingest started means nothing is written. Then: channels and
-/// their names, the range the feed speaks for deleted per channel (the whole
-/// source for `WholeSource`), the staged rows inserted, rows that ended a
-/// day ago pruned, each channel's summary and the source's status written.
-/// Any failure, a primary-key conflict included, rolls all of it back.
-pub(crate) fn swap(conn: &Connection, prepared: &Prepared, req: &SwapRequest) -> Result<Swapped> {
-    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
-    // The write lock is held from here: `BEGIN IMMEDIATE` waited for it.
-    let locked = Instant::now();
-    // Checked once at COMMIT; scoped to this transaction.
-    tx.execute_batch("PRAGMA defer_foreign_keys = ON")?;
-
-    // Dropping `tx` on these returns rolls back.
-    let Some(state) = source_state(&tx, req.source_id)? else {
-        return Ok(Swapped::Abandoned(AbandonReason::SourceRemoved));
-    };
-    if let Some(reason) = state.mismatch(req.expected_url) {
-        return Ok(Swapped::Abandoned(reason));
-    }
-
-    // Channels in feed order, so new ids, and with them the inserted rows,
-    // mostly follow the primary key.
-    {
-        let mut upsert = tx.prepare(UPSERT_CHANNEL)?;
-        for key in &prepared.keys.keys {
-            upsert.execute(params![req.source_id, key])?;
-        }
-    }
-    let channels = load_channels(&tx, req.source_id)?;
-    let by_key: HashMap<&str, usize> = channels
-        .iter()
-        .enumerate()
-        .map(|(i, c)| (c.key.as_str(), i))
-        .collect();
-    write_names(&tx, &channels, &by_key, &prepared.keys)?;
-
-    let mut fresh: Vec<Option<&KeyBounds>> = vec![None; channels.len()];
-    for b in &prepared.bounds {
-        let key = prepared.keys.key(b.key);
-        let i = by_key
-            .get(key)
-            .copied()
-            .context("A guide channel was not created before its programmes")?;
-        fresh[i] = Some(b);
-    }
-
-    let complete = prepared.parse.complete;
-    // Rows from before that survive the delete, per channel; `None` when the
-    // stored count is behind the table and the channel must be recounted.
-    let mut survivors: Vec<Option<u32>> = Vec::with_capacity(channels.len());
-    match req.scope {
+/// Delete what the feed replaces; returns per channel how many earlier rows
+/// survived, `None` when the stored count is behind the table and the
+/// channel must be recounted.
+fn delete_replaced(
+    tx: &Connection,
+    channels: &[StoredChannel],
+    fresh: &[Option<&KeyBounds>],
+    scope: IngestScope,
+    complete: bool,
+) -> rusqlite::Result<Vec<Option<u32>>> {
+    let mut survivors = Vec::with_capacity(channels.len());
+    match scope {
         IngestScope::WholeSource => {
             let mut delete = tx.prepare(DELETE_CHANNEL_ROWS)?;
-            for c in &channels {
+            for c in channels {
                 delete.execute(params![c.id])?;
                 survivors.push(Some(0));
             }
@@ -608,7 +702,7 @@ pub(crate) fn swap(conn: &Connection, prepared: &Prepared, req: &SwapRequest) ->
         IngestScope::Feed => {
             let mut from_first = tx.prepare(DELETE_FROM_FIRST_START)?;
             let mut window = tx.prepare(DELETE_WINDOW)?;
-            for (c, new) in channels.iter().zip(&fresh) {
+            for (c, new) in channels.iter().zip(fresh) {
                 let removed = match new {
                     None => 0,
                     Some(b) if complete => from_first.execute(params![c.id, b.first_start])?,
@@ -619,20 +713,23 @@ pub(crate) fn swap(conn: &Connection, prepared: &Prepared, req: &SwapRequest) ->
             }
         }
     }
+    Ok(survivors)
+}
 
-    let inserted = tx.execute(INSERT_FROM_STAGING, params![req.source_id])?;
-    ensure!(
-        changed(inserted) == prepared.kept,
-        "The EPG store inserted {inserted} programmes instead of {}",
-        prepared.kept
-    );
-
+/// Prune and write the summary of each channel. New rows never qualify for
+/// the prune: `normalise` dropped them.
+fn settle(
+    tx: &Connection,
+    channels: &[StoredChannel],
+    fresh: &[Option<&KeyBounds>],
+    survivors: &[Option<u32>],
+    req: &SwapRequest,
+    complete: bool,
+) -> rusqlite::Result<()> {
     let cutoff = req.now.saturating_sub(ENDED_GRACE_SECS);
     let mut prune = tx.prepare(PRUNE)?;
     let mut update = tx.prepare(UPDATE_SUMMARY)?;
-    let mut programme_count: u32 = 0;
-    for ((c, new), survived) in channels.iter().zip(&fresh).zip(&survivors) {
-        // New rows never qualify for the prune: `normalise` dropped them.
+    for ((c, new), survived) in channels.iter().zip(fresh).zip(survivors) {
         let summary = match *survived {
             Some(0) => Summary::of_new(*new),
             Some(left) => {
@@ -640,13 +737,13 @@ pub(crate) fn swap(conn: &Connection, prepared: &Prepared, req: &SwapRequest) ->
                 match left.checked_sub(pruned) {
                     Some(0) => Summary::of_new(*new),
                     Some(_) if pruned == 0 && new.is_none() => c.summary,
-                    Some(left) => summary_with_survivors(&tx, c, *new, left, complete)?,
-                    None => recount(&tx, c.id)?,
+                    Some(left) => summary_with_survivors(tx, c, *new, left, complete)?,
+                    None => recount(tx, c.id)?,
                 }
             }
             None => {
                 prune.execute(params![c.id, cutoff])?;
-                recount(&tx, c.id)?
+                recount(tx, c.id)?
             }
         };
         if summary != c.summary {
@@ -657,11 +754,33 @@ pub(crate) fn swap(conn: &Connection, prepared: &Prepared, req: &SwapRequest) ->
                 summary.count
             ])?;
         }
-        programme_count = programme_count.saturating_add(summary.count);
     }
-    drop((prune, update));
+    Ok(())
+}
 
-    let result = if complete {
+/// The source's channels the feed did not list: all their rows go for
+/// `WholeSource`; otherwise they stay until pruned.
+fn settle_unlisted(tx: &Connection, keys: &FeedKeys, req: &SwapRequest) -> rusqlite::Result<()> {
+    let unlisted: Vec<StoredChannel> = tx
+        .prepare(SELECT_CHANNELS)?
+        .query_map(params![req.source_id], map_channel)?
+        .filter(|c| {
+            c.as_ref()
+                .map_or(true, |c| !keys.index.contains_key(&c.key))
+        })
+        .collect::<rusqlite::Result<_>>()?;
+    let fresh = vec![None; unlisted.len()];
+    let survivors = delete_replaced(tx, &unlisted, &fresh, req.scope, true)?;
+    settle(tx, &unlisted, &fresh, &survivors, req, true)
+}
+
+fn write_status(
+    tx: &Connection,
+    prepared: &Prepared,
+    req: &SwapRequest,
+    last_success_at: Option<i64>,
+) -> rusqlite::Result<()> {
+    let result = if prepared.parse.complete {
         LastResult::Ok
     } else {
         LastResult::Partial
@@ -672,22 +791,53 @@ pub(crate) fn swap(conn: &Connection, prepared: &Prepared, req: &SwapRequest) ->
         params![
             req.source_id,
             result.as_db(),
-            programme_count,
             parse.unknown_zone_count,
             parse.unknown_zone_sample,
             i64::try_from(parse.decode_replacements).unwrap_or(i64::MAX),
             req.policy.interpret.as_str(),
             req.policy.shift_minutes,
-            success_after(state.last_success_at, result, req.network, req.now),
+            success_after(last_success_at, result, req.network, req.now),
         ],
     )?;
-    tx.commit()?;
+    Ok(())
+}
 
-    Ok(Swapped::Committed {
-        stored: prepared.kept,
-        programme_count,
-        hold: locked.elapsed(),
-    })
+/// Copy the WAL back into the database after a swap transaction, on the
+/// ingest's thread. The ingest switches the connection's automatic
+/// checkpoint off, which would otherwise run inside `COMMIT`, and the WAL
+/// then grows to one transaction instead of the whole feed. Passive: it
+/// waits for no reader and no writer waits for it.
+fn checkpoint(conn: &Connection) {
+    if let Err(e) = conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(())) {
+        warn!("EPG ingest: WAL checkpoint failed: {e}");
+    }
+}
+
+/// Foreign keys off on the ingest's connection for the swap, restored on
+/// drop. With them on, SQLite gives every insert into a child table of an
+/// immediate foreign key a statement journal, `defer_foreign_keys` or not,
+/// and under `temp_store = memory` that journal holds every reused page of
+/// the replaced programmes in RAM. Every row the swap writes references an
+/// id it read in the same transaction, so nothing is left unchecked.
+struct ForeignKeysOff<'c> {
+    conn: &'c Connection,
+}
+
+impl<'c> ForeignKeysOff<'c> {
+    /// Outside a transaction only: the pragma is a no-op inside one.
+    fn apply(conn: &'c Connection) -> rusqlite::Result<Self> {
+        conn.execute_batch("PRAGMA foreign_keys = OFF")?;
+        Ok(ForeignKeysOff { conn })
+    }
+}
+
+impl Drop for ForeignKeysOff<'_> {
+    fn drop(&mut self) {
+        // After every transaction of the swap has ended.
+        if let Err(e) = self.conn.execute_batch("PRAGMA foreign_keys = ON") {
+            warn!("EPG ingest: foreign keys not switched back on: {e}");
+        }
+    }
 }
 
 /// The summary of a channel that keeps rows from before next to its new
@@ -740,6 +890,48 @@ fn recount(tx: &Connection, channel_id: i64) -> rusqlite::Result<Summary> {
 
 // ========== The whole store ==========
 
+/// The main database's page cache while an ingest runs, in KiB. The pool
+/// gives each connection 10,000 pages (about 40 MB); the swap writes every
+/// page of the source's programmes and would fill that cache, so the
+/// ingest's memory would grow with the feed instead of staying flat.
+const INGEST_CACHE_KIB: i64 = 2048;
+
+/// The ingest connection's page cache capped and its automatic checkpoint
+/// off (the swap checkpoints after each transaction itself), both restored
+/// on drop: the connection goes back to the pool.
+struct IngestPragmas<'c> {
+    conn: &'c Connection,
+    cache_size: i64,
+    autocheckpoint: i64,
+}
+
+impl<'c> IngestPragmas<'c> {
+    fn apply(conn: &'c Connection) -> rusqlite::Result<Self> {
+        let cache_size = conn.query_row("PRAGMA main.cache_size", [], |r| r.get(0))?;
+        let autocheckpoint = conn.query_row("PRAGMA wal_autocheckpoint", [], |r| r.get(0))?;
+        conn.execute_batch(&format!(
+            "PRAGMA main.cache_size = -{INGEST_CACHE_KIB}; PRAGMA wal_autocheckpoint = 0;"
+        ))?;
+        Ok(IngestPragmas {
+            conn,
+            cache_size,
+            autocheckpoint,
+        })
+    }
+}
+
+impl Drop for IngestPragmas<'_> {
+    fn drop(&mut self) {
+        let restore = format!(
+            "PRAGMA main.cache_size = {}; PRAGMA wal_autocheckpoint = {};",
+            self.cache_size, self.autocheckpoint
+        );
+        if let Err(e) = self.conn.execute_batch(&restore) {
+            warn!("EPG ingest: connection settings not restored: {e}");
+        }
+    }
+}
+
 /// What storing one feed did.
 #[derive(Debug)]
 pub(crate) struct StoreReport {
@@ -753,7 +945,9 @@ pub(crate) struct StoreReport {
     pub normalise_time: Duration,
     /// Verdict marks plus the swap.
     pub store_time: Duration,
-    /// How long the swap held the database's write lock.
+    /// Write transactions the swap took (more than one for a large feed).
+    pub transactions: u32,
+    /// The longest the swap held the database's write lock at once.
     pub lock_hold: Duration,
 }
 
@@ -772,6 +966,7 @@ pub(crate) fn store_feed<R: BufRead, Tz: TimeZone>(
     req: &SwapRequest,
     local: &Tz,
 ) -> Result<Stored> {
+    let _pragmas = IngestPragmas::apply(conn).context(STAGE_FAILURE)?;
     let staging = Staging::attach(conn, cache_dir)?;
     let started = Instant::now();
     let staged = stage(&staging, input, req.policy, local)?;
@@ -785,7 +980,12 @@ pub(crate) fn store_feed<R: BufRead, Tz: TimeZone>(
 
     Ok(match swapped {
         Swapped::Abandoned(reason) => Stored::Abandoned(reason),
-        Swapped::Committed { stored, hold, .. } => Stored::Committed(Box::new(StoreReport {
+        Swapped::Committed {
+            stored,
+            transactions,
+            hold,
+        } => Stored::Committed(Box::new(StoreReport {
+            transactions,
             keys: prepared.channels_with_programmes(),
             stored,
             parse_time,
@@ -1095,8 +1295,8 @@ mod tests {
         let prepared = prepared(&staging, &next);
         // A second row at the same start, as a broken `normalise` would leave.
         conn.execute(
-            "INSERT INTO ingest.epg_ingest (seq, key, start, stop, title)
-             VALUES (99, 'svt1.se', ?1, ?2, 'Twin')",
+            "INSERT INTO ingest.epg_ingest (knum, seq, key, start, stop, title)
+             VALUES (0, 99, 'svt1.se', ?1, ?2, 'Twin')",
             params![NOW, NOW + H],
         )
         .unwrap();
@@ -1451,6 +1651,7 @@ mod tests {
 
         for sql in [
             UPSERT_CHANNEL,
+            SELECT_CHANNEL,
             SELECT_CHANNELS,
             DELETE_NAMES,
             INSERT_NAME,
@@ -1464,7 +1665,10 @@ mod tests {
             RECOUNT,
             UPDATE_SUMMARY,
             SOURCE_STATE,
+            UPDATE_COUNT,
             UPDATE_STATUS,
+            MARK_STOP,
+            MARK_DROPPED,
         ] {
             let lines = plan(&conn, sql);
             for line in &lines {
@@ -1494,10 +1698,82 @@ mod tests {
         }
         let insert = plan(&conn, INSERT_FROM_STAGING);
         assert_eq!(insert.len(), 2, "{insert:?}");
-        assert!(insert[0].starts_with("SCAN i"), "{insert:?}");
+        assert!(
+            insert[0].starts_with("SEARCH i USING INDEX epg_ingest_knum (knum>? AND knum<?)"),
+            "{insert:?}"
+        );
         assert!(
             insert[1].starts_with("SEARCH c USING COVERING INDEX"),
             "{insert:?}"
         );
+    }
+
+    #[test]
+    fn chunks_hold_whole_channels_up_to_the_row_limit() {
+        let bounds: Vec<KeyBounds> = [3, 0, 2, 5, 1]
+            .iter()
+            .enumerate()
+            .map(|(key, &count)| KeyBounds {
+                key: key as u32,
+                first_start: 0,
+                last_stop: 1,
+                count,
+            })
+            .collect();
+        let mut by_knum: Vec<Option<&KeyBounds>> = bounds.iter().map(Some).collect();
+        // A described channel without programmes.
+        by_knum[1] = None;
+
+        assert_eq!(
+            plan_chunks(5, &by_knum, 4),
+            [(0, 2), (2, 3), (3, 4), (4, 5)]
+        );
+        assert_eq!(plan_chunks(5, &by_knum, 100), [(0, 5)]);
+    }
+
+    /// Store `first` as a whole, then swap `second` with chunks of at most
+    /// `max_rows` programmes; returns the fixture and the transaction count.
+    async fn swap_with_chunks(first: &Feed, second: &Feed, max_rows: u32) -> (Fixture, i64, u32) {
+        let f = Fixture::new("store");
+        let s = source(&f);
+        f.store(s, &first.xml(), NOW).await;
+        let conn = f.conn();
+        let staging = Staging::attach(&conn, &f.dir.0).unwrap();
+        let prepared = prepared(&staging, second);
+        let outcome = swap_in_chunks(&conn, &prepared, &request(s, IngestScope::Feed), max_rows);
+        drop(staging);
+        let Swapped::Committed { transactions, .. } = outcome.unwrap() else {
+            panic!("abandoned");
+        };
+        assert_summaries_exact(&conn);
+        drop(conn);
+        (f, s, transactions)
+    }
+
+    #[tokio::test]
+    async fn a_swap_in_several_transactions_leaves_what_one_transaction_does() {
+        let first = Feed::new()
+            .channel("gone.se", &["Gone"])
+            .programme("gone.se", NOW - 3 * H, NOW - 2 * H, "Left over")
+            .programme("svt1.se", NOW - 2 * H, NOW - H, "Survivor")
+            .programme("svt1.se", NOW, NOW + H, "Old")
+            .programme("tv4.se", NOW, NOW + 2 * H, "Old four");
+        let second = Feed::new()
+            .channel("svt1.se", &["SVT1"])
+            .channel("radio.se", &["Radio"])
+            .programme("tv4.se", NOW, NOW + H, "Four")
+            .programme("svt1.se", NOW - H, NOW, "One")
+            .programme("tv4.se", NOW + H, NOW + 2 * H, "Four later")
+            .programme("svt1.se", NOW, NOW + H, "Two")
+            .programme("kanal5.se", NOW, NOW + H, "Five");
+
+        let (one, s1, once) = swap_with_chunks(&first, &second, SWAP_CHUNK_ROWS).await;
+        let (many, s2, several) = swap_with_chunks(&first, &second, 2).await;
+
+        assert_eq!(once, 1);
+        assert_eq!(several, 3);
+        assert_eq!(snapshot(&one.conn()), snapshot(&many.conn()));
+        assert_eq!(one.programmes(s1), many.programmes(s2));
+        assert_eq!(many.status::<i64>(s2, "programme_count"), 7);
     }
 }

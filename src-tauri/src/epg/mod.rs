@@ -82,7 +82,10 @@ pub struct IngestReport {
     pub policy: TimePolicy,
     pub scope: IngestScope,
     pub elapsed: StageTimes,
-    /// How long the swap held the database's write lock.
+    /// Write transactions the swap took: one up to
+    /// `store::SWAP_CHUNK_ROWS` programmes, one per range of channels above.
+    pub transactions: u32,
+    /// The longest the swap held the database's write lock at once.
     pub lock_hold: Duration,
 }
 
@@ -235,7 +238,7 @@ async fn run(
     info!(
         "EPG ingest of source {source_id} ({fetch:?}, {scope:?}): {} programmes on {} channels \
          stored{}; {} seen, normalise {:?}; download {:?}, parse {:?}, normalise {:?}, \
-         store {:?}, lock held {:?}",
+         store {:?}, lock held {:?} at most over {} transactions",
         report.stored,
         report.keys,
         if report.parse.complete {
@@ -250,6 +253,7 @@ async fn run(
         report.elapsed.normalise,
         report.elapsed.store,
         report.lock_hold,
+        report.transactions,
     );
     Ok(IngestOutcome::Stored(Box::new(report)))
 }
@@ -271,6 +275,7 @@ fn ingest_report(
             normalise: report.normalise_time,
             store: report.store_time,
         },
+        transactions: report.transactions,
         lock_hold: report.lock_hold,
         parse: report.parse,
         normalise: report.normalise,
