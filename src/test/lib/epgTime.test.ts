@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { formatClock, progressPercent, minutesLeft, isEpgEntryStale } from '../../lib/epgTime';
+import {
+  formatClock,
+  formatClockAt,
+  progressPercent,
+  minutesLeft,
+  isEpgEntryStale,
+} from '../../lib/epgTime';
 
 const T = Date.parse('2026-09-24T18:00:00Z');
 const iso = (min: number) => new Date(T + min * 60000).toISOString();
@@ -7,6 +13,18 @@ const iso = (min: number) => new Date(T + min * 60000).toISOString();
 describe('epgTime', () => {
   it('formats a clock time as two-digit hours and minutes', () => {
     expect(formatClock(iso(0))).toMatch(/^\d{2}:\d{2}$/);
+  });
+  it('never writes local midnight as 24:', () => {
+    // The night the clocks go back in the EU: built from local fields, so
+    // it is midnight in whatever zone the run uses.
+    const midnight = new Date(2026, 9, 25, 0, 0).getTime();
+    const afternoon = new Date(2026, 9, 25, 13, 5).getTime();
+    for (const locale of ['en-US', 'sv-SE', 'de-DE']) {
+      expect(formatClockAt(midnight, locale)).toMatch(/^00\D00$/);
+      expect(formatClock(new Date(midnight).toISOString(), locale)).toMatch(/^00\D00$/);
+      expect(formatClockAt(afternoon, locale)).toMatch(/^13\D05$/);
+    }
+    expect(formatClockAt(midnight)).not.toMatch(/^24/);
   });
   it('returns an empty string for an unparsable time', () => {
     expect(formatClock('not a date')).toBe('');

@@ -5,7 +5,7 @@ import { usePlayerStore, type ChannelLoadStatus } from '../stores/player-store';
 import type { Channel } from '../types';
 import { getLegacyEpgStatus, type GuideProgram } from '../lib/tauri';
 import { GUIDE_DAY_COUNT, blockGeometry, normalizeEpgId } from '../lib/guideLayout';
-import { formatClock, minutesLeft, progressPercent } from '../lib/epgTime';
+import { formatClock, formatClockAt, minutesLeft, progressPercent } from '../lib/epgTime';
 import { logger } from '../lib/logger';
 import { cn } from '../lib/utils';
 import { useChannelLogo } from '../hooks/useChannelLogo';
@@ -427,7 +427,7 @@ export function GuideView({
     for (let t = win.from; t < win.to; t += HALF_HOUR) {
       out.push({
         at: t,
-        label: formatClock(new Date(t).toISOString()),
+        label: formatClockAt(t),
         pct: ((t - win.from) / span) * 100,
       });
     }
@@ -436,7 +436,7 @@ export function GuideView({
 
   const nowPct =
     dayOffset === 0 && now >= win.from && now <= win.to ? ((now - win.from) / span) * 100 : null;
-  const nowLabel = formatClock(new Date(now).toISOString());
+  const nowLabel = formatClockAt(now);
 
   if (hasSource === false) {
     return (

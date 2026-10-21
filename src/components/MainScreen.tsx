@@ -47,6 +47,7 @@ import { useHomeRows } from '../hooks/useHomeRows';
 import type { HomePickView } from './HomeView';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { newestTitles } from '../lib/newestTitle';
+import { formatClockAt } from '../lib/epgTime';
 
 const SECTION_TITLES: Record<Section, string> = {
   home: 'Home',
@@ -81,15 +82,9 @@ const guideDateFormat = new Intl.DateTimeFormat(undefined, {
   day: 'numeric',
   month: 'long',
 });
-const guideTimeFormat = new Intl.DateTimeFormat(undefined, {
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
-
-/** "Thursday 24 September · 20:12" in the user's locale; render-time value. */
-function guideSubtitle(now: Date): string {
-  return `${guideDateFormat.format(now)} · ${guideTimeFormat.format(now)}`;
+/** "Thursday 24 September · 20:12" in the user's locale. */
+function guideSubtitle(now: number): string {
+  return `${guideDateFormat.format(now)} · ${formatClockAt(now)}`;
 }
 
 export default function MainScreen() {
@@ -757,7 +752,7 @@ export default function MainScreen() {
   let title = SECTION_TITLES[contentTypeFilter];
   let subtitle =
     contentTypeFilter === 'guide'
-      ? guideSubtitle(new Date())
+      ? guideSubtitle(Date.now())
       : contentTypeFilter === 'home'
         ? ''
         : loadStatus !== 'loaded'

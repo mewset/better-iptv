@@ -1,13 +1,36 @@
-const clock = new Intl.DateTimeFormat(undefined, {
+/**
+ * The app's one clock format: two-digit hours 0-23 and minutes, in the
+ * user's locale, also where the locale writes 12-hour times. `hourCycle`
+ * is the documented control for that; `hour12: false` leaves the cycle to
+ * the engine, which may pick h24 and show midnight as 24:00.
+ */
+const CLOCK_OPTIONS: Intl.DateTimeFormatOptions = {
   hour: '2-digit',
   minute: '2-digit',
-  hour12: false,
-});
+  hourCycle: 'h23',
+};
+
+const clocks = new Map<string, Intl.DateTimeFormat>();
+
+function clockFor(locale: string | undefined): Intl.DateTimeFormat {
+  const id = locale ?? '';
+  let format = clocks.get(id);
+  if (!format) {
+    format = new Intl.DateTimeFormat(locale, CLOCK_OPTIONS);
+    clocks.set(id, format);
+  }
+  return format;
+}
+
+/** Local HH:MM for a time in epoch ms; `locale` defaults to the user's. */
+export function formatClockAt(t: number, locale?: string): string {
+  return clockFor(locale).format(t);
+}
 
 /** Local HH:MM for an RFC 3339 time, or '' when it cannot be parsed. */
-export function formatClock(iso: string): string {
+export function formatClock(iso: string, locale?: string): string {
   const t = Date.parse(iso);
-  return Number.isNaN(t) ? '' : clock.format(t);
+  return Number.isNaN(t) ? '' : formatClockAt(t, locale);
 }
 
 /** Percent of the programme that has aired, 0..100, or null without usable times. */
