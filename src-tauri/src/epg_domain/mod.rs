@@ -64,26 +64,6 @@ pub fn normalize_epg_url(url: &str) -> String {
     url.trim().to_string()
 }
 
-/// Validate channel EPG ID format
-///
-/// Ensures the EPG ID is not empty and contains valid characters.
-///
-/// # Arguments
-/// * `epg_id` - The channel EPG ID to validate
-///
-/// # Returns
-/// * `Ok(())` if the EPG ID is valid
-/// * `Err(AppError::InvalidInput)` if the EPG ID is invalid
-pub fn validate_channel_epg_id(epg_id: &str) -> Result<(), AppError> {
-    if epg_id.trim().is_empty() {
-        return Err(AppError::InvalidInput(
-            "Channel EPG ID cannot be empty".to_string(),
-        ));
-    }
-
-    Ok(())
-}
-
 /// Longest window a single guide request may span.
 pub const GUIDE_MAX_WINDOW_HOURS: i64 = 48;
 
@@ -204,21 +184,6 @@ mod tests {
             normalize_epg_url("https://example.com/epg.xml"),
             "https://example.com/epg.xml"
         );
-    }
-
-    #[test]
-    fn test_validate_channel_epg_id_valid() {
-        assert!(validate_channel_epg_id("channel123").is_ok());
-    }
-
-    #[test]
-    fn test_validate_channel_epg_id_empty() {
-        assert!(validate_channel_epg_id("").is_err());
-    }
-
-    #[test]
-    fn test_validate_channel_epg_id_whitespace() {
-        assert!(validate_channel_epg_id("   ").is_err());
     }
 
     mod guide_window {

@@ -15,7 +15,7 @@ use crate::epg_domain::source::SourceOrigin;
 use crate::epg_domain::{self, normalize_epg_url};
 use crate::error::AppError;
 use crate::state::AppState;
-use log::{debug, info, warn};
+use log::{info, warn};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use serde::Serialize;
@@ -180,59 +180,9 @@ pub async fn get_epg_status(epg: State<'_, EpgService>) -> Result<EpgStatus, App
 
 // ========== Temporary wrappers ==========
 //
-// TEMPORARY: the commands below keep the names and payloads the shipped
-// frontend calls until it moves to the commands above (PR A-frontend), which
-// deletes them.
-
-/// Current/next titles with times, in the old `get_channels_epg` shape.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ChannelEpg {
-    pub current: Option<String>,
-    pub current_start: Option<String>,
-    pub current_end: Option<String>,
-    pub next: Option<String>,
-    pub next_start: Option<String>,
-}
-
-impl From<NowNext> for ChannelEpg {
-    fn from(entry: NowNext) -> Self {
-        let (current, current_start, current_end) = match entry.now {
-            Some(p) => (Some(p.title), Some(p.start), Some(p.stop)),
-            None => (None, None, None),
-        };
-        let (next, next_start) = match entry.next {
-            Some(p) => (Some(p.title), Some(p.start)),
-            None => (None, None),
-        };
-        ChannelEpg {
-            current,
-            current_start,
-            current_end,
-            next,
-            next_start,
-        }
-    }
-}
-
-/// One guide programme in the old `get_guide` shape.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct GuideProgram {
-    pub title: String,
-    pub description: Option<String>,
-    pub start_time: String,
-    pub end_time: String,
-}
-
-impl From<Programme> for GuideProgram {
-    fn from(p: Programme) -> Self {
-        GuideProgram {
-            title: p.title,
-            description: p.description,
-            start_time: p.start,
-            end_time: p.stop,
-        }
-    }
-}
+// TEMPORARY: the commands below keep the names and payloads the current
+// Settings EPG tab calls until that tab shows the guide sources itself and
+// uses the commands above.
 
 /// The old `force_refresh_epg` answer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -245,67 +195,6 @@ pub struct EpgRefreshResult {
 
 /// Shown by `force_refresh_epg` when no source applies.
 const NO_SOURCE_MESSAGE: &str = "No guide source is enabled for this profile";
-
-/// TEMPORARY: `get_channel_epg` → current and next title of one channel.
-#[tauri::command]
-pub async fn get_channel_epg(
-    state: State<'_, AppState>,
-    channel_epg_id: String,
-) -> Result<(Option<String>, Option<String>), AppError> {
-    epg_domain::validate_channel_epg_id(&channel_epg_id)?;
-    let mut answer = read_now_next(&state.pool, vec![channel_epg_id.clone()], now()).await?;
-    Ok(match answer.remove(&channel_epg_id) {
-        Some(entry) => (entry.now.map(|p| p.title), entry.next.map(|p| p.title)),
-        None => (None, None),
-    })
-}
-
-/// TEMPORARY: `get_channels_epg` → `get_epg_now_next` in the old shape.
-#[tauri::command]
-pub async fn get_channels_epg(
-    state: State<'_, AppState>,
-    epg_ids: Vec<String>,
-) -> Result<HashMap<String, ChannelEpg>, AppError> {
-    check_batch(epg_ids.len())?;
-    let ids: Vec<String> = epg_ids
-        .into_iter()
-        .filter(|id| !id.trim().is_empty())
-        .collect();
-    if ids.is_empty() {
-        return Ok(HashMap::new());
-    }
-    let answer = read_now_next(&state.pool, ids, now()).await?;
-    debug!("get_channels_epg -> {} channels with data", answer.len());
-    Ok(answer.into_iter().map(|(k, v)| (k, v.into())).collect())
-}
-
-/// TEMPORARY: `get_guide` → `get_epg_guide` in the old shape.
-#[tauri::command]
-pub async fn get_guide(
-    state: State<'_, AppState>,
-    epg_ids: Vec<String>,
-    from: String,
-    to: String,
-) -> Result<HashMap<String, Vec<GuideProgram>>, AppError> {
-    for id in &epg_ids {
-        epg_domain::validate_channel_epg_id(id)?;
-    }
-    let answer = read_guide(&state.pool, epg_ids, &from, &to).await?;
-    Ok(answer
-        .into_iter()
-        .map(|(k, list)| (k, list.into_iter().map(GuideProgram::from).collect()))
-        .collect())
-}
-
-/// TEMPORARY: `get_guide_epg_ids` → `get_epg_guide_keys`.
-#[tauri::command]
-pub async fn get_guide_epg_ids(
-    state: State<'_, AppState>,
-    from: String,
-    to: String,
-) -> Result<Vec<String>, AppError> {
-    read_guide_keys(&state.pool, &from, &to).await
-}
 
 /// The old answer for downloads that ended as `ended`, `labels` naming the
 /// sources. A success only when every source stored its feed. Otherwise the
@@ -533,7 +422,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_old_read_commands_answer_from_the_new_store() {
+    async fn the_read_commands_answer_from_the_store() {
         let f = Fixture::new("commands");
         let s = add_manual(&f.conn(), "http://epg.example/epg.xml");
         f.store(s, &feed(), NOW).await;
@@ -542,20 +431,32 @@ mod tests {
         let now_next = read_now_next(&f.pool, keys(&["svt1.se", "ÄMNE.SE", "none"]), NOW)
             .await
             .unwrap();
-        let old: HashMap<String, ChannelEpg> =
-            now_next.into_iter().map(|(k, v)| (k, v.into())).collect();
-        assert_eq!(old.len(), 2);
+        assert_eq!(now_next.len(), 2);
+        let programme = |title: &str, start: i64, stop: i64| Programme {
+            title: title.to_string(),
+            description: None,
+            start: at(start),
+            stop: at(stop),
+        };
         assert_eq!(
-            old["svt1.se"],
-            ChannelEpg {
-                current: Some("News".into()),
-                current_start: Some(at(NOW - H)),
-                current_end: Some(at(NOW + H)),
-                next: Some("Film".into()),
-                next_start: Some(at(NOW + H)),
+            now_next["svt1.se"],
+            NowNext {
+                now: Some(programme("News", NOW - H, NOW + H)),
+                next: Some(programme("Film", NOW + H, NOW + 2 * H)),
             }
         );
-        assert_eq!(old["ÄMNE.SE"].current.as_deref(), Some("Ämne"));
+        assert_eq!(
+            now_next["ÄMNE.SE"].now.as_ref().map(|p| p.title.as_str()),
+            Some("Ämne")
+        );
+        // The IPC shape the frontend's types list.
+        assert_eq!(
+            serde_json::to_value(&now_next["svt1.se"]).unwrap(),
+            serde_json::json!({
+                "now": {"title": "News", "description": null, "start": at(NOW - H), "stop": at(NOW + H)},
+                "next": {"title": "Film", "description": null, "start": at(NOW + H), "stop": at(NOW + 2 * H)},
+            })
+        );
 
         // `to` half a second after a start keeps that programme in, as the
         // string comparison of the old store did.
@@ -569,9 +470,9 @@ mod tests {
         .unwrap();
         let titles: Vec<&str> = guide["SVT1.se"].iter().map(|p| p.title.as_str()).collect();
         assert_eq!(titles, ["News", "Film"]);
-        let old = GuideProgram::from(guide["SVT1.se"][1].clone());
+        let film = &guide["SVT1.se"][1];
         assert_eq!(
-            (old.start_time, old.end_time),
+            (film.start.clone(), film.stop.clone()),
             (at(NOW + H), at(NOW + 2 * H))
         );
         let err = read_guide(&f.pool, keys(&["svt1.se"]), &at(NOW), &at(NOW + 49 * H))
@@ -750,12 +651,12 @@ mod tests {
     }
 
     /// The captured feed (see the EPG rewrite brief) through the ingest and
-    /// the old read commands, at the capture's noon:
+    /// the read commands, at the capture's noon:
     /// `EPG_REAL_FEED=/path/to/xmltv.xml cargo test --lib real_feed -- --ignored`.
     /// Prints counts only.
     #[tokio::test]
     #[ignore]
-    async fn real_feed_through_the_old_read_commands() {
+    async fn real_feed_through_the_read_commands() {
         let Some(path) = std::env::var_os("EPG_REAL_FEED") else {
             eprintln!("EPG_REAL_FEED is not set; skipped");
             return;
@@ -782,12 +683,11 @@ mod tests {
         let parse = |t: &str| chrono::DateTime::parse_from_rfc3339(t).unwrap().timestamp();
         for (key, entry) in &now_next {
             assert!(wanted.contains(key));
-            let old = ChannelEpg::from(entry.clone());
-            if let (Some(start), Some(end)) = (&old.current_start, &old.current_end) {
-                assert!(parse(start) <= NOW && NOW < parse(end), "{key}");
+            if let Some(now) = &entry.now {
+                assert!(parse(&now.start) <= NOW && NOW < parse(&now.stop), "{key}");
             }
-            if let Some(next) = &old.next_start {
-                assert!(parse(next) > NOW, "{key}");
+            if let Some(next) = &entry.next {
+                assert!(parse(&next.start) > NOW, "{key}");
             }
         }
 
@@ -798,15 +698,14 @@ mod tests {
         assert_eq!(guide.len(), wanted.len());
         let mut programmes = 0;
         for list in guide.values() {
-            let old: Vec<GuideProgram> = list.iter().cloned().map(GuideProgram::from).collect();
-            for pair in old.windows(2) {
-                assert!(parse(&pair[0].start_time) < parse(&pair[1].start_time));
+            for pair in list.windows(2) {
+                assert!(parse(&pair[0].start) < parse(&pair[1].start));
             }
-            for p in &old {
-                let (start, end) = (parse(&p.start_time), parse(&p.end_time));
+            for p in list {
+                let (start, end) = (parse(&p.start), parse(&p.stop));
                 assert!(start < end && end > NOW && start < NOW + 3 * H);
             }
-            programmes += old.len();
+            programmes += list.len();
         }
         assert!(programmes > wanted.len(), "{programmes} programmes");
 
@@ -821,41 +720,6 @@ mod tests {
             now_next.len(),
             programmes,
             wanted.len()
-        );
-    }
-
-    #[test]
-    fn the_old_now_next_shape_carries_titles_and_times() {
-        let programme = |title: &str, start: &str, stop: &str| Programme {
-            title: title.to_string(),
-            description: None,
-            start: start.to_string(),
-            stop: stop.to_string(),
-        };
-        let entry = NowNext {
-            now: Some(programme("News", "a", "b")),
-            next: Some(programme("Film", "b", "c")),
-        };
-        assert_eq!(
-            ChannelEpg::from(entry),
-            ChannelEpg {
-                current: Some("News".into()),
-                current_start: Some("a".into()),
-                current_end: Some("b".into()),
-                next: Some("Film".into()),
-                next_start: Some("b".into()),
-            }
-        );
-        let only_next = NowNext {
-            now: None,
-            next: Some(programme("Film", "b", "c")),
-        };
-        let old = ChannelEpg::from(only_next);
-        assert_eq!((old.current, old.current_start), (None, None));
-        assert_eq!(old.next.as_deref(), Some("Film"));
-        assert_eq!(
-            serde_json::to_value(GuideProgram::from(programme("News", "a", "b"))).unwrap(),
-            serde_json::json!({"title": "News", "description": null, "start_time": "a", "end_time": "b"})
         );
     }
 

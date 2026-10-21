@@ -231,13 +231,9 @@ pub fn run() {
             remove_epg_source,
             refresh_epg,
             set_epg_time_policy,
-            // EPG commands kept for the current frontend (temporary)
-            fetch_epg_data,
-            get_channel_epg,
-            get_channels_epg,
-            get_guide,
-            get_guide_epg_ids,
             get_epg_status,
+            // EPG commands kept for the current Settings tab (temporary)
+            fetch_epg_data,
             force_refresh_epg,
             // Parental controls commands
             set_parental_pin,
