@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
 import type { Channel, Playlist } from '../../types';
+import { epgStatus } from '../epgFixtures';
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
@@ -123,7 +124,7 @@ function setupInvoke(
       case 'get_guide':
         return {};
       case 'get_epg_status':
-        return { has_url: false, last_fetched: null, program_count: 0 };
+        return epgStatus(false);
       default:
         return null;
     }

@@ -1,11 +1,11 @@
 import { RefreshCw } from 'lucide-react';
 import { hasEpgCredentials, maskEpgCredentials } from '../../lib/epgUrl';
-import type { EpgStatus } from '../../lib/tauri';
+import type { LegacyEpgStatus } from '../../lib/tauri';
 
 interface EpgTabProps {
   epgUrl: string;
   onEpgUrlChange: (url: string) => void;
-  epgStatus: EpgStatus | null;
+  epgStatus: LegacyEpgStatus | null;
   isUpdatingEpg: boolean;
   onForceEpgUpdate: () => void;
 }

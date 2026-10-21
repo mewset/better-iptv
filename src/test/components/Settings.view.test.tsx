@@ -23,7 +23,7 @@ vi.mock('../../lib/tauri', () => ({
   setSetting: vi.fn(async () => {}),
   fetchEpgData: vi.fn(async () => 0),
   resetParentalPin: vi.fn(async () => {}),
-  getEpgStatus: vi.fn(async () => ({ has_url: false, last_fetched: null, program_count: 0 })),
+  getLegacyEpgStatus: vi.fn(async () => ({ has_url: false, last_fetched: null, program_count: 0 })),
   forceRefreshEpg: vi.fn(async () => ({
     success: true,
     programs_loaded: 0,

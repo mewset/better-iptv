@@ -7,6 +7,7 @@ import { formatClock } from '../../lib/epgTime';
 import { resetLogoFallbackSession, useLogoFallbackStore } from '../../lib/logoFallback';
 import type { GuideProgram } from '../../lib/tauri';
 import type { Channel } from '../../types';
+import { epgStatus } from '../epgFixtures';
 
 // jsdom has no layout, so the real virtualizer renders no rows. This stand-in
 // renders every row unless a test narrows `visible`, and records the offset
@@ -84,8 +85,7 @@ function setupInvoke() {
   mockedInvoke.mockImplementation(async (cmd: string) => {
     if (cmd === 'get_guide') return guide;
     if (cmd === 'get_guide_epg_ids') return guideIds;
-    if (cmd === 'get_epg_status')
-      return { has_url: hasUrl, last_fetched: null, program_count: hasUrl ? 10 : 0 };
+    if (cmd === 'get_epg_status') return epgStatus(hasUrl);
     return null;
   });
 }
@@ -286,7 +286,7 @@ describe('GuideView', () => {
     mockedInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'get_guide') throw new Error('invalid epg id');
       if (cmd === 'get_guide_epg_ids') return ['svt1.se', 'tv4.se'];
-      if (cmd === 'get_epg_status') return { has_url: true, last_fetched: null, program_count: 1 };
+      if (cmd === 'get_epg_status') return epgStatus(true);
       return null;
     });
     renderGuide();
@@ -355,7 +355,7 @@ describe('GuideView', () => {
     mockedInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'get_guide_epg_ids') return new Promise<string[]>((r) => (answer = r));
       if (cmd === 'get_guide') return guide;
-      if (cmd === 'get_epg_status') return { has_url: true, last_fetched: null, program_count: 1 };
+      if (cmd === 'get_epg_status') return epgStatus(true);
       return null;
     });
     renderGuide();

@@ -9,7 +9,7 @@ use crate::commands::with_db;
 use crate::epg::read::{self, active_profile, NowNext, Programme};
 use crate::epg::service::{EpgService, Finished};
 use crate::epg::sources::{list_sources, SourcePatch};
-use crate::epg::status::{label, EpgSourceStatus};
+use crate::epg::status::{label, EpgSourceStatus, EpgStatus};
 use crate::epg_domain::policy::TimePolicy;
 use crate::epg_domain::source::SourceOrigin;
 use crate::epg_domain::{self, normalize_epg_url};
@@ -170,6 +170,14 @@ pub async fn set_epg_time_policy(
     Ok(())
 }
 
+/// The guide's status for the active profile: one row per source that
+/// applies to it, and the totals. The same payload arrives as `epg-status`
+/// whenever it changes.
+#[tauri::command]
+pub async fn get_epg_status(epg: State<'_, EpgService>) -> Result<EpgStatus, AppError> {
+    epg.status().await
+}
+
 // ========== Temporary wrappers ==========
 //
 // TEMPORARY: the commands below keep the names and payloads the shipped
@@ -224,16 +232,6 @@ impl From<Programme> for GuideProgram {
             end_time: p.stop,
         }
     }
-}
-
-/// The old `get_epg_status` shape.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct LegacyEpgStatus {
-    /// An enabled source applies to the active profile.
-    pub has_url: bool,
-    /// The latest successful download among those sources, RFC 3339.
-    pub last_fetched: Option<String>,
-    pub program_count: usize,
 }
 
 /// The old `force_refresh_epg` answer.
@@ -307,30 +305,6 @@ pub async fn get_guide_epg_ids(
     to: String,
 ) -> Result<Vec<String>, AppError> {
     read_guide_keys(&state.pool, &from, &to).await
-}
-
-/// TEMPORARY: `get_epg_status` in the old shape, over the sources of the
-/// active profile.
-#[tauri::command]
-pub async fn get_epg_status(state: State<'_, AppState>) -> Result<LegacyEpgStatus, AppError> {
-    with_db(&state.pool, |conn| Ok(legacy_status(conn)?)).await
-}
-
-fn legacy_status(conn: &rusqlite::Connection) -> rusqlite::Result<LegacyEpgStatus> {
-    let profile = active_profile(conn)?;
-    let enabled: Vec<_> = list_sources(conn)?
-        .into_iter()
-        .filter(|s| s.enabled && crate::epg_domain::source::applies_to(s.playlist_id, profile))
-        .collect();
-    Ok(LegacyEpgStatus {
-        has_url: !enabled.is_empty(),
-        last_fetched: enabled
-            .iter()
-            .filter_map(|s| s.last_success_at)
-            .max()
-            .and_then(read::rfc3339),
-        program_count: enabled.iter().map(|s| s.programme_count as usize).sum(),
-    })
 }
 
 /// The old answer for downloads that ended as `ended`, `labels` naming the
@@ -611,43 +585,41 @@ mod tests {
                 .unwrap(),
             ["svt1.se", "ämne.se"]
         );
-        let status = legacy_status(&f.conn()).unwrap();
-        assert!(status.has_url);
-        assert_eq!(status.program_count, 3);
-        assert_eq!(
-            status.last_fetched, None,
+        let status = service(&f).status().await.unwrap();
+        assert_eq!(status.sources.len(), 1);
+        assert_eq!(status.programme_count, 3);
+        assert!(
+            !status.guide_downloaded,
             "read from the cache, not downloaded"
         );
     }
 
     #[tokio::test]
-    async fn the_old_status_counts_only_enabled_sources_of_the_active_profile() {
+    async fn the_status_counts_only_enabled_sources_of_the_active_profile() {
         let f = Fixture::new("commands");
         let conn = f.conn();
         let s = add_manual(&conn, "http://epg.example/epg.xml");
-        assert!(legacy_status(&conn).unwrap().has_url);
         conn.execute(
             "UPDATE epg_source SET last_success_at = ?2, programme_count = 7 WHERE id = ?1",
             rusqlite::params![s, NOW],
         )
         .unwrap();
+        let status = service(&f).status().await.unwrap();
+        assert_eq!((status.programme_count, status.guide_downloaded), (7, true));
+        assert_eq!(status.sources[0].last_success_at, Some(at(NOW)));
         assert_eq!(
-            legacy_status(&conn).unwrap(),
-            LegacyEpgStatus {
-                has_url: true,
-                last_fetched: Some(at(NOW)),
-                program_count: 7,
-            }
+            status.sources[0].display_url.as_deref(),
+            Some("http://epg.example/epg.xml")
         );
+
         conn.execute("UPDATE epg_source SET enabled = 0", [])
             .unwrap();
+        let status = service(&f).status().await.unwrap();
+        assert_eq!(status.sources.len(), 1, "a disabled source keeps its row");
+        assert!(!status.sources[0].enabled);
         assert_eq!(
-            legacy_status(&conn).unwrap(),
-            LegacyEpgStatus {
-                has_url: false,
-                last_fetched: None,
-                program_count: 0,
-            }
+            (status.programme_count, status.guide_downloaded),
+            (0, false)
         );
     }
 
@@ -838,8 +810,8 @@ mod tests {
         }
         assert!(programmes > wanted.len(), "{programmes} programmes");
 
-        let status = legacy_status(&f.conn()).unwrap();
-        assert_eq!(status.program_count, report.stored as usize);
+        let status = service(&f).status().await.unwrap();
+        assert_eq!(status.programme_count, report.stored);
         eprintln!(
             "REAL FEED: {} programmes on {} channels stored; {} guide keys; now/next {} of 100; \
              guide 3 h {} programmes for {} keys",

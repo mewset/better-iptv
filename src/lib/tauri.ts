@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Channel, Playlist, SeriesInfo, MergeResult, UpdateInfo } from '../types';
+import { getEpgStatus } from './epgIpc';
 
 // ========== MPV Commands ==========
 
@@ -231,7 +232,8 @@ export async function getGuideEpgIds(from: string, to: string): Promise<string[]
   return await invoke('get_guide_epg_ids', { from, to });
 }
 
-export interface EpgStatus {
+/** The summary the current Settings EPG tab shows; see `getLegacyEpgStatus`. */
+export interface LegacyEpgStatus {
   has_url: boolean;
   last_fetched: string | null;
   program_count: number;
@@ -244,8 +246,27 @@ export interface EpgRefreshResult {
   error: string | null;
 }
 
-export async function getEpgStatus(): Promise<EpgStatus> {
-  return await invoke('get_epg_status');
+/**
+ * The old status summary, derived from the per-source status for the
+ * Settings EPG tab until that tab shows the sources itself: whether an
+ * enabled source applies, its latest successful download, and the
+ * programmes stored for the enabled sources.
+ */
+export async function getLegacyEpgStatus(): Promise<LegacyEpgStatus> {
+  const status = await getEpgStatus();
+  const enabled = status.sources.filter((s) => s.enabled);
+  let lastFetched: string | null = null;
+  for (const source of enabled) {
+    const at = source.last_success_at;
+    if (at !== null && (lastFetched === null || Date.parse(at) > Date.parse(lastFetched))) {
+      lastFetched = at;
+    }
+  }
+  return {
+    has_url: enabled.length > 0,
+    last_fetched: lastFetched,
+    program_count: status.programme_count,
+  };
 }
 
 export async function forceRefreshEpg(): Promise<EpgRefreshResult> {

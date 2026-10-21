@@ -335,20 +335,23 @@ impl EpgService {
             .refreshed(&EpgRefreshed::new(reason, source_id));
     }
 
-    /// Emit the current status; a failure to read it is logged.
-    async fn emit_status(&self) {
+    /// The guide's status for the active profile, as `epg-status` sends it.
+    pub async fn status(&self) -> Result<EpgStatus, AppError> {
         let (cache_dir, refreshing, now) = (
             self.parts.cache_dir.clone(),
             self.parts.refreshing.clone(),
             self.now(),
         );
-        let status = self
-            .db(move |conn| {
-                let refreshing = lock_set(&refreshing).clone();
-                Ok(epg_status(conn, &cache_dir, &refreshing, now)?)
-            })
-            .await;
-        match status {
+        self.db(move |conn| {
+            let refreshing = lock_set(&refreshing).clone();
+            Ok(epg_status(conn, &cache_dir, &refreshing, now)?)
+        })
+        .await
+    }
+
+    /// Emit the current status; a failure to read it is logged.
+    async fn emit_status(&self) {
+        match self.status().await {
             Ok(status) => self.parts.events.status(&status),
             Err(e) => warn!("EPG status not sent: {e}"),
         }

@@ -4,13 +4,13 @@ import {
   setSetting,
   fetchEpgData,
   resetParentalPin,
-  getEpgStatus,
+  getLegacyEpgStatus,
   forceRefreshEpg,
   getChannels,
   getTmdbStatus,
   deleteTmdbCache,
 } from '../lib/tauri';
-import type { EpgStatus, TmdbStatus } from '../lib/tauri';
+import type { LegacyEpgStatus, TmdbStatus } from '../lib/tauri';
 import { usePlayerStore } from '../stores/player-store';
 import { logger } from '../lib/logger';
 import { resetLogoFallbackSession } from '../lib/logoFallback';
@@ -97,7 +97,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   // EPG tab state
   const [epgUrl, setEpgUrl] = useState('');
   const [originalEpgUrl, setOriginalEpgUrl] = useState('');
-  const [epgStatus, setEpgStatus] = useState<EpgStatus | null>(null);
+  const [epgStatus, setEpgStatus] = useState<LegacyEpgStatus | null>(null);
   const [isUpdatingEpg, setIsUpdatingEpg] = useState(false);
 
   // Playback tab state
@@ -319,7 +319,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
         );
 
         // Load EPG status
-        const status = await getEpgStatus();
+        const status = await getLegacyEpgStatus();
         setEpgStatus(status);
 
         // Load parental controls settings
@@ -445,7 +445,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
 
       if (result.success) {
         logger.info(`EPG refresh successful: ${result.programs_loaded} programs loaded`);
-        const newStatus = await getEpgStatus();
+        const newStatus = await getLegacyEpgStatus();
         setEpgStatus(newStatus);
         triggerEpgRefresh();
       } else {
@@ -600,7 +600,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
         const count = await fetchEpgData(epgUrl);
         logger.info(`EPG fetched successfully: ${count} programs`);
 
-        const newStatus = await getEpgStatus();
+        const newStatus = await getLegacyEpgStatus();
         setEpgStatus(newStatus);
         triggerEpgRefresh();
       } else if (epgUrlChanged) {

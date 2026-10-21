@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { getChannels, getPlaylistChannelCounts, reportDeadLogos } from '../../lib/tauri';
+import {
+  getChannels,
+  getLegacyEpgStatus,
+  getPlaylistChannelCounts,
+  reportDeadLogos,
+} from '../../lib/tauri';
+import { epgSource, epgStatus } from '../epgFixtures';
 
 const mockedInvoke = vi.mocked(invoke);
 
@@ -72,5 +78,43 @@ describe('reportDeadLogos', () => {
       items: [{ channel_id: 12, url: 'http://a' }],
     });
     expect(result).toEqual({ 12: 'http://fb/12.png' });
+  });
+});
+
+describe('getLegacyEpgStatus', () => {
+  beforeEach(() => {
+    mockedInvoke.mockReset();
+  });
+
+  it('summarises the enabled sources of the per-source status', async () => {
+    mockedInvoke.mockResolvedValueOnce(
+      epgStatus(true, {
+        programme_count: 42,
+        sources: [
+          epgSource({ id: 1, last_success_at: '2026-10-21T08:00:00+00:00' }),
+          epgSource({ id: 2, last_success_at: '2026-10-21T09:30:00+00:00' }),
+          epgSource({ id: 3, enabled: false, last_success_at: '2026-10-21T11:00:00+00:00' }),
+        ],
+      })
+    );
+
+    expect(await getLegacyEpgStatus()).toEqual({
+      has_url: true,
+      last_fetched: '2026-10-21T09:30:00+00:00',
+      program_count: 42,
+    });
+    expect(mockedInvoke).toHaveBeenCalledWith('get_epg_status');
+  });
+
+  it('has no URL when every source is disabled', async () => {
+    mockedInvoke.mockResolvedValueOnce(
+      epgStatus(true, { programme_count: 0, sources: [epgSource({ enabled: false })] })
+    );
+
+    expect(await getLegacyEpgStatus()).toEqual({
+      has_url: false,
+      last_fetched: null,
+      program_count: 0,
+    });
   });
 });

@@ -1,0 +1,156 @@
+import { invoke } from '@tauri-apps/api/core';
+
+// Types and invoke wrappers for the guide commands (src-tauri/src/commands/epg.rs).
+// Fields are snake_case as serde sends them; times are RFC 3339 strings in UTC.
+
+/** One programme. `description` is always null inside a `NowNext`. */
+export interface Programme {
+  title: string;
+  description: string | null;
+  start: string;
+  stop: string;
+}
+
+/** What a channel shows now and next; the backend never sends both null. */
+export interface NowNext {
+  now: Programme | null;
+  next: Programme | null;
+}
+
+export type SourceOrigin = 'manual' | 'xtream' | 'm3u_header';
+export type LastResult = 'ok' | 'partial' | 'error' | 'never';
+
+/** How a source's times are read, then how far they are moved (multiples of 30 min). */
+export interface TimePolicy {
+  interpret: 'as_written' | 'local_zone';
+  shift_minutes: number;
+}
+
+/** One guide source as Settings shows it. Built in Rust: no URL here carries credentials. */
+export interface EpgSource {
+  id: number;
+  origin: SourceOrigin;
+  playlist_id: number | null;
+  label: string;
+  display_url: string | null;
+  enabled: boolean;
+  priority: number;
+  policy: TimePolicy;
+  policy_pending: boolean;
+  last_attempt_at: string | null;
+  last_success_at: string | null;
+  last_result: LastResult;
+  last_error: string | null;
+  programme_count: number;
+  channel_count: number;
+  unknown_zone_count: number;
+  unknown_zone_sample: string | null;
+  decode_replacements: number;
+  has_cached_feed: boolean;
+  refreshing: boolean;
+}
+
+export interface MatchCounts {
+  by_id: number;
+  by_tvg_name: number;
+  by_name: number;
+  manual: number;
+  unmatched_with_id: number;
+  ambiguous_names: number;
+}
+
+/** The guide's status for the active profile (`get_epg_status`, `epg-status`). */
+export interface EpgStatus {
+  sources: EpgSource[];
+  programme_count: number;
+  guide_downloaded: boolean;
+  next_auto_refresh: string | null;
+  matches: MatchCounts | null;
+}
+
+export type RefreshReason = 'ingest' | 'reingest' | 'source_changed' | 'profile_switch' | 'match';
+
+/** The `epg-refreshed` payload: cached now/next and guide data is stale. */
+export interface EpgRefreshed {
+  reason: RefreshReason;
+  source_id: number | null;
+  matches_changed: number;
+}
+
+/** Fields of a source to change; the ones left out stay. `url` only for a URL added by hand. */
+export interface EpgSourcePatch {
+  enabled?: boolean;
+  priority?: number;
+  url?: string;
+}
+
+/** Event names as the backend emits them. */
+export const EPG_REFRESHED_EVENT = 'epg-refreshed';
+export const EPG_STATUS_EVENT = 'epg-status';
+
+/** Keys per `get_epg_now_next` request (the backend accepts 500; the grid never needs more). */
+export const NOW_NEXT_BATCH = 100;
+
+/** Keys per `get_epg_guide` request (the backend's GUIDE_MAX_IDS). */
+export const GUIDE_BATCH = 5000;
+
+/**
+ * Now and next per key, keyed as sent; a key the guide has nothing for is
+ * left out. At most 500 keys.
+ */
+export async function getEpgNowNext(keys: string[]): Promise<Record<string, NowNext>> {
+  return await invoke('get_epg_now_next', { keys });
+}
+
+/**
+ * Programmes overlapping `from`-`to` (RFC 3339, at most 48 hours) per key,
+ * in start order. Every key sent is in the answer. At most 5,000 keys.
+ */
+export async function getEpgGuide(
+  keys: string[],
+  from: string,
+  to: string
+): Promise<Record<string, Programme[]>> {
+  return await invoke('get_epg_guide', { keys, from, to });
+}
+
+/**
+ * Keys whose stored guide (first start to last stop) touches `from`-`to`
+ * (at most seven days). For the guide's five-day range that is the same as
+ * "has a programme in it"; for a short range a channel with a gap over the
+ * whole range is listed too.
+ */
+export async function getEpgGuideKeys(from: string, to: string): Promise<string[]> {
+  return await invoke('get_epg_guide_keys', { from, to });
+}
+
+export async function getEpgStatus(): Promise<EpgStatus> {
+  return await invoke('get_epg_status');
+}
+
+/** Add a guide URL for every profile; its first download starts at once. */
+export async function addEpgSource(url: string): Promise<EpgSource> {
+  return await invoke('add_epg_source', { url });
+}
+
+export async function updateEpgSource(id: number, patch: EpgSourcePatch): Promise<void> {
+  await invoke('update_epg_source', { id, patch });
+}
+
+/** Remove a URL added by hand, with its programmes. */
+export async function removeEpgSource(id: number): Promise<void> {
+  await invoke('remove_epg_source', { id });
+}
+
+/**
+ * Download one source, or every enabled source of the active profile, now.
+ * Returns at once; progress arrives as `epg-status` events.
+ */
+export async function refreshEpg(sourceId: number | null = null): Promise<void> {
+  await invoke('refresh_epg', { sourceId });
+}
+
+/** Set how a source's times are read. Returns at once; a cached feed is re-read in the background. */
+export async function setEpgTimePolicy(sourceId: number, policy: TimePolicy): Promise<void> {
+  await invoke('set_epg_time_policy', { sourceId, policy });
+}

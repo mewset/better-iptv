@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { CalendarRange, Lock, Play, X } from 'lucide-react';
 import { usePlayerStore, type ChannelLoadStatus } from '../stores/player-store';
 import type { Channel } from '../types';
-import { getEpgStatus, type GuideProgram } from '../lib/tauri';
+import { getLegacyEpgStatus, type GuideProgram } from '../lib/tauri';
 import { GUIDE_DAY_COUNT, blockGeometry, normalizeEpgId } from '../lib/guideLayout';
 import { formatClock, minutesLeft, progressPercent } from '../lib/epgTime';
 import { logger } from '../lib/logger';
@@ -336,7 +336,7 @@ export function GuideView({
 
   useEffect(() => {
     let cancelled = false;
-    getEpgStatus()
+    getLegacyEpgStatus()
       .then((status) => {
         if (!cancelled) setHasSource(status.has_url);
       })
