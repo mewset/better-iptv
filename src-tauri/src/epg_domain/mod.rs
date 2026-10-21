@@ -8,6 +8,7 @@ pub mod matching;
 pub mod normalize;
 pub mod policy;
 pub mod report;
+pub mod search;
 pub mod source;
 pub mod text;
 pub mod time;

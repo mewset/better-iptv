@@ -110,6 +110,17 @@ pub fn label(source: &SourceRecord) -> String {
     }
 }
 
+/// The source of a guide channel the picker found, in the words Settings
+/// uses: the provider's and the playlist's guide by what they are, a URL
+/// added by hand by its host.
+pub fn picker_label(source: &SourceRecord) -> String {
+    match source.origin {
+        SourceOrigin::Xtream => "Your provider's guide".to_string(),
+        SourceOrigin::M3uHeader => "From the playlist".to_string(),
+        SourceOrigin::Manual => label(source),
+    }
+}
+
 /// Shown instead of a URL that does not parse: the raw string could hold
 /// anything, credentials included.
 pub const HIDDEN_URL: &str = "(address hidden)";

@@ -11,6 +11,7 @@ pub mod download;
 pub mod matching;
 pub mod parse;
 pub mod read;
+pub mod search;
 pub mod service;
 pub mod sources;
 pub mod status;

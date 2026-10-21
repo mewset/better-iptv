@@ -1,5 +1,6 @@
 //! Guide commands: thin handlers over `epg::read` (what the guide shows),
-//! `epg::service` (downloads, sources, time policy) and `epg::status`.
+//! `epg::service` (downloads, sources, time policy), `epg::search` and
+//! `epg::status`.
 //!
 //! Times cross IPC as RFC 3339 strings and are Unix seconds inside. Keys are
 //! the channel ids as the playlist spells them; answers are keyed the same
@@ -7,6 +8,7 @@
 
 use crate::commands::with_db;
 use crate::epg::read::{self, active_profile, NowNext, Programme};
+use crate::epg::search::{self, EpgChannelHit};
 use crate::epg::service::EpgService;
 use crate::epg::sources::SourcePatch;
 use crate::epg::status::{EpgSourceStatus, EpgStatus};
@@ -179,6 +181,22 @@ pub async fn get_channel_epg_keys(
 ) -> Result<Vec<(i64, String)>, AppError> {
     with_db(&state.pool, move |conn| {
         Ok(crate::db::queries::get_channel_epg_keys(conn, playlist_id)?)
+    })
+    .await
+}
+
+/// Guide channels of the active profile's sources whose display name or
+/// key contains `query`, best first, at most `limit` (1 to 50). An empty
+/// query finds nothing.
+#[tauri::command]
+pub async fn search_epg_channels(
+    state: State<'_, AppState>,
+    query: String,
+    limit: u32,
+) -> Result<Vec<EpgChannelHit>, AppError> {
+    with_db(&state.pool, move |conn| {
+        let profile = active_profile(conn)?;
+        Ok(search::search_channels(conn, profile, &query, limit)?)
     })
     .await
 }
