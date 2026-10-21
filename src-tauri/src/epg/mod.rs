@@ -136,6 +136,23 @@ impl IngestPermit {
     }
 }
 
+/// An ingest's result with how many of its swap's transactions committed.
+#[derive(Debug)]
+pub struct IngestRun {
+    pub result: Result<IngestOutcome, AppError>,
+    /// More than zero on a failure or an abandon means a large feed's swap
+    /// stopped part way: some channels already show the new programmes.
+    pub committed: u32,
+}
+
+impl IngestRun {
+    /// Whether the stored guide changed: the feed was stored, whole or in
+    /// part.
+    pub fn guide_changed(&self) -> bool {
+        self.committed > 0 || matches!(self.result, Ok(IngestOutcome::Stored(_)))
+    }
+}
+
 /// What an ingest needs from the app.
 pub struct IngestEnv<'a> {
     pub pool: &'a Pool<SqliteConnectionManager>,
@@ -174,6 +191,33 @@ pub async fn ingest(
     scope: IngestScope,
     now: i64,
 ) -> Result<IngestOutcome, AppError> {
+    ingest_counted(env, source_id, fetch, scope, now)
+        .await
+        .result
+}
+
+/// `ingest`, also telling whether a failed or abandoned swap had already
+/// committed part of the feed.
+pub async fn ingest_counted(
+    env: &IngestEnv<'_>,
+    source_id: i64,
+    fetch: Fetch,
+    scope: IngestScope,
+    now: i64,
+) -> IngestRun {
+    let mut committed = 0;
+    let result = ingest_inner(env, source_id, fetch, scope, now, &mut committed).await;
+    IngestRun { result, committed }
+}
+
+async fn ingest_inner(
+    env: &IngestEnv<'_>,
+    source_id: i64,
+    fetch: Fetch,
+    scope: IngestScope,
+    now: i64,
+    committed: &mut u32,
+) -> Result<IngestOutcome, AppError> {
     let source = blocking(env.pool, move |conn| Ok(get_source(conn, source_id)?))
         .await
         .map_err(|e| AppError::Epg(e.to_string()))?;
@@ -185,7 +229,7 @@ pub async fn ingest(
     }
     let expected_url = source.url.clone();
 
-    let failure = match run(env, &source, fetch, scope, now).await {
+    let failure = match run(env, &source, fetch, scope, now, committed).await {
         Ok(outcome) => return Ok(outcome),
         Err(e) => e,
     };
@@ -238,6 +282,7 @@ async fn run(
     fetch: Fetch,
     scope: IngestScope,
     now: i64,
+    committed: &mut u32,
 ) -> Result<IngestOutcome> {
     let source_id = source.id;
     let network = fetch == Fetch::Network;
@@ -277,17 +322,23 @@ async fn run(
         now,
     };
     let permit = env.permit.clone();
-    let (stored, policy) = tokio::task::spawn_blocking(move || {
-        let result = read_and_store(&job);
+    let (result, transactions) = tokio::task::spawn_blocking(move || {
+        let mut transactions = 0;
+        let result = read_and_store(&job, &mut transactions);
         if network {
-            settle_download(&job, &result);
+            let stored = matches!(result, Ok((Stored::Committed(_), _)));
+            settle_download(&job, stored, transactions, |from, to| {
+                std::fs::rename(from, to)
+            });
         }
         // Released only here, even when the ingest's future is gone.
         drop(permit);
-        result
+        (result, transactions)
     })
     .await
-    .context("The EPG update task failed")??;
+    .context("The EPG update task failed")?;
+    *committed = transactions;
+    let (stored, policy) = result?;
 
     let report = match stored {
         Stored::Abandoned(reason) => {
@@ -443,7 +494,7 @@ struct Job {
 /// Read the configured policy, then stage, normalise and swap the feed on
 /// a connection of the ingest's own, closed before this returns. Returns the
 /// outcome with the policy the feed was read with.
-fn read_and_store(job: &Job) -> Result<(Stored, TimePolicy)> {
+fn read_and_store(job: &Job, committed: &mut u32) -> Result<(Stored, TimePolicy)> {
     let ingest = IngestConnection::open(&job.db_path, &job.cache_dir)?;
     // Read once, at parse start: a policy set later applies from the next
     // ingest, and the swap records the one used here.
@@ -473,24 +524,40 @@ fn read_and_store(job: &Job) -> Result<(Stored, TimePolicy)> {
         std::io::BufReader::new(file),
         &request,
         &chrono::Local,
+        committed,
     )?;
     Ok((stored, policy))
 }
 
-/// After a network ingest: a stored feed becomes the source's cache, any
-/// other outcome deletes the download and leaves the previous cache.
-fn settle_download(job: &Job, result: &Result<(Stored, TimePolicy)>) {
+/// After a network ingest: a stored feed becomes the source's cache through
+/// `rename`, any other outcome deletes the download.
+///
+/// The previous cache stays only while it still matches the stored rows.
+/// Once a transaction committed rows from this download (a stored feed whose
+/// rename failed, or a large swap that stopped part way) it is deleted too,
+/// so a re-read after a policy change cannot roll the guide back to the
+/// older feed; the next download brings a cache again.
+fn settle_download(
+    job: &Job,
+    stored: bool,
+    committed: u32,
+    rename: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
+) {
     let (download, source_id) = (&job.feed, job.source_id);
-    if matches!(result, Ok((Stored::Committed(_), _))) {
-        match std::fs::rename(download, feed_path(&job.cache_dir, source_id)) {
+    let feed = feed_path(&job.cache_dir, source_id);
+    if stored {
+        match rename(download, &feed) {
             Ok(()) => return,
-            // The programmes are stored; only a later re-ingest after a
-            // policy change would read the older cache.
             Err(e) => warn!("EPG cache of source {source_id} not updated: {e}"),
         }
     }
     if let Err(e) = remove_if_present(download) {
         warn!("EPG download of source {source_id} not deleted: {e}");
+    }
+    if committed > 0 {
+        if let Err(e) = remove_if_present(&feed) {
+            warn!("EPG cache of source {source_id} is older than its guide and not deleted: {e}");
+        }
     }
 }
 
@@ -839,6 +906,78 @@ mod tests {
         drop(guard);
         // The swap the dropped ingest started went through whole.
         assert_eq!(f.programmes(s).len(), 2);
+    }
+
+    fn settle_job(f: &Fixture, source_id: i64) -> Job {
+        Job {
+            db_path: f.db_path.clone(),
+            cache_dir: f.dir.0.clone(),
+            feed: download_path(&f.dir.0, source_id),
+            source_id,
+            expected_url: None,
+            scope: IngestScope::Feed,
+            network: true,
+            now: NOW,
+        }
+    }
+
+    #[test]
+    fn a_cache_older_than_the_stored_rows_is_deleted() {
+        let f = Fixture::new("ingest");
+        let job = settle_job(&f, 7);
+        let (download, cache) = (download_path(&f.dir.0, 7), feed_path(&f.dir.0, 7));
+        let failing = |_: &Path, _: &Path| Err(std::io::Error::other("rename refused"));
+        // (stored, committed transactions, the old cache survives)
+        for (stored, committed, cache_kept) in
+            [(true, 1, false), (false, 1, false), (false, 0, true)]
+        {
+            std::fs::write(&download, b"new").unwrap();
+            std::fs::write(&cache, b"old").unwrap();
+
+            settle_download(&job, stored, committed, failing);
+
+            assert!(!download.exists(), "{stored} {committed}");
+            assert_eq!(cache.exists(), cache_kept, "{stored} {committed}");
+        }
+
+        std::fs::write(&download, b"new").unwrap();
+        settle_download(&job, true, 1, |a, b| std::fs::rename(a, b));
+        assert_eq!(std::fs::read(&cache).unwrap(), b"new");
+        assert!(!download.exists());
+    }
+
+    /// Two channels of 12,000 one-minute programmes: more than one swap
+    /// transaction holds. The second channel's first title is `second`.
+    fn two_transaction_feed() -> String {
+        let mut feed = Feed::new();
+        for (channel, first) in [("c1.se", "first"), ("c2.se", "second")] {
+            for n in 0..12_000 {
+                let start = NOW + n * 60;
+                let title = if n == 0 { first } else { "T" };
+                feed = feed.programme(channel, start, start + 60, title);
+            }
+        }
+        feed.xml()
+    }
+
+    #[tokio::test]
+    async fn a_swap_that_stops_after_a_commit_reports_the_changed_guide() {
+        let f = Fixture::new("ingest");
+        let s = add_manual(&f.conn(), "http://guide.example/epg.xml");
+        f.cache(s, &two_transaction_feed());
+        f.conn()
+            .execute_batch(
+                "CREATE TRIGGER fail_second BEFORE INSERT ON epg_programme
+                 WHEN NEW.title = 'second' BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+            )
+            .unwrap();
+
+        let run = ingest_counted(&f.env(), s, Fetch::Cache, IngestScope::Feed, NOW).await;
+
+        assert!(run.result.is_err(), "{:?}", run.result);
+        assert_eq!(run.committed, 1);
+        assert!(run.guide_changed());
+        assert_eq!(f.programmes(s).len(), 12_000, "the first channel is stored");
     }
 
     fn add_xtream_playlist(conn: &Connection, server: &str, username: &str, password: &str) -> i64 {

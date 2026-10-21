@@ -734,10 +734,18 @@ fn plan_chunks(channels: usize, bounds: &[Option<&KeyBounds>], max_rows: u32) ->
 /// left it stops as `Overtaken`: something else wrote the source in
 /// between, and the rest of this feed must not be laid over it.
 ///
+/// `committed` counts the transactions that committed, also when the swap
+/// then fails or stops: more than zero means the guide changed.
+///
 /// `conn` should be an `IngestConnection`: foreign keys off, no automatic
 /// checkpoint.
-pub(crate) fn swap(conn: &Connection, prepared: &Prepared, req: &SwapRequest) -> Result<Swapped> {
-    swap_in_chunks(conn, prepared, req, SWAP_CHUNK_ROWS)
+pub(crate) fn swap(
+    conn: &Connection,
+    prepared: &Prepared,
+    req: &SwapRequest,
+    committed: &mut u32,
+) -> Result<Swapped> {
+    swap_in_chunks(conn, prepared, req, SWAP_CHUNK_ROWS, committed)
 }
 
 fn swap_in_chunks(
@@ -745,6 +753,7 @@ fn swap_in_chunks(
     prepared: &Prepared,
     req: &SwapRequest,
     max_rows: u32,
+    committed: &mut u32,
 ) -> Result<Swapped> {
     let keys = &prepared.keys;
     let mut by_knum: Vec<Option<&KeyBounds>> = vec![None; keys.keys.len()];
@@ -797,6 +806,7 @@ fn swap_in_chunks(
         }
         tx.execute(UPDATE_COUNT, params![req.source_id])?;
         tx.commit()?;
+        *committed += 1;
         hold = hold.max(locked.elapsed());
         stored += inserted;
         checkpoint(conn);
@@ -1111,13 +1121,15 @@ pub(crate) enum Stored {
 
 /// Stage, normalise and swap one feed into the source `req` names, on the
 /// ingest's own connection. Runs on a blocking thread; the caller holds the
-/// EPG refresh lock.
+/// EPG refresh lock. `committed` counts the swap's committed transactions,
+/// as `swap` does.
 pub(crate) fn store_feed<R: BufRead, Tz: TimeZone>(
     ingest: &IngestConnection,
     cache_dir: &Path,
     input: R,
     req: &SwapRequest,
     local: &Tz,
+    committed: &mut u32,
 ) -> Result<Stored> {
     let conn = ingest.conn();
     let staging = Staging::attach(conn, cache_dir)?;
@@ -1127,7 +1139,7 @@ pub(crate) fn store_feed<R: BufRead, Tz: TimeZone>(
 
     let prepared = prepare(&staging, staged, req.now, req.network)?;
     let started = Instant::now();
-    let swapped = swap(conn, &prepared, req).context(STORE_FAILURE)?;
+    let swapped = swap(conn, &prepared, req, committed).context(STORE_FAILURE)?;
     let swap_time = started.elapsed();
     drop(staging);
 
@@ -1448,7 +1460,7 @@ mod tests {
         )
         .unwrap();
 
-        let err = swap(conn, &prepared, &request(s, IngestScope::Feed)).unwrap_err();
+        let err = swap(conn, &prepared, &request(s, IngestScope::Feed), &mut 0).unwrap_err();
         drop(staging);
         drop(ingest);
 
@@ -1505,7 +1517,7 @@ mod tests {
             let mut req = request(s, IngestScope::Feed);
             let url = format!("{URL}?{what}");
             req.expected_url = Some(&url);
-            let outcome = swap(&conn, &prepared, &req).unwrap();
+            let outcome = swap(&conn, &prepared, &req, &mut 0).unwrap();
             drop(staging);
 
             assert_eq!(outcome, Swapped::Abandoned(reason), "{what}");
@@ -1882,7 +1894,7 @@ mod tests {
         let staging = Staging::attach(ingest.conn(), &f.dir.0).unwrap();
         let prepared = prepared(&staging, second);
         let req = request(s, IngestScope::Feed);
-        let outcome = swap_in_chunks(ingest.conn(), &prepared, &req, max_rows);
+        let outcome = swap_in_chunks(ingest.conn(), &prepared, &req, max_rows, &mut 0);
         drop(staging);
         drop(ingest);
         let Swapped::Committed { transactions, .. } = outcome.unwrap() else {
@@ -1929,12 +1941,24 @@ mod tests {
     /// Stage and prepare `feed` read with `policy`, then swap it with at
     /// most `max_rows` programmes per transaction.
     fn swap_feed(f: &Fixture, req: &SwapRequest, feed: &Feed, max_rows: u32) -> Result<Swapped> {
+        swap_counted(f, req, feed, max_rows).0
+    }
+
+    /// `swap_feed` with the number of transactions that committed.
+    fn swap_counted(
+        f: &Fixture,
+        req: &SwapRequest,
+        feed: &Feed,
+        max_rows: u32,
+    ) -> (Result<Swapped>, u32) {
         let ingest = f.ingest_connection();
         let staging = Staging::attach(ingest.conn(), &f.dir.0).unwrap();
         let xml = feed.xml();
         let staged = stage(&staging, xml.as_bytes(), req.policy, &Utc, req.now).unwrap();
         let prepared = prepare(&staging, staged, req.now, req.network).unwrap();
-        swap_in_chunks(ingest.conn(), &prepared, req, max_rows)
+        let mut committed = 0;
+        let outcome = swap_in_chunks(ingest.conn(), &prepared, req, max_rows, &mut committed);
+        (outcome, committed)
     }
 
     fn add_trigger(f: &Fixture, sql: &str) {
@@ -2064,7 +2088,12 @@ mod tests {
                 f.store(s, &old.xml(), NOW).await;
                 add_trigger(&f, trigger);
 
-                let outcome = swap_feed(&f, &request(s, scope), &three_channels(), 2);
+                let (outcome, committed) =
+                    swap_counted(&f, &request(s, scope), &three_channels(), 2);
+                // The abandon stops at the second transaction, the failure
+                // in the third.
+                let expected = if how == "abandon" { 1 } else { 2 };
+                assert_eq!(committed, expected, "{scope:?} {how}");
 
                 match how {
                     "abandon" => assert_eq!(
@@ -2120,13 +2149,14 @@ mod tests {
                  END;",
             );
 
-            let outcome = swap_feed(&f, &request(s, scope), &three_channels(), 2);
+            let (outcome, committed) = swap_counted(&f, &request(s, scope), &three_channels(), 2);
 
             assert_eq!(
                 outcome.unwrap(),
                 Swapped::Abandoned(AbandonReason::Overtaken),
                 "{scope:?}"
             );
+            assert_eq!(committed, 1, "{scope:?}");
             let progs = f.programmes(s);
             assert!(
                 progs.contains(&("c3.se".into(), NOW, NOW + H, "old 3".into())),
