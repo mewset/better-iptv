@@ -563,10 +563,14 @@ pub(crate) fn remove_if_present(path: &Path) -> io::Result<bool> {
     }
 }
 
-/// Delete a source's feed and download files; absent files are fine.
+/// Delete a source's download and feed files; absent files are fine.
+///
+/// The download goes first: an ingest finishing in between could otherwise
+/// rename it into the feed just deleted, and the old URL's feed would stay
+/// as the cache of the new one.
 pub fn remove_cache_files(cache_dir: &Path, source_id: i64) -> io::Result<()> {
-    remove_if_present(&feed_path(cache_dir, source_id))?;
     remove_if_present(&download_path(cache_dir, source_id))?;
+    remove_if_present(&feed_path(cache_dir, source_id))?;
     Ok(())
 }
 
