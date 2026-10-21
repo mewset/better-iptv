@@ -4,6 +4,8 @@ import { setChannelEpgMatch, type ManualMatch } from '../../lib/epgIpc';
 import { manualTarget, matchLookup } from '../../lib/epgMatchView';
 import { errorText } from '../../lib/epgSourceView';
 import { useMatchDetails } from '../../hooks/useMatchDetails';
+import { useParentalHiding } from '../../hooks/useParentalHiding';
+import { usePlayerStore } from '../../stores/player-store';
 import { logger } from '../../lib/logger';
 import GuideChannelPicker from './GuideChannelPicker';
 
@@ -22,6 +24,7 @@ interface ChannelMatchFixesProps {
 export default function ChannelMatchFixes({ playlistId, hasGuide }: ChannelMatchFixesProps) {
   const { details, reload } = useMatchDetails(playlistId);
   const lookup = useMemo(() => (details ? matchLookup(details) : null), [details]);
+  const manual = useVisibleManualMatches(details?.manual);
   const [picking, setPicking] = useState(false);
 
   if (playlistId === undefined) return null;
@@ -36,11 +39,11 @@ export default function ChannelMatchFixes({ playlistId, hasGuide }: ChannelMatch
         <Wrench className="h-4 w-4" aria-hidden="true" />
         Fix a channel…
       </button>
-      {details && details.manual.length > 0 && (
+      {manual.length > 0 && (
         <div>
           <h4 className="mb-2 text-sm font-medium text-text-muted">Set by hand</h4>
           <ul aria-label="Channels set by hand" className="space-y-2">
-            {details.manual.map((match) => (
+            {manual.map((match) => (
               <ManualRow key={match.channel_id} match={match} onCleared={reload} />
             ))}
           </ul>
@@ -54,6 +57,25 @@ export default function ChannelMatchFixes({ playlistId, hasGuide }: ChannelMatch
       />
     </div>
   );
+}
+
+/**
+ * The matches set by hand, without the channels parental controls hide from
+ * the channel list. A match carries no group, so it is taken from the live
+ * channel it names.
+ */
+function useVisibleManualMatches(manual: ManualMatch[] | undefined): ManualMatch[] {
+  const liveChannels = usePlayerStore((s) => s.liveChannels);
+  const hidden = useParentalHiding();
+  return useMemo(() => {
+    if (!manual) return [];
+    if (!hidden) return manual;
+    const groups = new Map(liveChannels.map((c) => [c.id, c.group_name]));
+    return manual.filter(
+      (m) =>
+        !hidden({ id: m.channel_id, name: m.channel_name, group_name: groups.get(m.channel_id) })
+    );
+  }, [manual, hidden, liveChannels]);
 }
 
 function ManualRow({ match, onCleared }: { match: ManualMatch; onCleared: () => void }) {

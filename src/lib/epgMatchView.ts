@@ -1,5 +1,6 @@
 import type { Channel } from '../types';
 import type { EpgChannelHit, ManualMatch, MatchDetails } from './epgIpc';
+import { isAdultContent } from './parentalControls';
 
 // Wording and searching for the manual match picker in Settings → EPG,
 // kept apart from the components so it can be tested without rendering.
@@ -93,6 +94,16 @@ export function matchState(channel: Channel, lookup: MatchLookup | null): MatchS
 /** A guide channel's name, or its key when the feed names it nowhere. */
 export function hitTitle(hit: EpgChannelHit): string {
   return hit.name ?? hit.key;
+}
+
+/**
+ * The guide hits to list. While parental controls are locked, a guide
+ * channel whose name or key looks adult is left out: the guide has no
+ * category to block by, so the auto-detection markers are all there is.
+ */
+export function visibleGuideHits(hits: EpgChannelHit[], locked: boolean): EpgChannelHit[] {
+  if (!locked) return hits;
+  return hits.filter((hit) => !isAdultContent(hitTitle(hit)) && !isAdultContent(hit.key));
 }
 
 /** The line under a guide channel: its key and where it comes from. */

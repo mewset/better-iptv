@@ -126,6 +126,7 @@ describe('Fixing a channel by hand in Settings → EPG', () => {
       parentalEnabled: false,
       parentalUnlocked: false,
       parentalVisibility: 'hide',
+      parentalAutoDetect: false,
       blockedChannelIds: new Set(),
       blockedCategories: [],
     });
@@ -163,6 +164,49 @@ describe('Fixing a channel by hand in Settings → EPG', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Clear the match of TV4' }));
     await settle();
     expect(screen.getByRole('alert')).toHaveTextContent('Could not clear it: busy');
+  });
+
+  it('leaves channels parental controls hide out of the manual list while locked', async () => {
+    const adult = {
+      channel_id: 8,
+      channel_name: 'XXX Nights',
+      key: 'nights.se',
+      guide_name: 'Nights',
+      has_programmes: true,
+    };
+    answer({
+      get_channel_match_details: () => ({ ...DETAILS, manual: [...DETAILS.manual, adult] }),
+    });
+    usePlayerStore.setState({
+      parentalEnabled: true,
+      parentalAutoDetect: true,
+      blockedChannelIds: new Set([2]),
+    });
+    await renderTab();
+    const names = () =>
+      within(screen.getByRole('list', { name: 'Channels set by hand' }))
+        .getAllByRole('listitem')
+        .map((li) => li.textContent?.split(' → ')[0]);
+    // TV4 blocked by hand, XXX Nights by the auto-detection.
+    expect(names()).toEqual(['Kanal 9']);
+
+    act(() => usePlayerStore.setState({ parentalUnlocked: true }));
+    expect(names()).toEqual(['TV4', 'Kanal 9', 'XXX Nights']);
+
+    // Lock and blur modes show the channel in the list, so here too.
+    act(() => usePlayerStore.setState({ parentalUnlocked: false, parentalVisibility: 'blur' }));
+    expect(names()).toEqual(['TV4', 'Kanal 9', 'XXX Nights']);
+  });
+
+  it('a blocked category hides a manual match by the group of its channel', async () => {
+    usePlayerStore.setState({ parentalEnabled: true, blockedCategories: ['Sverige'] });
+    await renderTab();
+    // TV4 is in Sverige; Kanal 9 is not in the channel list, so no group is known.
+    expect(
+      within(screen.getByRole('list', { name: 'Channels set by hand' }))
+        .getAllByRole('listitem')
+        .map((li) => li.textContent?.split(' → ')[0])
+    ).toEqual(['Kanal 9']);
   });
 
   it('cannot be opened before the guide is downloaded', async () => {
@@ -287,6 +331,34 @@ describe('Fixing a channel by hand in Settings → EPG', () => {
     expect(within(screen.getByRole('dialog')).getByRole('status')).toHaveTextContent(
       'TV4 is matched automatically again.'
     );
+  });
+
+  it('step 2 leaves out adult guide channels while parental controls are locked', async () => {
+    vi.useFakeTimers();
+    answer({
+      search_epg_channels: () => [
+        ...HITS,
+        { key: 'hot.se', name: 'Hot XXX', source_id: 3, source_label: "Your provider's guide" },
+        { key: 'adult.tv', name: null, source_id: 4, source_label: 'epg.example' },
+      ],
+    });
+    usePlayerStore.setState({ parentalEnabled: true, parentalVisibility: 'lock' });
+    await renderTab();
+    await openPicker();
+    await pick('SVT1');
+    const keys = () =>
+      within(screen.getByRole('list', { name: 'Guide channels' }))
+        .getAllByRole('button')
+        .map((b) => b.getAttribute('aria-label'));
+    expect(keys()).toEqual(['Use SVT1 HD (svt1hd.se)', 'Use svt1.dk (svt1.dk)']);
+
+    act(() => usePlayerStore.setState({ parentalUnlocked: true }));
+    expect(keys()).toEqual([
+      'Use SVT1 HD (svt1hd.se)',
+      'Use svt1.dk (svt1.dk)',
+      'Use Hot XXX (hot.se)',
+      'Use adult.tv (adult.tv)',
+    ]);
   });
 
   it('goes back to your channels and closes with Escape', async () => {

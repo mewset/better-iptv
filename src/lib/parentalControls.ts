@@ -23,10 +23,16 @@ export interface ParentalBlockSettings {
   unlocked: boolean;
 }
 
+/** What the blocking rules look at: a channel list entry, or a match naming one. */
+export type ParentalChannel = Pick<Channel, 'id' | 'name' | 'group_name'>;
+
 /**
  * Determine if a channel should be blocked based on parental control settings
  */
-export function shouldBlockChannel(channel: Channel, settings: ParentalBlockSettings): boolean {
+export function shouldBlockChannel(
+  channel: ParentalChannel,
+  settings: ParentalBlockSettings
+): boolean {
   // If parental controls are disabled or unlocked, don't block anything
   if (!settings.enabled || settings.unlocked) {
     return false;

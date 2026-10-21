@@ -7,8 +7,9 @@ import {
   manualTarget,
   matchLookup,
   matchState,
+  visibleGuideHits,
 } from '../../lib/epgMatchView';
-import type { ManualMatch } from '../../lib/epgIpc';
+import type { EpgChannelHit, ManualMatch } from '../../lib/epgIpc';
 import type { Channel } from '../../types';
 
 const live = (id: number, name: string, epg_id?: string): Channel => ({
@@ -104,5 +105,23 @@ describe('hit and manual wording', () => {
     expect(manualTarget(manual({ has_programmes: false, guide_name: null }))).toBe(
       'tv4hd.se (guide has no programmes now)'
     );
+  });
+});
+
+describe('visibleGuideHits', () => {
+  const hit = (key: string, name: string | null): EpgChannelHit => ({
+    key,
+    name,
+    source_id: 1,
+    source_label: "Your provider's guide",
+  });
+  const hits = [hit('svt1.se', 'SVT1'), hit('hot.se', 'Hot XXX'), hit('adult.tv', null)];
+
+  it('leaves out guide channels that look adult while locked', () => {
+    expect(visibleGuideHits(hits, true).map((h) => h.key)).toEqual(['svt1.se']);
+  });
+
+  it('lists every hit while unlocked', () => {
+    expect(visibleGuideHits(hits, false)).toBe(hits);
   });
 });

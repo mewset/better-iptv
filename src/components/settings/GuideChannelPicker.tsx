@@ -7,11 +7,12 @@ import {
   hitDetails,
   hitTitle,
   matchState,
+  visibleGuideHits,
   type MatchLookup,
 } from '../../lib/epgMatchView';
 import { errorText } from '../../lib/epgSourceView';
-import { shouldBlockChannel } from '../../lib/parentalControls';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { useParentalHiding, useParentalLocked } from '../../hooks/useParentalHiding';
 import { usePlayerStore } from '../../stores/player-store';
 import { isAppError } from '../../types/errors';
 import { logger } from '../../lib/logger';
@@ -118,18 +119,12 @@ function Picker({ onClose, lookup, onChanged }: GuideChannelPickerProps) {
 /** The live channels the picker may list: those the channel list would show. */
 function useSearchableChannels(): Channel[] {
   const liveChannels = usePlayerStore((s) => s.liveChannels);
-  const enabled = usePlayerStore((s) => s.parentalEnabled);
-  const unlocked = usePlayerStore((s) => s.parentalUnlocked);
-  const visibility = usePlayerStore((s) => s.parentalVisibility);
-  const autoDetect = usePlayerStore((s) => s.parentalAutoDetect);
-  const blockedIds = usePlayerStore((s) => s.blockedChannelIds);
-  const blockedCategories = usePlayerStore((s) => s.blockedCategories);
-  return useMemo(() => {
-    // Hidden channels stay hidden here too.
-    if (!enabled || unlocked || visibility !== 'hide') return liveChannels;
-    const settings = { enabled, autoDetect, blockedIds, blockedCategories, unlocked };
-    return liveChannels.filter((c) => !shouldBlockChannel(c, settings));
-  }, [liveChannels, enabled, unlocked, visibility, autoDetect, blockedIds, blockedCategories]);
+  const hidden = useParentalHiding();
+  // Hidden channels stay hidden here too.
+  return useMemo(
+    () => (hidden ? liveChannels.filter((c) => !hidden(c)) : liveChannels),
+    [liveChannels, hidden]
+  );
 }
 
 interface ChannelStepProps {
@@ -236,6 +231,8 @@ function GuideStep({ channel, lookup, onBack, onDone }: GuideStepProps) {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const request = useRef(0);
+  const locked = useParentalLocked();
+  const shown = useMemo(() => visibleGuideHits(hits, locked), [hits, locked]);
   const state = matchState(channel, lookup);
   const byHand = state.kind === 'manual' || state.kind === 'manual_empty';
 
@@ -324,14 +321,14 @@ function GuideStep({ channel, lookup, onBack, onDone }: GuideStepProps) {
       )}
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
         {searchError && <p className="mb-3 text-sm text-danger">{searchError}</p>}
-        {searching && hits.length === 0 && <p className="text-sm text-text-muted">Searching…</p>}
-        {!searching && !searchError && debounced.trim() && hits.length === 0 && (
+        {searching && shown.length === 0 && <p className="text-sm text-text-muted">Searching…</p>}
+        {!searching && !searchError && debounced.trim() && shown.length === 0 && (
           <p className="text-sm text-text-muted">
             No guide channel with programmes has that in its name or id.
           </p>
         )}
         <ul aria-label="Guide channels" className="flex flex-col gap-2">
-          {hits.map((hit) => (
+          {shown.map((hit) => (
             <li
               key={hit.key}
               className="flex items-center gap-3 rounded-lg border border-border px-3 py-2"
