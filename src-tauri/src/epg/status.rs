@@ -8,9 +8,7 @@
 use super::read::{active_profile, rfc3339};
 use super::sources::{has_cached_feed, list_sources, SourceRecord};
 use crate::epg_domain::policy::TimePolicy;
-use crate::epg_domain::source::{
-    applies_to, next_due_at, LastResult, SourceOrigin, SourceSchedule,
-};
+use crate::epg_domain::source::{applies_to, next_due_at, LastResult, SourceOrigin};
 use crate::utils::mask_credentials;
 use rusqlite::Connection;
 use serde::Serialize;
@@ -102,15 +100,6 @@ fn label(source: &SourceRecord) -> String {
     }
 }
 
-fn schedule(source: &SourceRecord) -> SourceSchedule {
-    SourceSchedule {
-        enabled: source.enabled,
-        playlist_id: source.playlist_id,
-        last_attempt_at: source.last_attempt_at,
-        last_success_at: source.last_success_at,
-    }
-}
-
 /// One source's row.
 pub fn source_status(source: &SourceRecord, cache_dir: &Path, refreshing: bool) -> EpgSourceStatus {
     let display_url = match source.origin {
@@ -163,7 +152,7 @@ pub fn epg_status(
             .fold(0u32, u32::saturating_add),
         guide_downloaded: enabled().any(|s| s.last_success_at.is_some()),
         next_auto_refresh: enabled()
-            .map(|s| next_due_at(&schedule(s), now))
+            .map(|s| next_due_at(&s.schedule(), now))
             .min()
             .and_then(rfc3339),
         matches: None,

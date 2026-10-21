@@ -1,6 +1,7 @@
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
@@ -62,6 +63,15 @@ pub struct AppState {
     /// The database file the pool is opened on. A guide ingest opens a
     /// connection of its own on it (`epg::store::IngestConnection`).
     pub db_path: PathBuf,
+
+    /// Guide sources with a download queued or running. An id goes in when
+    /// the request is made and comes out when its ingest ends, so a second
+    /// request for a busy source starts nothing (`epg::service`).
+    pub epg_refreshing: Arc<Mutex<HashSet<i64>>>,
+
+    /// Guide sources with a re-read of the cached feed queued after a time
+    /// policy change; further changes meanwhile only update the policy.
+    pub epg_pending_policy: Arc<Mutex<HashSet<i64>>>,
 }
 
 impl AppState {
@@ -80,6 +90,8 @@ impl AppState {
             logo_fallback_lock: Arc::new(tokio::sync::Mutex::new(())),
             epg_cache_dir,
             db_path,
+            epg_refreshing: Arc::new(Mutex::new(HashSet::new())),
+            epg_pending_policy: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 }

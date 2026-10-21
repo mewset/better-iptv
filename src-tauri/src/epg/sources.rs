@@ -10,7 +10,7 @@
 use crate::db::mutations::set_setting;
 use crate::db::queries::get_setting;
 use crate::epg_domain::policy::{Interpret, TimePolicy};
-use crate::epg_domain::source::{LastResult, SourceOrigin};
+use crate::epg_domain::source::{LastResult, SourceOrigin, SourceSchedule};
 use crate::epg_domain::{normalize_epg_url, validate_epg_url};
 use crate::error::AppError;
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction, TransactionBehavior};
@@ -422,6 +422,16 @@ pub struct SourceRecord {
 }
 
 impl SourceRecord {
+    /// The columns the due predicates read.
+    pub fn schedule(&self) -> SourceSchedule {
+        SourceSchedule {
+            enabled: self.enabled,
+            playlist_id: self.playlist_id,
+            last_attempt_at: self.last_attempt_at,
+            last_success_at: self.last_success_at,
+        }
+    }
+
     /// The stored programmes were not all produced under the configured
     /// policy; the next ingest applies it to every row. Rows under an
     /// unknown policy (a whole-source replace that stopped half way) count

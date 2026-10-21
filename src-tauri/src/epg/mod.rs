@@ -10,6 +10,7 @@ pub mod decode;
 pub mod download;
 pub mod parse;
 pub mod read;
+pub mod service;
 pub mod sources;
 pub mod status;
 pub mod store;
