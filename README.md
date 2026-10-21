@@ -29,7 +29,7 @@
 Better IPTV is a desktop app for watching IPTV: live channels, movies and series from an M3U playlist or an Xtream Codes provider. It keeps everything on your computer, plays video through MPV, and stays quick even with a playlist of 150,000 channels.
 
 - **Made to browse.** Posters, ratings and plots from TMDB, a TV guide, and a dark interface built around the content rather than around menus.
-- **Made to keep private.** Your playlists, credentials and history never leave your machine. The only things the app talks to are your provider, TMDB (titles only, and only when you keep it on) and GitHub (to check for updates).
+- **Made to keep private.** Your playlists, credentials and history never leave your machine. The app only talks to an outside service when a feature needs it, and [Privacy](#-privacy) lists every one of them.
 - **Made to last.** One SQLite file holds your data. Delete it and the app is back to first launch. Nothing phones home.
 
 ---
@@ -41,6 +41,7 @@ Better IPTV is a desktop app for watching IPTV: live channels, movies and series
 - Channels grouped the way your provider groups them, with a category bar for quick filtering and a Favorites section for the ones you actually watch
 - The current and next programme on every channel card, with a progress line showing how far the programme has come
 - A **TV Guide** (press `G`): what is on now and next across your channels, with a "Watch now" button on any programme
+- A missing or broken channel logo is replaced with one from the open [iptv-org](https://github.com/iptv-org/database) database (can be turned off)
 
 <img src="resources/screenshots/live-tv.webp" alt="Live TV grid with programme names and progress lines" width="720"/>&nbsp;<img src="resources/screenshots/guide.webp" alt="TV Guide with a now line" width="720"/>
 
@@ -166,7 +167,10 @@ Click **Add playlist**. Live TV, Movies and Series import together. More playlis
 
 ### The programme guide
 
-Xtream providers usually deliver a guide with the playlist, and the app picks it up on its own. For an M3U playlist, open **Settings → EPG** and paste an XMLTV URL. The guide refreshes itself every six hours while the app runs.
+Each profile has its own guides. An Xtream provider's guide is set up on its own when you add the playlist. For an M3U playlist, or to add a second guide, open **Settings → EPG** and add an XMLTV address. The app refreshes the guides every six hours while it runs, and **Settings → EPG** shows when each one was last updated and why an update failed.
+
+- **Times off by an hour or two?** Every guide has a time correction. Shift it in half-hour steps, or, if the guide writes your local time but labels it as UTC (a common provider mistake), turn on **Treat the guide's times as this computer's local time** under Advanced, which also follows daylight saving. Neither needs a new download.
+- **A channel shows no guide, or the wrong one?** Channels are matched to the guide by their EPG id, or by name when they have no id at all. **Settings → EPG** shows how many are matched, and **Fix a channel…** lets you pick a channel's guide yourself.
 
 ### Posters and details
 
@@ -175,8 +179,9 @@ TMDB metadata is on from the start and needs no account. Under **Settings → Me
 - turn it off, if you would rather not have titles looked up
 - choose the language for plots and titles
 - add your **own TMDB API key** (free at [themoviedb.org](https://www.themoviedb.org/settings/api)), which also unlocks fetching details for your whole library in the background
+- turn off **channel logos from iptv-org**, the replacements for missing or broken channel logos
 
-When metadata is on, the app sends the names of your movies and series to TMDB to find them. Nothing else leaves the app.
+When metadata is on, the app sends the names of your movies and series to TMDB to find them, and nothing else.
 
 <img src="resources/screenshots/settings-metadata.webp" alt="Settings, Metadata section" width="720"/>
 
@@ -200,13 +205,17 @@ For controls inside the video window (fullscreen, volume, seeking), see the [MPV
 
 Everything Better IPTV knows about you is in one SQLite file on your computer (locations below). There is no account, no telemetry and no analytics.
 
-The app makes three kinds of network requests:
+These are all the network requests the app makes:
 
-| To            | What                                | When                                                    |
-| ------------- | ----------------------------------- | ------------------------------------------------------- |
-| Your provider | Playlist, guide, streams            | Always                                                  |
-| TMDB          | The names of your movies and series | While metadata is on (default), never for live channels |
-| GitHub        | A version check                     | Once a day, can be turned off in Settings → General     |
+| To                      | What                                                            | When                                                          |
+| ----------------------- | --------------------------------------------------------------- | ------------------------------------------------------------- |
+| Your provider           | Playlist, guide, streams                                        | Always                                                        |
+| Guide addresses you add | The guide                                                       | Every six hours while that guide is on                        |
+| TMDB                    | The names of your movies and series                             | While metadata is on (default), never for live channels       |
+| iptv-org                | A download of their public logo list; nothing about you is sent | At most once a week, can be turned off in Settings → Metadata |
+| GitHub                  | A version check                                                 | Once a day, can be turned off in Settings → General           |
+
+Channel logos load straight from the addresses in your playlist. A replacement logo loads from the address the iptv-org list gives for it. Those are other people's servers, and like any image on the web, they see your IP address when a logo loads.
 
 Your provider credentials are stored locally and masked in the log file, so a log is safe to attach to a bug report.
 
@@ -229,7 +238,7 @@ On Linux and macOS MPV has to be installed (`mpv --version` should print a versi
 <details>
 <summary><strong>No guide data on a channel</strong></summary>
 
-The playlist must carry an EPG id for the channel (`tvg-id` or `tvg-name` in an M3U), the guide URL must be set (Settings → EPG, automatic for Xtream), and the guide must have been downloaded (Settings → EPG → Update now). Cards re-read the guide within a minute.
+A profile needs a guide (set up on its own for Xtream, added in **Settings → EPG** for M3U) that has been downloaded (**Update** in Settings → EPG). Then the channel must match a channel in that guide: by its EPG id (`tvg-id` in an M3U), or by name if it has no id. A channel whose id the guide does not know stays empty rather than getting a guess. Settings → EPG shows how many channels are matched, and **Fix a channel…** lets you pick the guide channel yourself. Cards update as soon as the guide or a match changes.
 </details>
 
 <details>

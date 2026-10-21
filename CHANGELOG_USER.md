@@ -8,26 +8,36 @@ A simple overview of new features and improvements.
 
 ### New Features
 
-- Channels with a missing or broken logo now get one from the open iptv-org database. You can turn this off in Settings → Metadata
+**Rebuilt TV guide**
+
 - Each profile now has its own TV guide. Your provider's guide is set up automatically, and you can add more guide addresses in Settings → EPG
-- If your provider's guide times are off, you can correct them per guide in Settings → EPG, in half-hour steps, without downloading the guide again
-- Settings → EPG shows each guide's status: when it was last updated, how many programmes it has, and why an update failed
-- Channels without a guide id now find their TV guide by name, when the guide lists a channel with the same name
-- Settings → EPG shows how many of your channels are matched to the TV guide
-- If a channel shows the wrong TV guide or none at all, you can pick its guide channel yourself with "Fix a channel…" in Settings → EPG
+- If a guide's times are off, you can correct them per guide in Settings → EPG: shift them in half-hour steps, or treat them as your computer's local time, which also follows daylight saving changes. No new download is needed
+- Settings → EPG shows the status of each guide: when it was last updated, how many programmes it has, and why an update failed
+- Channels without a guide id now find their TV guide by name
+- Settings → EPG shows how many channels are matched to the TV guide, and "Fix a channel…" lets you pick a channel's guide yourself when it shows the wrong one or none
+
+**Other**
+
+- Channels with a missing or broken logo now get one from the open iptv-org database. You can turn this off in Settings → Metadata
 
 ### Improvements
 
+- Updating a large TV guide uses a fraction of the memory it used to
 - Settings → About has new crypto addresses for donations, now also Litecoin and Dogecoin, and shows which network to send each one on
 
 ### Fixes
 
-- Broken images no longer show in the TV guide's programme panel, the Movies banner or detail pages
 - TV guide times are no longer off by a few hours with EPG sources that write their time zone in a less common format
 - A programme no longer shows twice in the TV guide when the provider moves it to another time
-- Programmes that overlap, like a film inside a movie-night block, no longer cover each other in the TV guide: both are shown, one above the other, in the channel's row
+- Overlapping programmes, like a film inside a movie-night block, no longer cover each other in the TV guide
 - Programmes no longer go missing from the TV guide with guides that use special characters, other text encodings or leave out end times
-- Switching profile now switches the TV guide too
+- A guide download that breaks off midway is no longer reported as a successful update
+- Broken images no longer show in the TV guide's programme panel, the Movies banner or detail pages
+- Times and dates no longer show stray spaces around their punctuation, like "20 : 00" on channel cards, in the TV guide and in Settings → Profiles
+
+### Thanks
+
+- **@Neobond** for reporting that the TV guide was two hours off and following up with the details, which led to the TV guide being rebuilt from the ground up (Discussion: #73)
 
 ## Version 3.1.2 (October 18, 2026)
 
