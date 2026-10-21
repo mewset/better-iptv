@@ -9,7 +9,6 @@ use super::read::{active_profile, rfc3339};
 use super::sources::{has_cached_feed, list_sources, SourceRecord};
 use crate::epg_domain::policy::TimePolicy;
 use crate::epg_domain::source::{applies_to, next_due_at, LastResult, SourceOrigin};
-use crate::utils::mask_credentials;
 use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::HashSet;
@@ -100,13 +99,44 @@ fn label(source: &SourceRecord) -> String {
     }
 }
 
+/// Shown instead of a URL that does not parse: the raw string could hold
+/// anything, credentials included.
+pub const HIDDEN_URL: &str = "(address hidden)";
+
+/// A source URL as Settings may show it: scheme, host, port and path, the
+/// query's keys with every value replaced by `****` (a key without a value
+/// becomes `****` itself), no username, password or fragment. Built from
+/// the parsed URL rather than by pattern, so `?token=`, `?key=`, `?pass=`
+/// and a password with an unencoded `@` are covered alike. A secret inside
+/// the path (`/get/<token>/epg.xml`) cannot be told from a directory name
+/// and is shown.
+pub fn display_url(raw: &str) -> String {
+    let Ok(mut url) = Url::parse(raw.trim()) else {
+        return HIDDEN_URL.to_string();
+    };
+    if url.set_username("").is_err() || url.set_password(None).is_err() {
+        return HIDDEN_URL.to_string();
+    }
+    url.set_fragment(None);
+    if let Some(query) = url.query() {
+        let masked: Vec<String> = query
+            .split('&')
+            .filter(|part| !part.is_empty())
+            .map(|part| match part.split_once('=') {
+                Some((key, _)) => format!("{key}=****"),
+                None => "****".to_string(),
+            })
+            .collect();
+        url.set_query((!masked.is_empty()).then(|| masked.join("&")).as_deref());
+    }
+    url.to_string()
+}
+
 /// One source's row.
 pub fn source_status(source: &SourceRecord, cache_dir: &Path, refreshing: bool) -> EpgSourceStatus {
     let display_url = match source.origin {
         SourceOrigin::Xtream => None,
-        SourceOrigin::Manual | SourceOrigin::M3uHeader => {
-            source.url.as_deref().map(mask_credentials)
-        }
+        SourceOrigin::Manual | SourceOrigin::M3uHeader => source.url.as_deref().map(display_url),
     };
     EpgSourceStatus {
         id: source.id,
@@ -182,6 +212,41 @@ mod tests {
 
     fn set_active(conn: &Connection, profile: i64) {
         crate::db::mutations::set_setting(conn, "active_profile_id", &profile.to_string()).unwrap();
+    }
+
+    #[test]
+    fn a_displayed_url_keeps_no_credential() {
+        let cases = [
+            (
+                "http://h:8080/xmltv.php?username=john&password=secret",
+                "http://h:8080/xmltv.php?username=****&password=****",
+            ),
+            (
+                "https://epg.example/guide.xml?token=abc123",
+                "https://epg.example/guide.xml?token=****",
+            ),
+            (
+                "http://h/epg?user=john&pass=secret",
+                "http://h/epg?user=****&pass=****",
+            ),
+            (
+                "http://h/epg.xml.gz?key=secret",
+                "http://h/epg.xml.gz?key=****",
+            ),
+            ("http://h/epg?abc123&x=", "http://h/epg?****&x=****"),
+            ("http://john:p@ss@h/epg.xml", "http://h/epg.xml"),
+            ("http://john@h/epg.xml#secret", "http://h/epg.xml"),
+            (
+                "https://epg.example/guide.xml",
+                "https://epg.example/guide.xml",
+            ),
+        ];
+        for (raw, shown) in cases {
+            assert_eq!(display_url(raw), shown, "{raw}");
+        }
+        for raw in ["not a url john secret", "http://", "", "data:secret"] {
+            assert_eq!(display_url(raw), HIDDEN_URL, "{raw}");
+        }
     }
 
     #[test]
