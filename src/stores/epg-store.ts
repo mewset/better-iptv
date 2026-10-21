@@ -10,11 +10,12 @@ export const MISS_RETRY_MS = 5 * 60_000;
  * The guide's frontend cache, apart from player-store so a guide answer
  * re-renders only what reads it.
  *
- * Now/next is kept per guide key (a channel's normalized `epg_id`), so two
- * channels with one key share one entry and one request, and the cards and
- * the dock read the same entry. `generation` counts `epg-refreshed` events:
- * an entry fetched in an earlier generation is shown until its key is asked
- * again, and is asked again the next time it is wanted.
+ * Now/next is kept per guide key (a channel's `epg_id`, the backend's match
+ * key), so two channels with one key share one entry and one request, and
+ * the cards and the dock read the same entry. `generation` counts
+ * `epg-refreshed` events: an entry fetched in an earlier generation is shown
+ * until its key is asked again, and is asked again the next time it is
+ * wanted.
  *
  * The maps hold the wanted keys and little else: every answer drops the
  * entries of keys no longer wanted that are from an earlier generation or

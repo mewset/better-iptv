@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MISS_RETRY_MS, useEpgStore } from '../stores/epg-store';
 import { getEpgNowNext, NOW_NEXT_BATCH, type NowNext } from '../lib/epgIpc';
 import { isNowNextStale, nowNextBoundary } from '../lib/epgTime';
-import { normalizeEpgId } from '../lib/guideLayout';
 import { logger } from '../lib/logger';
 import type { Channel } from '../types';
 
@@ -17,11 +16,13 @@ const MAX_TIMER_MS = 60 * 60_000;
 // Joins keys into one dependency; a NUL never appears in an EPG id.
 const SEP = '\u0000';
 
-/** The guide key of a live channel with an `epg_id`, else null. */
+/**
+ * The guide key of a live channel with an `epg_id`, else null. `epg_id` is
+ * the backend's match key already, so it is the key as it is.
+ */
 export function epgKey(channel: Channel): string | null {
   if (channel.content_type !== 'live' || !channel.epg_id) return null;
-  const key = normalizeEpgId(channel.epg_id);
-  return key === '' ? null : key;
+  return channel.epg_id;
 }
 
 /** A channel's now/next entry in `nowNext`, if any. */

@@ -48,7 +48,7 @@ describe('useNowNext', () => {
     vi.useRealTimers();
   });
 
-  it('asks for every live channel with an epg_id in one call, by normalized key', async () => {
+  it('asks for every live channel with an epg_id in one call, by its key', async () => {
     answerWith((key) =>
       key === 'svt1.se'
         ? nowNext(programme('Rapport', at(-10), at(20)), programme('Aktuellt', at(20), at(50)))
@@ -57,7 +57,7 @@ describe('useNowNext', () => {
           : undefined
     );
     const channels = [
-      makeChannel({ id: 1, name: 'SVT1', epg_id: ' SVT1.se ' }),
+      makeChannel({ id: 1, name: 'SVT1', epg_id: 'svt1.se' }),
       makeChannel({ id: 2, name: 'TV4', epg_id: 'tv4.se' }),
       makeChannel({ id: 3, name: 'No EPG' }),
       makeChannel({ id: 4, name: 'Movie', epg_id: 'movie.id', content_type: 'vod' }),
@@ -77,8 +77,8 @@ describe('useNowNext', () => {
 
   it('two channels with one key cost one key and share one entry', async () => {
     answerWith(() => airing('Rapport'));
-    const a = makeChannel({ id: 1, epg_id: 'SVT1.se' });
-    const b = makeChannel({ id: 2, epg_id: 'svt1.se ' });
+    const a = makeChannel({ id: 1, epg_id: 'svt1.se' });
+    const b = makeChannel({ id: 2, epg_id: 'svt1.se' });
 
     const { result } = renderHook(() => useNowNext([a, b]));
 
@@ -183,7 +183,7 @@ describe('useNowNext', () => {
   it('asks for the new key when a channel’s epg_id changes, and stops reading the old entry', async () => {
     answerWith((key) => (key === 'kanal5.se' ? airing('Ny') : undefined));
     const { result, rerender } = renderHook(({ list }) => useNowNext(list), {
-      initialProps: { list: [makeChannel({ id: 1, epg_id: 'Kanal 5.se' })] },
+      initialProps: { list: [makeChannel({ id: 1, epg_id: 'kanal 5.se' })] },
     });
     await waitFor(() => expect(mocked).toHaveBeenCalledWith(['kanal 5.se']), { timeout: 2000 });
 
@@ -265,7 +265,7 @@ describe('useNowNext', () => {
 
   it('does not call the backend when no channel has an epg_id', async () => {
     renderHook(() =>
-      useNowNext([makeChannel({ id: 1 }), makeChannel({ id: 2, epg_id: '   ' })], null)
+      useNowNext([makeChannel({ id: 1 }), makeChannel({ id: 2, epg_id: '' })], null)
     );
 
     await new Promise((resolve) => setTimeout(resolve, 700));
@@ -439,9 +439,12 @@ describe('useNowNext', () => {
 });
 
 describe('epgKey', () => {
-  it('is the trimmed, lower-case epg_id of a live channel', () => {
-    expect(epgKey(makeChannel({ epg_id: ' Ämne.SE ' }))).toBe('ämne.se');
-    expect(epgKey(makeChannel({ epg_id: '  ' }))).toBeNull();
+  it('is the epg_id of a live channel as the backend sent it', () => {
+    // `epg_id` is already the backend's match key: never trimmed or
+    // lower-cased again, so both sides use one key.
+    expect(epgKey(makeChannel({ epg_id: 'ämne.se' }))).toBe('ämne.se');
+    expect(epgKey(makeChannel({ epg_id: ' Ämne.SE ' }))).toBe(' Ämne.SE ');
+    expect(epgKey(makeChannel({ epg_id: '' }))).toBeNull();
     expect(epgKey(makeChannel({}))).toBeNull();
     expect(epgKey(makeChannel({ epg_id: 'x.se', content_type: 'series' }))).toBeNull();
   });

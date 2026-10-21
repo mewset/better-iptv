@@ -544,12 +544,15 @@ describe('GuideView', () => {
     expect(within(row).getByText('Locked')).toBeInTheDocument();
     expect(within(row).queryByText('Rapport')).toBeNull();
   });
-  it('lists only channels with guide data, matching ids regardless of case and spacing', async () => {
+  it('lists only channels with guide data, by the key the backend sent', async () => {
     guideIds = ['svt1.se'];
-    renderGuide({ channels: [channel(1, 'SVT1', ' SVT1.se '), tv4] });
+    // `epg_id` is the backend's match key and is used as it is: an id the
+    // frontend would once have trimmed and lower-cased no longer meets one.
+    renderGuide({ channels: [svt1, channel(3, 'SVT1 HD', ' SVT1.se '), tv4] });
     const row = await screen.findByRole('row', { name: 'SVT1' });
+    expect(screen.queryByRole('row', { name: 'SVT1 HD' })).toBeNull();
     expect(screen.queryByRole('row', { name: 'TV4' })).toBeNull();
-    // Programmes come back keyed by the normalized id and still reach the row.
+    // Programmes come back under the same key and reach the row.
     expect(
       await within(row).findByRole('button', { name: blockName(airing, 'SVT1') })
     ).toBeInTheDocument();

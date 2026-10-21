@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getEpgGuide, getEpgGuideKeys, GUIDE_BATCH, type Programme } from '../lib/epgIpc';
 import { useEpgStore } from '../stores/epg-store';
-import { guideChannels, guideDataRange, guideWindow, normalizeEpgId } from '../lib/guideLayout';
+import { guideChannels, guideDataRange, guideWindow } from '../lib/guideLayout';
 import { logger } from '../lib/logger';
 import type { Channel } from '../types';
 import { useNow } from './useNow';
@@ -14,7 +14,7 @@ export const GUIDE_REQUEST_IDS = GUIDE_BATCH;
 export interface GuideState {
   /** Channels with guide data in the five days (all with an id if the lookup failed). */
   rows: Channel[];
-  /** Programmes in the visible window, keyed by normalized EPG id. */
+  /** Programmes in the visible window, keyed by guide key (a channel's `epg_id`). */
   programs: Record<string, Programme[]>;
   window: { from: number; to: number };
   /** Programmes for the current window are loading. */
@@ -88,7 +88,7 @@ export function useGuide(channels: Channel[], dayOffset: number): GuideState {
   );
   const idsKey = useMemo(() => {
     const ids = new Set<string>();
-    for (const channel of rows) ids.add(normalizeEpgId(channel.epg_id!));
+    for (const channel of rows) ids.add(channel.epg_id!);
     return [...ids].join(SEP);
   }, [rows]);
 

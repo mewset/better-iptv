@@ -8,7 +8,6 @@ import {
   blockGeometry,
   guideDayLabels,
   layoutLanes,
-  normalizeEpgId,
   type Lane,
   type LaneLayout,
 } from '../lib/guideLayout';
@@ -623,7 +622,7 @@ export function GuideView({
                       <GuideRow
                         channel={channel}
                         rowIndex={virtualRow.index + 1}
-                        layout={lanes.get(normalizeEpgId(channel.epg_id!))}
+                        layout={lanes.get(channel.epg_id!)}
                         from={win.from}
                         to={win.to}
                         now={now}

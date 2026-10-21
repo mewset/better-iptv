@@ -6,7 +6,6 @@ import {
   guideDayLabels,
   guideWindow,
   layoutLanes,
-  normalizeEpgId,
 } from '../../lib/guideLayout';
 import type { Programme } from '../../lib/epgIpc';
 import type { Channel } from '../../types';
@@ -226,24 +225,6 @@ describe('blockGeometry', () => {
   });
 });
 
-describe('normalizeEpgId', () => {
-  // Pairs the backend's channel_key test (`epg_domain/key.rs`) gives the
-  // same answer for: the guide matches its keys against these.
-  it('trims and lower-cases like the backend', () => {
-    expect(normalizeEpgId('  SVT1.se ')).toBe('svt1.se');
-    expect(normalizeEpgId('KANAL5.SE')).toBe('kanal5.se');
-    expect(normalizeEpgId('Ämne.se')).toBe('ämne.se');
-    expect(normalizeEpgId('ÖRESUND.dk')).toBe('öresund.dk');
-    // Final sigma, mapped by both languages.
-    expect(normalizeEpgId('\u039F\u0394\u039F\u03A3')).toBe('\u03BF\u03B4\u03BF\u03C2');
-  });
-
-  it('trims a byte order mark but not U+0085, as the backend does', () => {
-    expect(normalizeEpgId('\uFEFFSVT1.se\u00A0')).toBe('svt1.se');
-    expect(normalizeEpgId('\u0085SVT1.se')).toBe('\u0085svt1.se');
-  });
-});
-
 describe('guideDataRange', () => {
   it('runs from today 00:00 local to the same time five days later', () => {
     const now = new Date(2026, 9, 8, 20, 12).getTime();
@@ -262,19 +243,26 @@ describe('guideChannels', () => {
   const ch = (id: number, epg_id: string | null | undefined): Channel =>
     ({ id, name: `C${id}`, content_type: 'live', epg_id }) as Channel;
 
-  it('keeps channels whose normalized id has data, in list order', () => {
-    const list = [ch(1, 'b.se'), ch(2, ' SVT1.se '), ch(3, 'none.se'), ch(4, 'a.se')];
+  it('keeps channels whose id has data, in list order', () => {
+    const list = [ch(1, 'b.se'), ch(2, 'svt1.se'), ch(3, 'none.se'), ch(4, 'a.se')];
     const rows = guideChannels(list, new Set(['a.se', 'b.se', 'svt1.se']));
     expect(rows.map((c) => c.id)).toEqual([1, 2, 4]);
   });
 
   it('keeps every channel sharing an id with data', () => {
-    const rows = guideChannels([ch(1, 'svt1.se'), ch(2, 'SVT1.se')], new Set(['svt1.se']));
+    const rows = guideChannels([ch(1, 'svt1.se'), ch(2, 'svt1.se')], new Set(['svt1.se']));
     expect(rows.map((c) => c.id)).toEqual([1, 2]);
   });
 
-  it('drops channels without an id or with a blank one', () => {
-    const list = [ch(1, null), ch(2, undefined), ch(3, '   '), ch(4, 'a.se')];
+  it('compares the id as the backend sent it, never re-normalised', () => {
+    // `epg_id` is the backend's match key, in the same form as the guide
+    // keys; the frontend neither trims nor lower-cases it again.
+    const list = [ch(1, 'svt1.se'), ch(2, 'SVT1.se'), ch(3, ' svt1.se'), ch(4, 'ämne.se')];
+    expect(guideChannels(list, new Set(['svt1.se', 'ämne.se'])).map((c) => c.id)).toEqual([1, 4]);
+  });
+
+  it('drops channels without an id or with an empty one', () => {
+    const list = [ch(1, null), ch(2, undefined), ch(3, ''), ch(4, 'a.se')];
     expect(guideChannels(list, new Set(['a.se', ''])).map((c) => c.id)).toEqual([4]);
   });
 
@@ -284,8 +272,8 @@ describe('guideChannels', () => {
     expect(guideChannels(list, ids)).toHaveLength(1500);
   });
 
-  it('without a set keeps every channel with a non-blank id', () => {
-    const list = [ch(1, 'a'), ch(2, null), ch(3, '  '), ch(4, 'b')];
+  it('without a set keeps every channel with an id', () => {
+    const list = [ch(1, 'a'), ch(2, null), ch(3, ''), ch(4, 'b')];
     expect(guideChannels(list, null).map((c) => c.id)).toEqual([1, 4]);
   });
 });

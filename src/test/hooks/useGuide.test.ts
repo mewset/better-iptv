@@ -35,16 +35,16 @@ describe('useGuide', () => {
     vi.useRealTimers();
   });
 
-  it('lists only channels whose normalized id has guide data, in list order', async () => {
-    const channels = [ch(1, 'B'), ch(2, 'none'), ch(3, ' a '), ch(4, null)];
+  it('lists only channels whose id has guide data, in list order', async () => {
+    const channels = [ch(1, 'b'), ch(2, 'none'), ch(3, 'a'), ch(4, null)];
     const { result } = renderHook(() => useGuide(channels, 0));
     expect(result.current.rowsLoading).toBe(true);
     await waitFor(() => expect(result.current.rowsLoading).toBe(false));
     expect(result.current.rows.map((c) => c.id)).toEqual([1, 3]);
   });
 
-  it('asks for the five-day range once and the programmes of the row ids, normalized', async () => {
-    const channels = [ch(1, 'B'), ch(2, ' a '), ch(3, 'a')];
+  it('asks for the five-day range once and the programmes of the row ids, each once', async () => {
+    const channels = [ch(1, 'b'), ch(2, 'a'), ch(3, 'a')];
     const { result } = renderHook(() => useGuide(channels, 0));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(mockedGetIds).toHaveBeenCalledTimes(1);
@@ -54,6 +54,17 @@ describe('useGuide', () => {
     expect(mockedGetGuide).toHaveBeenCalledTimes(1);
     expect(mockedGetGuide.mock.calls[0][0]).toEqual(['b', 'a']);
     expect(result.current.programs).toEqual({ a: [programme] });
+  });
+
+  it('uses the backend key as it is: no trimming, no lower-casing', async () => {
+    // `epg_id` is the backend's match key; a key only the frontend would
+    // re-normalise into a guide key must not become one.
+    mockedGetIds.mockResolvedValue(['a', 'ämne.se', ' A ']);
+    const channels = [ch(1, ' A '), ch(2, 'A'), ch(3, 'ämne.se')];
+    const { result } = renderHook(() => useGuide(channels, 0));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.rows.map((c) => c.id)).toEqual([1, 3]);
+    expect(mockedGetGuide.mock.calls[0][0]).toEqual([' A ', 'ämne.se']);
   });
 
   it('sends the visible window as RFC 3339 strings', async () => {

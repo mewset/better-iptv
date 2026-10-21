@@ -6,9 +6,9 @@
 
 /// Whitespace as JavaScript's `String.prototype.trim` sees it: Unicode
 /// White_Space minus NEL (U+0085), which JavaScript does not trim, plus the
-/// byte order mark, which Rust's `trim` leaves alone. The frontend normalises
-/// ids with `trim().toLowerCase()`, and the two sides must produce the same
-/// key for the same id.
+/// byte order mark, which Rust's `trim` leaves alone. The set dates from when
+/// the frontend still normalised ids itself; it is kept so stored keys never
+/// change. The frontend now uses the keys the backend sends as they are.
 fn is_trim_char(c: char) -> bool {
     (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
 }
@@ -59,7 +59,7 @@ mod tests {
 
     #[test]
     fn channel_keys_lower_case_non_ascii_letters_like_javascript() {
-        // Parity case with the frontend's `id.trim().toLowerCase()`.
+        // Unicode case mapping, as JavaScript's `toLowerCase` gives it.
         assert_eq!(channel_key("Ämne.se").as_deref(), Some("ämne.se"));
         assert_eq!(channel_key("ÖSTERSUND.SE").as_deref(), Some("östersund.se"));
         // Final sigma, as JavaScript maps it.

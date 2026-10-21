@@ -121,15 +121,6 @@ export function layoutLanes(programmes: readonly Programme[]): LaneLayout {
 }
 
 /**
- * An EPG id in the form the backend stores and returns: trimmed and lower
- * case with Unicode case mapping (`epg_domain::key::channel_key`). The Rust
- * side trims exactly what `trim()` trims here, so both give one key per id.
- */
-export function normalizeEpgId(id: string): string {
-  return id.trim().toLowerCase();
-}
-
-/**
  * The span a channel needs programmes in to get a guide row: today 00:00
  * local to the same time `GUIDE_DAY_COUNT` calendar days later. Rows are the
  * same whichever day is shown.
@@ -146,14 +137,16 @@ export function guideDataRange(now: number): { from: number; to: number } {
 }
 
 /**
- * The guide's rows: the channels whose normalized `epg_id` is in
- * `idsWithData`, in list order. `null` means the lookup is not available
- * (it failed): then every channel with a non-blank `epg_id` gets a row.
+ * The guide's rows: the channels whose `epg_id` is in `idsWithData`, in list
+ * order. `null` means the lookup is not available (it failed): then every
+ * channel with an `epg_id` gets a row.
+ *
+ * `epg_id` is the backend's match key (`channel_key`), the same form the
+ * guide's keys come in, so it is compared as it is.
  */
 export function guideChannels(channels: Channel[], idsWithData: Set<string> | null): Channel[] {
   return channels.filter((channel) => {
-    const id = channel.epg_id ? normalizeEpgId(channel.epg_id) : '';
-    if (id === '') return false;
-    return idsWithData === null || idsWithData.has(id);
+    if (!channel.epg_id) return false;
+    return idsWithData === null || idsWithData.has(channel.epg_id);
   });
 }
