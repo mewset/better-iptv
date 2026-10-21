@@ -1,4 +1,5 @@
 import type { Channel } from '../types';
+import type { Programme } from './epgIpc';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -66,6 +67,57 @@ export function blockGeometry(
     left: ((clampedStart - from) / span) * width,
     width: ((clampedEnd - clampedStart) / span) * width,
   };
+}
+
+/** A guide row's lane: 0 holds the main sequence, 1 what overlaps it. */
+export type Lane = 0 | 1;
+
+/** A row's programmes placed in lanes, from `layoutLanes`. */
+export interface LaneLayout {
+  /** Every placed programme with its lane, in start order. */
+  blocks: Array<{ programme: Programme; lane: Lane }>;
+  /** 2 when any programme sits in lane 1. */
+  laneCount: 1 | 2;
+  /** Programmes left out because both lanes were taken at their start. */
+  dropped: number;
+}
+
+/**
+ * Places a row's programmes in at most two lanes, so a programme nested in
+ * another (a film inside a "movie night" block) is drawn below it instead of
+ * on top of it. In start order (the longer of two with one start first),
+ * a programme goes to lane 0 unless it starts before the last lane-0
+ * programme ends; then to lane 1 unless that is taken too; then it is
+ * dropped and counted. A programme starting exactly when another stops
+ * follows it in the same lane. Programmes with unusable times are left out
+ * uncounted, as `blockGeometry` would draw nothing for them.
+ */
+export function layoutLanes(programmes: readonly Programme[]): LaneLayout {
+  const timed: Array<{ programme: Programme; start: number; stop: number }> = [];
+  for (const programme of programmes) {
+    const start = Date.parse(programme.start);
+    const stop = Date.parse(programme.stop);
+    if (Number.isNaN(start) || Number.isNaN(stop) || stop <= start) continue;
+    timed.push({ programme, start, stop });
+  }
+  timed.sort((a, b) => a.start - b.start || b.stop - a.stop);
+
+  const blocks: LaneLayout['blocks'] = [];
+  let laneZeroEnd = -Infinity;
+  let laneOneEnd = -Infinity;
+  let dropped = 0;
+  for (const { programme, start, stop } of timed) {
+    if (start >= laneZeroEnd) {
+      blocks.push({ programme, lane: 0 });
+      laneZeroEnd = stop;
+    } else if (start >= laneOneEnd) {
+      blocks.push({ programme, lane: 1 });
+      laneOneEnd = stop;
+    } else {
+      dropped += 1;
+    }
+  }
+  return { blocks, laneCount: laneOneEnd === -Infinity ? 1 : 2, dropped };
 }
 
 /**

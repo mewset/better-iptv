@@ -5,8 +5,10 @@ import {
   guideDataRange,
   guideDayLabels,
   guideWindow,
+  layoutLanes,
   normalizeEpgId,
 } from '../../lib/guideLayout';
+import type { Programme } from '../../lib/epgIpc';
 import type { Channel } from '../../types';
 
 // Local times via the Date constructor so these pass in any timezone.
@@ -40,6 +42,105 @@ describe('guideWindow', () => {
   it('crosses a month boundary for later days', () => {
     const now = new Date(2026, 8, 30, 9, 0).getTime();
     expect(guideWindow(now, 2).from).toBe(new Date(2026, 9, 2, 18, 0).getTime());
+  });
+});
+
+describe('layoutLanes', () => {
+  // A programme from local h1:m1 to h2:m2 on one day.
+  const prog = (title: string, h1: number, m1: number, h2: number, m2: number): Programme => ({
+    title,
+    description: null,
+    start: iso(local(h1, m1)),
+    stop: iso(local(h2, m2)),
+  });
+  const lanesOf = (programmes: Programme[]) =>
+    layoutLanes(programmes).blocks.map((b) => [b.programme.title, b.lane]);
+
+  it('places nothing for no programmes', () => {
+    expect(layoutLanes([])).toEqual({ blocks: [], laneCount: 1, dropped: 0 });
+  });
+
+  it('keeps disjoint programmes in lane 0', () => {
+    const layout = layoutLanes([prog('A', 19, 0, 19, 30), prog('B', 20, 0, 21, 0)]);
+    expect(layout.blocks.map((b) => b.lane)).toEqual([0, 0]);
+    expect(layout.laneCount).toBe(1);
+    expect(layout.dropped).toBe(0);
+  });
+
+  it('keeps a programme starting exactly when the previous stops in the same lane', () => {
+    const layout = layoutLanes([prog('A', 19, 0, 20, 0), prog('B', 20, 0, 21, 0)]);
+    expect(layout.blocks.map((b) => b.lane)).toEqual([0, 0]);
+    expect(layout.laneCount).toBe(1);
+  });
+
+  it('puts a nested programme in lane 1, below the one it sits in', () => {
+    const layout = layoutLanes([prog('Movie night', 19, 0, 23, 0), prog('Film', 20, 0, 22, 0)]);
+    expect(layout.blocks.map((b) => [b.programme.title, b.lane])).toEqual([
+      ['Movie night', 0],
+      ['Film', 1],
+    ]);
+    expect(layout.laneCount).toBe(2);
+    expect(layout.dropped).toBe(0);
+  });
+
+  it('with one start, puts the longer programme in lane 0', () => {
+    expect(lanesOf([prog('Film', 20, 0, 22, 0), prog('Movie night', 20, 0, 23, 0)])).toEqual([
+      ['Movie night', 0],
+      ['Film', 1],
+    ]);
+  });
+
+  it('puts two disjoint nested programmes both in lane 1', () => {
+    const layout = layoutLanes([
+      prog('Block', 19, 0, 23, 0),
+      prog('First', 19, 30, 20, 30),
+      prog('Second', 20, 30, 21, 30),
+    ]);
+    expect(layout.blocks.map((b) => [b.programme.title, b.lane])).toEqual([
+      ['Block', 0],
+      ['First', 1],
+      ['Second', 1],
+    ]);
+    expect(layout.dropped).toBe(0);
+  });
+
+  it('drops and counts a nested programme overlapping the other nested one', () => {
+    const layout = layoutLanes([
+      prog('Block', 19, 0, 23, 0),
+      prog('First', 19, 30, 21, 0),
+      prog('Second', 20, 30, 21, 30),
+    ]);
+    expect(layout.blocks.map((b) => [b.programme.title, b.lane])).toEqual([
+      ['Block', 0],
+      ['First', 1],
+    ]);
+    expect(layout.laneCount).toBe(2);
+    expect(layout.dropped).toBe(1);
+  });
+
+  it('lays out unsorted input as if it were sorted', () => {
+    const sorted = [
+      prog('A', 19, 0, 20, 0),
+      prog('Block', 20, 0, 23, 0),
+      prog('Nested', 20, 30, 21, 0),
+      prog('B', 23, 0, 23, 30),
+    ];
+    const shuffled = [sorted[3], sorted[1], sorted[0], sorted[2]];
+    expect(layoutLanes(shuffled)).toEqual(layoutLanes(sorted));
+    expect(lanesOf(shuffled)).toEqual([
+      ['A', 0],
+      ['Block', 0],
+      ['Nested', 1],
+      ['B', 0],
+    ]);
+  });
+
+  it('leaves out programmes with unusable times without counting them', () => {
+    const broken: Programme = { title: 'X', description: null, start: 'soon', stop: 'later' };
+    const backwards = prog('Backwards', 21, 0, 20, 0);
+    const layout = layoutLanes([prog('A', 19, 0, 20, 0), broken, backwards]);
+    expect(layout.blocks.map((b) => b.programme.title)).toEqual(['A']);
+    expect(layout.dropped).toBe(0);
   });
 });
 
