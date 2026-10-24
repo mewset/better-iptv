@@ -16,7 +16,7 @@ A simple overview of new features and improvements.
 
 ### Thanks
 
-- **@APPLEPIE6969** for reporting the Windows scrollbars with a screenshot (#83)
+- **@APPLEPIE6969** for reporting the Windows scrollbars with a screenshot (#83), and for the playlist samples that showed M3U movies landing in Live TV (#84)
 
 ## Version 3.2.0 (October 22, 2026)
 

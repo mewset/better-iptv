@@ -17,10 +17,14 @@ This file is a developer-changelog, aimed towards development changes.
   - The title now starts at the first comma outside double quotes; attributes are read as `key="value"` or `key=value`. A line with no comma outside quotes has no title and imports as `Unknown`
   - Stored rows change on the next refresh. `merge_channels` matches M3U rows on (name, group) with a name-only fallback, so rows whose group changed keep their id and favourite. Rows whose name had a comma become new rows and lose their favourite, channel block, manual guide match and watch history
   - `parental_blocked_categories` compares group names exactly, but no UI has ever set it, so nothing stored there is affected
+- **M3U movies and episodes detected by their file** - an M3U row was only typed `vod` or `series` when its group name had a keyword (`movie`, `series`, …) or its URL a provider path (`/movie/`, `/series/`), so a list like `group-title="1910s & Earlier"` with `https://…/film.mp4` URLs landed in Live TV (#84)
+  - `determine_content_type` keeps those rules first. Otherwise a URL whose file ending is a video file (`series_domain::is_video_file`: mp4, mkv, avi, mov, m4v, webm, wmv; query string ignored, any case) is on demand: `series` when `parse_episode_name` finds an episode marker in the name, `vod` when not. Stream endings (`ts`, `m3u8`, `flv`) and everything else stay `live`
+  - The same `parse_episode_name` call as in `group_series`, so a row typed `series` here is never demoted back to `live` there
+  - Takes effect on the next refresh. Episode rows that were live become one series row per show, so a favourite on a single episode row is dropped; movies keep their row and favourite, since `merge_channels` updates the content type of a matched row
 
 ### Thanks
 
-- **@APPLEPIE6969** for reporting the Windows scrollbars with a screenshot (#83)
+- **@APPLEPIE6969** for reporting the Windows scrollbars with a screenshot (#83), and for the playlist samples that showed M3U movies landing in Live TV (#84)
 
 ## [3.2.0] - 2026-10-22
 
