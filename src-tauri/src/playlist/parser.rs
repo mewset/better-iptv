@@ -78,27 +78,54 @@ fn parse_m3u_content(content: &str) -> Result<Vec<Channel>> {
     Ok(channels)
 }
 
-/// Parse #EXTINF line
+/// Parse #EXTINF line into its attributes plus the title under `name`
+///
+/// Format: #EXTINF:duration tvg-id="..." group-title="...",Channel Name
+/// The title starts at the first comma outside double quotes, so quoted
+/// values may hold spaces and commas, and the title may hold commas.
 fn parse_extinf_line(line: &str) -> HashMap<String, String> {
-    let mut info = HashMap::new();
+    let line = line.strip_prefix("#EXTINF:").unwrap_or(line);
+    let (header, title) = split_title(line);
 
-    // Format: #EXTINF:duration tvg-id="..." tvg-name="..." tvg-logo="..." group-title="...",Channel Name
-    // Extract attributes
-    if let Some(attrs_part) = line.split(',').next() {
-        for attr in attrs_part.split_whitespace() {
-            if let Some((key, value)) = attr.split_once('=') {
-                let value = value.trim_matches('"');
-                info.insert(key.to_string(), value.to_string());
-            }
+    let mut info = parse_attributes(header);
+    if let Some(title) = title {
+        info.insert("name".to_string(), title.trim().to_string());
+    }
+    info
+}
+
+/// Split at the first comma outside double quotes
+fn split_title(line: &str) -> (&str, Option<&str>) {
+    let mut in_quotes = false;
+    for (i, c) in line.char_indices() {
+        match c {
+            '"' => in_quotes = !in_quotes,
+            ',' if !in_quotes => return (&line[..i], Some(&line[i + 1..])),
+            _ => {}
         }
     }
+    (line, None)
+}
 
-    // Extract channel name (after last comma)
-    if let Some(name) = line.split(',').next_back() {
-        info.insert("name".to_string(), name.trim().to_string());
+/// Read `key="value"` and `key=value` pairs; words without `=` (the duration) are skipped
+fn parse_attributes(header: &str) -> HashMap<String, String> {
+    let mut attrs = HashMap::new();
+    let mut rest = header;
+
+    while let Some(eq) = rest.find('=') {
+        let key = rest[..eq].rsplit(char::is_whitespace).next().unwrap_or("");
+        let after = &rest[eq + 1..];
+        let (value, remainder) = match after.strip_prefix('"') {
+            Some(quoted) => quoted.split_once('"').unwrap_or((quoted, "")),
+            None => after.split_once(char::is_whitespace).unwrap_or((after, "")),
+        };
+        if !key.is_empty() {
+            attrs.insert(key.to_string(), value.to_string());
+        }
+        rest = remainder;
     }
 
-    info
+    attrs
 }
 
 /// Create Channel from parsed info
@@ -176,8 +203,69 @@ http://stream.test.com/channel2.m3u8
         let channels = parse_m3u_content(content).unwrap();
         assert_eq!(channels.len(), 2);
         assert_eq!(channels[0].name, "Test Channel 1");
+        assert_eq!(channels[0].tvg_name.as_deref(), Some("Test Channel 1"));
         assert_eq!(channels[0].url, "http://stream.test.com/channel1.m3u8");
         assert_eq!(channels[1].name, "Test Channel 2");
+    }
+
+    #[test]
+    fn a_quoted_attribute_keeps_its_spaces() {
+        let info = parse_extinf_line(
+            r#"#EXTINF:-1 tvg-name="Action Movies HD" group-title="Action Movies",Die Hard"#,
+        );
+        assert_eq!(info["tvg-name"], "Action Movies HD");
+        assert_eq!(info["group-title"], "Action Movies");
+        assert_eq!(info["name"], "Die Hard");
+    }
+
+    #[test]
+    fn a_group_with_a_space_still_decides_the_content_type() {
+        let content =
+            "#EXTM3U\n#EXTINF:-1 group-title=\"Action Movies\",Die Hard\nhttp://proxy.example/42\n";
+        let channels = parse_m3u_content(content).unwrap();
+        assert_eq!(channels[0].group_name.as_deref(), Some("Action Movies"));
+        assert_eq!(channels[0].content_type, "vod");
+    }
+
+    #[test]
+    fn a_comma_inside_quotes_does_not_end_the_attributes() {
+        let info = parse_extinf_line(
+            r#"#EXTINF:-1 tvg-logo="http://img.example/a,b.png" group-title="Movies, Classic",Casablanca"#,
+        );
+        assert_eq!(info["tvg-logo"], "http://img.example/a,b.png");
+        assert_eq!(info["group-title"], "Movies, Classic");
+        assert_eq!(info["name"], "Casablanca");
+    }
+
+    #[test]
+    fn a_comma_in_the_title_is_part_of_the_title() {
+        let info = parse_extinf_line(r#"#EXTINF:-1 group-title="Series",Dexter, Season 1"#);
+        assert_eq!(info["name"], "Dexter, Season 1");
+    }
+
+    #[test]
+    fn an_unquoted_attribute_value_ends_at_whitespace() {
+        let info = parse_extinf_line("#EXTINF:-1 tvg-id=svt1.se group-title=News,SVT1");
+        assert_eq!(info["tvg-id"], "svt1.se");
+        assert_eq!(info["group-title"], "News");
+        assert_eq!(info["name"], "SVT1");
+    }
+
+    #[test]
+    fn a_line_without_attributes_has_only_a_name() {
+        let info = parse_extinf_line("#EXTINF:-1,Plain Channel");
+        assert_eq!(info.len(), 1);
+        assert_eq!(info["name"], "Plain Channel");
+    }
+
+    #[test]
+    fn a_line_without_a_comma_has_no_name() {
+        let info = parse_extinf_line(r#"#EXTINF:-1 tvg-id="x""#);
+        assert_eq!(info["tvg-id"], "x");
+        assert!(!info.contains_key("name"));
+
+        let content = "#EXTM3U\n#EXTINF:-1 tvg-id=\"x\"\nhttp://example.com/1.ts\n";
+        assert_eq!(parse_m3u_content(content).unwrap()[0].name, "Unknown");
     }
 
     #[test]

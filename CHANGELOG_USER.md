@@ -10,6 +10,10 @@ A simple overview of new features and improvements.
 
 - Scrollbars now match the app's look on Windows, instead of the grey Windows scrollbar with arrow buttons
 
+### Fixes
+
+- Category and channel names with spaces or commas in M3U playlists are now shown in full, so a category like "Action Movies" lands under Movies instead of Live TV. This takes effect the next time you refresh the playlist. A channel whose name contains a comma comes back as a new channel after that refresh, so a favourite or block on it needs to be set again
+
 ### Thanks
 
 - **@APPLEPIE6969** for reporting the Windows scrollbars with a screenshot (#83)

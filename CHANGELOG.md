@@ -11,6 +11,13 @@ This file is a developer-changelog, aimed towards development changes.
   - Global `::-webkit-scrollbar` rules in `src/index.css`: a 6px pill thumb in a 10px gutter, tinted from `--color-text` so it follows the theme, transparent track and corner, no buttons. WebView2, WebKitGTK and WKWebView all honour them. `scrollbar-width`/`scrollbar-color` stay unset, since Chromium ignores the pseudo-elements on elements that set either
   - Dropped `scrollbar-hide` from `CategoryBar`: no rule ever defined it, so the bar always had a scrollbar. It keeps the styled one, which mouse users without horizontal scroll need
 
+### Fixed
+
+- **M3U `#EXTINF` attributes and titles with spaces or commas** - `parse_extinf_line` split the attributes on whitespace and took the title after the last comma, so `group-title="Action Movies"` was stored as `Action` (and `determine_content_type` missed the keyword), `tvg-name` kept only its first word, and `Dexter, Season 1` became `Season 1`
+  - The title now starts at the first comma outside double quotes; attributes are read as `key="value"` or `key=value`. A line with no comma outside quotes has no title and imports as `Unknown`
+  - Stored rows change on the next refresh. `merge_channels` matches M3U rows on (name, group) with a name-only fallback, so rows whose group changed keep their id and favourite. Rows whose name had a comma become new rows and lose their favourite, channel block, manual guide match and watch history
+  - `parental_blocked_categories` compares group names exactly, but no UI has ever set it, so nothing stored there is affected
+
 ### Thanks
 
 - **@APPLEPIE6969** for reporting the Windows scrollbars with a screenshot (#83)
