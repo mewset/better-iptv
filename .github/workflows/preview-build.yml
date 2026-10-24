@@ -10,8 +10,9 @@ name: Preview Build
 # from main creates a release called "main".
 #
 # The build carries the version in package.json, i.e. the last released one.
-# Only the NSIS -setup.exe is built: it reinstalls over the same version,
-# where the MSI may refuse to.
+# Both installers are built, so testers keep the one they chose. Each replaces
+# an install of the same version: the MSI through Tauri's MajorUpgrade (new
+# ProductCode per build), the -setup.exe through its reinstall page.
 on:
   workflow_dispatch:
     inputs:
@@ -52,8 +53,8 @@ jobs:
       - name: Bundle MPV
         uses: ./.github/actions/bundle-mpv-windows
 
-      - name: Build installer
-        run: npm run tauri build -- --bundles nsis
+      - name: Build installers
+        run: npm run tauri build -- --bundles nsis,msi
 
       - name: Name the artifact
         id: name
@@ -61,14 +62,19 @@ jobs:
         env:
           ISSUE: ${{ inputs.issue }}
         run: |
+          # The upload only fails when nothing matches, so check each installer here
+          ls src-tauri/target/release/bundle/nsis/*-setup.exe src-tauri/target/release/bundle/msi/*.msi
+
           NAME="better-iptv-preview-${GITHUB_SHA::7}"
           if [ -n "$ISSUE" ]; then NAME="${NAME}-issue-${ISSUE//[^0-9]/}"; fi
           echo "artifact=$NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Upload installer
+      - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.name.outputs.artifact }}
-          path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          path: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/msi/*.msi
           if-no-files-found: error
           retention-days: 14
