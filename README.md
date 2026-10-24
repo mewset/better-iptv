@@ -207,13 +207,14 @@ Everything Better IPTV knows about you is in one SQLite file on your computer (l
 
 These are all the network requests the app makes:
 
-| To                      | What                                                            | When                                                          |
-| ----------------------- | --------------------------------------------------------------- | ------------------------------------------------------------- |
-| Your provider           | Playlist, guide, streams                                        | Always                                                        |
-| Guide addresses you add | The guide                                                       | Every six hours while that guide is on                        |
-| TMDB                    | The names of your movies and series                             | While metadata is on (default), never for live channels       |
-| iptv-org                | A download of their public logo list; nothing about you is sent | At most once a week, can be turned off in Settings → Metadata |
-| GitHub                  | A version check                                                 | Once a day, can be turned off in Settings → General           |
+| To                      | What                                                            | When                                                           |
+| ----------------------- | --------------------------------------------------------------- | -------------------------------------------------------------- |
+| Your provider           | Playlist, guide, streams                                        | Always                                                         |
+| Guide addresses you add | The guide                                                       | Every six hours while that guide is on                         |
+| TMDB                    | The names of your movies and series                             | While metadata is on (default), never for live channels        |
+| Better IPTV website     | A request for the shared TMDB key; only the app version is sent | Once a day while metadata is on, never if you use your own key |
+| iptv-org                | A download of their public logo list; nothing about you is sent | At most once a week, can be turned off in Settings → Metadata  |
+| GitHub                  | A version check                                                 | Once a day, can be turned off in Settings → General            |
 
 Channel logos load straight from the addresses in your playlist. A replacement logo loads from the address the iptv-org list gives for it. Those are other people's servers, and like any image on the web, they see your IP address when a logo loads.
 
