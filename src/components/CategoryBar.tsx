@@ -24,7 +24,7 @@ export const CategoryBar = memo(function CategoryBar({ allSelected, onAll }: Cat
 
   return (
     <div
-      className="scrollbar-hide flex gap-2 overflow-x-auto bg-bg px-4 py-3 pb-6"
+      className="flex gap-2 overflow-x-auto bg-bg px-4 py-3 pb-6"
       role="tablist"
       aria-label="Channel categories"
     >

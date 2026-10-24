@@ -3,6 +3,18 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## [Unreleased]
+
+### Changed
+
+- **Styled scrollbars** - WebView2 on Windows drew the stock scrollbar with arrow buttons on every scroll area (#83)
+  - Global `::-webkit-scrollbar` rules in `src/index.css`: a 6px pill thumb in a 10px gutter, tinted from `--color-text` so it follows the theme, transparent track and corner, no buttons. WebView2, WebKitGTK and WKWebView all honour them. `scrollbar-width`/`scrollbar-color` stay unset, since Chromium ignores the pseudo-elements on elements that set either
+  - Dropped `scrollbar-hide` from `CategoryBar`: no rule ever defined it, so the bar always had a scrollbar. It keeps the styled one, which mouse users without horizontal scroll need
+
+### Thanks
+
+- **@APPLEPIE6969** for reporting the Windows scrollbars with a screenshot (#83)
+
 ## [3.2.0] - 2026-10-22
 
 ### Added

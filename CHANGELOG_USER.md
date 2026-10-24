@@ -4,6 +4,16 @@ A simple overview of new features and improvements.
 
 ---
 
+## Unreleased
+
+### Improvements
+
+- Scrollbars now match the app's look on Windows, instead of the grey Windows scrollbar with arrow buttons
+
+### Thanks
+
+- **@APPLEPIE6969** for reporting the Windows scrollbars with a screenshot (#83)
+
 ## Version 3.2.0 (October 22, 2026)
 
 ### New Features
