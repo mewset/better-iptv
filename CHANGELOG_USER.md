@@ -12,7 +12,7 @@ A simple overview of new features and improvements.
 
 ### Fixes
 
-- Fix a bug that could cause some m3u items to end up on the wrong category (ie. a TV-series in Live-TV)
+- Fixed a bug that could put some M3U items in the wrong category, e.g. a TV series under Live TV
 
 ### Thanks
 
