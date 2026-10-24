@@ -1,0 +1,74 @@
+name: Preview Build
+
+# A Windows installer from any branch, for an issue reporter who offered to
+# test a fix before it is released. Started by hand from the Actions tab.
+#
+# The installer is uploaded as an Actions artifact only. There is no tag and
+# no release, so the in-app update check (releases/latest), download stats,
+# AUR, the website and release-fixed-issues.yml never see it. Never dispatch
+# release.yml for this instead: it takes github.ref_name as the tag, so a run
+# from main creates a release called "main".
+#
+# The build carries the version in package.json, i.e. the last released one.
+# Only the NSIS -setup.exe is built: it reinstalls over the same version,
+# where the MSI may refuse to.
+on:
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: 'Issue the build is for, e.g. 83 (only used in the artifact name)'
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Rust stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          cache: true
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Bundle MPV
+        uses: ./.github/actions/bundle-mpv-windows
+
+      - name: Build installer
+        run: npm run tauri build -- --bundles nsis
+
+      - name: Name the artifact
+        id: name
+        shell: bash
+        env:
+          ISSUE: ${{ inputs.issue }}
+        run: |
+          NAME="better-iptv-preview-${GITHUB_SHA::7}"
+          if [ -n "$ISSUE" ]; then NAME="${NAME}-issue-${ISSUE//[^0-9]/}"; fi
+          echo "artifact=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.artifact }}
+          path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14

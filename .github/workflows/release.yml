@@ -56,36 +56,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Download MPV for Windows bundling
+      - name: Bundle MPV (Windows only)
         if: matrix.platform == 'windows-latest'
-        shell: bash
-        env:
-          # Pinned to an official mpv release. Nightly master builds since mpv
-          # 13a4bfbc1 (2026-09-11) resolve HLS segment URLs against the playlist URL
-          # from before the provider's redirect, so the first segments 404 and the
-          # picture waits for the next playlist reload: 8-12 s.
-          # Before bumping, check that a redirected HLS channel starts promptly.
-          # To bump: change both values; the checksum is the release zip's SHA256.
-          MPV_VERSION: v0.41.0
-          MPV_SHA256: a49811c0752c108b8260636f9c6f6fcb97406641c98b30f1e7b500dfb20177de
-        run: |
-          MPV_ZIP="mpv-${MPV_VERSION}-x86_64-w64-mingw32.zip"
-          MPV_URL="https://github.com/mpv-player/mpv/releases/download/${MPV_VERSION}/${MPV_ZIP}"
-          echo "📥 Downloading MPV ${MPV_VERSION}: $MPV_URL"
-          curl -fL "$MPV_URL" -o "$MPV_ZIP"
-
-          echo "${MPV_SHA256}  ${MPV_ZIP}" | sha256sum -c -
-
-          # The release zip wraps a second zip holding mpv.exe and its DLLs
-          7z x "$MPV_ZIP" -o"./mpv-outer"
-          INNER_ZIP=$(ls ./mpv-outer/mpv-*.zip | head -1)
-          mkdir -p resources/mpv
-          7z x "$INNER_ZIP" -o"./resources/mpv"
-
-          # Verify
-          ls -la ./resources/mpv/mpv.exe
-          ./resources/mpv/mpv.com --version | head -1
-          echo "✅ MPV ${MPV_VERSION} bundled for Windows build"
+        uses: ./.github/actions/bundle-mpv-windows
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
