@@ -1,5 +1,6 @@
 use crate::db::models::Channel;
 use crate::http::{download_error, ensure_success, get_http_client, BULK_DOWNLOAD_TIMEOUT};
+use crate::series_domain;
 use anyhow::{Context, Result};
 use reqwest::header::USER_AGENT;
 use std::collections::HashMap;
@@ -138,7 +139,7 @@ fn create_channel_from_info(info: HashMap<String, String>, url: String, idx: usi
     let group_name = info.get("group-title").cloned();
     let epg_id = info.get("tvg-id").cloned();
     let tvg_name = info.get("tvg-name").cloned();
-    let content_type = determine_content_type(&group_name, &url);
+    let content_type = determine_content_type(&name, &group_name, &url);
 
     Channel {
         id: None,
@@ -158,7 +159,11 @@ fn create_channel_from_info(info: HashMap<String, String>, url: String, idx: usi
 }
 
 /// Determine content type from M3U entry (live, vod, series)
-fn determine_content_type(group_name: &Option<String>, url: &str) -> String {
+///
+/// Group-name keywords and provider URL paths decide first. Otherwise a URL
+/// that points at a video file is on demand: a series episode when the name
+/// has an episode marker, a movie when it does not. Everything else is live.
+fn determine_content_type(name: &str, group_name: &Option<String>, url: &str) -> String {
     if let Some(group) = group_name {
         let group_lower = group.to_lowercase();
         if group_lower.contains("vod")
@@ -182,6 +187,11 @@ fn determine_content_type(group_name: &Option<String>, url: &str) -> String {
     }
     if url_lower.contains("/series/") || url_lower.contains("/show/") {
         return "series".to_string();
+    }
+
+    if series_domain::is_video_file(url) {
+        let is_episode = series_domain::parse_episode_name(name, group_name.as_deref()).is_some();
+        return if is_episode { "series" } else { "vod" }.to_string();
     }
 
     "live".to_string()
@@ -271,21 +281,77 @@ http://stream.test.com/channel2.m3u8
     #[test]
     fn test_determine_content_type() {
         assert_eq!(
-            determine_content_type(&Some("VOD Movies".to_string()), "http://test.com"),
+            determine_content_type("A", &Some("VOD Movies".to_string()), "http://test.com"),
             "vod"
         );
         assert_eq!(
-            determine_content_type(&Some("TV Series".to_string()), "http://test.com"),
+            determine_content_type("A", &Some("TV Series".to_string()), "http://test.com"),
             "series"
         );
         assert_eq!(
-            determine_content_type(&Some("Live TV".to_string()), "http://test.com"),
+            determine_content_type("A", &Some("Live TV".to_string()), "http://test.com"),
             "live"
         );
         assert_eq!(
-            determine_content_type(&None, "http://test.com/vod/movie.m3u8"),
+            determine_content_type("A", &None, "http://test.com/vod/movie.m3u8"),
             "vod"
         );
+    }
+
+    #[test]
+    fn a_video_file_without_an_episode_marker_is_a_movie() {
+        let group = Some("1910s & Earlier".to_string());
+        assert_eq!(
+            determine_content_type(
+                "Cabiria (1914)",
+                &group,
+                "https://s3.us.archive.org/Cabiria/CabiriagiovanniPastrone1914.mp4"
+            ),
+            "vod"
+        );
+    }
+
+    #[test]
+    fn a_video_file_with_an_episode_marker_is_a_series() {
+        let group = Some("Dexter".to_string());
+        assert_eq!(
+            determine_content_type(
+                "Dexter New Blood S01E03 (2021)",
+                &group,
+                "http://host/media/dexter-new-blood-s01e03.mkv"
+            ),
+            "series"
+        );
+    }
+
+    #[test]
+    fn a_stream_with_an_episode_like_name_stays_live() {
+        let group = Some("Entertainment".to_string());
+        assert_eq!(
+            determine_content_type("Friends S01E01 Marathon", &group, "http://host/live/1.m3u8"),
+            "live"
+        );
+        assert_eq!(
+            determine_content_type("News 24x7", &group, "http://host/news.mp4"),
+            "vod"
+        );
+    }
+
+    #[test]
+    fn episodes_found_by_their_file_are_grouped_into_one_series() {
+        let content = "#EXTM3U
+#EXTINF:-1 group-title=\"Dexter\",Dexter New Blood S01E01 (2021)
+http://host/media/dnb-s01e01.mkv
+#EXTINF:-1 group-title=\"Dexter\",Dexter New Blood S01E02 (2021)
+http://host/media/dnb-s01e02.mkv
+";
+        let channels = parse_m3u_content(content).unwrap();
+        let grouped = crate::series_domain::group_series(channels);
+
+        assert!(grouped.plain.is_empty());
+        assert_eq!(grouped.series.len(), 1);
+        assert_eq!(grouped.series[0].channel.name, "Dexter New Blood");
+        assert_eq!(grouped.series[0].episodes.len(), 2);
     }
 
     #[tokio::test]

@@ -250,6 +250,15 @@ pub fn group_series(channels: Vec<Channel>) -> GroupedChannels {
     GroupedChannels { plain, series }
 }
 
+/// File endings of on-demand video files. Stream formats (`ts`, `m3u8`,
+/// `flv`) are left out: live channels are served that way.
+const VIDEO_FILE_EXTENSIONS: &[&str] = &["mp4", "mkv", "avi", "mov", "m4v", "webm", "wmv"];
+
+/// Whether a URL points at a video file rather than a stream.
+pub fn is_video_file(url: &str) -> bool {
+    VIDEO_FILE_EXTENSIONS.contains(&url_extension(url).as_str())
+}
+
 /// File extension of a URL's last path segment, lower-cased, without query
 /// string. Empty when the segment has no dot.
 fn url_extension(url: &str) -> String {
@@ -1024,5 +1033,23 @@ mod tests {
             AppError::InvalidInput(msg) => assert!(msg.contains("42"), "{}", msg),
             other => panic!("expected InvalidInput, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn a_url_ending_in_a_video_file_is_a_video_file() {
+        assert!(is_video_file(
+            "https://s3.us.archive.org/Cabiria/Cabiria.mp4"
+        ));
+        assert!(is_video_file("http://host/series/u/p/123.MKV"));
+        assert!(is_video_file("http://host/film.mp4?token=abc#t=10"));
+    }
+
+    #[test]
+    fn a_stream_url_is_not_a_video_file() {
+        assert!(!is_video_file("http://host/live/u/p/123.ts"));
+        assert!(!is_video_file("http://host/hls/index.m3u8"));
+        assert!(!is_video_file("http://host/live/flv/stream.flv"));
+        assert!(!is_video_file("http://host/live/u/p/123"));
+        assert!(!is_video_file("rtmp://host/app/stream"));
     }
 }
