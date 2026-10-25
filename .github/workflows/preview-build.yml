@@ -1,9 +1,14 @@
 name: Preview Build
 
-# A Windows installer from any branch, for an issue reporter who offered to
-# test a fix before it is released. Started by hand from the Actions tab.
+# A Windows installer and a Linux AppImage from any branch, for an issue
+# reporter who offered to test a fix before it is released. Started by hand
+# from the Actions tab.
 #
-# The installer is uploaded as an Actions artifact only. There is no tag and
+# The AppImage is built on ubuntu-22.04 like the release one, so it bundles
+# the same libraries (a local build on a newer distro bundles that distro's
+# and hides bugs such as #85).
+#
+# The builds are uploaded as Actions artifacts only. There is no tag and
 # no release, so the in-app update check (releases/latest), download stats,
 # AUR, the website and release-fixed-issues.yml never see it. Never dispatch
 # release.yml for this instead: it takes github.ref_name as the tag, so a run
@@ -76,5 +81,60 @@ jobs:
           path: |
             src-tauri/target/release/bundle/nsis/*-setup.exe
             src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 14
+
+  linux:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libdbus-1-dev \
+            patchelf \
+            libfuse2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Rust stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          cache: true
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build AppImage
+        run: npm run tauri build -- --bundles appimage
+
+      - name: Name the artifact
+        id: name
+        env:
+          ISSUE: ${{ inputs.issue }}
+        run: |
+          ls src-tauri/target/release/bundle/appimage/*.AppImage
+
+          NAME="better-iptv-preview-linux-${GITHUB_SHA::7}"
+          if [ -n "$ISSUE" ]; then NAME="${NAME}-issue-${ISSUE//[^0-9]/}"; fi
+          echo "artifact=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.artifact }}
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
           if-no-files-found: error
           retention-days: 14
