@@ -24,6 +24,13 @@ describe('calculateGridConfig', () => {
     expect(calculateGridConfig(1440, 900, 'live').cardHeight).toBe(208);
     expect(calculateGridConfig(2560, 1440, 'live').cardHeight).toBe(208);
   });
+  it('counts the rows it takes to cover the window', () => {
+    // Live rows are 208 + 16 = 224 px: 1080 / 224 = 4.8
+    expect(calculateGridConfig(1920, 1080, 'live').windowRows).toBe(5);
+    expect(calculateGridConfig(1280, 800, 'live').windowRows).toBe(4);
+    const poster = calculateGridConfig(1440, 900, 'poster');
+    expect(poster.windowRows).toBe(Math.ceil(900 / poster.estimatedRowHeight));
+  });
 });
 
 describe('useResponsiveGrid', () => {

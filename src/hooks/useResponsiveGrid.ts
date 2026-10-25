@@ -5,6 +5,8 @@ export interface GridConfig {
   cardHeight: number;
   estimatedRowHeight: number;
   gap: number;
+  /** Rows it takes to cover the window's height: enough to fill the visible grid */
+  windowRows: number;
 }
 
 export type GridKind = 'live' | 'poster';
@@ -61,7 +63,7 @@ function getColumns(breakpoints: Breakpoint[], width: number): number {
  * inside: callers pass the viewport dimensions in, so this is testable
  * without a DOM.
  */
-export function calculateGridConfig(width: number, _height: number, kind: GridKind): GridConfig {
+export function calculateGridConfig(width: number, height: number, kind: GridKind): GridConfig {
   if (kind === 'live') {
     const columns = getColumns(LIVE_BREAKPOINTS, width);
     return {
@@ -69,6 +71,7 @@ export function calculateGridConfig(width: number, _height: number, kind: GridKi
       cardHeight: LIVE_CARD_HEIGHT,
       estimatedRowHeight: LIVE_CARD_HEIGHT + GAP,
       gap: GAP,
+      windowRows: Math.ceil(height / (LIVE_CARD_HEIGHT + GAP)),
     };
   }
 
@@ -82,6 +85,7 @@ export function calculateGridConfig(width: number, _height: number, kind: GridKi
     cardHeight,
     estimatedRowHeight: cardHeight + GAP,
     gap: GAP,
+    windowRows: Math.ceil(height / (cardHeight + GAP)),
   };
 }
 

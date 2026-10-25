@@ -204,7 +204,7 @@ export default function MainScreen() {
     debouncedSearchQuery.trim() === ''
       ? 'poster'
       : 'live';
-  const { columns, estimatedRowHeight } = useResponsiveGrid(kind);
+  const { columns, estimatedRowHeight, windowRows } = useResponsiveGrid(kind);
   const channelLoad = usePlayerStore((s) => s.channelLoad);
   const retryChannels = usePlayerStore((s) => s.retryChannels);
   const loadStatus = sectionLoadStatus(contentTypeFilter, trimmedQuery !== '', channelLoad);
@@ -874,7 +874,7 @@ export default function MainScreen() {
               aria-label="Channel list"
             >
               {loadStatus === 'loading' ? (
-                <ChannelGridPlaceholder kind={kind} columns={columns} />
+                <ChannelGridPlaceholder kind={kind} columns={columns} rows={windowRows} />
               ) : loadStatus === 'error' ? (
                 <ChannelLoadError onRetry={retryChannels} />
               ) : filteredChannels.length === 0 ? (
