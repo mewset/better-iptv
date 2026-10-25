@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
@@ -36,6 +36,25 @@ const svt1 = {
   content_type: 'live',
   is_favorite: false,
   sort_order: 1,
+} as Channel;
+
+const tv4 = {
+  ...svt1,
+  id: 2,
+  name: 'TV4',
+  url: 'http://home.example/live/2.ts',
+  epg_id: 'tv4.se',
+  sort_order: 2,
+} as Channel;
+
+// A channel the provider gives no guide id
+const local = {
+  ...svt1,
+  id: 3,
+  name: 'Local',
+  url: 'http://home.example/live/3.ts',
+  epg_id: undefined,
+  sort_order: 3,
 } as Channel;
 
 const mockedInvoke = vi.mocked(invoke);
@@ -121,5 +140,46 @@ describe('MainScreen: now/next', () => {
     const calls = mockedInvoke.mock.calls.filter((c) => c[0] === 'get_epg_now_next');
     expect(calls).toHaveLength(1);
     expect(calls[0][1]).toEqual({ keys: ['svt1.se'] });
+  });
+
+  describe('"No guide data"', () => {
+    let answer: (value: Record<string, NowNext>) => void = () => {};
+    const card = (name: string) =>
+      screen.getByRole('button', { name: `Play ${name}` }).closest('article') as HTMLElement;
+    const epgCalls = () => mockedInvoke.mock.calls.filter((c) => c[0] === 'get_epg_now_next');
+
+    beforeEach(() => {
+      const base = mockedInvoke.getMockImplementation()!;
+      mockedInvoke.mockImplementation(async (cmd: string, args?: unknown) =>
+        cmd === 'get_epg_now_next'
+          ? new Promise((resolve) => (answer = resolve))
+          : base(cmd, args as never)
+      );
+      usePlayerStore.setState({
+        isPlaying: false,
+        currentChannel: null,
+        channels: [tv4, local],
+        liveChannels: [tv4, local],
+      });
+    });
+
+    it('is not shown while the guide has not answered', async () => {
+      render(<MainScreen />);
+      await waitFor(() => expect(epgCalls()).toHaveLength(1), { timeout: 3000 });
+      expect(within(card('TV4')).queryByText('No guide data')).toBeNull();
+    });
+
+    it('is shown once the guide answers without data for the channel', async () => {
+      render(<MainScreen />);
+      await waitFor(() => expect(epgCalls()).toHaveLength(1), { timeout: 3000 });
+      await act(async () => answer({}));
+      expect(await within(card('TV4')).findByText('No guide data')).toBeInTheDocument();
+    });
+
+    it('is shown at once for a channel without a guide id', () => {
+      render(<MainScreen />);
+      expect(within(card('Local')).getByText('No guide data')).toBeInTheDocument();
+      expect(within(card('TV4')).queryByText('No guide data')).toBeNull();
+    });
   });
 });

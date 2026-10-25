@@ -41,10 +41,20 @@ describe('live ChannelCard', () => {
   });
 
   it('renders without EPG: no progress line, no NaN, a quiet placeholder line', () => {
-    const { container } = render(<ChannelCard channel={ch} isPlaying={false} onPlay={vi.fn()} />);
+    const { container } = render(
+      <ChannelCard channel={ch} isPlaying={false} onPlay={vi.fn()} guideAnswered />
+    );
     expect(container.querySelector('[data-progress]')).toBeNull();
     expect(container.textContent).not.toMatch(/NaN|undefined/);
     expect(screen.getByText('No guide data')).toBeInTheDocument();
+  });
+
+  it('keeps the guide line blank, not "No guide data", until the guide has answered', () => {
+    const { container } = render(<ChannelCard channel={ch} isPlaying={false} onPlay={vi.fn()} />);
+    expect(screen.queryByText('No guide data')).toBeNull();
+    // The line is still there, holding a nbsp, so the card's text does not move
+    const line = container.querySelector('p.text-xs') as HTMLElement;
+    expect(line.textContent).toBe('\u00A0');
   });
 
   it('shows "Off air" and the next programme when nothing is on now', () => {

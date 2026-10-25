@@ -25,6 +25,11 @@ interface ChannelCardProps {
   onToggleFavorite?: (channelId: number) => void;
   /** TMDB card for a movie or series shown in this live-shaped grid (search, Favorites). */
   tmdb?: TmdbCard;
+  /**
+   * Whether the guide has answered for this channel (or it has no guide key). Until then a
+   * card without `epg` is "not known yet", not "No guide data".
+   */
+  guideAnswered?: boolean;
 }
 
 /**
@@ -33,8 +38,9 @@ interface ChannelCardProps {
  * A fixed 208px shape: a 124px logo/artwork area (logo image, ColorBars
  * placeholder, playing pill, favourite star, centred play button and a
  * progress line) above an info block (name, group, now/next EPG or a quiet
- * "No guide data" line). Series and VOD items shown in a live-shaped grid
- * (Favorites) reuse this same card with their artwork.
+ * "No guide data" line once the guide has answered). Series and VOD items
+ * shown in a live-shaped grid (Favorites) reuse this same card with their
+ * artwork.
  */
 export const ChannelCard = memo(function ChannelCard({
   channel,
@@ -46,6 +52,7 @@ export const ChannelCard = memo(function ChannelCard({
   parentalVisibility = 'hide',
   onToggleFavorite,
   tmdb,
+  guideAnswered = false,
 }: ChannelCardProps) {
   const { src: logoSrc, onError: onLogoError } = useChannelLogo(channel);
   const [tmdbArtFailed, setTmdbArtFailed] = useState(false);
@@ -199,7 +206,8 @@ export const ChannelCard = memo(function ChannelCard({
             {`${kindLabel} · ${metaLine(tmdb, channel.group_name ?? '')}`}
           </p>
         ) : (
-          <p className="text-xs text-text-faint">No guide data</p>
+          // Blank until the guide has answered; the nbsp keeps the line's height
+          <p className="text-xs text-text-faint">{guideAnswered ? 'No guide data' : '\u00A0'}</p>
         )}
       </div>
 

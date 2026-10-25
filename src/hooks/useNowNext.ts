@@ -31,6 +31,15 @@ export function nowNextFor(nowNext: Map<string, NowNext>, channel: Channel): Now
   return key === null ? undefined : nowNext.get(key);
 }
 
+/**
+ * Whether the guide has answered for a channel: it has no guide key (so it has
+ * no guide data), or its key was answered in this generation (`fetchedIn`).
+ */
+export function guideAnswered(fetchedIn: ReadonlySet<string>, channel: Channel): boolean {
+  const key = epgKey(channel);
+  return key === null || fetchedIn.has(key);
+}
+
 type EpgCache = Pick<ReturnType<typeof useEpgStore.getState>, 'nowNext' | 'fetchedIn' | 'missedAt'>;
 
 /**

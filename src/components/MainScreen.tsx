@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { usePlayerStore, type Section } from '../stores/player-store';
+import { useEpgStore } from '../stores/epg-store';
 import {
   getChannelGroups,
   getStalePlaylistIds,
@@ -36,7 +37,7 @@ import { cardFromDetails, homeGateOpen } from '../lib/tmdb';
 import type { Channel, SeriesInfo } from '../types';
 import { logger } from '../lib/logger';
 import { useResponsiveGrid, getGridClasses } from '../hooks/useResponsiveGrid';
-import { nowNextFor, useNowNext } from '../hooks/useNowNext';
+import { guideAnswered, nowNextFor, useNowNext } from '../hooks/useNowNext';
 import { useNow } from '../hooks/useNow';
 import { startEpgEvents } from '../lib/epgEvents';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
@@ -453,6 +454,9 @@ export default function MainScreen() {
   // along so the dock stays fresh, also in sections without a grid; a card
   // and the dock of one channel read the same entry.
   const nowNext = useNowNext(visibleChannels, currentChannel);
+  // Keys the guide has answered, so a card says "No guide data" only after a real miss.
+  // nowNext already changes with every answer that has entries; this adds all-miss batches.
+  const guideFetched = useEpgStore((s) => s.fetchedIn);
   // One clock for the cards' and the dock's progress and the header.
   const now = useNow();
 
@@ -973,6 +977,7 @@ export default function MainScreen() {
                                 onPlay={handlePlayChannel}
                                 onToggleFavorite={toggleChannelFavorite}
                                 {...cardEpg(nowNextFor(nowNext, channel), now)}
+                                guideAnswered={guideAnswered(guideFetched, channel)}
                                 tmdb={tmdbCards.get(channel.id)}
                                 isBlocked={isChannelBlocked}
                                 parentalVisibility={parentalVisibility}
