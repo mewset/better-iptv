@@ -16,6 +16,7 @@ import { GuideView } from './GuideView';
 import { ChannelGridPlaceholder } from './ChannelGridPlaceholder';
 import { ChannelLoadError } from './ChannelLoadError';
 import { sectionLoadStatus } from '../lib/channelLoad';
+import { lookAheadChannels } from '../lib/gridLookahead';
 import { HomeView } from './HomeView';
 import { ChannelCard } from './ChannelCard';
 import { PosterCard } from './PosterCard';
@@ -429,22 +430,19 @@ export default function MainScreen() {
     if (parentRef.current) parentRef.current.scrollTop = 0;
   }, [listKey]);
 
-  // The cards in view, overscan included. They feed the EPG and TMDB lookups,
-  // so a 15,000-channel list only ever asks about what is on screen.
+  // The cards in view plus a look-ahead of their own, taken from the visible
+  // row range rather than the mounted rows, so the DOM overscan and the data
+  // prefetch are tuned apart. They feed the EPG and TMDB lookups, so a
+  // 15,000-channel list only ever asks about what is on screen or close to it.
   const virtualItems = rowVirtualizer.getVirtualItems();
+  // getVirtualItems() above has just computed it; null until the list has a size
+  const firstVisibleRow = rowVirtualizer.range?.startIndex ?? null;
+  const lastVisibleRow = rowVirtualizer.range?.endIndex ?? null;
   const visibleChannels = useMemo(() => {
-    const out: Channel[] = [];
     // Placeholders are on screen until the section is loaded: no lookups for hidden cards
-    if (loadStatus !== 'loaded') return out;
-    for (const row of virtualItems) {
-      if (showHero && row.index === 0) continue;
-      const start = (showHero ? row.index - 1 : row.index) * columns;
-      for (let i = start; i < Math.min(start + columns, filteredChannels.length); i++) {
-        out.push(filteredChannels[i]);
-      }
-    }
-    return out;
-  }, [virtualItems, showHero, columns, filteredChannels, loadStatus]);
+    if (loadStatus !== 'loaded' || firstVisibleRow === null || lastVisibleRow === null) return [];
+    return lookAheadChannels(filteredChannels, columns, showHero, firstVisibleRow, lastVisibleRow);
+  }, [firstVisibleRow, lastVisibleRow, showHero, columns, filteredChannels, loadStatus]);
 
   // Guide events feed the epg store for every view below; one listener each.
   useEffect(() => startEpgEvents(), []);

@@ -18,6 +18,8 @@ vi.mock('@tanstack/react-virtual', () => ({
     getTotalSize: () => count * 300,
     measureElement: () => {},
     measure: () => {},
+    // Every row is in view; null for an empty list, like the real one
+    range: count > 0 ? { startIndex: 0, endIndex: count - 1 } : null,
   }),
 }));
 
