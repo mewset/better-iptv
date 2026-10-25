@@ -138,14 +138,16 @@ describe('MainScreen: channel load placeholders', () => {
   });
 
   it('requests no EPG while the section shows placeholders', async () => {
+    // A search needs the library too: SVT1 matches but its card is not shown yet. The query is
+    // set before the first render, so the card is never on screen (typing it would leave the
+    // card up for the 300 ms search debounce, racing the hook's own 500 ms one on a slow machine)
     usePlayerStore.setState({
       channels: [svt1],
       liveChannels: [svt1],
       channelLoad: { live: 'loaded', library: 'loading' },
+      searchQuery: 'SVT',
     });
     render(<MainScreen />);
-    // A search needs the library too: SVT1 matches but its card is not shown yet
-    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'SVT' } });
     expect(await screen.findByTestId('channel-grid-placeholder')).toBeInTheDocument();
     // Longer than the hook's 500 ms debounce
     await new Promise((resolve) => setTimeout(resolve, 800));
