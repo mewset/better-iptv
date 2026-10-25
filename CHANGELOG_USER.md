@@ -13,6 +13,8 @@ A simple overview of new features and improvements.
 ### Fixes
 
 - Fixed a bug that could put some M3U items in the wrong category, e.g. a TV series under Live TV
+- Fixed the channel list jumping down when the categories appear
+- Fixed channels briefly showing "No guide data" before their programme appeared
 
 ### Thanks
 

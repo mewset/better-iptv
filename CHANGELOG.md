@@ -21,6 +21,18 @@ This file is a developer-changelog, aimed towards development changes.
   - `determine_content_type` keeps those rules first. Otherwise a URL whose file ending is a video file (`series_domain::is_video_file`: mp4, mkv, avi, mov, m4v, webm, wmv; query string ignored, any case) is on demand: `series` when `parse_episode_name` finds an episode marker in the name, `vod` when not. Stream endings (`ts`, `m3u8`, `flv`) and everything else stay `live`
   - The same `parse_episode_name` call as in `group_series`, so a row typed `series` here is never demoted back to `live` there
   - Takes effect on the next refresh. Episode rows that were live become one series row per show, so a favourite on a single episode row is dropped; movies keep their row and favourite, since `merge_channels` updates the content type of a matched row
+- **Category row keeps its height while categories load** - `CategoryBar` returned nothing until `get_channel_groups` answered, so the row appeared 70 px tall after the grid and pushed it down; with a warm DB the answer lands after the first Live cards
+  - `categories` in the player store is now `string[] | null`: `null` = not known yet, `[]` = this section has none. MainScreen sets `null` when a request starts (which also drops the previous section's chips) and ignores an answer that arrives after the section changed. For `null` the bar renders an empty strip built from the same row and chip classes, so it is exactly as tall as the chips
+- **"No guide data" only after the guide has answered** - cards showed "No guide data" from mount until the first now/next answer (~0.5 s: the 500 ms debounce plus the round trip), on every start, section switch and scroll. The line stays blank until the card's key has been asked; a failed request or an `epg-refreshed` invalidation also leaves it blank until it is asked again
+- **Loading placeholders fill the visible grid** - the placeholder grid drew a fixed number of rows, which at 1920x1080 covered 3 of 5 visible rows; it now draws `useResponsiveGrid`'s window rows
+
+### Performance
+
+- **Faster first Live frame** - the frontend work between the live `get_channels` answer and the first frame with cards, measured in the real app (instrumented LTO builds, 766x791 window, 7 starts per cell, control and branch back to back): answer to laid-out frame 113 -> 83 ms (DB cached) and 47 -> 28 ms (not cached); Live visible from start 949 -> 914 ms cached, 935 -> 921 ms not cached (within spread)
+  - The grid virtualizer mounts one overscan row instead of five (`MainScreen.tsx`): 27 -> 12 cards in the first frame at that window, 60 -> 36 at 1920x1080 (harness -41 ms there). The guide and TMDB look-ahead no longer piggyback on overscan: `lookAheadChannels` takes the visible range plus 5 rows, so prefetch reach is unchanged
+  - Card icons (play, stop, favourite, lock) are CSS masks with lucide's own paths (`.icon` in `src/index.css`) instead of lucide components: 120 components and 240 nodes fewer at 60 cards, ~12 of 31 ms of the WebKit render phase in the harness
+  - `App` selects only `isSetupComplete` from the player store instead of the whole store, so store updates no longer re-render `App` and the unmemoized `MainScreen`
+  - Not changed: with a warm DB the categories answer still lands between the cards commit and the frame and costs ~35 ms before it (165 chips styled and laid out). Holding the row's height did not reduce it
 
 ### Thanks
 
