@@ -398,7 +398,10 @@ export default function MainScreen() {
     count: rowCount,
     getScrollElement: () => parentRef.current,
     estimateSize: (index) => (showHero && index === 0 ? 272 + 20 : estimatedRowHeight),
-    overscan: 5, // Pre-render 5 rows above/below for smoother scroll on large lists
+    // One row above and below the view: every mounted card costs render and layout time on
+    // the first frame and on every list switch. The guide and TMDB look-ahead is separate
+    // (LOOKAHEAD_ROWS), so this only has to cover scrolling.
+    overscan: 1,
   });
 
   // A `kind` (and therefore column count) switch invalidates every cached row
