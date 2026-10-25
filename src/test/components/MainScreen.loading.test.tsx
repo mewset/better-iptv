@@ -236,4 +236,28 @@ describe('MainScreen: channel load placeholders', () => {
     await act(async () => answerMovies(['Action']));
     expect(await screen.findByRole('tab', { name: 'Action' })).toBeInTheDocument();
   });
+
+  it("ignores the previous section's categories when they answer late", async () => {
+    let answerLive: (groups: string[]) => void = () => {};
+    const base = mockedInvoke.getMockImplementation()!;
+    mockedInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd !== 'get_channel_groups') return base(cmd, args as never);
+      const { contentType } = args as { contentType: string };
+      if (contentType === 'vod') return ['Action'];
+      return new Promise<string[]>((resolve) => (answerLive = resolve));
+    });
+    usePlayerStore.setState({
+      channels: [svt1],
+      liveChannels: [svt1],
+      channelLoad: { live: 'loaded', library: 'loaded' },
+    });
+    render(<MainScreen />);
+
+    act(() => usePlayerStore.setState({ contentTypeFilter: 'vod' }));
+    expect(await screen.findByRole('tab', { name: 'Action' })).toBeInTheDocument();
+
+    await act(async () => answerLive(['Sweden']));
+    expect(screen.queryByRole('tab', { name: 'Sweden' })).toBeNull();
+    expect(usePlayerStore.getState().categories).toEqual(['Action']);
+  });
 });

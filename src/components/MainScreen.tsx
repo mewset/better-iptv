@@ -244,13 +244,21 @@ export default function MainScreen() {
 
     // null until the answer, so the category row keeps its height instead of the list jumping
     setCategories(null);
+    // A late answer for the previous section must not replace this one's
+    let cancelled = false;
     const contentType = contentTypeFilter === 'guide' ? 'live' : contentTypeFilter;
     getChannelGroups(currentPlaylist.id, contentType)
-      .then(setCategories)
+      .then((groups) => {
+        if (!cancelled) setCategories(groups);
+      })
       .catch((err) => {
+        if (cancelled) return;
         logger.error('Failed to fetch categories:', err);
         setCategories([]);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [currentPlaylist?.id, contentTypeFilter, setCategories]);
 
   // Pre-compute parental blocking results (avoids per-card shouldBlockChannel calls)
