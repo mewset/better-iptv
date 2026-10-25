@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
@@ -208,5 +208,30 @@ describe('MainScreen: channel load placeholders', () => {
     });
     render(<MainScreen />);
     expect(screen.getByText('1 channel')).toBeInTheDocument();
+  });
+
+  it("drops the previous section's chips while the next section's categories load", async () => {
+    let answerMovies: (groups: string[]) => void = () => {};
+    const base = mockedInvoke.getMockImplementation()!;
+    mockedInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd !== 'get_channel_groups') return base(cmd, args as never);
+      const { contentType } = args as { contentType: string };
+      if (contentType === 'live') return ['Sweden'];
+      return new Promise<string[]>((resolve) => (answerMovies = resolve));
+    });
+    usePlayerStore.setState({
+      channels: [svt1],
+      liveChannels: [svt1],
+      channelLoad: { live: 'loaded', library: 'loaded' },
+    });
+    render(<MainScreen />);
+    expect(await screen.findByRole('tab', { name: 'Sweden' })).toBeInTheDocument();
+
+    act(() => usePlayerStore.setState({ contentTypeFilter: 'vod' }));
+    await waitFor(() => expect(usePlayerStore.getState().categories).toBeNull());
+    expect(screen.queryByRole('tab', { name: 'Sweden' })).toBeNull();
+
+    await act(async () => answerMovies(['Action']));
+    expect(await screen.findByRole('tab', { name: 'Action' })).toBeInTheDocument();
   });
 });

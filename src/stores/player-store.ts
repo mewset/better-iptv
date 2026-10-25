@@ -175,9 +175,10 @@ interface PlayerState {
 
   // Category Filter (provider categories like "Sweden", "Norway", etc.)
   categoryFilter: string | null;
-  categories: string[];
+  /** null while the section's categories are being fetched, [] when it has none */
+  categories: string[] | null;
   setCategoryFilter: (category: string | null) => void;
-  setCategories: (categories: string[]) => void;
+  setCategories: (categories: string[] | null) => void;
 
   // Playback
   isPlaying: boolean;
@@ -388,7 +389,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   // Category Filter
   categoryFilter: null,
-  categories: [],
+  categories: null,
   setCategoryFilter: (category) => set({ categoryFilter: category }),
   setCategories: (categories) => set({ categories }),
 

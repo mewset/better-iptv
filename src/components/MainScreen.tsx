@@ -240,6 +240,8 @@ export default function MainScreen() {
       return;
     }
 
+    // null until the answer, so the category row keeps its height instead of the list jumping
+    setCategories(null);
     const contentType = contentTypeFilter === 'guide' ? 'live' : contentTypeFilter;
     getChannelGroups(currentPlaylist.id, contentType)
       .then(setCategories)
