@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use log::{debug, info, warn};
+use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::Duration;
@@ -86,6 +87,57 @@ fn get_mpv_path() -> PathBuf {
     }
 }
 
+/// The command that starts MPV. An AppImage's AppRun points `LD_LIBRARY_PATH` and the GTK/GIO
+/// variables into the image, and a system mpv that inherits them loads the bundled libraries (an
+/// OpenSSL older than the system curl needs) and exits at once (#85). So nothing inside `APPDIR`
+/// reaches mpv. Outside an AppImage `APPDIR` is unset and the environment passes unchanged.
+fn mpv_command() -> Command {
+    let mut cmd = Command::new(get_mpv_path());
+    if let Some(appdir) = std::env::var_os("APPDIR") {
+        for (key, value) in env_without_appdir(&appdir, std::env::vars_os()) {
+            match value {
+                Some(value) => cmd.env(key, value),
+                None => cmd.env_remove(key),
+            };
+        }
+    }
+    cmd
+}
+
+/// The changes that keep `appdir` out of an environment: a `:`-separated value loses its entries
+/// inside `appdir`, and a variable left with none is removed (`None`). Unaffected variables are
+/// not listed.
+fn env_without_appdir(
+    appdir: &OsStr,
+    vars: impl Iterator<Item = (OsString, OsString)>,
+) -> Vec<(OsString, Option<OsString>)> {
+    let appdir = appdir.to_string_lossy();
+    let appdir = appdir.trim_end_matches('/');
+    if appdir.is_empty() {
+        return Vec::new();
+    }
+    let inside = |entry: &str| {
+        entry
+            .strip_prefix(appdir)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    };
+    vars.filter_map(|(key, value)| {
+        let value = value.to_string_lossy();
+        if !value.split(':').any(inside) {
+            return None;
+        }
+        let kept: Vec<&str> = value
+            .split(':')
+            .filter(|entry| !entry.is_empty() && !inside(entry))
+            .collect();
+        Some((
+            key,
+            (!kept.is_empty()).then(|| OsString::from(kept.join(":"))),
+        ))
+    })
+    .collect()
+}
+
 /// MPV player controller using external process approach
 pub struct MpvPlayer {
     process: Option<Child>,
@@ -120,10 +172,7 @@ impl MpvPlayer {
 
     /// Check if MPV is installed on the system
     pub fn check_installed() -> bool {
-        Command::new(get_mpv_path())
-            .arg("--version")
-            .output()
-            .is_ok()
+        mpv_command().arg("--version").output().is_ok()
     }
 
     /// Apply MPV arguments from playback options
@@ -242,7 +291,7 @@ impl MpvPlayer {
         self.stop()?;
 
         // Build MPV command
-        let mut cmd = Command::new(get_mpv_path());
+        let mut cmd = mpv_command();
         Self::apply_args(&mut cmd, options);
         cmd.arg(url);
 
@@ -267,7 +316,7 @@ impl MpvPlayer {
         self.stop()?;
 
         // Build MPV command
-        let mut cmd = Command::new(get_mpv_path());
+        let mut cmd = mpv_command();
         Self::apply_args(&mut cmd, options);
 
         // Add all URLs as arguments (MPV will play them in sequence)
@@ -356,6 +405,81 @@ impl Drop for MpvPlayer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn env_changes(appdir: &str, vars: &[(&str, &str)]) -> Vec<(String, Option<String>)> {
+        env_without_appdir(
+            OsStr::new(appdir),
+            vars.iter()
+                .map(|(k, v)| (OsString::from(k), OsString::from(v))),
+        )
+        .into_iter()
+        .map(|(k, v)| {
+            (
+                k.to_string_lossy().into_owned(),
+                v.map(|v| v.to_string_lossy().into_owned()),
+            )
+        })
+        .collect()
+    }
+
+    #[test]
+    fn appimage_entries_are_kept_away_from_mpv() {
+        let a = "/tmp/.mount_betterAbc";
+        let changes = env_changes(
+            a,
+            &[
+                (
+                    "LD_LIBRARY_PATH",
+                    &format!("{a}/usr/lib/:{a}/usr/lib/x86_64-linux-gnu/:/opt/lib"),
+                ),
+                ("GTK_PATH", &format!("{a}//usr/lib/gtk-3.0")),
+                (
+                    "XDG_DATA_DIRS",
+                    &format!("{a}/usr/share:/usr/share:/usr/local/share"),
+                ),
+                ("APPDIR", a),
+                ("APPIMAGE", "/home/u/Better_IPTV.AppImage"),
+                ("HOME", "/home/u"),
+                ("GDK_BACKEND", "x11"),
+            ],
+        );
+        assert_eq!(
+            changes,
+            vec![
+                ("LD_LIBRARY_PATH".into(), Some("/opt/lib".into())),
+                ("GTK_PATH".into(), None),
+                (
+                    "XDG_DATA_DIRS".into(),
+                    Some("/usr/share:/usr/local/share".into())
+                ),
+                ("APPDIR".into(), None),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_path_that_only_shares_the_appdir_prefix_is_kept() {
+        let changes = env_changes(
+            "/tmp/.mount_abc/",
+            &[(
+                "PATH",
+                "/tmp/.mount_abcdef/bin:/tmp/.mount_abc/usr/bin:/usr/bin",
+            )],
+        );
+        assert_eq!(
+            changes,
+            vec![(
+                "PATH".into(),
+                Some("/tmp/.mount_abcdef/bin:/usr/bin".into())
+            )]
+        );
+    }
+
+    #[test]
+    fn an_empty_appdir_changes_nothing() {
+        assert!(env_changes("", &[("LD_LIBRARY_PATH", "/usr/lib")]).is_empty());
+        assert!(env_changes("/", &[("LD_LIBRARY_PATH", "/usr/lib")]).is_empty());
+    }
 
     #[test]
     fn exit_codes_1_to_3_are_failures_and_normal_quit_or_a_signal_is_not() {
