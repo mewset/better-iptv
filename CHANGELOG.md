@@ -26,6 +26,10 @@ This file is a developer-changelog, aimed towards development changes.
   - `categories` in the player store is now `string[] | null`: `null` = not known yet, `[]` = this section has none. MainScreen sets `null` when a request starts (which also drops the previous section's chips) and ignores an answer that arrives after the section changed. For `null` the bar renders an empty strip built from the same row and chip classes, so it is exactly as tall as the chips
 - **"No guide data" only after the guide has answered** - cards showed "No guide data" from mount until the first now/next answer (~0.5 s: the 500 ms debounce plus the round trip), on every start, section switch and scroll. The line stays blank until the card's key has been asked; a failed request or an `epg-refreshed` invalidation also leaves it blank until it is asked again
 - **Loading placeholders fill the visible grid** - the placeholder grid drew a fixed number of rows, which at 1920x1080 covered 3 of 5 visible rows; it now draws `useResponsiveGrid`'s window rows
+- **System mpv started from the Linux AppImage loaded the bundled OpenSSL** - the AppImage's `AppRun` and its GTK hook put `LD_LIBRARY_PATH`, `GTK_PATH`, `GIO_EXTRA_MODULES`, `XDG_DATA_DIRS` and more into `$APPDIR`, and mpv inherited them. A system `libcurl` built against OpenSSL 3.2+ then loaded the image's OpenSSL 3.0 (Ubuntu 22.04 build) and mpv exited with `version 'OPENSSL_3.5.0' not found`, so nothing played on Arch, Fedora, Tumbleweed or newer Ubuntu (#85)
+  - Every mpv start (`check_installed`, `play_stream`, `play_playlist`) goes through `mpv_command()`. When `APPDIR` is set it applies `env_without_appdir`: a `:`-separated value loses its entries inside `APPDIR` (exact path or `APPDIR/…`, so `/tmp/.mount_abcdef` survives an `APPDIR` of `/tmp/.mount_abc`), and a variable left empty is removed. Outside an AppImage nothing changes
+  - Reproduced with the 3.2.0 AppImage on Arch (openssl 3.6.5, curl 8.23.0, mpv 0.41.0): with the image's environment, `mpv --version` exits 1 unfiltered and 0 through `mpv_command()`. The `-arch` AppImage and the AUR packages bundle no libraries and were not affected
+  - `xdg-open` started by the opener plugin inherits the same environment; that spawn is inside the plugin and is not covered here
 
 ### Performance
 
@@ -38,6 +42,7 @@ This file is a developer-changelog, aimed towards development changes.
 ### Thanks
 
 - **@APPLEPIE6969** for reporting the Windows scrollbars with a screenshot (#83), and for the playlist samples that showed M3U movies landing in Live TV (#84)
+- **@Aitnah** for tracking down why the Linux AppImage could not play on newer distributions, with the root cause and a ready fix (#85)
 
 ## [3.2.0] - 2026-10-22
 

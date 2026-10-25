@@ -15,10 +15,12 @@ A simple overview of new features and improvements.
 - Fixed a bug that could put some M3U items in the wrong category, e.g. a TV series under Live TV
 - Fixed the channel list jumping down when the categories appear
 - Fixed channels briefly showing "No guide data" before their programme appeared
+- Fixed channels not playing in the Linux AppImage on newer distributions (Issue: #85)
 
 ### Thanks
 
 - **@APPLEPIE6969** for reporting the Windows scrollbars with a screenshot (#83), and for the playlist samples that showed M3U movies landing in Live TV (#84)
+- **@Aitnah** for tracking down why the Linux AppImage could not play on newer distributions, with a ready fix (#85)
 
 ## Version 3.2.0 (October 22, 2026)
 
