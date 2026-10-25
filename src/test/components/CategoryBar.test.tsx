@@ -24,6 +24,15 @@ describe('CategoryBar', () => {
     expect(chipHeight?.[0]).toBe(spacerClass);
   });
 
+  it('reserves the scrollbar gutter from the first layout, while loading too', () => {
+    // WebKitGTK does not grow the parent when an overflow-x:auto scrollbar appears later, so
+    // the list below would cover it; jsdom has no layout, so check the rule that prevents it
+    const { container } = render(<CategoryBar />);
+    expect(container.firstElementChild).toHaveClass('overflow-x-scroll');
+    act(() => usePlayerStore.setState({ categories: ['Sweden'] }));
+    expect(screen.getByRole('tablist')).toHaveClass('overflow-x-scroll');
+  });
+
   it('renders nothing for a section without categories', () => {
     usePlayerStore.setState({ categories: [] });
     const { container } = render(<CategoryBar />);

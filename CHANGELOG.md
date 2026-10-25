@@ -10,6 +10,7 @@ This file is a developer-changelog, aimed towards development changes.
 - **Styled scrollbars** - WebView2 on Windows drew the stock scrollbar with arrow buttons on every scroll area (#83)
   - Global `::-webkit-scrollbar` rules in `src/index.css`: a 6px pill thumb in a 10px gutter, tinted from `--color-text` so it follows the theme, transparent track and corner, no buttons. WebView2, WebKitGTK and WKWebView all honour them. `scrollbar-width`/`scrollbar-color` stay unset, since Chromium ignores the pseudo-elements on elements that set either
   - Dropped `scrollbar-hide` from `CategoryBar`: no rule ever defined it, so the bar always had a scrollbar. It keeps the styled one, which mouse users without horizontal scroll need
+  - `CategoryBar` uses `overflow-x-scroll`, not `auto`, so its 10px gutter exists from the first layout. With `auto` the gutter appeared once the chips overflowed (after the loading strip), WebKitGTK did not grow the bar's wrapper for it, and the channel list below covered the scrollbar: the thumb could not be grabbed or hovered
 
 ### Fixed
 

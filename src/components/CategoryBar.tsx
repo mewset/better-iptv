@@ -8,8 +8,11 @@ interface CategoryBarProps {
   onAll?: () => void;
 }
 
-// The loading strip is built from these too, so it is exactly as tall as the row of chips
-const ROW = 'flex gap-2 overflow-x-auto bg-bg px-4 py-3 pb-6';
+// The loading strip is built from these too, so it is exactly as tall as the row of chips.
+// overflow-x-scroll, not auto: the scrollbar gutter is there from the first layout. With auto it
+// appears once the chips overflow, and WebKitGTK does not grow the parent for it, so the channel
+// list below covers the scrollbar and the thumb cannot be grabbed.
+const ROW = 'flex gap-2 overflow-x-scroll bg-bg px-4 py-3 pb-6';
 const CHIP_HEIGHT = 'h-[34px]';
 
 /**
