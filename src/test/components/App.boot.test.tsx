@@ -9,8 +9,12 @@ import type { Playlist } from '../../types';
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
 }));
+const mainScreen = vi.hoisted(() => ({ renders: 0 }));
 vi.mock('../../components/MainScreen', () => ({
-  default: () => <div data-testid="main-screen" />,
+  default: () => {
+    mainScreen.renders += 1;
+    return <div data-testid="main-screen" />;
+  },
 }));
 
 const mockedInvoke = vi.mocked(invoke);
@@ -146,6 +150,17 @@ describe('App boot', () => {
     expect(queryByText(/Loading playlist/i)).not.toBeInTheDocument();
     await findByTestId('main-screen');
     expect(queryByText(/Loading playlist/i)).not.toBeInTheDocument();
+  });
+
+  it('does not re-render the main screen on store changes App does not read', async () => {
+    mockBackend(base);
+    const { findByTestId } = render(<App />);
+    await findByTestId('main-screen');
+    await waitFor(() => expect(usePlayerStore.getState().channelLoad.library).toBe('loaded'));
+    const before = mainScreen.renders;
+    act(() => usePlayerStore.setState({ categories: ['Sweden'], isLoading: true }));
+    act(() => usePlayerStore.getState().showToast('Saved'));
+    expect(mainScreen.renders).toBe(before);
   });
 
   it('fetches playlists, profile, status and parental settings in parallel', async () => {

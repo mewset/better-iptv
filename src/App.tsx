@@ -8,22 +8,25 @@ import { homeGateOpen } from './lib/tmdb';
 import { logger } from './lib/logger';
 
 export default function App() {
-  const {
-    isSetupComplete,
-    setIsSetupComplete,
-    setPlaylists,
-    loadChannels,
-    loadParentalSettings,
-    setCurrentPlaylist,
-    setActiveProfileId,
-    setTmdbStatus,
-    setContentTypeFilter,
-  } = usePlayerStore();
+  // Only the flag: subscribing to the whole store re-rendered App, and with it MainScreen,
+  // on every store change
+  const isSetupComplete = usePlayerStore((s) => s.isSetupComplete);
   const [isCheckingSetup, setIsCheckingSetup] = useState(true);
 
   useEffect(() => {
     // Check if user has any playlists on app start
     async function checkSetup() {
+      // Store actions are stable, so they are read once here instead of subscribed to
+      const {
+        setIsSetupComplete,
+        setPlaylists,
+        loadChannels,
+        loadParentalSettings,
+        setCurrentPlaylist,
+        setActiveProfileId,
+        setTmdbStatus,
+        setContentTypeFilter,
+      } = usePlayerStore.getState();
       try {
         // Parental settings are awaited before MainScreen mounts, so the first render already
         // filters. loadParentalSettings swallows its own errors: if it fails, the defaults
@@ -64,16 +67,7 @@ export default function App() {
     }
 
     checkSetup();
-  }, [
-    setIsSetupComplete,
-    setPlaylists,
-    loadChannels,
-    loadParentalSettings,
-    setCurrentPlaylist,
-    setActiveProfileId,
-    setTmdbStatus,
-    setContentTypeFilter,
-  ]);
+  }, []);
 
   if (isCheckingSetup) {
     return <div className="min-h-screen bg-bg" />;
