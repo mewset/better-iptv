@@ -79,6 +79,28 @@ describe('live ChannelCard', () => {
     expect(screen.getByRole('button', { name: 'Stop SVT1' })).toBeInTheDocument();
   });
 
+  it('fills the star only on a favourite', () => {
+    const star = (name: string) =>
+      screen.getByRole('button', { name }).querySelector('.icon') as HTMLElement;
+    const { rerender } = render(<ChannelCard channel={ch} isPlaying={false} onPlay={vi.fn()} />);
+    expect(star('Add to favorites')).toHaveClass('icon-star');
+    expect(star('Add to favorites')).not.toHaveClass('icon-star-filled');
+
+    rerender(
+      <ChannelCard channel={{ ...ch, is_favorite: true }} isPlaying={false} onPlay={vi.fn()} />
+    );
+    expect(star('Remove from favorites')).toHaveClass('icon-star-filled');
+    expect(star('Remove from favorites')).not.toHaveClass('icon-star');
+  });
+
+  it('draws its icons without SVG elements', () => {
+    const { container } = render(<ChannelCard channel={ch} isPlaying={false} onPlay={vi.fn()} />);
+    expect(container.querySelector('svg')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Play SVT1' }).querySelector('.icon')).toHaveClass(
+      'icon-play'
+    );
+  });
+
   it.each(['lock', 'blur'] as const)(
     'in %s mode asks for the PIN and hides the programme',
     (mode) => {

@@ -1,6 +1,5 @@
 import { memo, useEffect, useState } from 'react';
 import { useChannelLogo } from '../hooks/useChannelLogo';
-import { Play, Square, Star, Lock } from 'lucide-react';
 import type { Channel } from '../types';
 import type { NowNext } from '../lib/epgIpc';
 import { formatClock } from '../lib/epgTime';
@@ -122,11 +121,14 @@ export const ChannelCard = memo(function ChannelCard({
                   : 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100'
               }`}
             >
-              <Star
-                className={`h-4 w-4 ${
-                  channel.is_favorite ? 'fill-current text-accent-text' : 'text-[#F2F2F0]/55'
-                }`}
+              {/* Icons are CSS masks (.icon in index.css): no component per card to render */}
+              <span
                 aria-hidden="true"
+                className={`icon h-4 w-4 ${
+                  channel.is_favorite
+                    ? 'icon-star-filled text-accent-text'
+                    : 'icon-star text-[#F2F2F0]/55'
+                }`}
               />
             </button>
 
@@ -139,11 +141,10 @@ export const ChannelCard = memo(function ChannelCard({
               }}
               className="absolute left-1/2 top-1/2 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-accent text-on-accent opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100"
             >
-              {isPlaying ? (
-                <Square className="h-4 w-4" aria-hidden="true" />
-              ) : (
-                <Play className="h-4 w-4" aria-hidden="true" />
-              )}
+              <span
+                aria-hidden="true"
+                className={`icon h-4 w-4 ${isPlaying ? 'icon-square' : 'icon-play'}`}
+              />
             </button>
           </>
         )}
@@ -218,7 +219,7 @@ export const ChannelCard = memo(function ChannelCard({
             parentalVisibility === 'blur' ? 'bg-bg/55 backdrop-blur-md' : 'bg-bg/80'
           }`}
         >
-          <Lock className="h-7 w-7" aria-hidden="true" />
+          <span aria-hidden="true" className="icon icon-lock h-7 w-7" />
           <span className="text-xs font-semibold text-text">Enter PIN to watch</span>
         </button>
       )}
