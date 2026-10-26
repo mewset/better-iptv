@@ -13,18 +13,21 @@ const ALLOWED_SCHEMES: &[&str] = &[
     "http://", "https://", "rtsp://", "rtmp://", "rtp://", "udp://",
 ];
 
-/// Characters that could be used for shell injection
-const FORBIDDEN_CHARS: &[char] = &['`', '$', ';', '|', '&', '>', '<', '\n', '\r', '\0'];
-
 /// Maximum allowed URL length
 const MAX_URL_LENGTH: usize = 4096;
 
 /// Validate a stream URL before passing to MPV
 ///
 /// Checks:
-/// - URL scheme is whitelisted (http, https, rtsp, rtmp, rtp, udp)
-/// - No shell metacharacters that could enable command injection
+/// - URL scheme is whitelisted (http, https, rtsp, rtmp, rtp, udp), which also
+///   keeps out mpv's own protocols (`edl://`, `av://`, ...) and anything mpv
+///   would read as an option
+/// - No control characters
 /// - Reasonable URL length
+///
+/// Shell metacharacters such as `&` or `;` are allowed: mpv is started with the
+/// URL as a single argument and no shell in between, so they reach mpv as
+/// plain text, and a query string like `?token=a&exp=1` needs them.
 fn validate_stream_url(url: &str) -> Result<()> {
     // Check URL length
     if url.len() > MAX_URL_LENGTH {
@@ -46,10 +49,9 @@ fn validate_stream_url(url: &str) -> Result<()> {
         ));
     }
 
-    // Check for forbidden characters (shell injection prevention)
-    if url.chars().any(|c| FORBIDDEN_CHARS.contains(&c)) {
-        warn!("Rejected URL containing forbidden characters");
-        return Err(anyhow::anyhow!("URL contains forbidden characters"));
+    if url.chars().any(char::is_control) {
+        warn!("Rejected URL containing control characters");
+        return Err(anyhow::anyhow!("URL contains control characters"));
     }
 
     Ok(())
@@ -598,13 +600,17 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_url_shell_injection() {
-        assert!(validate_stream_url("http://example.com/`whoami`").is_err());
-        assert!(validate_stream_url("http://example.com/$HOME").is_err());
-        assert!(validate_stream_url("http://example.com/;rm -rf /").is_err());
-        assert!(validate_stream_url("http://example.com/|cat /etc/passwd").is_err());
-        assert!(validate_stream_url("http://example.com/&id").is_err());
+    fn test_validate_url_accepts_query_strings_and_shell_characters() {
+        assert!(validate_stream_url("http://example.com/live.m3u8?token=a&exp=1").is_ok());
+        assert!(validate_stream_url("http://example.com/live/u/p$s;w|d/1.m3u8").is_ok());
+    }
+
+    #[test]
+    fn test_validate_url_rejects_control_characters() {
         assert!(validate_stream_url("http://example.com/\nmalicious").is_err());
+        assert!(validate_stream_url("http://example.com/a\rb").is_err());
+        assert!(validate_stream_url("http://example.com/a\0b").is_err());
+        assert!(validate_stream_url("http://example.com/a\tb").is_err());
     }
 
     #[test]
