@@ -3,6 +3,23 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## [Unreleased]
+
+### Changed
+
+- **Xtream setup takes the full provider link** - providers often hand out `http://host:port/player_api.php?username=…&password=…` (or the `get.php` M3U link), and Open TV expects that form. Every request appends its own `/player_api.php`, so that input became `/player_api.php/player_api.php` and every call answered 404
+  - `playlist_domain::normalize_xtream_server_url` runs first in `import_xtream_playlist`: it trims, drops query and fragment, and removes a final `*.php` segment (any case), keeping a path prefix such as `/panel`. Text that is not an http(s) URL is only trimmed, so a missing scheme fails as before
+  - `parseXtreamLink` (`src/lib/xtreamLink.ts`) reads `username` and `password` from a link typed or pasted into Setup's Server URL field and fills all three fields, the server cut back the same way. A link without both parameters is left as typed
+
+### Fixed
+
+- **Xtream credentials percent-encoded in `player_api.php` requests** - username and password went into the query unencoded, so a password with `&`, `#`, `+` or a space reached the panel cut short or changed. All six `player_api.php` URLs now come from `player_api_url`, which encodes them with the same set as the guide URL (`utils::CREDENTIAL`, moved from `epg_domain::source`)
+  - Stream URLs (`/live/user/pass/…`, `/movie/…`, `/series/…`) still carry the credentials as path segments unencoded. They are stored in `channels.url` and parsed back by `extract_stream_key_from_url` and `parse_xtream_series_id`, so changing them is a separate job
+
+### Thanks
+
+- **@JadMadi** (on X) for reporting the 404 on import with the full provider link, on Debian
+
 ## [3.2.1] - 2026-10-25
 
 ### Changed

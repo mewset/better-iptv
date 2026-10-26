@@ -4,6 +4,16 @@ A simple overview of new features and improvements.
 
 ---
 
+## Unreleased
+
+### Improvements
+
+- Xtream setup now accepts the full link from your provider and fills in the server, username and password for you
+
+### Thanks
+
+- **@JadMadi** (on X) for reporting the Xtream import failing with the full link from the provider
+
 ## Version 3.2.1 (October 25, 2026)
 
 ### Improvements
