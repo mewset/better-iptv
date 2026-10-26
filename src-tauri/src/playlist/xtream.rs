@@ -296,12 +296,6 @@ where
     Ok(all_channels)
 }
 
-/// Fetch channels from Xtream Codes API (without progress)
-#[allow(dead_code)] // Convenience function for future use
-pub async fn fetch_xtream_channels(creds: &XtreamCredentials) -> Result<Vec<Channel>> {
-    fetch_xtream_channels_with_progress(creds, None, |_| {}).await
-}
-
 /// Create exponential backoff configuration for API retries
 fn create_backoff() -> ExponentialBackoff {
     ExponentialBackoff {
@@ -729,17 +723,6 @@ fn build_stream_url(
     }
 }
 
-/// Generate M3U URL from Xtream credentials
-#[allow(dead_code)] // Alternative playlist format for future use
-pub fn get_xtream_m3u_url(creds: &XtreamCredentials) -> String {
-    format!(
-        "{}/get.php?username={}&password={}&type=m3u_plus&output=ts",
-        creds.server_url.trim_end_matches('/'),
-        utf8_percent_encode(&creds.username, CREDENTIAL),
-        utf8_percent_encode(&creds.password, CREDENTIAL)
-    )
-}
-
 /// Fetch series information (seasons and episodes)
 pub async fn fetch_series_info(creds: &XtreamCredentials, series_id: i64) -> Result<SeriesInfo> {
     let url = player_api_url(
@@ -748,19 +731,6 @@ pub async fn fetch_series_info(creds: &XtreamCredentials, series_id: i64) -> Res
     );
 
     fetch_json_with_retry(&url, "series info", None).await
-}
-
-/// Build episode playback URL
-#[allow(dead_code)] // Helper function for future episode playback features
-pub fn build_episode_url(creds: &XtreamCredentials, episode_id: &str, extension: &str) -> String {
-    format!(
-        "{}/series/{}/{}/{}.{}",
-        creds.server_url.trim_end_matches('/'),
-        utf8_percent_encode(&creds.username, PATH_CREDENTIAL),
-        utf8_percent_encode(&creds.password, PATH_CREDENTIAL),
-        episode_id,
-        extension
-    )
 }
 
 #[cfg(test)]
