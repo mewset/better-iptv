@@ -1,7 +1,7 @@
 //! Utility functions shared across modules
 
 use lazy_static::lazy_static;
-use percent_encoding::{AsciiSet, NON_ALPHANUMERIC};
+use percent_encoding::{AsciiSet, CONTROLS, NON_ALPHANUMERIC};
 use regex::Regex;
 
 /// Everything but RFC 3986's unreserved characters (`A-Z a-z 0-9 - . _ ~`)
@@ -11,6 +11,12 @@ pub const CREDENTIAL: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'.')
     .remove(b'_')
     .remove(b'~');
+
+/// What is percent-encoded in a credential sent as a path segment
+/// (`/live/{user}/{pass}/1.m3u8`): only the characters that would change how
+/// the URL splits (`/ ? # %`, space and control characters). A credential that
+/// already worked keeps the exact URL it had.
+pub const PATH_CREDENTIAL: &AsciiSet = &CONTROLS.add(b' ').add(b'#').add(b'%').add(b'/').add(b'?');
 
 lazy_static! {
     // Key/value pairs: `?username=X`, `&password=X`, but also `username=X` in a free-form log

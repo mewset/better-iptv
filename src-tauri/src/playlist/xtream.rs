@@ -1,6 +1,6 @@
 use crate::db::models::Channel;
 use crate::http::{download_error, get_http_client, BULK_DOWNLOAD_TIMEOUT};
-use crate::utils::{mask_credentials, CREDENTIAL};
+use crate::utils::{mask_credentials, CREDENTIAL, PATH_CREDENTIAL};
 use anyhow::{Context, Result};
 use backoff::{future::retry, ExponentialBackoff};
 use log::warn;
@@ -716,24 +716,16 @@ fn build_stream_url(
     container_extension: &str,
 ) -> String {
     let base_url = creds.server_url.trim_end_matches('/');
+    let username = utf8_percent_encode(&creds.username, PATH_CREDENTIAL);
+    let password = utf8_percent_encode(&creds.password, PATH_CREDENTIAL);
 
     match content_type {
-        "live" => format!(
-            "{}/live/{}/{}/{}.m3u8",
-            base_url, creds.username, creds.password, stream_id
-        ),
-        "vod" => format!(
-            "{}/movie/{}/{}/{}.{}",
-            base_url, creds.username, creds.password, stream_id, container_extension
-        ),
-        "series" => format!(
-            "{}/series/{}/{}/{}.mp4",
-            base_url, creds.username, creds.password, stream_id
-        ),
-        _ => format!(
-            "{}/live/{}/{}/{}.m3u8",
-            base_url, creds.username, creds.password, stream_id
-        ),
+        "live" => format!("{base_url}/live/{username}/{password}/{stream_id}.m3u8"),
+        "vod" => {
+            format!("{base_url}/movie/{username}/{password}/{stream_id}.{container_extension}")
+        }
+        "series" => format!("{base_url}/series/{username}/{password}/{stream_id}.mp4"),
+        _ => format!("{base_url}/live/{username}/{password}/{stream_id}.m3u8"),
     }
 }
 
@@ -743,8 +735,8 @@ pub fn get_xtream_m3u_url(creds: &XtreamCredentials) -> String {
     format!(
         "{}/get.php?username={}&password={}&type=m3u_plus&output=ts",
         creds.server_url.trim_end_matches('/'),
-        creds.username,
-        creds.password
+        utf8_percent_encode(&creds.username, CREDENTIAL),
+        utf8_percent_encode(&creds.password, CREDENTIAL)
     )
 }
 
@@ -764,8 +756,8 @@ pub fn build_episode_url(creds: &XtreamCredentials, episode_id: &str, extension:
     format!(
         "{}/series/{}/{}/{}.{}",
         creds.server_url.trim_end_matches('/'),
-        creds.username,
-        creds.password,
+        utf8_percent_encode(&creds.username, PATH_CREDENTIAL),
+        utf8_percent_encode(&creds.password, PATH_CREDENTIAL),
         episode_id,
         extension
     )
@@ -980,6 +972,22 @@ mod stream_url_tests {
         assert_eq!(
             url_for(json, "series"),
             "http://provider.test/series/u/p/77.mp4"
+        );
+    }
+
+    #[test]
+    fn credentials_that_would_split_the_path_are_percent_encoded() {
+        let creds = XtreamCredentials {
+            server_url: "http://provider.test".to_string(),
+            username: "me@mail.se".to_string(),
+            password: "a/b?c#d e%f&g".to_string(),
+        };
+        let json = r#"{"name":"Ch","stream_id":42}"#;
+        let stream: XtreamStream = serde_json::from_str(json).unwrap();
+        let channels = convert_streams_to_channels(&creds, vec![stream], "live", &HashMap::new());
+        assert_eq!(
+            channels[0].url,
+            "http://provider.test/live/me@mail.se/a%2Fb%3Fc%23d%20e%25f&g/42.m3u8"
         );
     }
 

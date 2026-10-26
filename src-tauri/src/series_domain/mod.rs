@@ -7,7 +7,9 @@
 use crate::db::models::{Channel, SeriesEpisode};
 use crate::error::AppError;
 use crate::playlist::{Episode, EpisodeInfo, Season, SeriesInfo, SeriesMetadata};
+use crate::utils::PATH_CREDENTIAL;
 use lazy_static::lazy_static;
+use percent_encoding::utf8_percent_encode;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -369,7 +371,8 @@ pub fn validate_episodes(episodes: &[PlaylistEpisode]) -> Result<(), AppError> {
 /// Build episode URLs from server info and episodes
 ///
 /// Constructs streaming URLs for each episode using the Xtream Codes API format:
-/// `{server_url}/series/{username}/{password}/{episode_id}.{extension}`
+/// `{server_url}/series/{username}/{password}/{episode_id}.{extension}`, the
+/// credentials percent-encoded as path segments (`utils::PATH_CREDENTIAL`)
 ///
 /// # Arguments
 /// * `server_url` - Base server URL (trailing slashes are stripped)
@@ -394,6 +397,8 @@ pub fn build_episode_urls(
     password: &str,
     episodes: &[PlaylistEpisode],
 ) -> Vec<String> {
+    let username = utf8_percent_encode(username, PATH_CREDENTIAL);
+    let password = utf8_percent_encode(password, PATH_CREDENTIAL);
     episodes
         .iter()
         .map(|episode| {
@@ -547,6 +552,20 @@ mod tests {
         assert_eq!(urls.len(), 2);
         assert_eq!(urls[0], "http://example.com/series/user/pass/123.mkv");
         assert_eq!(urls[1], "http://example.com/series/user/pass/456.mp4");
+    }
+
+    #[test]
+    fn test_build_episode_urls_encodes_credentials_that_would_split_the_path() {
+        let episodes = vec![PlaylistEpisode {
+            id: "123".to_string(),
+            title: "Episode 1".to_string(),
+            extension: "mkv".to_string(),
+        }];
+
+        let urls = build_episode_urls("http://example.com", "user", "p/w#1", &episodes);
+
+        assert_eq!(urls[0], "http://example.com/series/user/p%2Fw%231/123.mkv");
+        assert_eq!(parse_xtream_series_id(&urls[0]), Some(123));
     }
 
     #[test]
