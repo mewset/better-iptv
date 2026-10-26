@@ -11,6 +11,7 @@ import { usePlayerStore } from '../stores/player-store';
 import { listen } from '@tauri-apps/api/event';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { logger } from '../lib/logger';
+import { parseXtreamLink } from '../lib/xtreamLink';
 import type { Playlist } from '../types';
 import { X, Check, AlertTriangle } from 'lucide-react';
 import LoadingScreen from './LoadingScreen';
@@ -99,6 +100,19 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
     openUrl(MPV_INSTALL_URL).catch((err) =>
       logger.warn('Failed to open the MPV install page:', err)
     );
+  };
+
+  // A full provider link pasted into the server field fills in all three
+  // fields; anything else is taken as typed.
+  const handleServerUrlChange = (value: string) => {
+    const link = parseXtreamLink(value);
+    if (!link) {
+      setServerUrl(value);
+      return;
+    }
+    setServerUrl(link.serverUrl);
+    setUsername(link.username);
+    setPassword(link.password);
   };
 
   // Tabs keyboard model (WAI-ARIA APG): ArrowLeft/ArrowRight move between
@@ -324,7 +338,7 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
                 id="server"
                 type="text"
                 value={serverUrl}
-                onChange={(e) => setServerUrl(e.target.value)}
+                onChange={(e) => handleServerUrlChange(e.target.value)}
                 placeholder="http://example.com:8080"
                 className="h-11 w-full rounded-xl border border-border-strong bg-text/5 px-3.5 text-text focus:border-transparent focus:outline-none focus:ring-2 focus:ring-accent"
               />

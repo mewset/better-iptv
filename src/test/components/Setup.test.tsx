@@ -77,6 +77,35 @@ describe('Setup', () => {
     expect(screen.getByLabelText('Password')).toBeInTheDocument();
   });
 
+  it('fills in all three Xtream fields from a pasted provider link', async () => {
+    vi.mocked(checkMpvInstalled).mockResolvedValue(true);
+
+    render(<Setup />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Xtream Codes' }));
+
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'http://host:8080/player_api.php?username=alice&password=s3cret' },
+    });
+
+    expect(screen.getByLabelText('Server URL')).toHaveValue('http://host:8080');
+    expect(screen.getByLabelText('Username')).toHaveValue('alice');
+    expect(screen.getByLabelText('Password')).toHaveValue('s3cret');
+  });
+
+  it('leaves a typed server URL without credentials as it is', async () => {
+    vi.mocked(checkMpvInstalled).mockResolvedValue(true);
+
+    render(<Setup />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Xtream Codes' }));
+
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'http://host:8080/' },
+    });
+
+    expect(screen.getByLabelText('Server URL')).toHaveValue('http://host:8080/');
+    expect(screen.getByLabelText('Username')).toHaveValue('');
+  });
+
   it('names the submit button "Import playlist"', async () => {
     vi.mocked(checkMpvInstalled).mockResolvedValue(true);
 
