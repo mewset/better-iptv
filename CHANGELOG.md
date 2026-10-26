@@ -14,7 +14,11 @@ This file is a developer-changelog, aimed towards development changes.
 ### Fixed
 
 - **Xtream credentials percent-encoded in `player_api.php` requests** - username and password went into the query unencoded, so a password with `&`, `#`, `+` or a space reached the panel cut short or changed. All six `player_api.php` URLs now come from `player_api_url`, which encodes them with the same set as the guide URL (`utils::CREDENTIAL`, moved from `epg_domain::source`)
-  - Stream URLs (`/live/user/pass/…`, `/movie/…`, `/series/…`) still carry the credentials as path segments unencoded. They are stored in `channels.url` and parsed back by `extract_stream_key_from_url` and `parse_xtream_series_id`, so changing them is a separate job
+- **Xtream credentials percent-encoded in stream URLs** - `build_stream_url` and `series_domain::build_episode_urls` put username and password into `/live|movie|series/{user}/{pass}/…` as typed, so a `/`, `?`, `#`, `%` or space split the path, started a query or cut the URL off
+  - Both now encode with `utils::PATH_CREDENTIAL`: only `/ ? # %`, space and control characters. A credential that already worked keeps the exact URL it had, so stored `channels.url` rows and the keys `extract_stream_key_from_url` and `parse_xtream_series_id` read back are unchanged for existing profiles
+  - Whether a panel decodes `%2F` and the like in the path is up to the panel; the common nginx-based ones do. An unencoded `#` or `?` could never work
+- **Stream URLs with `&`, `$`, `;`, `|`, `` ` ``, `<` or `>` refused before playback** - `validate_stream_url` rejected them as shell metacharacters (since 4df51fc), so an M3U URL with a query string such as `?token=a&exp=1` could not be played, nor a Xtream password with `&`
+  - mpv is started through `mpv_command()` with the URL as its own argument and no shell, IPC or text command in between, so those characters reach mpv as plain text. The check now rejects control characters instead; the scheme whitelist (which also keeps out mpv's own `edl://`, `av://` and anything starting with `-`) and the length limit stay
 
 ### Thanks
 

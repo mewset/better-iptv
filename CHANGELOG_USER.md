@@ -10,6 +10,10 @@ A simple overview of new features and improvements.
 
 - Xtream setup now accepts the full link from your provider and fills in the server, username and password for you
 
+### Fixes
+
+- Fixed some channels refusing to play, e.g. M3U links with extra settings in the address or Xtream passwords with special characters
+
 ### Thanks
 
 - **@JadMadi** (on X) for reporting the Xtream import failing with the full link from the provider
