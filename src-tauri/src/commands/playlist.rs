@@ -120,6 +120,7 @@ pub async fn import_xtream_playlist(
     username: String,
     password: String,
 ) -> Result<Playlist, AppError> {
+    let server_url = playlist_domain::normalize_xtream_server_url(&server_url);
     playlist_domain::validate_playlist_name(&name)?;
     playlist_domain::validate_xtream_credentials(&server_url, &username)?;
 

@@ -151,6 +151,33 @@ pub fn validate_import_not_empty(channel_count: usize) -> Result<(), AppError> {
     Ok(())
 }
 
+/// The server address of an Xtream panel, from what the user entered
+///
+/// Providers often hand out the full API link, e.g.
+/// `http://host:8080/player_api.php?username=a&password=b`, or the `get.php`
+/// M3U link, and some players expect exactly that. Every request appends its
+/// own `/player_api.php`, so the address is cut back to what comes before the
+/// `.php` file: query, fragment and the file itself go, a path prefix such as
+/// `/panel` stays. Text that is not an http(s) URL is only trimmed and left
+/// for the request to fail on as before.
+pub fn normalize_xtream_server_url(input: &str) -> String {
+    let trimmed = input.trim();
+    let Ok(mut url) = url::Url::parse(trimmed) else {
+        return trimmed.to_string();
+    };
+    if !matches!(url.scheme(), "http" | "https") {
+        return trimmed.to_string();
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    if url.path().to_ascii_lowercase().ends_with(".php") {
+        if let Ok(mut segments) = url.path_segments_mut() {
+            segments.pop();
+        }
+    }
+    url.as_str().trim_end_matches('/').to_string()
+}
+
 /// Validate Xtream credentials
 ///
 /// # Rules
@@ -324,6 +351,54 @@ pub const DEFAULT_BATCH_SIZE: usize = 1000;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn xtream_server_url_drops_the_api_file_and_its_query() {
+        assert_eq!(
+            normalize_xtream_server_url("http://host:8080/player_api.php?username=a&password=b"),
+            "http://host:8080"
+        );
+        assert_eq!(
+            normalize_xtream_server_url(
+                "http://host:8080/get.php?username=a&password=b&type=m3u_plus"
+            ),
+            "http://host:8080"
+        );
+        assert_eq!(
+            normalize_xtream_server_url("https://host/PLAYER_API.PHP"),
+            "https://host"
+        );
+    }
+
+    #[test]
+    fn xtream_server_url_keeps_a_path_prefix() {
+        assert_eq!(
+            normalize_xtream_server_url("http://host/panel/player_api.php"),
+            "http://host/panel"
+        );
+        assert_eq!(
+            normalize_xtream_server_url("http://host/panel/"),
+            "http://host/panel"
+        );
+    }
+
+    #[test]
+    fn xtream_server_url_in_the_expected_form_is_unchanged() {
+        assert_eq!(
+            normalize_xtream_server_url("  http://host:8080/  "),
+            "http://host:8080"
+        );
+        assert_eq!(
+            normalize_xtream_server_url("http://host:8080"),
+            "http://host:8080"
+        );
+    }
+
+    #[test]
+    fn xtream_server_url_that_is_not_http_is_only_trimmed() {
+        assert_eq!(normalize_xtream_server_url(" host:8080 "), "host:8080");
+        assert_eq!(normalize_xtream_server_url("not a url"), "not a url");
+    }
 
     #[test]
     fn import_with_channels_is_accepted() {
