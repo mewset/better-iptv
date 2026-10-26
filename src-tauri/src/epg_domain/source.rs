@@ -2,7 +2,8 @@
 
 use super::{EPG_AUTO_REFRESH_INTERVAL_HOURS, EPG_AUTO_REFRESH_RETRY_MINUTES};
 use crate::error::AppError;
-use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
+use crate::utils::CREDENTIAL;
+use percent_encoding::utf8_percent_encode;
 use serde::Serialize;
 use url::Url;
 
@@ -168,14 +169,6 @@ pub struct SourceRank {
     pub priority: i32,
     pub source_id: i64,
 }
-
-/// Everything but RFC 3986's unreserved characters (`A-Z a-z 0-9 - . _ ~`)
-/// is percent-encoded in a credential.
-const CREDENTIAL: &AsciiSet = &NON_ALPHANUMERIC
-    .remove(b'-')
-    .remove(b'.')
-    .remove(b'_')
-    .remove(b'~');
 
 /// The `xmltv.php` URL of an Xtream server for these credentials.
 ///

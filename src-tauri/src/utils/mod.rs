@@ -1,7 +1,16 @@
 //! Utility functions shared across modules
 
 use lazy_static::lazy_static;
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC};
 use regex::Regex;
+
+/// Everything but RFC 3986's unreserved characters (`A-Z a-z 0-9 - . _ ~`)
+/// is percent-encoded in a credential sent in a query string.
+pub const CREDENTIAL: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'~');
 
 lazy_static! {
     // Key/value pairs: `?username=X`, `&password=X`, but also `username=X` in a free-form log

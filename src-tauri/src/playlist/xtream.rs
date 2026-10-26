@@ -1,9 +1,10 @@
 use crate::db::models::Channel;
 use crate::http::{download_error, get_http_client, BULK_DOWNLOAD_TIMEOUT};
-use crate::utils::mask_credentials;
+use crate::utils::{mask_credentials, CREDENTIAL};
 use anyhow::{Context, Result};
 use backoff::{future::retry, ExponentialBackoff};
 use log::warn;
+use percent_encoding::utf8_percent_encode;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
@@ -519,19 +520,27 @@ fn describe_body(body: &[u8]) -> String {
     format!("{} bytes, starts with \"{}\"", body.len(), start)
 }
 
+/// The `player_api.php` URL for these credentials, with `extra` appended to
+/// the query (`&action=...`). Username and password are percent-encoded the
+/// same way as in the guide URL, so a password with `&` or `#` reaches the
+/// panel as typed.
+fn player_api_url(creds: &XtreamCredentials, extra: &str) -> String {
+    format!(
+        "{}/player_api.php?username={}&password={}{}",
+        creds.server_url.trim_end_matches('/'),
+        utf8_percent_encode(&creds.username, CREDENTIAL),
+        utf8_percent_encode(&creds.password, CREDENTIAL),
+        extra
+    )
+}
+
 /// Fetch categories from Xtream API
 async fn fetch_categories(
     creds: &XtreamCredentials,
     action: &str,
     user_agent: Option<&str>,
 ) -> Result<Vec<XtreamCategory>> {
-    let url = format!(
-        "{}/player_api.php?username={}&password={}&action={}",
-        creds.server_url.trim_end_matches('/'),
-        creds.username,
-        creds.password,
-        action
-    );
+    let url = player_api_url(creds, &format!("&action={action}"));
 
     fetch_json_with_retry(&url, action, user_agent).await
 }
@@ -548,12 +557,7 @@ pub async fn fetch_user_info(
     creds: &XtreamCredentials,
     user_agent: Option<&str>,
 ) -> Result<XtreamUserInfo> {
-    let url = format!(
-        "{}/player_api.php?username={}&password={}",
-        creds.server_url.trim_end_matches('/'),
-        creds.username,
-        creds.password
-    );
+    let url = player_api_url(creds, "");
 
     let request = get_http_client().get(&url);
     let request = if let Some(ua) = user_agent {
@@ -580,12 +584,7 @@ async fn fetch_live_streams(
     category_map: &std::collections::HashMap<String, (String, i32)>,
     user_agent: Option<&str>,
 ) -> Result<Vec<Channel>> {
-    let url = format!(
-        "{}/player_api.php?username={}&password={}&action=get_live_streams",
-        creds.server_url.trim_end_matches('/'),
-        creds.username,
-        creds.password
-    );
+    let url = player_api_url(creds, "&action=get_live_streams");
 
     let response: Vec<XtreamStream> =
         fetch_json_with_retry(&url, "live streams", user_agent).await?;
@@ -603,12 +602,7 @@ async fn fetch_vod_streams(
     category_map: &std::collections::HashMap<String, (String, i32)>,
     user_agent: Option<&str>,
 ) -> Result<Vec<Channel>> {
-    let url = format!(
-        "{}/player_api.php?username={}&password={}&action=get_vod_streams",
-        creds.server_url.trim_end_matches('/'),
-        creds.username,
-        creds.password
-    );
+    let url = player_api_url(creds, "&action=get_vod_streams");
 
     let response: Vec<XtreamStream> =
         fetch_json_with_retry(&url, "VOD streams", user_agent).await?;
@@ -626,12 +620,7 @@ async fn fetch_series(
     category_map: &std::collections::HashMap<String, (String, i32)>,
     user_agent: Option<&str>,
 ) -> Result<Vec<Channel>> {
-    let url = format!(
-        "{}/player_api.php?username={}&password={}&action=get_series",
-        creds.server_url.trim_end_matches('/'),
-        creds.username,
-        creds.password
-    );
+    let url = player_api_url(creds, "&action=get_series");
 
     let response: Vec<XtreamStream> = fetch_json_with_retry(&url, "series", user_agent).await?;
     Ok(convert_streams_to_channels(
@@ -761,12 +750,9 @@ pub fn get_xtream_m3u_url(creds: &XtreamCredentials) -> String {
 
 /// Fetch series information (seasons and episodes)
 pub async fn fetch_series_info(creds: &XtreamCredentials, series_id: i64) -> Result<SeriesInfo> {
-    let url = format!(
-        "{}/player_api.php?username={}&password={}&action=get_series_info&series_id={}",
-        creds.server_url.trim_end_matches('/'),
-        creds.username,
-        creds.password,
-        series_id
+    let url = player_api_url(
+        creds,
+        &format!("&action=get_series_info&series_id={series_id}"),
     );
 
     fetch_json_with_retry(&url, "series info", None).await
@@ -1397,6 +1383,35 @@ mod json_fetch_tests {
         assert_eq!(
             attempt(vec![respond("200 OK", b"[1,2,3]")]).await.unwrap(),
             vec![1, 2, 3]
+        );
+    }
+}
+
+#[cfg(test)]
+mod player_api_url_tests {
+    use super::{player_api_url, XtreamCredentials};
+
+    fn creds(username: &str, password: &str) -> XtreamCredentials {
+        XtreamCredentials {
+            server_url: "http://provider.test:8080/".to_string(),
+            username: username.to_string(),
+            password: password.to_string(),
+        }
+    }
+
+    #[test]
+    fn credentials_with_query_characters_are_percent_encoded() {
+        assert_eq!(
+            player_api_url(&creds("me@mail.se", "a&b#c d"), "&action=get_live_streams"),
+            "http://provider.test:8080/player_api.php?username=me%40mail.se&password=a%26b%23c%20d&action=get_live_streams"
+        );
+    }
+
+    #[test]
+    fn plain_credentials_are_sent_as_typed() {
+        assert_eq!(
+            player_api_url(&creds("user-1", "pass_2.x~"), ""),
+            "http://provider.test:8080/player_api.php?username=user-1&password=pass_2.x~"
         );
     }
 }
