@@ -20,6 +20,10 @@ This file is a developer-changelog, aimed towards development changes.
 - **Stream URLs with `&`, `$`, `;`, `|`, `` ` ``, `<` or `>` refused before playback** - `validate_stream_url` rejected them as shell metacharacters (since 4df51fc), so an M3U URL with a query string such as `?token=a&exp=1` could not be played, nor a Xtream password with `&`
   - mpv is started through `mpv_command()` with the URL as its own argument and no shell, IPC or text command in between, so those characters reach mpv as plain text. The check now rejects control characters instead; the scheme whitelist (which also keeps out mpv's own `edl://`, `av://` and anything starting with `-`) and the length limit stay
 
+### Removed
+
+- **Unused Xtream helpers** kept under `#[allow(dead_code)]` for features that were planned but never wired in: `fetch_xtream_channels` (a wrapper around `fetch_xtream_channels_with_progress`), `get_xtream_m3u_url` (import goes through `player_api.php`) and `build_episode_url` (next-episode playback came as `series_domain::build_episode_urls` + `play_playlist` instead)
+
 ### Thanks
 
 - **@JadMadi** (on X) for reporting the 404 on import with the full provider link, on Debian
