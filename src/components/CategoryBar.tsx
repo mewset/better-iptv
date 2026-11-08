@@ -1,4 +1,4 @@
-import { memo, type MouseEvent } from 'react';
+import { memo } from 'react';
 import { Pin } from 'lucide-react';
 import { usePlayerStore } from '../stores/player-store';
 import { cn } from '../lib/utils';
@@ -43,7 +43,7 @@ const DIVIDER_KEY = '\u0000divider';
  * The second click of a double-click. Pinning moves chips at once, so that click lands on
  * whichever chip slid under the pointer and would pin or select it. A keyboard press reports 0.
  */
-function isRepeatClick(e: MouseEvent<HTMLButtonElement>): boolean {
+function isRepeatClick(e: { detail: number }): boolean {
   return e.detail > 1;
 }
 
