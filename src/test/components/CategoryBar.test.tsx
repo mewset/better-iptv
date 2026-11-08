@@ -133,6 +133,15 @@ describe('CategoryBar', () => {
     );
   });
 
+  it('fills the icon of a pinned pin, not of an unpinned one', () => {
+    // lucide puts fill="none" on the svg itself, so a fill class on the button never reaches it
+    usePlayerStore.setState({ pinnedCategories: ['Sweden'], categories: ['Norway'] });
+    render(<CategoryBar />);
+    const icon = (name: string) => screen.getByRole('button', { name }).querySelector('svg');
+    expect(icon('Unpin Sweden')).toHaveClass('fill-current');
+    expect(icon('Pin Norway')).not.toHaveClass('fill-current');
+  });
+
   it('marks All as pressed when no category is selected', () => {
     usePlayerStore.setState({ categories: ['Norway'] });
     render(<CategoryBar />);

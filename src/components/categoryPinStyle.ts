@@ -7,10 +7,15 @@
 export const PIN_REST = 'text-text-muted/70 dark:text-text-muted/55';
 /** Unpinned pin at rest, on the selected (inverted) chip; same opacities as PIN_REST */
 export const PIN_REST_ON_SELECTED = 'text-bg/70 dark:text-bg/55';
-/** Pinned pin, on an unselected chip: filled, in the theme's accent text colour */
-export const PIN_PINNED = 'fill-current text-accent-text';
+/** Pinned pin, on an unselected chip: in the theme's accent text colour (filled, see PIN_ICON_PINNED) */
+export const PIN_PINNED = 'text-accent-text';
 /** Pinned pin, on the selected chip: the accent that contrasts with an inverted surface */
-export const PIN_PINNED_ON_SELECTED = 'fill-current text-accent-text-inverse';
+export const PIN_PINNED_ON_SELECTED = 'text-accent-text-inverse';
+/**
+ * The pinned icon is filled. This class goes on the svg itself: lucide writes fill="none" on the
+ * svg, which beats a fill inherited from the button.
+ */
+export const PIN_ICON_PINNED = 'fill-current';
 /**
  * Hovering a pin shows the pinned colour. Tailwind orders `dark:` after `hover:`, so the dark rest
  * colour would win over a plain `hover:` one; each hover class has its `dark:hover:` twin.

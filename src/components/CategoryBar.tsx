@@ -5,6 +5,7 @@ import { cn } from '../lib/utils';
 import {
   PIN_HOVER,
   PIN_HOVER_ON_SELECTED,
+  PIN_ICON_PINNED,
   PIN_PINNED,
   PIN_PINNED_ON_SELECTED,
   PIN_REST,
@@ -30,6 +31,10 @@ const CHIP_ACTIVE = 'border-text bg-text font-semibold text-bg';
 const CHIP_IDLE = 'border-border bg-text/5 font-medium text-text-muted hover:bg-text/10';
 const FOCUS =
   'focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-bg';
+// The name and pin share one pill, so a ring after a mouse click would circle half of it; the two
+// buttons inside a pill ring only for keyboard focus, inside the pill so it reads as one chip
+const FOCUS_IN_PILL =
+  'focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent';
 
 /**
  * Horizontal scrollable bar showing provider categories (Sweden, Norway, F1, etc.)
@@ -71,7 +76,7 @@ export const CategoryBar = memo(function CategoryBar({ allSelected, onAll }: Cat
           type="button"
           onClick={() => setCategoryFilter(category)}
           aria-pressed={selected}
-          className={cn('h-full whitespace-nowrap rounded-full pl-3.5 pr-1', FOCUS)}
+          className={cn('h-full whitespace-nowrap rounded-full pl-3.5 pr-1', FOCUS_IN_PILL)}
         >
           {category}
         </button>
@@ -82,11 +87,11 @@ export const CategoryBar = memo(function CategoryBar({ allSelected, onAll }: Cat
           aria-label={pinned ? `Unpin ${category}` : `Pin ${category}`}
           className={cn(
             'mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full',
-            FOCUS,
+            FOCUS_IN_PILL,
             pinColour
           )}
         >
-          <Pin className="h-3.5 w-3.5" aria-hidden="true" />
+          <Pin className={cn('h-3.5 w-3.5', pinned && PIN_ICON_PINNED)} aria-hidden="true" />
         </button>
       </div>
     );
