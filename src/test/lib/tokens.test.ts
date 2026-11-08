@@ -20,6 +20,7 @@ const TOKENS = [
   'accent',
   'accent-hover',
   'accent-text',
+  'accent-text-inverse',
   'on-accent',
   'danger',
   'on-danger',

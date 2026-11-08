@@ -39,6 +39,8 @@
   --color-accent: 242 180 65; /* on-air amber #F2B441 */
   --color-accent-hover: 224 160 40;
   --color-accent-text: 138 90 0; /* 5.67:1 on gray-50; raw amber would be 1.85:1 */
+  /* accent-text for content on a bg-text surface (the selected chip): flips per theme */
+  --color-accent-text-inverse: 242 180 65; /* 9.6:1 on the gray-900 chip */
   --color-on-accent: 20 20 20; /* 9.98:1 on amber */
   --color-danger: 220 38 38;
   --color-on-danger: 255 255 255; /* 4.83:1 */
@@ -58,6 +60,7 @@
   --color-accent: 242 180 65;
   --color-accent-hover: 255 198 102;
   --color-accent-text: 242 180 65; /* 10.31:1 on bg */
+  --color-accent-text-inverse: 138 90 0; /* 5.3:1 on the light chip; raw amber 1.65:1 */
   --color-on-accent: 20 20 20;
   --color-danger: 232 80 58; /* 5.11:1 on bg as text */
   --color-on-danger: 20 20 20; /* 4.95:1; white would be 3.72:1 */

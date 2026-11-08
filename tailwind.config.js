@@ -26,6 +26,7 @@ export default {
           DEFAULT: 'rgb(var(--color-accent) / <alpha-value>)',
           hover: 'rgb(var(--color-accent-hover) / <alpha-value>)',
           text: 'rgb(var(--color-accent-text) / <alpha-value>)',
+          'text-inverse': 'rgb(var(--color-accent-text-inverse) / <alpha-value>)',
         },
         'on-accent': 'rgb(var(--color-on-accent) / <alpha-value>)',
         danger: 'rgb(var(--color-danger) / <alpha-value>)',

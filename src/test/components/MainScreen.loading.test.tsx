@@ -232,14 +232,14 @@ describe('MainScreen: channel load placeholders', () => {
       channelLoad: { live: 'loaded', library: 'loaded' },
     });
     render(<MainScreen />);
-    expect(await screen.findByRole('tab', { name: 'Sweden' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Sweden' })).toBeInTheDocument();
 
     act(() => usePlayerStore.setState({ contentTypeFilter: 'vod' }));
     await waitFor(() => expect(usePlayerStore.getState().categories).toBeNull());
-    expect(screen.queryByRole('tab', { name: 'Sweden' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Sweden' })).toBeNull();
 
     await act(async () => answerMovies({ pinned: [], others: ['Action'] }));
-    expect(await screen.findByRole('tab', { name: 'Action' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Action' })).toBeInTheDocument();
   });
 
   it("ignores the previous section's categories when they answer late", async () => {
@@ -259,10 +259,10 @@ describe('MainScreen: channel load placeholders', () => {
     render(<MainScreen />);
 
     act(() => usePlayerStore.setState({ contentTypeFilter: 'vod' }));
-    expect(await screen.findByRole('tab', { name: 'Action' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Action' })).toBeInTheDocument();
 
     await act(async () => answerLive({ pinned: [], others: ['Sweden'] }));
-    expect(screen.queryByRole('tab', { name: 'Sweden' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Sweden' })).toBeNull();
     expect(usePlayerStore.getState().categories).toEqual(['Action']);
   });
 });

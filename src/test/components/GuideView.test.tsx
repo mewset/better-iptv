@@ -163,9 +163,9 @@ describe('GuideView', () => {
     expect(chip).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('row', { name: 'SVT1' })).toBeInTheDocument();
     expect(screen.queryByRole('row', { name: 'TV4' })).toBeNull();
-    expect(screen.getByRole('tab', { name: 'All' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'false');
 
-    fireEvent.click(screen.getByRole('tab', { name: 'All' }));
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
     expect(chip).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByRole('row', { name: 'TV4' })).toBeInTheDocument();
   });
