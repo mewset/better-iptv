@@ -208,6 +208,7 @@ pub fn run() {
             // Channel commands
             get_channels,
             get_channel_groups,
+            set_category_pinned,
             toggle_favorite,
             // Series commands
             get_series_info,

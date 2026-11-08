@@ -69,6 +69,31 @@ pub fn validate_channel_id(channel_id: i64) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Longest category name accepted when pinning (bytes). Provider names are far
+/// shorter; this only stops a runaway string from reaching the database.
+const MAX_CATEGORY_NAME_LEN: usize = 1024;
+
+/// Validate a category name sent to pin or unpin
+///
+/// The name is matched exactly as the provider sent it, so it is not trimmed or
+/// changed, only refused when it is blank or longer than 1024 bytes.
+///
+/// # Errors
+/// Returns `AppError::InvalidInput` for a blank or overlong name
+pub fn validate_category_name(name: &str) -> Result<(), AppError> {
+    if name.trim().is_empty() {
+        return Err(AppError::InvalidInput(
+            "Category name must not be empty".to_string(),
+        ));
+    }
+    if name.len() > MAX_CATEGORY_NAME_LEN {
+        return Err(AppError::InvalidInput(format!(
+            "Category name must be at most {MAX_CATEGORY_NAME_LEN} bytes"
+        )));
+    }
+    Ok(())
+}
+
 /// Validate playlist ID
 ///
 /// Ensures the playlist ID is positive.
@@ -263,6 +288,33 @@ pub fn toggle_favorite_state(current_favorite: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validate_category_name_accepts_provider_names() {
+        assert!(validate_category_name("SE: Sweden").is_ok());
+        assert!(validate_category_name("SE: Sverige | ÅÄÖ 4K").is_ok());
+    }
+
+    #[test]
+    fn validate_category_name_rejects_empty() {
+        assert!(matches!(
+            validate_category_name(""),
+            Err(AppError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            validate_category_name("   "),
+            Err(AppError::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn validate_category_name_rejects_overlong() {
+        assert!(validate_category_name(&"a".repeat(1024)).is_ok());
+        assert!(matches!(
+            validate_category_name(&"a".repeat(1025)),
+            Err(AppError::InvalidInput(_))
+        ));
+    }
 
     #[test]
     fn the_provider_epg_id_is_stored_as_sent() {
