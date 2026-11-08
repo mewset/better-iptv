@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { usePlayerStore, type Section } from '../stores/player-store';
+import { categorySectionType, usePlayerStore, type Section } from '../stores/player-store';
 import { useEpgStore } from '../stores/epg-store';
 import {
   getChannelGroups,
@@ -10,6 +10,7 @@ import {
   getXtreamSeriesId,
   getLocalSeriesInfo,
   getTmdbStatus,
+  type CategoryGroups,
   type TmdbDetails,
 } from '../lib/tauri';
 import { CategoryBar } from './CategoryBar';
@@ -66,6 +67,8 @@ const SECTION_TITLES: Record<Section, string> = {
 const HOME_SLIDES = 8;
 /** A Home row with fewer visible slides than this is dropped. */
 const HOME_MIN_SLIDES = 3;
+/** What a section without a category bar, or a failed fetch, shows: no chips. */
+const NO_CATEGORIES: CategoryGroups = { pinned: [], others: [] };
 
 // [singular, plural] count nouns per section. While a search spans every
 // content type the list is no longer one kind, so it counts "results".
@@ -98,7 +101,7 @@ export default function MainScreen() {
   const categoryFilter = usePlayerStore((s) => s.categoryFilter);
   const setSearchQuery = usePlayerStore((s) => s.setSearchQuery);
   const setContentTypeFilter = usePlayerStore((s) => s.setContentTypeFilter);
-  const setCategories = usePlayerStore((s) => s.setCategories);
+  const setCategoryGroups = usePlayerStore((s) => s.setCategoryGroups);
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300);
   const trimmedQuery = debouncedSearchQuery.trim();
 
@@ -230,36 +233,31 @@ export default function MainScreen() {
       .catch((err) => logger.error('Failed to check stale playlists:', err));
   }, [currentPlaylist?.id]);
 
-  // Fetch categories when playlist or content type changes
+  // Fetch categories (pinned ones included) when playlist or content type changes
   useEffect(() => {
-    if (!currentPlaylist?.id) {
-      setCategories([]);
-      return;
-    }
-
-    if (contentTypeFilter === 'favorites' || contentTypeFilter === 'home') {
-      setCategories([]);
+    const contentType = categorySectionType(contentTypeFilter);
+    if (!currentPlaylist?.id || !contentType) {
+      setCategoryGroups(NO_CATEGORIES);
       return;
     }
 
     // null until the answer, so the category row keeps its height instead of the list jumping
-    setCategories(null);
+    setCategoryGroups(null);
     // A late answer for the previous section must not replace this one's
     let cancelled = false;
-    const contentType = contentTypeFilter === 'guide' ? 'live' : contentTypeFilter;
     getChannelGroups(currentPlaylist.id, contentType)
       .then((groups) => {
-        if (!cancelled) setCategories(groups);
+        if (!cancelled) setCategoryGroups(groups);
       })
       .catch((err) => {
         if (cancelled) return;
         logger.error('Failed to fetch categories:', err);
-        setCategories([]);
+        setCategoryGroups(NO_CATEGORIES);
       });
     return () => {
       cancelled = true;
     };
-  }, [currentPlaylist?.id, contentTypeFilter, setCategories]);
+  }, [currentPlaylist?.id, contentTypeFilter, setCategoryGroups]);
 
   // Pre-compute parental blocking results (avoids per-card shouldBlockChannel calls)
   const blockedMap = useMemo(() => {

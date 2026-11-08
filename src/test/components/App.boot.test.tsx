@@ -52,8 +52,9 @@ const base: Handler = (cmd) => {
     case 'get_active_profile_id':
       return 1;
     case 'get_channels':
-    case 'get_channel_groups':
       return [];
+    case 'get_channel_groups':
+      return { pinned: [], others: [] };
     default:
       return null;
   }

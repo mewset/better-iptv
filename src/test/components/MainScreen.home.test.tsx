@@ -119,7 +119,9 @@ function setupInvoke(
           auto_detect: false,
         };
       case 'get_channels':
+        return [];
       case 'get_channel_groups':
+        return { pinned: [], others: [] };
       case 'get_stale_playlist_ids':
       case 'get_tmdb_cards':
         return [];

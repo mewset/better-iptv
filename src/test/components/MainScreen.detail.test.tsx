@@ -80,7 +80,9 @@ function setupInvoke(tmdbAvailable = false) {
   mockedInvoke.mockImplementation(async (cmd: string) => {
     switch (cmd) {
       case 'get_channels':
+        return [];
       case 'get_channel_groups':
+        return { pinned: [], others: [] };
       case 'get_stale_playlist_ids':
       case 'get_blocked_channels':
       case 'get_tmdb_cards':

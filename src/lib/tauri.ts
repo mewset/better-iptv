@@ -101,11 +101,27 @@ export async function toggleFavorite(channelId: number): Promise<void> {
   await invoke('toggle_favorite', { channelId });
 }
 
+/** A section's categories: the pinned ones in pin order, then the rest in provider order. */
+export interface CategoryGroups {
+  pinned: string[];
+  others: string[];
+}
+
 export async function getChannelGroups(
   playlistId: number,
-  contentType?: string
-): Promise<string[]> {
+  contentType: string
+): Promise<CategoryGroups> {
   return await invoke('get_channel_groups', { playlistId, contentType });
+}
+
+/** Pins or unpins a category in one section of a profile; answers with the section's categories. */
+export async function setCategoryPinned(
+  playlistId: number,
+  contentType: string,
+  groupName: string,
+  pinned: boolean
+): Promise<CategoryGroups> {
+  return await invoke('set_category_pinned', { playlistId, contentType, groupName, pinned });
 }
 
 // ========== Series Commands ==========

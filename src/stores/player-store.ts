@@ -6,9 +6,10 @@ import {
   getParentalSettings,
   LIBRARY_TYPES,
   LIVE_TYPES,
+  setCategoryPinned,
   toggleFavorite,
 } from '../lib/tauri';
-import type { TmdbCard, TmdbStatus } from '../lib/tauri';
+import type { CategoryGroups, TmdbCard, TmdbStatus } from '../lib/tauri';
 import { applyEpgKeys } from '../lib/epgKeys';
 import { logger } from '../lib/logger';
 
@@ -19,6 +20,16 @@ import { logger } from '../lib/logger';
  * scan runs with the user's own key.
  */
 export type Section = 'home' | 'live' | 'vod' | 'series' | 'favorites' | 'guide';
+
+/**
+ * The content type whose categories (and pins) a section shows: the guide shows Live TV's,
+ * Home and Favorites have no category bar.
+ */
+export function categorySectionType(section: Section): 'live' | 'vod' | 'series' | null {
+  if (section === 'guide') return 'live';
+  if (section === 'home' || section === 'favorites') return null;
+  return section;
+}
 
 /** Progress of one part of the channel list: live, or the library (vod + series). */
 export type ChannelLoadStatus = 'loading' | 'loaded' | 'error';
@@ -175,10 +186,18 @@ interface PlayerState {
 
   // Category Filter (provider categories like "Sweden", "Norway", etc.)
   categoryFilter: string | null;
-  /** null while the section's categories are being fetched, [] when it has none */
+  /**
+   * The section's unpinned categories in provider order: null while they are being fetched,
+   * [] when there are none (or all are pinned)
+   */
   categories: string[] | null;
+  /** The section's pinned categories in pin order; shown first, after "All" */
+  pinnedCategories: string[];
   setCategoryFilter: (category: string | null) => void;
-  setCategories: (categories: string[] | null) => void;
+  /** Sets both lists in one go; null means loading (no pins shown until the answer) */
+  setCategoryGroups: (groups: CategoryGroups | null) => void;
+  /** Pins an unpinned category or unpins a pinned one in the current section; never selects it */
+  toggleCategoryPin: (category: string) => Promise<void>;
 
   // Playback
   isPlaying: boolean;
@@ -390,8 +409,35 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   // Category Filter
   categoryFilter: null,
   categories: null,
+  pinnedCategories: [],
   setCategoryFilter: (category) => set({ categoryFilter: category }),
-  setCategories: (categories) => set({ categories }),
+  setCategoryGroups: (groups) =>
+    set({ categories: groups?.others ?? null, pinnedCategories: groups?.pinned ?? [] }),
+  toggleCategoryPin: async (category) => {
+    const { currentPlaylist, contentTypeFilter, pinnedCategories } = get();
+    const playlistId = currentPlaylist?.id;
+    const contentType = categorySectionType(contentTypeFilter);
+    if (!playlistId || !contentType) return;
+    try {
+      const groups = await setCategoryPinned(
+        playlistId,
+        contentType,
+        category,
+        !pinnedCategories.includes(category)
+      );
+      // A late answer for another profile or section must not replace that one's bar
+      const now = get();
+      if (
+        now.currentPlaylist?.id !== playlistId ||
+        categorySectionType(now.contentTypeFilter) !== contentType
+      ) {
+        return;
+      }
+      get().setCategoryGroups(groups);
+    } catch (error) {
+      logger.error('Failed to pin category:', error);
+    }
+  },
 
   // Playback
   isPlaying: false,

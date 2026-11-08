@@ -5,6 +5,7 @@ import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
 import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
+import type { CategoryGroups } from '../../lib/tauri';
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
@@ -43,7 +44,9 @@ function setupInvoke() {
   mockedInvoke.mockImplementation(async (cmd: string) => {
     switch (cmd) {
       case 'get_channels':
+        return [];
       case 'get_channel_groups':
+        return { pinned: [], others: [] };
       case 'get_stale_playlist_ids':
       case 'get_blocked_channels':
       case 'get_tmdb_cards':
@@ -215,13 +218,13 @@ describe('MainScreen: channel load placeholders', () => {
   });
 
   it("drops the previous section's chips while the next section's categories load", async () => {
-    let answerMovies: (groups: string[]) => void = () => {};
+    let answerMovies: (groups: CategoryGroups) => void = () => {};
     const base = mockedInvoke.getMockImplementation()!;
     mockedInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
       if (cmd !== 'get_channel_groups') return base(cmd, args as never);
       const { contentType } = args as { contentType: string };
-      if (contentType === 'live') return ['Sweden'];
-      return new Promise<string[]>((resolve) => (answerMovies = resolve));
+      if (contentType === 'live') return { pinned: [], others: ['Sweden'] };
+      return new Promise<CategoryGroups>((resolve) => (answerMovies = resolve));
     });
     usePlayerStore.setState({
       channels: [svt1],
@@ -235,18 +238,18 @@ describe('MainScreen: channel load placeholders', () => {
     await waitFor(() => expect(usePlayerStore.getState().categories).toBeNull());
     expect(screen.queryByRole('tab', { name: 'Sweden' })).toBeNull();
 
-    await act(async () => answerMovies(['Action']));
+    await act(async () => answerMovies({ pinned: [], others: ['Action'] }));
     expect(await screen.findByRole('tab', { name: 'Action' })).toBeInTheDocument();
   });
 
   it("ignores the previous section's categories when they answer late", async () => {
-    let answerLive: (groups: string[]) => void = () => {};
+    let answerLive: (groups: CategoryGroups) => void = () => {};
     const base = mockedInvoke.getMockImplementation()!;
     mockedInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
       if (cmd !== 'get_channel_groups') return base(cmd, args as never);
       const { contentType } = args as { contentType: string };
-      if (contentType === 'vod') return ['Action'];
-      return new Promise<string[]>((resolve) => (answerLive = resolve));
+      if (contentType === 'vod') return { pinned: [], others: ['Action'] };
+      return new Promise<CategoryGroups>((resolve) => (answerLive = resolve));
     });
     usePlayerStore.setState({
       channels: [svt1],
@@ -258,7 +261,7 @@ describe('MainScreen: channel load placeholders', () => {
     act(() => usePlayerStore.setState({ contentTypeFilter: 'vod' }));
     expect(await screen.findByRole('tab', { name: 'Action' })).toBeInTheDocument();
 
-    await act(async () => answerLive(['Sweden']));
+    await act(async () => answerLive({ pinned: [], others: ['Sweden'] }));
     expect(screen.queryByRole('tab', { name: 'Sweden' })).toBeNull();
     expect(usePlayerStore.getState().categories).toEqual(['Action']);
   });
