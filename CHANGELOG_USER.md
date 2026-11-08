@@ -10,6 +10,10 @@ A simple overview of new features and improvements.
 
 - Added pinning of categories, so the ones you use most always come first (Issue: #89)
 
+### Fixes
+
+- Fixed updating a playlist sometimes failing with "database is locked", e.g. while TMDB information was being fetched at the same time
+
 ### Thanks
 
 - **@chromozoom** for suggesting pinned categories (#89)

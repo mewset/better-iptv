@@ -14,6 +14,13 @@ This file is a developer-changelog, aimed towards development changes.
   - The bar is no longer a `tablist`: a labelled group of buttons, the name button with `aria-pressed` for the selected category, the pin button (`Pin X` / `Unpin X`) with `aria-pressed` for pinned. Chips are one keyed list, so a pinned chip keeps keyboard focus when it moves; the second click of a double-click is ignored, since the chips have moved under the pointer by then
   - Pin colours are measured by `src/test/styles/categoryPinContrast.test.ts` against the tokens in `index.css`: rest 70 % light (3.31:1) / 55 % dark (3.24:1), the lowest 5 % step that clears 3:1; pinned `accent-text` (5.13 / 9.3:1). New token `--color-accent-text-inverse` for accent on the inverted selected chip (9.61 / 5.29:1)
 
+### Fixed
+
+- **"database is locked" on playlist refresh** - a refresh failed at once while another connection wrote, e.g. the TMDB library scan (found in the pinned-categories smoke test, 2026-11-08)
+  - `merge_channels` ran in a deferred transaction that reads the playlist's rows before its first write. In WAL mode, when another connection commits in between, SQLite refuses the upgrade with `SQLITE_BUSY_SNAPSHOT` (extended code 517) without consulting the busy timeout
+  - Every write transaction on the app database now opens through `db::write_transaction` (`BEGIN IMMEDIATE`): the write lock is taken up front and other writers are waited out with the 5 s busy timeout. Used by `merge_channels`, `replace_series_episodes`, both imports, the logo-fallback writes, `migrate_m3u_series` and `seed_epg_sources`; `epg/sources.rs` had its own copy, now removed. The EPG ingest's staging writes go to its own attached database and are unchanged
+  - Test `a_refresh_survives_another_writer_committing_during_its_read` commits from a second connection in the middle of the merge's read (rusqlite `hooks`, dev-dependency only); it failed with error 517 before the change
+
 ### Thanks
 
 - **@chromozoom** for suggesting pinned categories (#89)
