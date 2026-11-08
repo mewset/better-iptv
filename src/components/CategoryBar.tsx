@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, type MouseEvent } from 'react';
 import { Pin } from 'lucide-react';
 import { usePlayerStore } from '../stores/player-store';
 import { cn } from '../lib/utils';
@@ -35,6 +35,17 @@ const FOCUS =
 // buttons inside a pill ring only for keyboard focus, inside the pill so it reads as one chip
 const FOCUS_IN_PILL =
   'focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent';
+
+// Category names come from the provider; NUL is the one character none of them carries
+const DIVIDER_KEY = '\u0000divider';
+
+/**
+ * The second click of a double-click. Pinning moves chips at once, so that click lands on
+ * whichever chip slid under the pointer and would pin or select it. A keyboard press reports 0.
+ */
+function isRepeatClick(e: MouseEvent<HTMLButtonElement>): boolean {
+  return e.detail > 1;
+}
 
 /**
  * Horizontal scrollable bar showing provider categories (Sweden, Norway, F1, etc.)
@@ -74,7 +85,9 @@ export const CategoryBar = memo(function CategoryBar({ allSelected, onAll }: Cat
       <div key={category} className={cn(CHIP_BASE, selected ? CHIP_ACTIVE : CHIP_IDLE)}>
         <button
           type="button"
-          onClick={() => setCategoryFilter(category)}
+          onClick={(e) => {
+            if (!isRepeatClick(e)) setCategoryFilter(category);
+          }}
           aria-pressed={selected}
           className={cn('h-full whitespace-nowrap rounded-full pl-3.5 pr-1', FOCUS_IN_PILL)}
         >
@@ -82,7 +95,9 @@ export const CategoryBar = memo(function CategoryBar({ allSelected, onAll }: Cat
         </button>
         <button
           type="button"
-          onClick={() => void toggleCategoryPin(category)}
+          onClick={(e) => {
+            if (!isRepeatClick(e)) void toggleCategoryPin(category);
+          }}
           aria-pressed={pinned}
           aria-label={pinned ? `Unpin ${category}` : `Pin ${category}`}
           className={cn(
@@ -117,14 +132,21 @@ export const CategoryBar = memo(function CategoryBar({ allSelected, onAll }: Cat
         All
       </button>
 
-      {pinnedCategories.map((category) => chip(category, true))}
-      {pinnedCategories.length > 0 && categories.length > 0 && (
-        <div
-          aria-hidden="true"
-          className="mx-1 h-[22px] w-px shrink-0 self-center bg-border-strong"
-        />
-      )}
-      {categories.map((category) => chip(category, false))}
+      {/* One keyed list, so a chip that is pinned or unpinned is moved, not remounted, and
+          keeps keyboard focus */}
+      {[
+        ...pinnedCategories.map((category) => chip(category, true)),
+        ...(pinnedCategories.length > 0 && categories.length > 0
+          ? [
+              <div
+                key={DIVIDER_KEY}
+                aria-hidden="true"
+                className="mx-1 h-[22px] w-px shrink-0 self-center bg-border-strong"
+              />,
+            ]
+          : []),
+        ...categories.map((category) => chip(category, false)),
+      ]}
     </div>
   );
 });

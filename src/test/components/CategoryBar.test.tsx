@@ -142,6 +142,30 @@ describe('CategoryBar', () => {
     expect(icon('Pin Norway')).not.toHaveClass('fill-current');
   });
 
+  it('keeps keyboard focus on a pin when its chip moves between the groups', () => {
+    usePlayerStore.setState({ categories: ['Sweden', 'Norway'] });
+    render(<CategoryBar />);
+    const pin = screen.getByRole('button', { name: 'Pin Norway' });
+    pin.focus();
+    fireEvent.click(pin);
+    // What toggleCategoryPin's answer does: Norway moves to the pinned group
+    act(() => usePlayerStore.setState({ pinnedCategories: ['Norway'], categories: ['Sweden'] }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Unpin Norway' }));
+  });
+
+  it('ignores the second click of a double-click, which lands where the chips moved to', () => {
+    usePlayerStore.setState({ categories: ['Sweden', 'Norway'] });
+    render(<CategoryBar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Pin Sweden' }), { detail: 2 });
+    fireEvent.click(screen.getByRole('button', { name: 'Norway' }), { detail: 2 });
+    expect(toggleCategoryPin).not.toHaveBeenCalled();
+    expect(usePlayerStore.getState().categoryFilter).toBeNull();
+
+    // A keyboard press reports detail 0 and still counts
+    fireEvent.click(screen.getByRole('button', { name: 'Pin Sweden' }), { detail: 0 });
+    expect(toggleCategoryPin).toHaveBeenCalledWith('Sweden');
+  });
+
   it('marks All as pressed when no category is selected', () => {
     usePlayerStore.setState({ categories: ['Norway'] });
     render(<CategoryBar />);
