@@ -4,6 +4,16 @@ A simple overview of new features and improvements.
 
 ---
 
+## Unreleased
+
+### New Features
+
+- Added pinning of categories, so the ones you use most always come first (Issue: #89)
+
+### Thanks
+
+- **@chromozoom** for suggesting pinned categories (#89)
+
 ## Version 3.2.2 (October 27, 2026)
 
 ### Improvements

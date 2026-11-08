@@ -3,6 +3,21 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## Unreleased
+
+### Added
+
+- **Pinned categories** - a pin on every category chip puts that category first in the bar, right after "All", set apart from the rest by a divider (Issue: #89)
+  - New table `pinned_categories (playlist_id, content_type, group_name, position)`, `WITHOUT ROWID`, cascade-deleted with the playlist. Pins are per profile and per section; the TV guide uses the Live TV pins. Matching is on the exact `group_name`; a pin whose category disappears in a refresh is kept and shows again if the name comes back. A new pin goes last (`COALESCE(MAX(position), -1) + 1`); pinning twice is a no-op (`INSERT OR IGNORE`)
+  - `get_channel_groups` now takes a required `content_type` and returns `{ pinned, others }` in one answer, so the bar paints once. New command `set_category_pinned(playlist_id, content_type, group_name, pinned)` writes and answers with the fresh groups. `channel_domain::validate_category_name` refuses blank names and names over 1024 bytes
+  - Store: `categories` is now the unpinned rest, beside `pinnedCategories`; `setCategoryGroups` replaces `setCategories`; `toggleCategoryPin` drops an answer that arrives after a profile or section switch
+  - The bar is no longer a `tablist`: a labelled group of buttons, the name button with `aria-pressed` for the selected category, the pin button (`Pin X` / `Unpin X`) with `aria-pressed` for pinned. Chips are one keyed list, so a pinned chip keeps keyboard focus when it moves; the second click of a double-click is ignored, since the chips have moved under the pointer by then
+  - Pin colours are measured by `src/test/styles/categoryPinContrast.test.ts` against the tokens in `index.css`: rest 70 % light (3.31:1) / 55 % dark (3.24:1), the lowest 5 % step that clears 3:1; pinned `accent-text` (5.13 / 9.3:1). New token `--color-accent-text-inverse` for accent on the inverted selected chip (9.61 / 5.29:1)
+
+### Thanks
+
+- **@chromozoom** for suggesting pinned categories (#89)
+
 ## [3.2.2] - 2026-10-27
 
 ### Changed
