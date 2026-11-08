@@ -111,6 +111,20 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // Categories pinned to the front of the category bar, per profile and section.
+    // Keyed on the category name as the provider sends it; a pin outlives its
+    // category disappearing in a refresh and shows again if it comes back.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS pinned_categories (
+            playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+            content_type TEXT NOT NULL,
+            group_name TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            PRIMARY KEY (playlist_id, content_type, group_name)
+        ) WITHOUT ROWID",
+        [],
+    )?;
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,

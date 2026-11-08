@@ -1,6 +1,7 @@
 pub mod logo_fallbacks;
 pub mod models;
 pub mod mutations;
+pub mod pinned_categories;
 pub mod queries;
 pub mod schema;
 #[cfg(test)]

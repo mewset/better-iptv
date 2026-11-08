@@ -90,6 +90,14 @@ impl From<Channel> for ChannelSummary {
     }
 }
 
+/// A section's categories for the category bar: the pinned ones in pin order,
+/// then the rest in provider order (alphabetical for M3U).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CategoryGroups {
+    pub pinned: Vec<String>,
+    pub others: Vec<String>,
+}
+
 /// Result of a merge-based playlist refresh
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MergeResult {
