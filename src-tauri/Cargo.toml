@@ -52,3 +52,7 @@ lto = true
 codegen-units = 1
 strip = true
 
+[dev-dependencies]
+# Tests only: progress_handler lets a test commit from another connection in the middle of a
+# statement, to pin the transaction behaviour against concurrent writers
+rusqlite = { version = "0.32", features = ["bundled", "hooks"] }

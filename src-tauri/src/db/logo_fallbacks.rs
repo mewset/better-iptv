@@ -48,7 +48,7 @@ fn timestamp(t: DateTime<Utc>) -> String {
 
 /// Replace the whole fallback table in one transaction. Returns rows stored.
 pub fn replace_fallbacks(conn: &Connection, fallbacks: &HashMap<String, String>) -> Result<usize> {
-    let tx = conn.unchecked_transaction()?;
+    let tx = crate::db::write_transaction(conn)?;
     tx.execute("DELETE FROM logo_fallbacks", [])?;
     let mut stored = 0;
     {
@@ -130,7 +130,7 @@ pub fn record_failures(
 ) -> Result<HashMap<i64, String>> {
     let marked_at = timestamp(now);
     let mut accepted: HashMap<i64, String> = HashMap::new();
-    let tx = conn.unchecked_transaction()?;
+    let tx = crate::db::write_transaction(conn)?;
     for report in reports {
         let row: Option<(Option<String>, Option<String>, String)> = tx
             .query_row(

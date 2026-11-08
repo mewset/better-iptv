@@ -81,7 +81,7 @@ pub fn create_channel(conn: &Connection, channel: &Channel) -> Result<i64> {
 /// Insert many channels with a cached prepared statement. Does not open a
 /// transaction of its own — wrap the call (and any surrounding work that
 /// must commit atomically with it) in the caller's own
-/// `conn.unchecked_transaction()` for atomic, batched commits. Passing a
+/// `crate::db::write_transaction` for atomic, batched commits. Passing a
 /// `Transaction` here works via `Deref<Target = Connection>`.
 pub fn create_channels_batch(conn: &Connection, channels: &[Channel]) -> Result<()> {
     let start = Instant::now();
@@ -244,7 +244,7 @@ pub fn merge_channels(
     use std::collections::HashSet;
 
     let start = Instant::now();
-    let tx = conn.unchecked_transaction()?;
+    let tx = crate::db::write_transaction(conn)?;
 
     // 1. Load existing channels for this playlist
     let mut stmt = tx.prepare(
@@ -432,7 +432,7 @@ pub fn replace_series_episodes(
 ) -> Result<usize> {
     use std::collections::HashMap;
 
-    let tx = conn.unchecked_transaction()?;
+    let tx = crate::db::write_transaction(conn)?;
 
     tx.execute(
         "DELETE FROM series_episodes
@@ -909,6 +909,67 @@ mod tests {
     /// playlists, which routinely carry tens of thousands of entries once VOD is
     /// included. The count here must stay above that limit for this test to mean
     /// anything: at 1500 it passes against the buggy implementation too.
+    /// The bug from the 2026-11-08 smoke test: a refresh failed with "database is locked" while
+    /// the TMDB scan wrote. A deferred transaction reads first; when another connection commits
+    /// before its first write, SQLite refuses the upgrade at once, without the busy timeout.
+    #[test]
+    fn a_refresh_survives_another_writer_committing_during_its_read() {
+        use crate::epg::test_support::TestDir;
+        use std::panic::AssertUnwindSafe;
+        use std::time::Duration;
+
+        let dir = TestDir::new("merge-lock");
+        let path = dir.0.join("app.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
+            .unwrap();
+        crate::db::schema::init_schema(&conn).unwrap();
+        let playlist_id = create_test_playlist(&conn, "Refresh");
+        let channels: Vec<Channel> = (0..500)
+            .map(|i| Channel {
+                id: None,
+                playlist_id,
+                name: format!("Channel {i}"),
+                url: format!("http://example.com/{i}.m3u8"),
+                logo: None,
+                group_name: Some("Group".to_string()),
+                epg_id: None,
+                tvg_name: None,
+                content_type: "live".to_string(),
+                is_favorite: false,
+                sort_order: i,
+                category_order: 0,
+                created_at: None,
+            })
+            .collect();
+        create_channels_batch(&conn, &channels).unwrap();
+
+        // Another writer, as the TMDB scan is, commits once while the merge reads its rows
+        let other = Connection::open(&path).unwrap();
+        other.busy_timeout(Duration::ZERO).unwrap();
+        let mut other = AssertUnwindSafe(Some(other));
+        let mut ops = 0;
+        conn.progress_handler(
+            1,
+            Some(move || {
+                ops += 1;
+                if ops == 200 {
+                    if let Some(other) = other.take() {
+                        let _ = other.execute(
+                            "INSERT INTO settings (key, value) VALUES ('tmdb_probe', '1')",
+                            [],
+                        );
+                    }
+                }
+                false
+            }),
+        );
+
+        let result = merge_channels(&conn, playlist_id, &channels, false);
+        conn.progress_handler(0, None::<fn() -> bool>);
+        assert!(result.is_ok(), "refresh failed: {:?}", result.err());
+    }
+
     #[test]
     fn test_merge_channels_prunes_playlist_larger_than_sqlite_variable_limit() {
         let conn = setup_test_db();

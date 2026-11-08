@@ -9,11 +9,12 @@
 
 use crate::db::mutations::set_setting;
 use crate::db::queries::get_setting;
+use crate::db::write_transaction;
 use crate::epg_domain::policy::{Interpret, TimePolicy};
 use crate::epg_domain::source::{LastResult, SourceOrigin, SourceSchedule};
 use crate::epg_domain::{normalize_epg_url, validate_epg_url};
 use crate::error::AppError;
-use rusqlite::{params, Connection, OptionalExtension, Row, Transaction, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::collections::HashSet;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -80,7 +81,7 @@ pub fn seed_epg_sources(conn: &Connection) -> rusqlite::Result<()> {
         return Ok(());
     }
 
-    let tx = conn.unchecked_transaction()?;
+    let tx = write_transaction(conn)?;
 
     let added = reconcile_xtream_sources(&tx)?;
 
@@ -361,14 +362,6 @@ pub fn remove_source(conn: &Connection, cache_dir: &Path, id: i64) -> Result<(),
         );
     }
     Ok(())
-}
-
-/// A transaction that takes the write lock at `BEGIN`. These functions read
-/// a row and then write based on it; a deferred transaction in WAL mode would
-/// fail with `SQLITE_BUSY_SNAPSHOT` at the first write if another connection
-/// wrote in between, instead of waiting on the busy timeout.
-fn write_transaction(conn: &Connection) -> rusqlite::Result<Transaction<'_>> {
-    Transaction::new_unchecked(conn, TransactionBehavior::Immediate)
 }
 
 /// Delete a source's programmes, names and channels. Spelled out rather than

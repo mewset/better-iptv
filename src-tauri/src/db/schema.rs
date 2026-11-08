@@ -371,7 +371,7 @@ pub fn migrate_m3u_series(conn: &Connection) -> Result<()> {
         .query_map([], |row| row.get(0))?
         .collect::<Result<Vec<_>>>()?;
 
-    let tx = conn.unchecked_transaction()?;
+    let tx = crate::db::write_transaction(conn)?;
 
     for playlist_id in playlist_ids {
         let rows: Vec<_> = crate::db::queries::get_channels(&tx, Some(playlist_id))?

@@ -64,7 +64,7 @@ pub async fn import_playlist(
         // All-or-nothing: a playlist row with some series present and some
         // missing, or channels without their owning playlist, is worse than
         // no import at all.
-        let tx = conn.unchecked_transaction()?;
+        let tx = crate::db::write_transaction(conn)?;
 
         let playlist_id = mutations::create_playlist(&tx, &playlist)?;
 
@@ -176,7 +176,7 @@ pub(crate) fn write_xtream_import(
 ) -> Result<Playlist, AppError> {
     // `create_channels_batch` does not open a transaction of its own, so
     // this one keeps every batch atomic with the rest of the import.
-    let tx = conn.unchecked_transaction()?;
+    let tx = crate::db::write_transaction(conn)?;
 
     let playlist_id = mutations::create_playlist(&tx, &playlist).map_err(|e| {
         error!("Failed to create playlist: {}", e);
