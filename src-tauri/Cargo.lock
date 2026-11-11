@@ -305,7 +305,6 @@ dependencies = [
  "anyhow",
  "argon2",
  "backoff",
- "bytes",
  "chrono",
  "encoding_rs",
  "flate2",

@@ -25,7 +25,6 @@ tauri-plugin-log = "2"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-bytes = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.25"
@@ -34,7 +33,6 @@ reqwest = { version = "0.12", features = ["json", "gzip"] }
 url = "2"
 percent-encoding = "2"
 chrono = { version = "0.4", features = ["serde"] }
-# m3u_parser = "0.1"  # Using simple custom parser instead
 anyhow = "1.0"
 thiserror = "2.0"
 quick-xml = { version = "0.42", features = [] }

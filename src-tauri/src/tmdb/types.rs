@@ -368,7 +368,6 @@ pub fn parse_season(json: &str) -> Result<Vec<SeasonEpisode>, serde_json::Error>
 }
 
 /// `(status_code, status_message)` from a TMDB error body, if it is one.
-#[allow(dead_code)] // No caller in the plan yet; only the fixture test uses it
 pub fn parse_error_body(json: &str) -> Option<(i32, String)> {
     serde_json::from_str::<ErrorBody>(json)
         .ok()

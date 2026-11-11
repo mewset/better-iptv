@@ -243,7 +243,6 @@ pub fn run() {
             set_parental_pin,
             verify_parental_pin,
             reset_parental_pin,
-            get_blocked_channels,
             set_blocked_channels,
             get_parental_settings,
             // Update check

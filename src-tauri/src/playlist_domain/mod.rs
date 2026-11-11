@@ -278,7 +278,6 @@ pub fn build_xtream_playlist(
 ///
 /// # Errors
 /// Returns `AppError::InvalidInput` if playlist doesn't have Xtream credentials
-#[allow(dead_code)]
 pub fn extract_xtream_credentials(playlist: &Playlist) -> Result<XtreamCredentials, AppError> {
     let server_url = playlist
         .url

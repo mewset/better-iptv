@@ -68,24 +68,6 @@ pub async fn reset_parental_pin(state: State<'_, AppState>) -> Result<(), AppErr
 }
 
 #[tauri::command]
-pub async fn get_blocked_channels(state: State<'_, AppState>) -> Result<Vec<i64>, AppError> {
-    let json_str = with_db(&state.pool, |conn| {
-        Ok(queries::get_setting(conn, "parental_blocked_channels")?)
-    })
-    .await?;
-
-    let json_str = match json_str {
-        Some(s) => s,
-        None => return Ok(Vec::new()),
-    };
-
-    let channel_ids: Vec<i64> = serde_json::from_str(&json_str)
-        .map_err(|e| AppError::Parse(format!("Failed to parse blocked channels: {}", e)))?;
-
-    Ok(channel_ids)
-}
-
-#[tauri::command]
 pub async fn set_blocked_channels(
     state: State<'_, AppState>,
     channel_ids: Vec<i64>,

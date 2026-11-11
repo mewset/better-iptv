@@ -459,23 +459,6 @@ pub fn validate_credentials(username: &str, password: &str) -> Result<(), AppErr
     Ok(())
 }
 
-/// Extract first episode title from episode list
-///
-/// Used for window title when playing a series
-///
-/// # Arguments
-/// * `episodes` - List of episodes
-///
-/// # Returns
-/// Title of the first episode, or a default message if list is empty
-#[allow(dead_code)]
-pub fn get_first_episode_title(episodes: &[PlaylistEpisode]) -> String {
-    episodes
-        .first()
-        .map(|ep| ep.title.clone())
-        .unwrap_or_else(|| "Unknown Episode".to_string())
-}
-
 #[cfg(test)]
 mod xtream_series_id_tests {
     use super::parse_xtream_series_id;
@@ -633,29 +616,6 @@ mod tests {
     #[test]
     fn test_validate_credentials_valid() {
         assert!(validate_credentials("user", "pass").is_ok());
-    }
-
-    #[test]
-    fn test_get_first_episode_title() {
-        let episodes = vec![
-            PlaylistEpisode {
-                id: "1".to_string(),
-                title: "First Episode".to_string(),
-                extension: "mkv".to_string(),
-            },
-            PlaylistEpisode {
-                id: "2".to_string(),
-                title: "Second Episode".to_string(),
-                extension: "mkv".to_string(),
-            },
-        ];
-
-        assert_eq!(get_first_episode_title(&episodes), "First Episode");
-    }
-
-    #[test]
-    fn test_get_first_episode_title_empty() {
-        assert_eq!(get_first_episode_title(&[]), "Unknown Episode");
     }
 
     // ========== parse_episode_name ==========

@@ -77,15 +77,6 @@ fn de_lenient_i64<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
 }
 
 /// Accepts a number, a numeric string, `""`, `null`, or a missing field.
-fn de_lenient_opt_i64<'de, D: Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
-    match Option::<LooseScalar>::deserialize(d)? {
-        None => Ok(None),
-        Some(LooseScalar::Str(s)) if s.trim().is_empty() => Ok(None),
-        Some(v) => v.to_i64().map(Some),
-    }
-}
-
-/// Accepts a number, a numeric string, `""`, `null`, or a missing field.
 fn de_lenient_opt_f32<'de, D: Deserializer<'de>>(d: D) -> Result<Option<f32>, D::Error> {
     match Option::<LooseScalar>::deserialize(d)? {
         None => Ok(None),
@@ -190,9 +181,6 @@ pub struct SeriesMetadata {
 
 #[derive(Debug, Deserialize)]
 struct XtreamStream {
-    #[allow(dead_code)] // May be used in future for stream ordering
-    #[serde(default, deserialize_with = "de_lenient_opt_i64")]
-    num: Option<i64>,
     #[serde(deserialize_with = "de_lenient_string")]
     name: String,
     #[serde(alias = "series_id", deserialize_with = "de_lenient_i64")]
@@ -820,7 +808,6 @@ mod lenient_scalar_tests {
     fn stream_accepts_quoted_ids_and_numeric_name() {
         let json = r#"{"num":"12","name":2024,"stream_id":"4567","stream_icon":null}"#;
         let s: XtreamStream = serde_json::from_str(json).unwrap();
-        assert_eq!(s.num, Some(12));
         assert_eq!(s.name, "2024");
         assert_eq!(s.stream_id, 4567);
     }
