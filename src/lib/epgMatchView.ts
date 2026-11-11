@@ -11,7 +11,7 @@ import { isAdultContent } from './parentalControls';
 // kept apart from the components so it can be tested without rendering.
 
 /** At most this many of your channels are listed per search. */
-export const CHANNEL_HITS = 50;
+const CHANNEL_HITS = 50;
 
 /** A channel list ready to search: its names lower-cased once. */
 export interface ChannelIndex {

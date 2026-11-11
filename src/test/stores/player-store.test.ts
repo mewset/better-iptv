@@ -246,7 +246,7 @@ describe('usePlayerStore', () => {
   });
 
   describe('loadParentalSettings', () => {
-    it('invokes get_parental_settings once and not get_blocked_channels', async () => {
+    it('loads everything from a single get_parental_settings call', async () => {
       vi.mocked(invoke).mockReset();
       vi.mocked(invoke).mockImplementation(async (cmd: string) => {
         if (cmd === 'get_parental_settings') {

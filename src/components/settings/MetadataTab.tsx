@@ -26,7 +26,7 @@ interface MetadataTabProps {
 }
 
 /** The one-line key status, spec §3. */
-export function keyStatusLine(status: TmdbStatus | null, apiKey: string): string {
+function keyStatusLine(status: TmdbStatus | null, apiKey: string): string {
   if (!status) return '';
   if (apiKey.trim()) return status.user_key_rejected ? 'Key rejected by TMDB' : 'Using your key';
   if (status.shared_key_rejected)

@@ -107,8 +107,6 @@ function setupInvoke(
         return homeRows;
       case 'get_home_pick':
         return { item: item(1), source: 'trending' };
-      case 'get_blocked_channels':
-        return parental.blocked;
       case 'get_parental_settings':
         return {
           enabled: parental.enabled,

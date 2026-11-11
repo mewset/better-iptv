@@ -57,17 +57,6 @@ export function shouldBlockChannel(
 }
 
 /**
- * Filter an array of channels based on parental control settings
- */
-export function filterChannels(channels: Channel[], settings: ParentalBlockSettings): Channel[] {
-  if (!settings.enabled || settings.unlocked) {
-    return channels;
-  }
-
-  return channels.filter((channel) => !shouldBlockChannel(channel, settings));
-}
-
-/**
  * Validate PIN format (4-6 digits, only numbers)
  */
 export function validatePin(pin: string): { valid: boolean; error?: string } {
@@ -80,32 +69,4 @@ export function validatePin(pin: string): { valid: boolean; error?: string } {
   }
 
   return { valid: true };
-}
-
-/**
- * Calculate unlock expiry timestamp based on duration
- */
-export function calculateUnlockExpiry(
-  duration: 'session' | '30min' | '1hour' | 'always'
-): number | null {
-  switch (duration) {
-    case '30min':
-      return Date.now() + 30 * 60 * 1000;
-    case '1hour':
-      return Date.now() + 60 * 60 * 1000;
-    case 'always':
-    case 'session':
-    default:
-      return null; // Session-based or always unlocked (handled by session state)
-  }
-}
-
-/**
- * Check if unlock has expired
- */
-export function isUnlockExpired(expiryTimestamp: number | null): boolean {
-  if (expiryTimestamp === null) {
-    return false; // No expiry set (session-based)
-  }
-  return Date.now() >= expiryTimestamp;
 }

@@ -74,7 +74,6 @@ describe('MainScreen: switching profile with a series open', () => {
         case 'get_channel_groups':
           return { pinned: [], others: [] };
         case 'get_stale_playlist_ids':
-        case 'get_blocked_channels':
         case 'get_tmdb_cards':
           return [];
         case 'get_epg_now_next':

@@ -31,18 +31,6 @@ export interface Channel {
   created_at?: string;
 }
 
-export interface AppSettings {
-  theme: 'light' | 'dark';
-  volume: number;
-  quality: 'auto' | '1080p' | '720p' | '480p';
-}
-
-export interface XtreamCredentials {
-  server_url: string;
-  username: string;
-  password: string;
-}
-
 export interface SeriesInfo {
   seasons: Season[];
   info: SeriesMetadata;

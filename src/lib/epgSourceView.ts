@@ -1,4 +1,4 @@
-import type { EpgSource, EpgStatus, MatchCounts, TimePolicy } from './epgIpc';
+import type { EpgSource, EpgStatus, MatchCounts } from './epgIpc';
 import { formatClockAt } from './epgTime';
 
 // Wording for the Settings EPG tab, kept apart from the components so it
@@ -17,10 +17,6 @@ const MINUS = '−';
 
 export function clampShift(minutes: number): number {
   return Math.min(SHIFT_MAX_MINUTES, Math.max(SHIFT_MIN_MINUTES, minutes));
-}
-
-export function samePolicy(a: TimePolicy, b: TimePolicy): boolean {
-  return a.interpret === b.interpret && a.shift_minutes === b.shift_minutes;
 }
 
 /** A shift as the stepper shows it: "none", "−2 h", "+30 min", "+1 h 30 min". */

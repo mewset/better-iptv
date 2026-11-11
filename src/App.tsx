@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import Setup from './components/Setup';
 import MainScreen from './components/MainScreen';
-import ErrorBoundary from './components/ErrorBoundary';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { usePlayerStore } from './stores/player-store';
 import { getPlaylists, getActiveProfileId, getTmdbStatus } from './lib/tauri';
 import { homeGateOpen } from './lib/tmdb';

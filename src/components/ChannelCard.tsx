@@ -234,5 +234,3 @@ export const ChannelCard = memo(function ChannelCard({
     </article>
   );
 });
-
-export default ChannelCard;

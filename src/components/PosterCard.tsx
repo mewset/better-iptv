@@ -192,5 +192,3 @@ export const PosterCard = memo(function PosterCard({
     </article>
   );
 });
-
-export default PosterCard;

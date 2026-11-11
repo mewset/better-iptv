@@ -135,7 +135,7 @@ export const NOW_NEXT_BATCH = 100;
 export const GUIDE_BATCH = 5000;
 
 /** Hits per `search_epg_channels` request (the backend's maximum). */
-export const GUIDE_SEARCH_LIMIT = 50;
+const GUIDE_SEARCH_LIMIT = 50;
 
 /** A shorter `search_epg_channels` query finds nothing (the backend's MIN_QUERY_CHARS). */
 export const GUIDE_SEARCH_MIN_CHARS = 2;

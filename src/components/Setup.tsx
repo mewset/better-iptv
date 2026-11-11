@@ -14,7 +14,7 @@ import { logger } from '../lib/logger';
 import { parseXtreamLink } from '../lib/xtreamLink';
 import type { Playlist } from '../types';
 import { X, Check, AlertTriangle } from 'lucide-react';
-import LoadingScreen from './LoadingScreen';
+import { LoadingScreen } from './LoadingScreen';
 import logoImage from '../assets/logo/logo-256.webp';
 import { BARS } from './ColorBars';
 

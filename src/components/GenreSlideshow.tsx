@@ -165,5 +165,3 @@ export function GenreSlideshow({ row, onOpen }: GenreSlideshowProps) {
     </section>
   );
 }
-
-export default GenreSlideshow;

@@ -213,10 +213,6 @@ export async function resetParentalPin(): Promise<void> {
   return await invoke('reset_parental_pin');
 }
 
-export async function getBlockedChannels(): Promise<number[]> {
-  return await invoke('get_blocked_channels');
-}
-
 export async function setBlockedChannels(channelIds: number[]): Promise<void> {
   return await invoke('set_blocked_channels', { channelIds });
 }

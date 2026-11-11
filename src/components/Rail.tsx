@@ -126,5 +126,3 @@ export const Rail = memo(function Rail({
     </nav>
   );
 });
-
-export default Rail;

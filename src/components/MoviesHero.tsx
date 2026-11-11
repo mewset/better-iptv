@@ -108,5 +108,3 @@ export function MoviesHero({
     </section>
   );
 }
-
-export default MoviesHero;

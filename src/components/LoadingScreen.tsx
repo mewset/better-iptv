@@ -85,5 +85,3 @@ export const LoadingScreen = memo(function LoadingScreen({
     </div>
   );
 });
-
-export default LoadingScreen;

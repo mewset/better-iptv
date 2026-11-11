@@ -5,7 +5,7 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
 /** Days the guide offers: today and the next four. */
-export const GUIDE_DAY_COUNT = 5;
+const GUIDE_DAY_COUNT = 5;
 
 const weekdayShort = new Intl.DateTimeFormat(undefined, { weekday: 'short' });
 

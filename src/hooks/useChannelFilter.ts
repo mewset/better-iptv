@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { usePlayerStore } from '../stores/player-store';
-import type { Section } from '../stores/player-store';
 import { shouldBlockChannel } from '../lib/parentalControls';
 import type { Channel } from '../types';
 
@@ -111,36 +110,4 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
     blockedCategories,
     parentalVisibility,
   ]);
-}
-
-/**
- * Content type filter options. Re-exports `Section` so the store stays the
- * single source of truth for the type.
- */
-export type ContentTypeFilter = Section;
-
-/**
- * Hook to manage content type filter state
- */
-export function useContentTypeFilter() {
-  const contentTypeFilter = usePlayerStore((s) => s.contentTypeFilter);
-  const setContentTypeFilter = usePlayerStore((s) => s.setContentTypeFilter);
-
-  return {
-    activeFilter: contentTypeFilter,
-    setFilter: setContentTypeFilter,
-  };
-}
-
-/**
- * Hook to manage search query state
- */
-export function useSearchQuery() {
-  const searchQuery = usePlayerStore((s) => s.searchQuery);
-  const setSearchQuery = usePlayerStore((s) => s.setSearchQuery);
-
-  return {
-    query: searchQuery,
-    setQuery: setSearchQuery,
-  };
 }

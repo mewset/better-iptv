@@ -35,7 +35,6 @@ vi.mock('../../lib/tauri', () => ({
     unlock_duration: '0',
     visibility: 'hide',
   })),
-  getBlockedChannels: vi.fn(async () => []),
   setBlockedChannels: vi.fn(async () => {}),
   stopPlayback: vi.fn(async () => {}),
   playChannel: vi.fn(async () => {}),

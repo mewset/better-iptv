@@ -119,5 +119,3 @@ export const NowPlayingBar = memo(function NowPlayingBar({
     </aside>
   );
 });
-
-export default NowPlayingBar;

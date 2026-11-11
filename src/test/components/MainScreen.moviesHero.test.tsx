@@ -122,7 +122,6 @@ function setupInvoke(
       case 'get_channel_groups':
         return { pinned: [], others: [] };
       case 'get_stale_playlist_ids':
-      case 'get_blocked_channels':
         return [];
       case 'get_tmdb_cards':
         return (args as { channelIds: number[] }).channelIds

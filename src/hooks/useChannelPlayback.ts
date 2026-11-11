@@ -6,19 +6,11 @@ import {
   getPlaybackStatus,
   playEpisodeWithSeason,
   playSeriesEpisodes,
+  type PlaylistEpisode,
 } from '../lib/tauri';
 import { logger } from '../lib/logger';
 import { beginPlaybackStart, endPlaybackStart } from '../lib/playGuard';
 import type { Channel, Playlist } from '../types';
-
-/**
- * Episode data for playlist playback
- */
-export interface PlaylistEpisode {
-  id: string;
-  title: string;
-  extension: string;
-}
 
 /**
  * Hook result for channel playback

@@ -84,7 +84,6 @@ function setupInvoke(tmdbAvailable = false) {
       case 'get_channel_groups':
         return { pinned: [], others: [] };
       case 'get_stale_playlist_ids':
-      case 'get_blocked_channels':
       case 'get_tmdb_cards':
       case 'get_tmdb_season':
         return [];
