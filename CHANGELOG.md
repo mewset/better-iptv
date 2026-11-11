@@ -21,6 +21,23 @@ This file is a developer-changelog, aimed towards development changes.
   - Every write transaction on the app database now opens through `db::write_transaction` (`BEGIN IMMEDIATE`): the write lock is taken up front and other writers are waited out with the 5 s busy timeout. Used by `merge_channels`, `replace_series_episodes`, both imports, the logo-fallback writes, `migrate_m3u_series` and `seed_epg_sources`; `epg/sources.rs` had its own copy, now removed. The EPG ingest's staging writes go to its own attached database and are unchanged
   - Test `a_refresh_survives_another_writer_committing_during_its_read` commits from a second connection in the middle of the merge's read (rusqlite `hooks`, dev-dependency only); it failed with error 517 before the change
 
+### Removed
+
+- **Dead code cleanup before 3.3.0** - code with no caller in any layer, found with `knip` on the frontend and by reading every `#[allow(dead_code)]` in the backend. Each removal was traced both ways: who calls it, and what it alone kept alive
+  - **`get_blocked_channels` command** - registered and wrapped as `getBlockedChannels` in `src/lib/tauri.ts` but never called; `get_parental_settings` already returns `blocked_channels`. Removed with its `generate_handler!` registration and the mock entries in ten test files. `set_blocked_channels` is unchanged
+  - **Backend copies of the parental rules** - `parental_domain::is_adult_content` and `should_block_channel` with their tests. The rules run in the frontend (`isAdultContent` and `shouldBlockChannel` in `src/lib/parentalControls.ts`, used by `MainScreen`, `useChannelFilter`, `useParentalHiding` and `epgMatchView`); the backend copy was never called and had drifted (it matched `sex` and lacked `erotic`). PIN validation and Argon2 hashing in `parental_domain` are unchanged
+  - **`channel_domain` filter, sort and search helpers** - `filter_by_content_type`, `filter_by_group`, `filter_favorites`, `filter_by_playlist`, `sort_by_name`, `sort_by_order`, `sort_by_category_order`, `normalize_search_query`, `matches_search_query`, `extract_unique_groups` and `toggle_favorite_state`, with their tests. SQL and the frontend do this work. The validators and `provider_epg_id` stay
+  - **`series_domain::get_first_episode_title`** with its two tests, and the never-read `XtreamStream.num` field with `de_lenient_opt_i64`, which only that field used. serde skips the unknown `num` key, so a panel sending any value there still parses
+  - **Frontend** - the `src/hooks/index.ts` barrel that nothing imported, and `useContentTypeFilter` and `useSearchQuery`, reachable only through it; `filterChannels`, `calculateUnlockExpiry` and `isUnlockExpired` in `parentalControls.ts`; `samePolicy` in `epgSourceView.ts`; the types `AppSettings` and `XtreamCredentials`
+  - **`bytes` crate** - a direct dependency no code used. It stays in `Cargo.lock` as a transitive dependency
+  - Stale `#[allow(dead_code)]` dropped from `playlist_domain::extract_xtream_credentials` and `tmdb::types::parse_error_body`, which both have callers. The one on `tmdb::MAX_IN_FLIGHT` stays: the constant is read inside `lazy_static!`, which the lint does not see
+
+### Changed
+
+- **One export per component** - `ChannelCard`, `ErrorBoundary`, `GenreSlideshow`, `HomeView`, `LoadingScreen`, `MoviesHero`, `NowPlayingBar`, `PosterCard`, `Rail` and `TopBar` had both a named and a default export; the default is gone. `App.tsx` and `Setup.tsx` import `ErrorBoundary` and `LoadingScreen` by name
+  - `PlaylistEpisode` was declared in both `useChannelPlayback.ts` and `src/lib/tauri.ts`; the hook now imports the one in `tauri.ts`
+  - `GUIDE_DAY_COUNT`, `GUIDE_SEARCH_LIMIT`, `CHANNEL_HITS` and `keyStatusLine` are no longer exported (used only in their own files); `TmdbAttribution` is no longer re-exported from `settings/index.ts`
+
 ### Thanks
 
 - **@chromozoom** for suggesting pinned categories (#89)
