@@ -4,6 +4,12 @@ A simple overview of new features and improvements.
 
 ---
 
+## Unreleased
+
+### Fixes
+
+- Fixed series that would not open with some Xtream providers, showing "The provider sent series info that could not be read" or no episodes at all. A series now also opens on its first season with episodes, instead of an empty "Season 0"
+
 ## Version 3.3.0 (November 11, 2026)
 
 ### New Features

@@ -3,6 +3,16 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## Unreleased
+
+### Fixed
+
+- **Xtream series that never opened** - some panels answer `get_series_info` in shapes the series view could not use, so the series showed an error or no episodes at all
+  - Seasons without an `id`: `Season.id` was required, so one such season failed the whole response ("The provider sent series info that could not be read", log: ``missing field `id` ``). It is now `#[serde(default)]`, and `SeriesInfo::normalize_seasons` fills an empty id with the season number, the rule `series_domain::build_series_info` already uses for M3U series. The frontend keys the season list on it
+  - `"seasons": []` next to a full `episodes` map: the response parsed, but with no season to select the view listed nothing. `normalize_seasons` now adds a `Season N` for every non-empty episode group that no listed season covers, in numeric order; a complete list from the panel keeps its own order
+  - Seasons listed with no episodes (a "Season 0" for specials, or a season that has not aired): `DetailView` now opens on the first season that has episodes instead of `seasons[0]`
+  - All three shapes came from one real panel; tests `series_info_survives_seasons_without_an_id`, `normalize_seasons_keeps_ids_the_panel_sent`, `normalize_seasons_adds_a_season_for_each_uncovered_episode_group` and `normalize_seasons_leaves_a_complete_list_in_the_panel_order`
+
 ## [3.3.0] - 2026-11-11
 
 ### Added
