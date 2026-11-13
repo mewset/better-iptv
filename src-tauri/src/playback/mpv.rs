@@ -8,9 +8,11 @@ use wait_timeout::ChildExt;
 
 use crate::utils::mask_credentials;
 
-/// Allowed URL schemes for stream playback
+/// Allowed URL schemes for stream playback: the protocols streams are served
+/// over, each with its TLS form where it has one, plus SRT
 const ALLOWED_SCHEMES: &[&str] = &[
-    "http://", "https://", "rtsp://", "rtmp://", "rtp://", "udp://",
+    "http://", "https://", "rtsp://", "rtsps://", "rtmp://", "rtmps://", "rtp://", "udp://",
+    "srt://",
 ];
 
 /// Maximum allowed URL length
@@ -19,9 +21,9 @@ const MAX_URL_LENGTH: usize = 4096;
 /// Validate a stream URL before passing to MPV
 ///
 /// Checks:
-/// - URL scheme is whitelisted (http, https, rtsp, rtmp, rtp, udp), which also
-///   keeps out mpv's own protocols (`edl://`, `av://`, ...) and anything mpv
-///   would read as an option
+/// - URL scheme is whitelisted (`ALLOWED_SCHEMES`), which also keeps out
+///   mpv's own protocols (`edl://`, `av://`, ...) and anything mpv would read
+///   as an option
 /// - No control characters
 /// - Reasonable URL length
 ///
@@ -45,7 +47,7 @@ fn validate_stream_url(url: &str) -> Result<()> {
             url.chars().take(50).collect::<String>()
         );
         return Err(anyhow::anyhow!(
-            "Invalid URL scheme. Allowed: http, https, rtsp, rtmp, rtp, udp"
+            "Invalid URL scheme. Allowed: http, https, rtsp, rtsps, rtmp, rtmps, rtp, udp, srt"
         ));
     }
 
@@ -585,7 +587,10 @@ mod tests {
         assert!(validate_stream_url("http://example.com/stream.m3u8").is_ok());
         assert!(validate_stream_url("https://example.com/stream.m3u8").is_ok());
         assert!(validate_stream_url("rtsp://example.com/live").is_ok());
+        assert!(validate_stream_url("rtsps://example.com/live").is_ok());
         assert!(validate_stream_url("rtmp://example.com/live").is_ok());
+        assert!(validate_stream_url("rtmps://example.com/live/key").is_ok());
+        assert!(validate_stream_url("srt://example.com:9000?streamid=live/tv1").is_ok());
         assert!(validate_stream_url("rtp://example.com:1234").is_ok());
         assert!(validate_stream_url("udp://239.0.0.1:1234").is_ok());
     }
@@ -595,6 +600,17 @@ mod tests {
         assert!(validate_stream_url("file:///etc/passwd").is_err());
         assert!(validate_stream_url("ftp://example.com/file").is_err());
         assert!(validate_stream_url("javascript:alert(1)").is_err());
+        // mpv's own protocols and option-like strings stay out
+        for url in [
+            "edl://file.mkv",
+            "av://lavfi:testsrc",
+            "memory://x",
+            "smb://host/share/a.mkv",
+            "--script=/tmp/x.lua",
+            "srt:/missing-slash",
+        ] {
+            assert!(validate_stream_url(url).is_err(), "{url}");
+        }
         assert!(validate_stream_url("/etc/passwd").is_err());
         assert!(validate_stream_url("./local/file").is_err());
     }
