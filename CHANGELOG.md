@@ -12,6 +12,18 @@ This file is a developer-changelog, aimed towards development changes.
   - `"seasons": []` next to a full `episodes` map: the response parsed, but with no season to select the view listed nothing. `normalize_seasons` now adds a `Season N` for every non-empty episode group that no listed season covers, in numeric order; a complete list from the panel keeps its own order
   - Seasons listed with no episodes (a "Season 0" for specials, or a season that has not aired): `DetailView` now opens on the first season that has episodes instead of `seasons[0]`
   - All three shapes came from one real panel; tests `series_info_survives_seasons_without_an_id`, `normalize_seasons_keeps_ids_the_panel_sent`, `normalize_seasons_adds_a_season_for_each_uncovered_episode_group` and `normalize_seasons_leaves_a_complete_list_in_the_panel_order`
+- **Space on a focused control** - the play/stop shortcut took every Space outside a text field and cancelled it, so Space pressed no button, link or tab (only Enter did); with something playing, Space on another card's Play button stopped the stream
+  - `useKeyboardShortcuts` leaves Space alone when the target is inside `SPACE_CONTROLS` (`button`, `a[href]`, `summary` and the ARIA roles button, tab, menuitem, option, checkbox, switch); playback toggles only when the focus is on nothing that uses the key
+  - Trade-off: after a mouse click the button keeps the focus, so Space presses it again instead of stopping; Escape always stops
+  - Tests in `src/test/hooks/useKeyboardShortcuts.test.ts`
+- **Escape in the search box stopped playback** - with no view open, Escape stopped the stream even with the cursor in the search box, so clearing a search while watching lost the stream
+  - `MainScreen.handleEscapeView` undoes one thing per press, innermost first: empties the query, then leaves the box, then closes the open view (the guide); only a press with nothing left to undo falls through to stop
+  - Tests in `src/test/components/MainScreen.escapeSearch.test.tsx`
+
+### Changed
+
+- **Test timeouts for loaded machines** - component tests that mount `MainScreen` or `Settings` timed out at random on a busy machine without being broken (a different handful each run, all passing alone)
+  - `testTimeout` 5 s -> 30 s in `vitest.config.ts`, Testing Library `asyncUtilTimeout` 1 s -> 5 s in `src/test/setup.ts`. A passing test is no slower; only a test that really hangs takes longer to fail
 
 ## [3.3.0] - 2026-11-11
 
