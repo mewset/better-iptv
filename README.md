@@ -189,13 +189,18 @@ When metadata is on, the app sends the names of your movies and series to TMDB t
 
 ## ⌨️ Keyboard shortcuts
 
-| Key                 | Action                                                              |
-| ------------------- | ------------------------------------------------------------------- |
-| `Space`             | Play or stop the selected channel                                   |
-| `/`                 | Focus the search box                                                |
-| `G`                 | Open or close the TV Guide                                          |
-| `Escape`            | Close the guide, a detail page or Settings; otherwise stop playback |
-| `Ctrl+1` … `Ctrl+7` | Jump between Settings sections                                      |
+| Key                     | Action                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------ |
+| `Space`                 | Play or stop the selected channel; on a focused button, press that button                  |
+| `/`                     | Focus the search box                                                                       |
+| `↓` in the search box   | Go to the first result                                                                     |
+| `←` `→` `↑` `↓`         | Move through channels, movies and series                                                   |
+| `Home` / `End`          | First or last in the row (`Ctrl` for the whole list)                                       |
+| `Page Up` / `Page Down` | Move one screen up or down                                                                 |
+| `Enter`                 | Play or open the highlighted item                                                          |
+| `G`                     | Open or close the TV Guide                                                                 |
+| `Escape`                | Clear the search, then close the guide, a detail page or Settings; otherwise stop playback |
+| `Ctrl+1` … `Ctrl+7`     | Jump between Settings sections                                                             |
 
 For controls inside the video window (fullscreen, volume, seeking), see the [MPV keyboard reference](https://mpv.io/manual/stable/#keyboard-control).
 
