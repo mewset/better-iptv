@@ -249,6 +249,27 @@ describe('useGridKeyboardNav', () => {
       expect(ringed()).toHaveLength(1);
     });
 
+    it('goes on from a search field with Arrow Down, and only with that key', () => {
+      render(
+        <>
+          <input type="search" aria-label="Search" />
+          <Grid list={items(10)} />
+        </>
+      );
+      const search = screen.getByRole('searchbox', { name: 'Search' });
+      search.focus();
+
+      // The other arrows stay in the field (the cursor moves with them).
+      expect(fireEvent.keyDown(search, { key: 'ArrowLeft' })).toBe(true);
+      expect(fireEvent.keyDown(search, { key: 'ArrowUp' })).toBe(true);
+      expect(search).toHaveFocus();
+
+      expect(fireEvent.keyDown(search, { key: 'ArrowDown' })).toBe(false);
+      expect(grid()).toHaveFocus();
+      expect(active()).toBe('grid-cell-100');
+      expect(ringed()).toHaveLength(1);
+    });
+
     it('leaves the key alone while something else has the focus', () => {
       render(
         <>

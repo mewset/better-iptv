@@ -75,7 +75,9 @@ function locate<T extends GridItem>(items: T[], active: Active | null): number |
  *
  * The grid is reached with Tab, and also by an arrow key pressed while
  * nothing has the focus (right after start, or after a click on empty
- * space): the category chips before it can be a hundred tab stops.
+ * space): the category chips before it can be a hundred tab stops. Arrow
+ * Down in a search field leads on to the grid as well, so a search is
+ * typed, walked and played without leaving the keyboard.
  */
 export function useGridKeyboardNav<T extends GridItem>({
   items,
@@ -174,16 +176,23 @@ export function useGridKeyboardNav<T extends GridItem>({
     pointerDown.current = false;
   }, []);
 
-  // An arrow key with the focus on nothing goes to the grid. The grid's
-  // focus handler then shows the ring where the keyboard is; the key itself
-  // moves nothing, like the first key after Tab. A dialog keeps its keys.
+  // An arrow key with the focus on nothing goes to the grid, and so does
+  // Arrow Down in a search field, a key a one-line field has no use for.
+  // The grid's focus handler then shows the ring where the keyboard is; the
+  // key itself moves nothing, like the first key after Tab. A dialog keeps
+  // its keys.
   const gridRef = useRef<globalThis.HTMLDivElement | null>(null);
   useEffect(() => {
     const onWindowKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.defaultPrevented || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
       if (!e.key.startsWith('Arrow')) return;
       const focused = document.activeElement;
-      if (focused && focused !== document.body) return;
+      const onNothing = !focused || focused === document.body;
+      const downFromSearch =
+        e.key === 'ArrowDown' &&
+        focused instanceof globalThis.HTMLInputElement &&
+        focused.type === 'search';
+      if (!onNothing && !downFromSearch) return;
       if (document.querySelector('[aria-modal="true"]')) return;
       const grid = gridRef.current;
       if (!grid) return;
