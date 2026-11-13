@@ -128,6 +128,23 @@ describe('MainScreen: Escape and the search', () => {
     await waitFor(() => expect(calls('stop_playback')).toHaveLength(1));
   });
 
+  it('Escape on the clear button empties the search and keeps the focus in the box', async () => {
+    usePlayerStore.setState({ searchQuery: 'tv4' });
+    render(<MainScreen />);
+    const clear = screen.getByRole('button', { name: 'Clear search' });
+    clear.focus();
+
+    press('Escape', clear);
+    expect(query()).toBe('');
+    const box = screen.getByRole('searchbox');
+    expect(box).toHaveFocus();
+
+    press('Escape', box);
+    expect(box).not.toHaveFocus();
+    await settle();
+    expect(calls('stop_playback')).toHaveLength(0);
+  });
+
   it('empties a search that is still set when the focus is elsewhere', async () => {
     usePlayerStore.setState({ searchQuery: 'tv4' });
     render(<MainScreen />);

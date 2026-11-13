@@ -203,6 +203,13 @@ export function TopBar({
                   onQuery('');
                   searchRef.current?.focus();
                 }}
+                // This button unmounts with the query. Escape on it moves
+                // the focus into the box first, so the global Escape (which
+                // empties the query) leaves it there and the next press
+                // leaves the box instead of stopping playback.
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') searchRef.current?.focus();
+                }}
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-text/10 hover:text-text focus-visible:bg-text/10 focus-visible:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
