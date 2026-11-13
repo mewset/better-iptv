@@ -5,6 +5,17 @@ This file is a developer-changelog, aimed towards development changes.
 
 ## Unreleased
 
+### Added
+
+- **Keyboard navigation in the channel grid** - arrow keys move one card, `Home`/`End` to the ends of the row (with `Ctrl` of the list), `Page Up`/`Page Down` one screen, `Enter` does what a click does; Arrow Down in the search box goes to the first result
+  - WAI-ARIA grid with `aria-activedescendant` on the scroll container (`useGridKeyboardNav`, pure math in `lib/gridNav`), as in the 2026-09-10 design: the cards keep no `tabIndex` and are untouched, the cells around them carry the semantics and the ring
+  - The ring shows only while the keyboard drives; a click makes a card active without one. The row scrolled into view stays above the dock
+  - An arrow with nothing focused also enters the grid; an input method that is composing keeps Arrow Down
+  - Thanks to @andrezinhovg, whose fork had the spec, the hook and the arrow-key math
+- **Accent-insensitive search** - `lib/searchText` folds case, marks on Latin letters (é, å, ö, ñ ...) and stray spaces in both the query and the name or category; letters of their own (ø, æ, ß) and other scripts compare as written. Used by the channel filter and the channel-blocking dialog
+  - The folded key is cached per channel object in a `WeakMap`. Measured in the perf harness (26 049 channels, headless Chromium, 7 alternating runs): the first search after load costs about 70 ms more script (longest task 110 -> 156 ms), later searches are unchanged
+- **Clear button in the search box** - replaces the `/` hint while there is a query; it sits outside the field's `label`, so the field keeps its name. Escape on it moves the focus into the box before the query is emptied
+
 ### Fixed
 
 - **Xtream series that never opened** - some panels answer `get_series_info` in shapes the series view could not use, so the series showed an error or no episodes at all
@@ -19,6 +30,10 @@ This file is a developer-changelog, aimed towards development changes.
 - **Escape in the search box stopped playback** - with no view open, Escape stopped the stream even with the cursor in the search box, so clearing a search while watching lost the stream
   - `MainScreen.handleEscapeView` undoes one thing per press, innermost first: empties the query, then leaves the box, then closes the open view (the guide); only a press with nothing left to undo falls through to stop
   - Tests in `src/test/components/MainScreen.escapeSearch.test.tsx`
+- **M3U playlists that are not UTF-8** - a local file in an older encoding failed to import and a downloaded one showed `�` for every accented letter
+  - `playlist/parser.rs` decodes by BOM, then as UTF-8 when the bytes are valid UTF-8, then by the charset the server declared, then as Windows-1252 (`encoding_rs`). A BOM no longer hides the `#EXTM3U` line
+- **Stream URL schemes** - `rtmps://`, `rtsps://` and `srt://` were refused with "Invalid URL scheme"; they join the allowlist in `playback/mpv.rs`. `edl://`, `av://`, `memory://`, `file://`, `smb://` and option-like strings are still refused, with tests
+- **Local playlist given as an address** - a `file://` address or a quoted path (Windows "Copy as path") gave "Failed to read M3U file"; `playlist_domain` now turns both into the plain path and trims spaces around it
 
 ### Changed
 

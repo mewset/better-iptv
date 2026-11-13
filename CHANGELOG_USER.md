@@ -6,11 +6,20 @@ A simple overview of new features and improvements.
 
 ## Unreleased
 
+### New Features
+
+- Added moving through channels, movies and series with the arrow keys; press Enter to play
+- Added search that finds names whatever their accents, e.g. "tele" finds "Télé"
+- Added a button that clears the search box
+
 ### Fixes
 
 - Fixed series that would not open, or showed no episodes, with some Xtream providers
 - Fixed the Space key not pressing buttons when you move around with the keyboard, e.g. Play or the favorite star
 - Fixed Escape in the search box stopping playback; it now clears the search first
+- Fixed playlists saved in older text formats not importing, or showing broken letters
+- Fixed some streams being refused, e.g. rtmps and SRT links
+- Fixed a local playlist not importing when given as a file:// address or a path in quotes
 
 ### Thanks
 
