@@ -19,6 +19,10 @@ import { logger } from '../lib/logger';
  * input, textarea, select or contenteditable element. G is also ignored
  * with Ctrl/Meta/Alt held, so browser and Settings chords keep working.
  *
+ * Space pressed on a button, link or tab belongs to that control: it is
+ * how the keyboard presses it. The shortcut leaves the key alone there,
+ * and toggles playback only when the focus is on nothing that uses Space.
+ *
  * Escape: an owner that already handled it (Settings, TopBar's profile
  * menu, the guide's detail panel) marks it with `preventDefault` in the
  * capture phase and this handler does nothing. Otherwise `onEscapeView`
@@ -28,6 +32,10 @@ import { logger } from '../lib/logger';
  * Escape and G are both left alone while any `aria-modal="true"` dialog is
  * open (a PIN prompt, a confirmation): the dialog owns the keyboard then.
  */
+/** Controls the keyboard activates with Space; the play/stop shortcut never takes the key from them. */
+const SPACE_CONTROLS =
+  'button, a[href], summary, [role="button"], [role="tab"], [role="menuitem"], [role="option"], [role="checkbox"], [role="switch"]';
+
 export interface KeyboardShortcutOptions {
   onToggleGuide?: () => void;
   /** Close the open view; true when something was closed. */
@@ -82,6 +90,7 @@ export function useKeyboardShortcuts(
 
       switch (e.key) {
         case ' ': {
+          if (target.closest?.(SPACE_CONTROLS)) break;
           e.preventDefault();
           if (isPlaying && currentChannel) {
             try {

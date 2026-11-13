@@ -129,6 +129,40 @@ describe('useKeyboardShortcuts', () => {
     expect(stopPlayback).not.toHaveBeenCalled();
   });
 
+  it('Space stops playback when the focus is on nothing that uses the key', async () => {
+    setup();
+    const event = press(' ');
+    // Keeps the page from scrolling.
+    expect(event.defaultPrevented).toBe(true);
+    await waitFor(() => expect(stopPlayback).toHaveBeenCalledTimes(1));
+    expect(usePlayerStore.getState().isPlaying).toBe(false);
+  });
+
+  it('Space on a button, link or tab is left to that control', async () => {
+    setup();
+    document.body.innerHTML = `
+      <button type="button" id="play"><span id="icon"></span></button>
+      <a href="#x" id="link">link</a>
+      <div role="tab" tabindex="0" id="tab">tab</div>`;
+
+    for (const id of ['play', 'icon', 'link', 'tab']) {
+      const event = press(' ', document.getElementById(id)!);
+      // Not prevented: the browser goes on to press the control.
+      expect(event.defaultPrevented, id).toBe(false);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(stopPlayback).not.toHaveBeenCalled();
+    expect(usePlayerStore.getState().isPlaying).toBe(true);
+  });
+
+  it('Space on a focused container that is not a control still toggles playback', async () => {
+    setup();
+    document.body.innerHTML = '<div role="grid" tabindex="0" id="grid"></div>';
+    press(' ', document.getElementById('grid')!);
+    await waitFor(() => expect(stopPlayback).toHaveBeenCalledTimes(1));
+  });
+
   it('calls onSearchUnavailable for "/" when there is no search box', () => {
     const onSearchUnavailable = vi.fn();
     const ref = { current: null };
