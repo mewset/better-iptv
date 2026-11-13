@@ -185,6 +185,8 @@ export function useGridKeyboardNav<T extends GridItem>({
   useEffect(() => {
     const onWindowKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.defaultPrevented || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      // Mid-composition the arrows belong to the input method's candidates.
+      if (e.isComposing) return;
       if (!e.key.startsWith('Arrow')) return;
       const focused = document.activeElement;
       const onNothing = !focused || focused === document.body;

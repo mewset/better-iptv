@@ -270,6 +270,22 @@ describe('useGridKeyboardNav', () => {
       expect(ringed()).toHaveLength(1);
     });
 
+    it('leaves Arrow Down to an input method that is composing', () => {
+      render(
+        <>
+          <input type="search" aria-label="Search" />
+          <Grid list={items(10)} />
+        </>
+      );
+      const search = screen.getByRole('searchbox', { name: 'Search' });
+      search.focus();
+
+      expect(fireEvent.keyDown(search, { key: 'ArrowDown', isComposing: true })).toBe(true);
+
+      expect(search).toHaveFocus();
+      expect(active()).toBeNull();
+    });
+
     it('leaves the key alone while something else has the focus', () => {
       render(
         <>
