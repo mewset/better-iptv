@@ -67,6 +67,25 @@ describe('channel filtering logic', () => {
     expect(result.current.map((c) => c.name).sort()).toEqual(['Sport Live', 'Sport Movie']);
   });
 
+  it('search finds a name whatever the case, accents or spaces around the query', () => {
+    const channels = [
+      makeChannel({ id: 1, name: 'Télé Québec HD', group_name: 'Canada' }),
+      makeChannel({ id: 2, name: 'Malmö FF TV', group_name: 'Sverige' }),
+      makeChannel({ id: 3, name: 'SVT1', group_name: 'Sverige' }),
+    ];
+    usePlayerStore.getState().setChannels(channels);
+    const names = (query: string) =>
+      renderHook(() => useChannelFilter(query)).result.current.map((c) => c.name);
+
+    expect(names('tele quebec')).toEqual(['Télé Québec HD']);
+    expect(names('MALMO')).toEqual(['Malmö FF TV']);
+    expect(names('malmö')).toEqual(['Malmö FF TV']);
+    expect(names('  svt1 ')).toEqual(['SVT1']);
+    // The category is searched the same way.
+    expect(names('sverige')).toEqual(['Malmö FF TV', 'SVT1']);
+    expect(names('nothing like this')).toEqual([]);
+  });
+
   it('search in the guide stays live-only', () => {
     const channels = [
       makeChannel({ id: 1, name: 'Sport News', content_type: 'live' }),

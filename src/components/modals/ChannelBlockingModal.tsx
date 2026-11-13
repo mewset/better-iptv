@@ -3,6 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { X, Search, Lock, Unlock } from 'lucide-react';
 import type { Channel } from '../../types';
 import { setBlockedChannels } from '../../lib/tauri';
+import { searchChannels } from '../../lib/searchText';
 import ErrorModal from './ErrorModal';
 
 interface ChannelBlockingModalProps {
@@ -31,18 +32,10 @@ export default function ChannelBlockingModal({
   const [errorMessage, setErrorMessage] = useState('');
 
   // Filter channels by search query
-  const filteredChannels = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return channels;
-    }
-
-    const query = searchQuery.toLowerCase();
-    return channels.filter(
-      (channel) =>
-        channel.name.toLowerCase().includes(query) ||
-        channel.group_name?.toLowerCase().includes(query)
-    );
-  }, [channels, searchQuery]);
+  const filteredChannels = useMemo(
+    () => searchChannels(channels, searchQuery),
+    [channels, searchQuery]
+  );
 
   // Virtual scrolling for performance with large channel lists
   const virtualizer = useVirtualizer({

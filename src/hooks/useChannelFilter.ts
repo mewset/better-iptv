@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { usePlayerStore } from '../stores/player-store';
 import { shouldBlockChannel } from '../lib/parentalControls';
+import { searchChannels } from '../lib/searchText';
 import type { Channel } from '../types';
 
 /**
@@ -90,15 +91,8 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
       );
     }
 
-    // Search filter
-    if (debouncedSearchQuery.trim() !== '') {
-      const query = debouncedSearchQuery.toLowerCase();
-      result = result.filter(
-        (c) => c.name.toLowerCase().includes(query) || c.group_name?.toLowerCase().includes(query)
-      );
-    }
-
-    return result;
+    // Search filter: name or category, whatever the case, accents or stray spaces
+    return searchChannels(result, debouncedSearchQuery);
   }, [
     baseList,
     categoryFilter,
