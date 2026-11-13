@@ -98,6 +98,32 @@ describe('TopBar', () => {
     expect(onQuery).toHaveBeenCalledWith('Sky');
   });
 
+  it('offers Clear search only while there is something to clear', () => {
+    const { rerender } = render(<TopBar {...baseProps()} />);
+    expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument();
+    // The shortcut hint has the place while the box is empty.
+    expect(screen.getByText('/')).toBeInTheDocument();
+
+    rerender(<TopBar {...baseProps({ query: 'Sky' })} />);
+    expect(screen.getByRole('button', { name: 'Clear search' })).toBeInTheDocument();
+    expect(screen.queryByText('/')).not.toBeInTheDocument();
+    // The button is not part of the field's name.
+    expect(
+      screen.getByRole('searchbox', { name: 'Search channels, movies and series' })
+    ).toHaveValue('Sky');
+  });
+
+  it('Clear search empties the query and puts the cursor back in the box', () => {
+    const searchRef = createRef<globalThis.HTMLInputElement>();
+    const onQuery = vi.fn();
+    render(<TopBar {...baseProps({ searchRef, onQuery, query: 'Sky' })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+
+    expect(onQuery).toHaveBeenCalledWith('');
+    expect(searchRef.current).toHaveFocus();
+  });
+
   it('hides the search box when showSearch is false', () => {
     render(<TopBar {...baseProps({ showSearch: false })} />);
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();

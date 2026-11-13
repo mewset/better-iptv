@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Plus, Search } from 'lucide-react';
+import { Check, ChevronDown, Plus, Search, X } from 'lucide-react';
 import { usePlayerStore } from '../stores/player-store';
 import { useProfileSwitch } from '../hooks/useProfileSwitch';
 import ErrorModal from './modals/ErrorModal';
@@ -176,24 +176,46 @@ export function TopBar({
         )}
 
         {showSearch && (
-          <label className="flex h-10 w-[360px] shrink-0 items-center gap-2 rounded-xl border border-border bg-text/5 px-3 focus-within:ring-2 focus-within:ring-accent">
-            <Search className="h-4 w-4 shrink-0 text-text-muted" aria-hidden="true" />
-            <span className="sr-only">Search channels, movies and series</span>
-            <input
-              ref={searchRef}
-              type="search"
-              value={query}
-              onChange={(e) => onQuery(e.target.value)}
-              placeholder="Search channels, movies, series"
-              className="min-w-0 flex-1 appearance-none bg-transparent text-sm text-text placeholder:text-text-muted focus:outline-none [&::-webkit-search-cancel-button]:appearance-none"
-            />
-            <kbd
-              aria-hidden="true"
-              className="rounded border border-border px-1.5 font-sans text-xs text-text-muted"
-            >
-              /
-            </kbd>
-          </label>
+          // The label is the box up to its right end, so a click anywhere on
+          // it lands in the field; the control at the end sits beside the
+          // label, not inside it, and stays out of the field's name.
+          <div className="flex h-10 w-[360px] shrink-0 items-center gap-2 rounded-xl border border-border bg-text/5 px-3 focus-within:ring-2 focus-within:ring-accent">
+            <label className="flex h-full min-w-0 flex-1 items-center gap-2">
+              <Search className="h-4 w-4 shrink-0 text-text-muted" aria-hidden="true" />
+              <span className="sr-only">Search channels, movies and series</span>
+              <input
+                ref={searchRef}
+                type="search"
+                value={query}
+                onChange={(e) => onQuery(e.target.value)}
+                placeholder="Search channels, movies, series"
+                className="min-w-0 flex-1 appearance-none bg-transparent text-sm text-text placeholder:text-text-muted focus:outline-none [&::-webkit-search-cancel-button]:appearance-none"
+              />
+            </label>
+            {/* The browser's own clear button is hidden above (it differs per
+                platform); this one takes the place of the shortcut hint while
+                there is something to clear. */}
+            {query ? (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => {
+                  onQuery('');
+                  searchRef.current?.focus();
+                }}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-text/10 hover:text-text focus-visible:bg-text/10 focus-visible:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            ) : (
+              <kbd
+                aria-hidden="true"
+                className="rounded border border-border px-1.5 font-sans text-xs text-text-muted"
+              >
+                /
+              </kbd>
+            )}
+          </div>
         )}
 
         <div ref={switcherRef} onBlur={onSwitcherBlur} className="relative shrink-0">
