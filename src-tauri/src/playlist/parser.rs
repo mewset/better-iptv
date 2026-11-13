@@ -2,7 +2,7 @@ use crate::db::models::Channel;
 use crate::http::{download_error, ensure_success, get_http_client, BULK_DOWNLOAD_TIMEOUT};
 use crate::series_domain;
 use anyhow::{Context, Result};
-use reqwest::header::USER_AGENT;
+use reqwest::header::{HeaderMap, CONTENT_TYPE, USER_AGENT};
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -26,21 +26,58 @@ pub async fn parse_m3u(source: &str, user_agent: Option<&str>) -> Result<Vec<Cha
             .send()
             .await
             .map_err(|e| download_error(e, SERVER, started, deadline))?;
-        ensure_success(response, SERVER)?
-            .text()
+        let response = ensure_success(response, SERVER)?;
+        let charset = declared_charset(response.headers());
+        let bytes = response
+            .bytes()
             .await
-            .map_err(|e| download_error(e, SERVER, started, deadline))?
+            .map_err(|e| download_error(e, SERVER, started, deadline))?;
+        decode_playlist(&bytes, charset.as_deref())
     } else {
         // Read from file without blocking the async worker
-        tokio::fs::read_to_string(source)
+        let bytes = tokio::fs::read(source)
             .await
-            .context("Failed to read M3U file")?
+            .context("Failed to read M3U file")?;
+        decode_playlist(&bytes, None)
     };
 
     // Parsing a multi-megabyte playlist is CPU work; keep it off the runtime.
     tokio::task::spawn_blocking(move || parse_m3u_content(&content))
         .await
         .context("M3U parse task failed")?
+}
+
+/// The `charset` a response's `Content-Type` declares, if any.
+fn declared_charset(headers: &HeaderMap) -> Option<String> {
+    let content_type = headers.get(CONTENT_TYPE)?.to_str().ok()?;
+    content_type.split(';').skip(1).find_map(|parameter| {
+        let (name, value) = parameter.split_once('=')?;
+        name.trim()
+            .eq_ignore_ascii_case("charset")
+            .then(|| value.trim().trim_matches('"').to_string())
+    })
+}
+
+/// The text of a playlist, from a file or a download.
+///
+/// A byte order mark names the encoding (UTF-8 or UTF-16) and is dropped.
+/// Without one, bytes that are valid UTF-8 are UTF-8, as `.m3u8` and
+/// today's `.m3u` files are. Bytes that are not are in a legacy encoding:
+/// the one the server declared, or else Windows-1252, the encoding `.m3u`
+/// had before UTF-8. Every byte has a character there, so such a playlist
+/// imports instead of being refused (a file) or losing its accented letters
+/// (a download); only names in some other legacy encoding come out wrong.
+fn decode_playlist(bytes: &[u8], declared_charset: Option<&str>) -> String {
+    let encoding = if std::str::from_utf8(bytes).is_ok() {
+        encoding_rs::UTF_8
+    } else {
+        declared_charset
+            .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
+            .filter(|encoding| *encoding != encoding_rs::UTF_8)
+            .unwrap_or(encoding_rs::WINDOWS_1252)
+    };
+    // `decode` lets a byte order mark override `encoding`.
+    encoding.decode(bytes).0.into_owned()
 }
 
 /// Parse M3U content string
@@ -200,6 +237,120 @@ fn determine_content_type(name: &str, group_name: &Option<String>, url: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const PLAYLIST_WITH_ACCENTS: &str =
+        "#EXTM3U\n#EXTINF:-1 group-title=\"Télé\",Señal Ñ\nhttp://example.com/live/1.ts\n";
+
+    fn assert_accents(text: &str) {
+        let channels = parse_m3u_content(text).unwrap();
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].name, "Señal Ñ");
+        assert_eq!(channels[0].group_name.as_deref(), Some("Télé"));
+    }
+
+    #[test]
+    fn a_utf8_file_is_read_as_it_is() {
+        assert_accents(&decode_playlist(PLAYLIST_WITH_ACCENTS.as_bytes(), None));
+    }
+
+    #[test]
+    fn a_file_that_is_not_utf8_is_read_as_windows_1252() {
+        let (bytes, _, unmappable) = encoding_rs::WINDOWS_1252.encode(PLAYLIST_WITH_ACCENTS);
+        assert!(!unmappable);
+        assert!(std::str::from_utf8(&bytes).is_err());
+        assert_accents(&decode_playlist(&bytes, None));
+    }
+
+    #[test]
+    fn a_byte_order_mark_names_the_encoding_and_is_dropped() {
+        let mut utf8 = vec![0xEF, 0xBB, 0xBF];
+        utf8.extend_from_slice(PLAYLIST_WITH_ACCENTS.as_bytes());
+        let text = decode_playlist(&utf8, None);
+        assert!(text.starts_with("#EXTM3U"));
+        assert_accents(&text);
+
+        let mut utf16 = vec![0xFF, 0xFE];
+        utf16.extend(
+            PLAYLIST_WITH_ACCENTS
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes),
+        );
+        let text = decode_playlist(&utf16, None);
+        assert!(text.starts_with("#EXTM3U"));
+        assert_accents(&text);
+    }
+
+    #[test]
+    fn a_declared_legacy_charset_is_used_for_bytes_that_are_not_utf8() {
+        let cyrillic = "#EXTM3U\n#EXTINF:-1,Первый канал\nhttp://example.com/1.ts\n";
+        let (bytes, _, _) = encoding_rs::WINDOWS_1251.encode(cyrillic);
+        let text = decode_playlist(&bytes, Some("windows-1251"));
+        assert_eq!(parse_m3u_content(&text).unwrap()[0].name, "Первый канал");
+    }
+
+    #[test]
+    fn valid_utf8_is_utf8_whatever_the_server_declared() {
+        assert_accents(&decode_playlist(
+            PLAYLIST_WITH_ACCENTS.as_bytes(),
+            Some("iso-8859-1"),
+        ));
+    }
+
+    #[test]
+    fn a_wrongly_declared_utf8_falls_back_to_windows_1252() {
+        let (bytes, _, _) = encoding_rs::WINDOWS_1252.encode(PLAYLIST_WITH_ACCENTS);
+        assert_accents(&decode_playlist(&bytes, Some("utf-8")));
+        assert_accents(&decode_playlist(&bytes, Some("no-such-charset")));
+    }
+
+    #[test]
+    fn the_charset_is_read_from_the_content_type() {
+        let charset = |content_type: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, content_type.parse().unwrap());
+            declared_charset(&headers)
+        };
+        assert_eq!(
+            charset("audio/x-mpegurl; charset=windows-1251").as_deref(),
+            Some("windows-1251")
+        );
+        assert_eq!(
+            charset("text/plain;Charset=\"ISO-8859-1\"").as_deref(),
+            Some("ISO-8859-1")
+        );
+        assert_eq!(charset("application/octet-stream"), None);
+        assert_eq!(declared_charset(&HeaderMap::new()), None);
+    }
+
+    #[tokio::test]
+    async fn a_downloaded_playlist_that_is_not_utf8_keeps_its_accented_letters() {
+        use crate::http::test_server::{respond, serve};
+        let (bytes, _, _) = encoding_rs::WINDOWS_1252.encode(PLAYLIST_WITH_ACCENTS);
+        let server = serve(vec![respond("200 OK", &bytes)]).await;
+
+        let channels = parse_m3u(&format!("{}/list.m3u", server.base), None)
+            .await
+            .unwrap();
+
+        assert_eq!(channels[0].name, "Señal Ñ");
+        assert_eq!(channels[0].group_name.as_deref(), Some("Télé"));
+    }
+
+    #[tokio::test]
+    async fn a_playlist_file_in_the_old_encoding_is_imported() {
+        let (bytes, _, _) = encoding_rs::WINDOWS_1252.encode(PLAYLIST_WITH_ACCENTS);
+        let path = std::env::temp_dir().join(format!(
+            "better-iptv-parser-{}-latin1.m3u",
+            std::process::id()
+        ));
+        std::fs::write(&path, &bytes).unwrap();
+
+        let parsed = parse_m3u(path.to_str().unwrap(), None).await;
+        let _ = std::fs::remove_file(&path);
+
+        let channels = parsed.unwrap();
+        assert_eq!(channels[0].name, "Señal Ñ");
+    }
 
     #[test]
     fn test_parse_m3u_content() {
