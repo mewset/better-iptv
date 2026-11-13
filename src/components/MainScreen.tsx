@@ -678,6 +678,9 @@ export default function MainScreen() {
     prevView.current = view;
   }, [view, refreshTmdbStatus]);
 
+  // The search box is part of browsing a section; Home has none.
+  const searchShown = view === 'browse' && contentTypeFilter !== 'home';
+
   // "/" on Home, where there is no search box: go to Live TV, then focus.
   const focusSearchPending = useRef(false);
   // Only while browsing: Settings and the detail view have no search box
@@ -736,21 +739,45 @@ export default function MainScreen() {
   // their chance (they preventDefault). True means "handled, keep playing".
   // Settings closes itself (respecting its inner dialogs), so a 'settings'
   // view only swallows the key here.
+  // Each press undoes one thing, the innermost first: a search is emptied,
+  // then its box is left, then the open view closes, and only a press with
+  // nothing left to undo stops playback. Someone clearing a search while
+  // watching does not lose the stream.
   const handleEscapeView = useCallback((): boolean => {
     if (view === 'settings') return true;
     if (detailOpen) {
       closeDetail();
       return true;
     }
+    if (searchShown) {
+      if (searchQuery !== '') {
+        setSearchQuery('');
+        return true;
+      }
+      const box = searchInputRef.current;
+      if (box && document.activeElement === box) {
+        box.blur();
+        return true;
+      }
+    }
     if (contentTypeFilter === 'guide') {
       handleSection(guideReturnRef.current);
       return true;
     }
     return false;
-  }, [view, detailOpen, closeDetail, contentTypeFilter, handleSection]);
+  }, [
+    view,
+    detailOpen,
+    closeDetail,
+    searchShown,
+    searchQuery,
+    setSearchQuery,
+    contentTypeFilter,
+    handleSection,
+  ]);
 
   // Global keyboard shortcuts (Space=play/stop, /=focus search, G=guide,
-  // Escape=close view, else stop)
+  // Escape=empty the search or close the view, else stop)
   useKeyboardShortcuts(searchInputRef, {
     onToggleGuide: handleToggleGuide,
     onEscapeView: handleEscapeView,
@@ -811,7 +838,7 @@ export default function MainScreen() {
           onQuery={setSearchQuery}
           update={update}
           onOpenUpdate={handleOpenUpdate}
-          showSearch={view === 'browse' && contentTypeFilter !== 'home'}
+          showSearch={searchShown}
           profileMenuOpen={profileMenuOpen}
           onProfileMenuOpenChange={(open) => {
             if (open) setProfileMenuFromRail(false);
