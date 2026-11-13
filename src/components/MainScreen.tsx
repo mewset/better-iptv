@@ -42,6 +42,7 @@ import { guideAnswered, nowNextFor, useNowNext } from '../hooks/useNowNext';
 import { useNow } from '../hooks/useNow';
 import { startEpgEvents } from '../lib/epgEvents';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useGridKeyboardNav } from '../hooks/useGridKeyboardNav';
 import { useChannelPlayback } from '../hooks/useChannelPlayback';
 import { isAdultContent, shouldBlockChannel } from '../lib/parentalControls';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -67,6 +68,13 @@ const SECTION_TITLES: Record<Section, string> = {
 const HOME_SLIDES = 8;
 /** A Home row with fewer visible slides than this is dropped. */
 const HOME_MIN_SLIDES = 3;
+/**
+ * The list's top padding (`pt-5`): the virtualiser's offsets start below it,
+ * so a row scrolled to its end by `scrollToIndex` needs this much more.
+ */
+const LIST_PADDING_TOP = 20;
+/** The list's bottom padding (`pb-32`), which is what the dock covers while something plays. */
+const DOCK_CLEARANCE = 128;
 /** What a section without a category bar, or a failed fetch, shows: no chips. */
 const NO_CATEGORIES: CategoryGroups = { pinned: [], others: [] };
 
@@ -409,6 +417,9 @@ export default function MainScreen() {
     // the first frame and on every list switch. The guide and TMDB look-ahead is separate
     // (LOOKAHEAD_ROWS), so this only has to cover scrolling.
     overscan: 1,
+    // Only `scrollToIndex` reads this (keyboard navigation): the row it brings
+    // into view ends above the dock rather than underneath it.
+    scrollPaddingEnd: LIST_PADDING_TOP + (currentChannel ? DOCK_CLEARANCE : 0),
   });
 
   // A `kind` (and therefore column count) switch invalidates every cached row
@@ -612,6 +623,29 @@ export default function MainScreen() {
         });
     }
   }, [pendingChannel, pendingOpen, openDetail, playChannelAction]);
+
+  // Keyboard navigation in the grid. Enter does what a click on the card
+  // does: a poster opens its title, a live-shaped card plays.
+  const firstVisibleCard = useCallback(
+    () => Math.max((firstVisibleRow ?? 0) - (showHero ? 1 : 0), 0) * columns,
+    [firstVisibleRow, showHero, columns]
+  );
+  const scrollToCard = useCallback(
+    (index: number) =>
+      rowVirtualizer.scrollToIndex(Math.floor(index / columns) + (showHero ? 1 : 0), {
+        align: 'auto',
+      }),
+    [rowVirtualizer, columns, showHero]
+  );
+  const gridNav = useGridKeyboardNav({
+    items: filteredChannels,
+    columns,
+    pageRows: Math.max(windowRows - 1, 1),
+    listKey,
+    firstVisibleIndex: firstVisibleCard,
+    onActivate: kind === 'poster' ? handleOpenTitle : handlePlayChannel,
+    scrollToIndex: scrollToCard,
+  });
 
   const handleStop = useCallback(async () => {
     await stopPlaybackAction();
@@ -922,7 +956,16 @@ export default function MainScreen() {
                   )}
                 </div>
               ) : (
+                // The grid holds the keyboard focus and names its active card
+                // (`useGridKeyboardNav`); the ring is drawn on that card's cell,
+                // so the grid itself shows no outline.
                 <div
+                  role="grid"
+                  aria-label={SECTION_TITLES[contentTypeFilter]}
+                  aria-rowcount={gridRowCount}
+                  aria-colcount={columns}
+                  {...gridNav.gridProps}
+                  className="outline-none"
                   style={{
                     height: `${rowVirtualizer.getTotalSize()}px`,
                     width: '100%',
@@ -938,6 +981,8 @@ export default function MainScreen() {
                           key={virtualRow.key}
                           ref={rowVirtualizer.measureElement}
                           data-index={virtualRow.index}
+                          // Not a row of cards: the arrows skip it, Tab reaches its buttons.
+                          role="presentation"
                           style={{
                             position: 'absolute',
                             top: 0,
@@ -972,6 +1017,8 @@ export default function MainScreen() {
                         key={virtualRow.key}
                         ref={rowVirtualizer.measureElement}
                         data-index={virtualRow.index}
+                        role="row"
+                        aria-rowindex={cardRowIndex + 1}
                         style={{
                           position: 'absolute',
                           top: 0,
@@ -988,33 +1035,51 @@ export default function MainScreen() {
                             absolutely positioned and stacked by `translateY`
                             rather than a normal-flow gap. */}
                         <div className={`grid ${getGridClasses(columns)} gap-4 pb-4`}>
-                          {rowItems.map((channel) => {
+                          {rowItems.map((channel, column) => {
                             const isChannelBlocked = blockedMap.get(channel.id!) ?? false;
+                            const cardIndex = startIndex + column;
+                            const isActive = gridNav.activeIndex === cardIndex;
 
-                            return kind === 'poster' ? (
-                              <PosterCard
+                            return (
+                              // The cell carries the grid semantics and the
+                              // keyboard ring, so the memoised cards render
+                              // only when their own data changes.
+                              <div
                                 key={channel.id}
-                                channel={channel}
-                                onOpen={handleOpenTitle}
-                                onPlay={handlePlayChannel}
-                                tmdb={tmdbCards.get(channel.id)}
-                                onToggleFavorite={toggleChannelFavorite}
-                                isBlocked={isChannelBlocked}
-                                parentalVisibility={parentalVisibility}
-                              />
-                            ) : (
-                              <ChannelCard
-                                key={channel.id}
-                                channel={channel}
-                                isPlaying={currentChannel?.id === channel.id && isPlaying}
-                                onPlay={handlePlayChannel}
-                                onToggleFavorite={toggleChannelFavorite}
-                                {...cardEpg(nowNextFor(nowNext, channel), now)}
-                                guideAnswered={guideAnswered(guideFetched, channel)}
-                                tmdb={tmdbCards.get(channel.id)}
-                                isBlocked={isChannelBlocked}
-                                parentalVisibility={parentalVisibility}
-                              />
+                                id={gridNav.cellId(channel)}
+                                role="gridcell"
+                                aria-selected={isActive}
+                                data-grid-index={cardIndex}
+                                className={`min-w-0 ${kind === 'poster' ? 'rounded-xl' : 'rounded-[14px]'} ${
+                                  isActive && gridNav.ringVisible
+                                    ? 'ring-2 ring-accent ring-offset-2 ring-offset-bg'
+                                    : ''
+                                }`}
+                              >
+                                {kind === 'poster' ? (
+                                  <PosterCard
+                                    channel={channel}
+                                    onOpen={handleOpenTitle}
+                                    onPlay={handlePlayChannel}
+                                    tmdb={tmdbCards.get(channel.id)}
+                                    onToggleFavorite={toggleChannelFavorite}
+                                    isBlocked={isChannelBlocked}
+                                    parentalVisibility={parentalVisibility}
+                                  />
+                                ) : (
+                                  <ChannelCard
+                                    channel={channel}
+                                    isPlaying={currentChannel?.id === channel.id && isPlaying}
+                                    onPlay={handlePlayChannel}
+                                    onToggleFavorite={toggleChannelFavorite}
+                                    {...cardEpg(nowNextFor(nowNext, channel), now)}
+                                    guideAnswered={guideAnswered(guideFetched, channel)}
+                                    tmdb={tmdbCards.get(channel.id)}
+                                    isBlocked={isChannelBlocked}
+                                    parentalVisibility={parentalVisibility}
+                                  />
+                                )}
+                              </div>
                             );
                           })}
                         </div>
