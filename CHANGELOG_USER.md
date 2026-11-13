@@ -4,6 +4,16 @@ A simple overview of new features and improvements.
 
 ---
 
+## Unreleased
+
+### Fixes
+
+- Fixed series that would not open, or showed no episodes, with some Xtream providers
+
+### Thanks
+
+- **@h4r0n1** for finding and fixing series that would not open with some Xtream providers (#93)
+
 ## Version 3.3.0 (November 11, 2026)
 
 ### New Features

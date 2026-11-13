@@ -138,7 +138,12 @@ export default function DetailView({
         const info = await loadSeries();
         if (cancelled) return;
         setCurrentSeries(info);
-        if (info.seasons.length > 0) setSelectedSeason(info.seasons[0].season_number);
+        // Open on the first season that has episodes: panels often list a
+        // "Season 0" (specials) or upcoming seasons with nothing to play.
+        const firstPlayable =
+          info.seasons.find((s) => (info.episodes[s.season_number]?.length ?? 0) > 0) ??
+          info.seasons[0];
+        if (firstPlayable) setSelectedSeason(firstPlayable.season_number);
       } catch (err) {
         if (cancelled) return;
         logger.error('Failed to load series info:', err);

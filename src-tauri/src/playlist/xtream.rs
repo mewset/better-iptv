@@ -123,9 +123,65 @@ pub struct SeriesInfo {
     pub episodes: HashMap<String, Vec<Episode>>,
 }
 
+impl SeriesInfo {
+    /// Make the season list usable by the frontend, which keys it on `id` and
+    /// only shows episodes for a season it lists:
+    /// - a season without an id gets its season number, the same rule
+    ///   `series_domain::build_series_info` uses for M3U series;
+    /// - an episode group no season covers gets a season of its own. Some panels
+    ///   send `"seasons": []` next to a full `episodes` map, which left the
+    ///   series with nothing to pick and no episode to play.
+    fn normalize_seasons(&mut self) {
+        for season in &mut self.seasons {
+            if season.id.trim().is_empty() {
+                season.id = season.season_number.clone();
+            }
+        }
+
+        let mut missing: Vec<&String> = self
+            .episodes
+            .iter()
+            .filter(|(number, eps)| {
+                !eps.is_empty() && !self.seasons.iter().any(|s| &s.season_number == *number)
+            })
+            .map(|(number, _)| number)
+            .collect();
+        if missing.is_empty() {
+            return;
+        }
+        missing.sort_by_key(|number| season_sort_key(number));
+        let added: Vec<Season> = missing
+            .into_iter()
+            .map(|number| Season {
+                id: number.clone(),
+                name: format!("Season {number}"),
+                season_number: number.clone(),
+                episode_count: self.episodes[number].len() as i32,
+                air_date: None,
+                overview: None,
+                cover: None,
+            })
+            .collect();
+        self.seasons.extend(added);
+        self.seasons
+            .sort_by_key(|s| season_sort_key(&s.season_number));
+    }
+}
+
+/// Numeric order for season numbers ("2" before "10"); anything that is not a
+/// number goes last, in its original order (the sort is stable).
+fn season_sort_key(number: &str) -> (bool, i64) {
+    match number.trim().parse::<i64>() {
+        Ok(n) => (false, n),
+        Err(_) => (true, 0),
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Season {
-    #[serde(deserialize_with = "de_lenient_string")]
+    // Some panels send seasons with no `id` at all. Requiring it failed the
+    // whole get_series_info response, so no episode of that series could open.
+    #[serde(default, deserialize_with = "de_lenient_string")]
     pub id: String,
     #[serde(deserialize_with = "de_lenient_string")]
     pub name: String,
@@ -718,12 +774,14 @@ pub async fn fetch_series_info(creds: &XtreamCredentials, series_id: i64) -> Res
         &format!("&action=get_series_info&series_id={series_id}"),
     );
 
-    fetch_json_with_retry(&url, "series info", None).await
+    let mut info: SeriesInfo = fetch_json_with_retry(&url, "series info", None).await?;
+    info.normalize_seasons();
+    Ok(info)
 }
 
 #[cfg(test)]
 mod lenient_scalar_tests {
-    use super::{Episode, Season, SeriesMetadata, XtreamCategory, XtreamStream};
+    use super::{Episode, Season, SeriesInfo, SeriesMetadata, XtreamCategory, XtreamStream};
 
     // Each case below fails to parse against strict serde typing. They are the
     // shapes real Xtream panels have been observed to return.
@@ -778,6 +836,77 @@ mod lenient_scalar_tests {
         assert_eq!(season.id, "309556");
         assert_eq!(season.season_number, "1");
         assert_eq!(season.episode_count, 10);
+    }
+
+    #[test]
+    fn series_info_survives_seasons_without_an_id() {
+        // Shape seen from a real panel: every season lacks `id`, episodes have one.
+        // This used to fail the whole response, so the series showed no episodes.
+        let json = r#"{
+            "episodes": {"1": [{"id":"501","episode_num":1,"title":"E1","container_extension":"mkv","season":1,"info":{}}]},
+            "info": {"name":"Show"},
+            "seasons": [
+                {"name":"Specials","season_number":0,"episode_count":"3","air_date":"2022-12-30"},
+                {"name":"Season 1","season_number":"1","episode_count":"10"}
+            ]
+        }"#;
+        let mut info: SeriesInfo = serde_json::from_str(json).unwrap();
+        info.normalize_seasons();
+        let ids: Vec<&str> = info.seasons.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["0", "1"]);
+        assert_eq!(info.episodes["1"][0].id, "501");
+    }
+
+    #[test]
+    fn normalize_seasons_keeps_ids_the_panel_sent() {
+        let json = r#"{"episodes":{},"info":{"name":"Show"},"seasons":[
+            {"id":77,"name":"Season 1","season_number":1,"episode_count":1},
+            {"id":"","name":"Season 2","season_number":2,"episode_count":1}
+        ]}"#;
+        let mut info: SeriesInfo = serde_json::from_str(json).unwrap();
+        info.normalize_seasons();
+        assert_eq!(info.seasons[0].id, "77");
+        assert_eq!(info.seasons[1].id, "2");
+    }
+
+    #[test]
+    fn normalize_seasons_adds_a_season_for_each_uncovered_episode_group() {
+        // Also seen from a real panel: an empty season list next to the episodes.
+        let ep = |n: i32, s: i32| {
+            format!(
+                r#"{{"id":"{s}{n}","episode_num":{n},"title":"E{n}","container_extension":"mkv","season":{s},"info":{{}}}}"#
+            )
+        };
+        let json = format!(
+            r#"{{"episodes":{{"10":[{}],"2":[{},{}],"1":[{}]}},"info":{{"name":"Show"}},"seasons":[]}}"#,
+            ep(1, 10),
+            ep(1, 2),
+            ep(2, 2),
+            ep(1, 1)
+        );
+        let mut info: SeriesInfo = serde_json::from_str(&json).unwrap();
+        info.normalize_seasons();
+        let seasons: Vec<(&str, &str, i32)> = info
+            .seasons
+            .iter()
+            .map(|s| (s.id.as_str(), s.season_number.as_str(), s.episode_count))
+            .collect();
+        assert_eq!(seasons, [("1", "1", 1), ("2", "2", 2), ("10", "10", 1)]);
+        assert_eq!(info.seasons[1].name, "Season 2");
+    }
+
+    #[test]
+    fn normalize_seasons_leaves_a_complete_list_in_the_panel_order() {
+        let json = r#"{"episodes":{"1":[{"id":"9","episode_num":1,"title":"E1","container_extension":"mkv","season":1,"info":{}}]},
+            "info":{"name":"Show"},
+            "seasons":[
+                {"id":"b","name":"Season 1","season_number":1,"episode_count":1},
+                {"id":"a","name":"Specials","season_number":0,"episode_count":0}
+            ]}"#;
+        let mut info: SeriesInfo = serde_json::from_str(json).unwrap();
+        info.normalize_seasons();
+        let ids: Vec<&str> = info.seasons.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["b", "a"]);
     }
 
     #[test]
