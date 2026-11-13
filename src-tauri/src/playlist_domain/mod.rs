@@ -93,6 +93,32 @@ pub fn validate_playlist_name(name: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// The source of an M3U playlist as the app uses it, from what was typed or
+/// pasted into the field.
+///
+/// Spaces around it are dropped. A web address is kept as it is. A local
+/// playlist may arrive as a path, as a path in double quotes (Windows "Copy
+/// as path") or as a `file://` address (a file dragged into the field, "Copy
+/// location" in a file manager); all three become the plain path.
+pub fn normalize_playlist_source(source: &str) -> String {
+    let source = source.trim();
+    let unquoted = source
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or(source)
+        .trim();
+    // A Windows path parses as a URL too, with its drive letter as the
+    // scheme; only `file` is taken apart here.
+    if let Ok(url) = url::Url::parse(unquoted) {
+        if url.scheme() == "file" {
+            if let Ok(path) = url.to_file_path() {
+                return path.to_string_lossy().into_owned();
+            }
+        }
+    }
+    unquoted.to_string()
+}
+
 /// Validate playlist source (URL or file path)
 ///
 /// # Rules
@@ -478,6 +504,67 @@ mod tests {
     #[test]
     fn test_validate_playlist_source_empty() {
         assert!(validate_playlist_source("").is_err());
+    }
+
+    #[test]
+    fn a_web_address_and_a_plain_path_are_kept_apart_from_the_spaces_around_them() {
+        assert_eq!(
+            normalize_playlist_source("  http://example.com/get.php?username=a&password=b \n"),
+            "http://example.com/get.php?username=a&password=b"
+        );
+        assert_eq!(
+            normalize_playlist_source("/home/me/My Lists/tv.m3u"),
+            "/home/me/My Lists/tv.m3u"
+        );
+        assert_eq!(
+            normalize_playlist_source("C:\\Users\\me\\tv.m3u"),
+            "C:\\Users\\me\\tv.m3u"
+        );
+        assert_eq!(normalize_playlist_source("   "), "");
+    }
+
+    #[test]
+    fn a_quoted_path_loses_its_quotes() {
+        assert_eq!(
+            normalize_playlist_source("\"C:\\Users\\me\\My Lists\\tv.m3u\""),
+            "C:\\Users\\me\\My Lists\\tv.m3u"
+        );
+        assert_eq!(
+            normalize_playlist_source(" \"/home/me/tv.m3u\" "),
+            "/home/me/tv.m3u"
+        );
+        // A quote on one side only is part of the name.
+        assert_eq!(
+            normalize_playlist_source("\"/home/me/tv.m3u"),
+            "\"/home/me/tv.m3u"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_address_becomes_its_path() {
+        assert_eq!(
+            normalize_playlist_source("file:///home/me/My%20Lists/t%C3%A9l%C3%A9.m3u"),
+            "/home/me/My Lists/télé.m3u"
+        );
+        assert_eq!(
+            normalize_playlist_source("file://localhost/home/me/tv.m3u"),
+            "/home/me/tv.m3u"
+        );
+        // A file on another machine is not a local path; it stays as written.
+        assert_eq!(
+            normalize_playlist_source("file://nas/share/tv.m3u"),
+            "file://nas/share/tv.m3u"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_address_makes_a_local_playlist() {
+        let source = normalize_playlist_source("file:///home/me/tv.m3u");
+        let playlist = build_m3u_playlist("Home".to_string(), source).unwrap();
+        assert_eq!(playlist.url, None);
+        assert_eq!(playlist.file_path.as_deref(), Some("/home/me/tv.m3u"));
     }
 
     #[test]

@@ -36,6 +36,7 @@ pub async fn import_playlist(
     name: String,
     source: String,
 ) -> Result<Playlist, AppError> {
+    let source = playlist_domain::normalize_playlist_source(&source);
     playlist_domain::validate_playlist_name(&name)?;
     playlist_domain::validate_playlist_source(&source)?;
 
