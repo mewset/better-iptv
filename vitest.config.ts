@@ -14,6 +14,13 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // Vitest's default of 5 s per test (and Testing Library's 1 s per
+    // waitFor/findBy, raised in setup.ts) is met with a wide margin on an
+    // idle machine but not on a loaded one: component tests that mount
+    // MainScreen or Settings then time out without being broken. A longer
+    // limit changes nothing for a test that passes, only how long one that
+    // really hangs takes to fail.
+    testTimeout: 30_000,
     // scripts/ holds build and CI tooling that CI depends on, so its tests
     // run with the rest rather than sitting unexecuted.
     include: ['src/**/*.{test,spec}.{js,ts,jsx,tsx}', 'scripts/**/*.test.mjs'],

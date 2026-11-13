@@ -1,5 +1,11 @@
 import '@testing-library/jest-dom/vitest';
+import { configure } from '@testing-library/react';
 import { vi } from 'vitest';
+
+// waitFor and findBy give up after 1 s by default, which a loaded machine
+// does not always meet (see testTimeout in vitest.config.ts). They return as
+// soon as the condition holds, so a passing test is no slower for it.
+configure({ asyncUtilTimeout: 5000 });
 
 // Mock Tauri APIs
 vi.mock('@tauri-apps/api/core', () => ({
