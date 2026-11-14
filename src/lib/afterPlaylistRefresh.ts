@@ -1,8 +1,9 @@
 /**
  * What a host of RefreshModal does once a playlist was refreshed: reload the
  * profile list, which carries each profile's refresh date, and the channels
- * if the refreshed profile is the one on screen. Shared by Settings > General
- * and Settings > Profiles, so a refresh from either shows the same result.
+ * if the refreshed profile is the one on screen. Shared by Settings > General,
+ * Settings > Profiles and the "Playlist update available" prompt, so a
+ * refresh from any of them shows the same result.
  */
 import { usePlayerStore } from '../stores/player-store';
 import { getChannels, getPlaylists } from './tauri';

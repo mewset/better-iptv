@@ -5,7 +5,6 @@ import { useEpgStore } from '../stores/epg-store';
 import {
   getChannelGroups,
   getStalePlaylistIds,
-  getChannels,
   getSeriesInfo,
   getXtreamSeriesId,
   getLocalSeriesInfo,
@@ -37,6 +36,7 @@ import TmdbMatchModal from './modals/TmdbMatchModal';
 import { cardFromDetails, homeGateOpen } from '../lib/tmdb';
 import type { Channel, SeriesInfo } from '../types';
 import { logger } from '../lib/logger';
+import { reloadAfterPlaylistRefresh } from '../lib/afterPlaylistRefresh';
 import { useResponsiveGrid, getGridClasses } from '../hooks/useResponsiveGrid';
 import { guideAnswered, nowNextFor, useNowNext } from '../hooks/useNowNext';
 import { useNow } from '../hooks/useNow';
@@ -127,7 +127,6 @@ export default function MainScreen() {
     playLocalEpisodes: playLocalEpisodesAction,
   } = useChannelPlayback();
   const currentPlaylist = usePlayerStore((s) => s.currentPlaylist);
-  const setChannels = usePlayerStore((s) => s.setChannels);
   const toggleChannelFavorite = usePlayerStore((s) => s.toggleChannelFavorite);
 
   // Parental
@@ -230,16 +229,22 @@ export default function MainScreen() {
 
   // Check for stale playlists on mount
   useEffect(() => {
-    if (!currentPlaylist?.id) return;
+    const playlistId = currentPlaylist?.id;
+    if (!playlistId) return;
 
+    // An answer that arrives after a profile switch is about the profile
+    // that was left, and must not ask to refresh it under the new one's name.
+    let cancelled = false;
     getStalePlaylistIds()
       .then((ids) => {
-        if (ids.includes(currentPlaylist.id!)) {
-          setStalePlaylistId(currentPlaylist.id!);
-          setShowStalePrompt(true);
-        }
+        if (cancelled || !ids.includes(playlistId)) return;
+        setStalePlaylistId(playlistId);
+        setShowStalePrompt(true);
       })
       .catch((err) => logger.error('Failed to check stale playlists:', err));
+    return () => {
+      cancelled = true;
+    };
   }, [currentPlaylist?.id]);
 
   // Fetch categories (pinned ones included) when playlist or content type changes
@@ -1180,18 +1185,7 @@ export default function MainScreen() {
           }}
           playlistId={stalePlaylistId}
           playlistName={currentPlaylist.name}
-          onRefreshComplete={async () => {
-            if (currentPlaylist.id) {
-              try {
-                const freshChannels = await getChannels(currentPlaylist.id);
-                // A switch while the fetch was in flight: these are the old profile's channels
-                if (usePlayerStore.getState().currentPlaylist?.id !== currentPlaylist.id) return;
-                setChannels(freshChannels);
-              } catch (err) {
-                logger.error('Failed to reload channels after refresh:', err);
-              }
-            }
-          }}
+          onRefreshComplete={() => reloadAfterPlaylistRefresh(stalePlaylistId)}
         />
       )}
     </div>

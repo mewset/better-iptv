@@ -150,6 +150,28 @@ describe('MainScreen: switching profile with a series open', () => {
     expect(usePlayerStore.getState().categoryFilter).toBeNull();
   });
 
+  it("a late answer about the old profile's playlist age asks nothing under the new profile", async () => {
+    const base = mockedInvoke.getMockImplementation()!;
+    let answerHome: (ids: number[]) => void = () => {};
+    let asked = 0;
+    mockedInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd !== 'get_stale_playlist_ids') return base(cmd, args as never);
+      asked += 1;
+      // The first question is Home's and stays open across the switch.
+      if (asked === 1) return new Promise<number[]>((resolve) => (answerHome = resolve));
+      return [];
+    });
+    render(<MainScreen />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Home' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Cabin' }));
+    await waitFor(() => expect(usePlayerStore.getState().activeProfileId).toBe(2));
+
+    answerHome([1]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText('Playlist update available')).not.toBeInTheDocument();
+  });
+
   it('returns focus to the rail avatar when the menu it opened closes with Escape', () => {
     render(<MainScreen />);
     const avatar = screen.getByRole('button', { name: 'Switch profile' });
