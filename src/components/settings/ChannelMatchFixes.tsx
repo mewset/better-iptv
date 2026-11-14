@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { Wrench } from 'lucide-react';
 import { setChannelEpgMatch, type ManualMatch } from '../../lib/epgIpc';
 import { manualTarget, matchLookup } from '../../lib/epgMatchView';
-import { errorText } from '../../lib/epgSourceView';
+import { errorText } from '../../lib/errorText';
 import { useMatchDetails } from '../../hooks/useMatchDetails';
 import { useParentalHiding } from '../../hooks/useParentalHiding';
 import { usePlayerStore } from '../../stores/player-store';

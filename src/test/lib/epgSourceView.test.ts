@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   agoText,
   clampShift,
-  errorText,
   formatShift,
   matchingDetails,
   matchingText,
@@ -193,11 +192,5 @@ describe('automatic updates', () => {
     expect(nextUpdateText(epgStatus(true, { sources: [epgSource({ enabled: false })] }), NOW)).toBe(
       'No source is enabled, so nothing is updated automatically'
     );
-  });
-
-  it('reads a backend error by its details', () => {
-    expect(errorText({ code: 'InvalidInput', details: 'Bad URL' })).toBe('Bad URL');
-    expect(errorText('plain')).toBe('plain');
-    expect(errorText(new Error('boom'))).toBe('boom');
   });
 });

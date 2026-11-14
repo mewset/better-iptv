@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { refreshEpg, removeEpgSource, updateEpgSource, type EpgSource } from '../../lib/epgIpc';
-import { errorText, sourceTitle, statusDetails, statusLine } from '../../lib/epgSourceView';
+import { sourceTitle, statusDetails, statusLine } from '../../lib/epgSourceView';
+import { errorText } from '../../lib/errorText';
 import { logger } from '../../lib/logger';
 import { cn } from '../../lib/utils';
 import ConfirmationModal from '../modals/ConfirmationModal';

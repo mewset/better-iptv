@@ -1,7 +1,8 @@
 import { useId, useState, type FormEvent } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import { addEpgSource, refreshEpg } from '../../lib/epgIpc';
-import { errorText, matchingDetails, matchingText, nextUpdateText } from '../../lib/epgSourceView';
+import { matchingDetails, matchingText, nextUpdateText } from '../../lib/epgSourceView';
+import { errorText } from '../../lib/errorText';
 import { isAppError } from '../../types/errors';
 import { useEpgStatus } from '../../hooks/useEpgStatus';
 import { useNow } from '../../hooks/useNow';

@@ -6,10 +6,10 @@ import {
   SHIFT_MIN_MINUTES,
   SHIFT_STEP_MINUTES,
   clampShift,
-  errorText,
   formatShift,
   shiftPreview,
 } from '../../lib/epgSourceView';
+import { errorText } from '../../lib/errorText';
 import { describeClock, nextClockChangeText } from '../../lib/clockChange';
 import { logger } from '../../lib/logger';
 

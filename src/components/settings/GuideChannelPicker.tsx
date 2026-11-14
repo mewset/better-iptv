@@ -16,7 +16,7 @@ import {
   visibleGuideHits,
   type MatchLookup,
 } from '../../lib/epgMatchView';
-import { errorText } from '../../lib/epgSourceView';
+import { errorText } from '../../lib/errorText';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useParentalHiding, useParentalLocked } from '../../hooks/useParentalHiding';
 import { usePlayerStore } from '../../stores/player-store';

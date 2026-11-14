@@ -172,14 +172,3 @@ export function nextUpdateText(status: EpgStatus, now: number): string {
   const sameDay = new Date(next).toDateString() === new Date(now).toDateString();
   return `Next automatic update around ${formatClockAt(next)}${sameDay ? '' : ' tomorrow'}`;
 }
-
-/** A rejected command's message: the backend's `details`, or the error as text. */
-export function errorText(err: unknown): string {
-  if (typeof err === 'string') return err;
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'object' && err !== null && 'details' in err) {
-    const details = (err as { details: unknown }).details;
-    if (typeof details === 'string' && details) return details;
-  }
-  return String(err);
-}
