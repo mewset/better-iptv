@@ -4,10 +4,9 @@ Name={{{name}}}
 {{#if comment}}
 Comment={{{comment}}}
 {{/if}}
-# Workaround for WebKitGTK 2.50+ EGL display bug on Wayland
-# See: https://github.com/tauri-apps/tauri/issues/11988
-# See: https://bugs.webkit.org/show_bug.cgi?id=280239
-Exec=env WEBKIT_DISABLE_DMABUF_RENDERER=1 {{{exec}}}
+# WEBKIT_DISABLE_DMABUF_RENDERER is defaulted in run() (src-tauri/src/lib.rs),
+# not here, so a value set in the environment is respected.
+Exec={{{exec}}}
 Icon={{{icon}}}
 Terminal=false
 Categories={{{categories}}}

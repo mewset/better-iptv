@@ -42,6 +42,7 @@ A simple overview of new features and improvements.
 ### Thanks
 
 - **@h4r0n1** for finding and fixing series that would not open with some Xtream providers (#93)
+- **@RyanBeckett** for a Linux setting that can make scrolling smoother (#94)
 
 ## Version 3.3.0 (November 11, 2026)
 

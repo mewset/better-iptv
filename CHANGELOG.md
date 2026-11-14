@@ -71,6 +71,10 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Changed
 
+- **Opt-out of the DMA-BUF workaround on Linux** - `run()` always set `WEBKIT_DISABLE_DMABUF_RENDERER=1` (the WebKitGTK 2.50+ EGL workaround), overwriting any value in the environment, and the desktop file's `Exec` forced it again with `env`, so no install could use the DMA-BUF renderer even on GPUs the bug does not affect
+  - `run()` now sets `1` only when the variable is unset, and the `env` prefix is gone from `templates/better-iptv.desktop`; the default is unchanged, `WEBKIT_DISABLE_DMABUF_RENDERER=0` opts in
+  - Trade-off seen on Intel iGPU + Hyprland: scrolling a bit smoother, but the play button flickers when hovering channel cards. That is why the default stays and the README calls it an opt-in with that caveat
+  - Thanks to @RyanBeckett (#94)
 - **The PIN opens the whole Parental section** - only turning the controls off and resetting the PIN asked for it; the block list, auto-detect and the visibility mode did not, so anyone who could open Settings could unblock everything. While the controls are on with a PIN, the section shows and changes nothing until the PIN is entered, once per visit to Settings (decided from what was loaded, so ticking Enable does not lock it). The two per-action prompts are gone; Change PIN still asks for the current one
 - **Unused error helpers removed** - `useErrorHandler` and `getErrorMessage`, `getErrorSeverity` and `parseError` in `types/errors.ts`, which only their tests used
 

@@ -53,7 +53,11 @@ pub fn run() {
     // See: https://bugs.webkit.org/show_bug.cgi?id=280239
     #[cfg(target_os = "linux")]
     {
-        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        // Respect a value the user already set (e.g. "0" to keep the faster
+        // DMA-BUF renderer on GPUs that are not affected by the bug).
+        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
     }
 
     tauri::Builder::default()
