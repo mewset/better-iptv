@@ -604,7 +604,7 @@ mod tests {
 
         assert_eq!(
             sent,
-            r#"{"code":"Http","details":"Could not load the live streams from the provider: The provider answered 404 Not Found"}"#
+            r#"{"code":"Http","details":"Could not load the live categories from the provider: The provider answered 404 Not Found"}"#
         );
     }
 
@@ -629,7 +629,7 @@ mod tests {
 
         assert_eq!(
             sent,
-            r#"{"code":"Http","details":"Could not load the live streams from the provider: The address of the provider is not a web address"}"#
+            r#"{"code":"Http","details":"Could not load the live categories from the provider: The address of the provider is not a web address"}"#
         );
     }
 

@@ -373,16 +373,24 @@ where
     };
 
     // Fetch all categories first to build category_id -> (category_name, order) map
-    // Each content type has its own ordering starting from 0
-    let live_categories = fetch_categories(creds, "get_live_categories", user_agent)
-        .await
-        .unwrap_or_default();
-    let vod_categories = fetch_categories(creds, "get_vod_categories", user_agent)
-        .await
-        .unwrap_or_default();
-    let series_categories = fetch_categories(creds, "get_series_categories", user_agent)
-        .await
-        .unwrap_or_default();
+    // Each content type has its own ordering starting from 0.
+    //
+    // A category list that cannot be fetched ends the whole fetch, like a
+    // stream list: carrying on without it gave every channel no group, so a
+    // refresh emptied the category bar (pins and blocked categories with it)
+    // and reported success, and an address that answers nothing was retried
+    // four times over before the import said so.
+    let live_categories =
+        fetch_categories(creds, "get_live_categories", "live categories", user_agent).await?;
+    let vod_categories =
+        fetch_categories(creds, "get_vod_categories", "VOD categories", user_agent).await?;
+    let series_categories = fetch_categories(
+        creds,
+        "get_series_categories",
+        "series categories",
+        user_agent,
+    )
+    .await?;
 
     // Build map with (name, order) - order is the index in the provider's list
     let mut category_map: HashMap<String, (String, i32)> = HashMap::new();
@@ -657,14 +665,17 @@ fn player_api_url(creds: &XtreamCredentials, extra: &str) -> String {
 }
 
 /// Fetch categories from Xtream API
+/// Fetch one category list. `what` names it in the error the viewer reads
+/// ("Could not load the live categories from the provider: ...").
 async fn fetch_categories(
     creds: &XtreamCredentials,
     action: &str,
+    what: &str,
     user_agent: Option<&str>,
 ) -> Result<Vec<XtreamCategory>> {
     let url = player_api_url(creds, &format!("&action={action}"));
 
-    fetch_json_with_retry(&url, action, user_agent).await
+    fetch_json_with_retry(&url, what, user_agent).await
 }
 
 /// Fetch the account information the panel holds for these credentials
@@ -892,6 +903,55 @@ mod series_info_fetch_tests {
         assert!(
             request.contains("user-agent: tivimate/4.7.0\r\n"),
             "{request}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod category_fetch_tests {
+    use super::{fetch_xtream_channels_with_progress, XtreamCredentials};
+    use crate::http::test_server::{respond, serve, Server};
+
+    fn creds(server: &Server) -> XtreamCredentials {
+        XtreamCredentials {
+            server_url: server.base.clone(),
+            username: "u".into(),
+            password: "p".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_category_list_that_cannot_be_fetched_ends_the_fetch_at_once() {
+        // Every request is refused. The first one is a category list, and
+        // nothing is asked after it.
+        let server = serve(vec![respond("403 Forbidden", b"")]).await;
+
+        let err = fetch_xtream_channels_with_progress(&creds(&server), None, |_| {})
+            .await
+            .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .starts_with("Could not load the live categories from the provider: "),
+            "{err}"
+        );
+        assert_eq!(server.connections(), 1);
+    }
+
+    #[tokio::test]
+    async fn empty_category_lists_are_no_error() {
+        // A panel without movies or series answers `[]`, which is a list.
+        let server = serve(vec![respond("200 OK", b"[]")]).await;
+
+        let channels = fetch_xtream_channels_with_progress(&creds(&server), None, |_| {})
+            .await
+            .unwrap();
+
+        assert!(channels.is_empty());
+        assert_eq!(
+            server.connections(),
+            6,
+            "three category and three stream lists"
         );
     }
 }
