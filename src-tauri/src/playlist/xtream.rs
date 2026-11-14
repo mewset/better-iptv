@@ -50,14 +50,6 @@ impl LooseScalar {
             LooseScalar::Str(s) => s.trim().parse::<i64>().map_err(E::custom),
         }
     }
-
-    fn to_f32<E: serde::de::Error>(&self) -> Result<f32, E> {
-        match self {
-            LooseScalar::Int(n) => Ok(*n as f32),
-            LooseScalar::Float(f) => Ok(*f as f32),
-            LooseScalar::Str(s) => s.trim().parse::<f32>().map_err(E::custom),
-        }
-    }
 }
 
 /// Accepts a bare number where a `String` field is declared.
@@ -76,15 +68,6 @@ fn de_lenient_i64<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
     LooseScalar::deserialize(d)?.to_i64()
 }
 
-/// Accepts a number, a numeric string, `""`, `null`, or a missing field.
-fn de_lenient_opt_f32<'de, D: Deserializer<'de>>(d: D) -> Result<Option<f32>, D::Error> {
-    match Option::<LooseScalar>::deserialize(d)? {
-        None => Ok(None),
-        Some(LooseScalar::Str(s)) if s.trim().is_empty() => Ok(None),
-        Some(v) => v.to_f32().map(Some),
-    }
-}
-
 /// Accepts a bare number for an optional `String` field; `""` becomes `None`.
 fn de_lenient_opt_string<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
     match Option::<LooseScalar>::deserialize(d)? {
@@ -94,6 +77,33 @@ fn de_lenient_opt_string<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Strin
             Ok(if s.trim().is_empty() { None } else { Some(s) })
         }
     }
+}
+
+/// Reads a field a series can be played without: names, artwork, plots,
+/// counts. A value that is null, empty or of a shape the field cannot hold
+/// counts as absent and the field gets its default, so decoration never
+/// costs the episodes next to it. PHP panels send `[]` for an empty object
+/// and `""` for an empty list or number. A scalar is also read in its other
+/// form (`5` for `"5"` and the reverse), as the helpers above do for the
+/// fields that are required. Goes with `#[serde(default)]`, which covers the
+/// field that is missing altogether.
+fn de_decoration<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: DeserializeOwned + Default,
+{
+    use serde_json::Value;
+    let value = Value::deserialize(d)?;
+    let other_form = match &value {
+        Value::String(s) if s.trim().is_empty() => return Ok(T::default()),
+        Value::String(s) => s.trim().parse().ok().map(Value::Number),
+        Value::Number(n) => Some(Value::String(n.to_string())),
+        _ => None,
+    };
+    Ok(T::deserialize(value)
+        .ok()
+        .or_else(|| T::deserialize(other_form?).ok())
+        .unwrap_or_default())
 }
 
 /// The account envelope `player_api.php` returns when called with no action
@@ -116,9 +126,16 @@ pub struct XtreamCredentials {
     pub password: String,
 }
 
+/// What `get_series_info` answers with.
+///
+/// Only what it takes to play an episode is required: its id, season and
+/// number. Every other field is decoration and read with `de_decoration`, so
+/// one odd value costs that value and not the series.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SeriesInfo {
+    #[serde(default, deserialize_with = "de_decoration")]
     pub seasons: Vec<Season>,
+    #[serde(default, deserialize_with = "de_decoration")]
     pub info: SeriesMetadata,
     pub episodes: HashMap<String, Vec<Episode>>,
 }
@@ -126,8 +143,9 @@ pub struct SeriesInfo {
 impl SeriesInfo {
     /// Make the season list usable by the frontend, which keys it on `id` and
     /// only shows episodes for a season it lists:
-    /// - a season without an id gets its season number, the same rule
-    ///   `series_domain::build_series_info` uses for M3U series;
+    /// - a season without an id gets its season number and one without a name
+    ///   is "Season N", the same rules `series_domain::build_series_info` uses
+    ///   for M3U series;
     /// - an episode group no season covers gets a season of its own. Some panels
     ///   send `"seasons": []` next to a full `episodes` map, which left the
     ///   series with nothing to pick and no episode to play.
@@ -135,6 +153,9 @@ impl SeriesInfo {
         for season in &mut self.seasons {
             if season.id.trim().is_empty() {
                 season.id = season.season_number.clone();
+            }
+            if season.name.trim().is_empty() {
+                season.name = format!("Season {}", season.season_number);
             }
         }
 
@@ -166,6 +187,18 @@ impl SeriesInfo {
         self.seasons
             .sort_by_key(|s| season_sort_key(&s.season_number));
     }
+
+    /// Give every episode an extension its stream URL can be built with: the
+    /// one the panel sent when it is usable, `mp4` otherwise, the same rule
+    /// as for a movie (`safe_container_extension`).
+    fn normalize_extensions(&mut self) {
+        for episode in self.episodes.values_mut().flatten() {
+            let usable = safe_container_extension(Some(&episode.container_extension));
+            if usable != episode.container_extension {
+                episode.container_extension = usable.to_string();
+            }
+        }
+    }
 }
 
 /// Numeric order for season numbers ("2" before "10"); anything that is not a
@@ -181,16 +214,21 @@ fn season_sort_key(number: &str) -> (bool, i64) {
 pub struct Season {
     // Some panels send seasons with no `id` at all. Requiring it failed the
     // whole get_series_info response, so no episode of that series could open.
-    #[serde(default, deserialize_with = "de_lenient_string")]
+    #[serde(default, deserialize_with = "de_decoration")]
     pub id: String,
-    #[serde(deserialize_with = "de_lenient_string")]
+    #[serde(default, deserialize_with = "de_decoration")]
     pub name: String,
+    // Ties the season to its episode group. A season without one is no
+    // season; the list is then rebuilt from the episodes.
     #[serde(deserialize_with = "de_lenient_string")]
     pub season_number: String,
-    #[serde(deserialize_with = "de_lenient_i32")]
+    #[serde(default, deserialize_with = "de_decoration")]
     pub episode_count: i32,
+    #[serde(default, deserialize_with = "de_decoration")]
     pub air_date: Option<String>,
+    #[serde(default, deserialize_with = "de_decoration")]
     pub overview: Option<String>,
+    #[serde(default, deserialize_with = "de_decoration")]
     pub cover: Option<String>,
 }
 
@@ -200,38 +238,50 @@ pub struct Episode {
     pub id: String,
     #[serde(deserialize_with = "de_lenient_i32")]
     pub episode_num: i32,
-    #[serde(deserialize_with = "de_lenient_string")]
+    #[serde(default, deserialize_with = "de_decoration")]
     pub title: String,
+    // `normalize_extensions` turns a missing or unusable one into `mp4`.
+    #[serde(default, deserialize_with = "de_decoration")]
     pub container_extension: String,
     #[serde(deserialize_with = "de_lenient_i32")]
     pub season: i32,
+    #[serde(default, deserialize_with = "de_decoration")]
     pub info: EpisodeInfo,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct EpisodeInfo {
+    #[serde(default, deserialize_with = "de_decoration")]
     pub plot: Option<String>,
+    #[serde(default, deserialize_with = "de_decoration")]
     pub movie_image: Option<String>,
-    #[serde(rename = "releaseDate")]
+    #[serde(default, rename = "releaseDate", deserialize_with = "de_decoration")]
     pub release_date: Option<String>,
+    #[serde(default, deserialize_with = "de_decoration")]
     pub duration: Option<String>,
-    #[serde(default, deserialize_with = "de_lenient_opt_f32")]
+    #[serde(default, deserialize_with = "de_decoration")]
     pub rating: Option<f32>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SeriesMetadata {
-    #[serde(deserialize_with = "de_lenient_string")]
+    #[serde(default, deserialize_with = "de_decoration")]
     pub name: String,
+    #[serde(default, deserialize_with = "de_decoration")]
     pub cover: Option<String>,
+    #[serde(default, deserialize_with = "de_decoration")]
     pub plot: Option<String>,
+    #[serde(default, deserialize_with = "de_decoration")]
     pub cast: Option<String>,
+    #[serde(default, deserialize_with = "de_decoration")]
     pub director: Option<String>,
+    #[serde(default, deserialize_with = "de_decoration")]
     pub genre: Option<String>,
-    #[serde(rename = "releaseDate")]
+    #[serde(default, rename = "releaseDate", deserialize_with = "de_decoration")]
     pub release_date: Option<String>,
-    #[serde(default, deserialize_with = "de_lenient_opt_string")]
+    #[serde(default, deserialize_with = "de_decoration")]
     pub rating: Option<String>,
+    #[serde(default, deserialize_with = "de_decoration")]
     pub backdrop_path: Option<Vec<String>>,
 }
 
@@ -787,6 +837,7 @@ pub async fn fetch_series_info(
 
     let mut info: SeriesInfo = fetch_json_with_retry(&url, "series info", user_agent).await?;
     info.normalize_seasons();
+    info.normalize_extensions();
     Ok(info)
 }
 
@@ -815,6 +866,138 @@ mod series_info_fetch_tests {
             request.contains("user-agent: tivimate/4.7.0\r\n"),
             "{request}"
         );
+    }
+}
+
+#[cfg(test)]
+mod series_decoration_tests {
+    use super::SeriesInfo;
+
+    fn decode(json: &str) -> SeriesInfo {
+        let mut info: SeriesInfo = serde_json::from_str(json).unwrap();
+        info.normalize_seasons();
+        info.normalize_extensions();
+        info
+    }
+
+    #[test]
+    fn an_episode_needs_only_its_id_season_and_number() {
+        let info = decode(r#"{"episodes":{"1":[{"id":"501","episode_num":1,"season":1}]}}"#);
+
+        let episode = &info.episodes["1"][0];
+        assert_eq!(
+            (episode.id.as_str(), episode.episode_num, episode.season),
+            ("501", 1, 1)
+        );
+        assert_eq!(episode.title, "");
+        assert_eq!(episode.container_extension, "mp4");
+        assert_eq!(episode.info.plot, None);
+        assert_eq!(info.info.name, "");
+        let seasons: Vec<&str> = info.seasons.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(seasons, ["Season 1"], "rebuilt from the episodes");
+    }
+
+    #[test]
+    fn decoration_of_the_wrong_shape_counts_as_absent() {
+        // PHP panels send `[]` for an empty object and `""` for an empty list
+        // or number.
+        let info = decode(
+            r#"{
+            "seasons":[{"name":null,"season_number":1,"episode_count":"","air_date":20221230,"cover":[]}],
+            "info":{"name":"Show","backdrop_path":"","plot":["a"],"rating":{},"cover":"http://x/c.png"},
+            "episodes":{"1":[{"id":501,"episode_num":"1","season":1,"title":null,"container_extension":null,"info":[]}]}
+        }"#,
+        );
+
+        let season = &info.seasons[0];
+        assert_eq!(season.name, "Season 1");
+        assert_eq!(season.episode_count, 0);
+        assert_eq!(season.air_date.as_deref(), Some("20221230"));
+        assert_eq!(season.cover, None);
+        assert_eq!(info.info.name, "Show");
+        assert_eq!(info.info.cover.as_deref(), Some("http://x/c.png"));
+        assert_eq!(info.info.backdrop_path, None);
+        assert_eq!(info.info.plot, None);
+        assert_eq!(info.info.rating, None);
+        let episode = &info.episodes["1"][0];
+        assert_eq!(episode.id, "501");
+        assert_eq!(episode.title, "");
+        assert_eq!(episode.container_extension, "mp4");
+        assert_eq!(episode.info.movie_image, None);
+    }
+
+    #[test]
+    fn decoration_that_is_there_is_read_as_before() {
+        let info = decode(
+            r#"{
+            "seasons":[{"id":7,"name":"Specials","season_number":"0","episode_count":"3","cover":"http://x/s.png"}],
+            "info":{"name":2024,"backdrop_path":["http://x/b.png"],"rating":8.5},
+            "episodes":{"0":[{"id":"9","episode_num":1,"season":0,"title":7,"container_extension":"mkv",
+                "info":{"plot":"p","duration":"00:42:00","rating":"8.5","releaseDate":"2022-12-30"}}]}
+        }"#,
+        );
+
+        let season = &info.seasons[0];
+        assert_eq!(
+            (season.id.as_str(), season.name.as_str()),
+            ("7", "Specials")
+        );
+        assert_eq!(season.episode_count, 3);
+        assert_eq!(season.cover.as_deref(), Some("http://x/s.png"));
+        assert_eq!(info.info.name, "2024");
+        assert_eq!(info.info.rating.as_deref(), Some("8.5"));
+        assert_eq!(
+            info.info.backdrop_path.as_deref(),
+            Some(&["http://x/b.png".to_string()][..])
+        );
+        let episode = &info.episodes["0"][0];
+        assert_eq!(episode.title, "7");
+        assert_eq!(episode.container_extension, "mkv");
+        assert_eq!(episode.info.plot.as_deref(), Some("p"));
+        assert_eq!(episode.info.duration.as_deref(), Some("00:42:00"));
+        assert_eq!(episode.info.rating, Some(8.5));
+        assert_eq!(episode.info.release_date.as_deref(), Some("2022-12-30"));
+    }
+
+    #[test]
+    fn series_metadata_and_seasons_of_the_wrong_shape_keep_the_episodes() {
+        let info = decode(
+            r#"{"seasons":"","info":[],
+            "episodes":{"2":[{"id":"1","episode_num":1,"season":2},{"id":"2","episode_num":2,"season":2}]}}"#,
+        );
+
+        assert_eq!(info.info.name, "");
+        assert_eq!(info.episodes["2"].len(), 2);
+        let seasons: Vec<(&str, i32)> = info
+            .seasons
+            .iter()
+            .map(|s| (s.season_number.as_str(), s.episode_count))
+            .collect();
+        assert_eq!(seasons, [("2", 2)]);
+    }
+
+    #[test]
+    fn an_extension_that_could_rewrite_the_request_path_becomes_mp4() {
+        let info = decode(
+            r#"{"episodes":{"1":[{"id":"1","episode_num":1,"season":1,"container_extension":"mp4/../x"}]}}"#,
+        );
+        assert_eq!(info.episodes["1"][0].container_extension, "mp4");
+    }
+
+    #[test]
+    fn an_episode_without_what_it_takes_to_play_it_is_still_refused() {
+        for episode in [
+            r#"{"episode_num":1,"season":1}"#,
+            r#"{"id":"1","season":1}"#,
+            r#"{"id":"1","episode_num":1}"#,
+            r#"{"id":"1","episode_num":"","season":1}"#,
+        ] {
+            let json = format!(r#"{{"episodes":{{"1":[{episode}]}}}}"#);
+            assert!(
+                serde_json::from_str::<SeriesInfo>(&json).is_err(),
+                "{episode}"
+            );
+        }
     }
 }
 
