@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
@@ -171,6 +171,47 @@ describe('MainScreen opens the detail view', () => {
       expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument()
     );
   });
+
+  it('the right PIN on a locked series in Favorites opens its detail view', async () => {
+    const locked = {
+      ...movie(50, 'Locked Show', '2026-02-01T00:00:00Z'),
+      content_type: 'series',
+      is_favorite: true,
+    } as Channel;
+    const base = mockedInvoke.getMockImplementation()!;
+    mockedInvoke.mockImplementation(async (cmd, args) => {
+      if (cmd === 'verify_parental_pin') return true;
+      if (cmd === 'get_xtream_series_id') return 7;
+      if (cmd === 'get_series_info')
+        return { info: { name: 'Locked Show' }, seasons: [], episodes: {} };
+      if (cmd === 'get_parental_settings') {
+        return {
+          enabled: true,
+          has_pin: true,
+          blocked_channels: [50],
+          blocked_categories: [],
+          visibility: 'lock',
+          auto_detect: false,
+        };
+      }
+      return base(cmd, args);
+    });
+    usePlayerStore.setState({ contentTypeFilter: 'favorites' });
+    usePlayerStore.getState().setChannels([older, locked]);
+    render(<MainScreen />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Unlock Locked Show with PIN' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByPlaceholderText('Enter PIN'), {
+      target: { value: '1234' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Unlock' }));
+
+    expect(await screen.findByRole('button', { name: 'Back' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Locked Show' })).toBeInTheDocument();
+    expect(calls('play_channel')).toHaveLength(0);
+  });
+
   it('"Find on TMDB" in the detail view opens the re-match dialog', async () => {
     setupInvoke(true);
     render(<MainScreen />);

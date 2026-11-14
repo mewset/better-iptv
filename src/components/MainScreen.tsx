@@ -519,6 +519,16 @@ export default function MainScreen() {
     [openDetail]
   );
 
+  // Start a channel once it is allowed: play it, or open the detail view
+  // when it is a series (the hook answers that instead of playing).
+  const startChannel = useCallback(
+    async (channel: Channel) => {
+      const result = await playChannelAction(channel);
+      if (result?.type === 'series') openDetail(result.channel);
+    },
+    [playChannelAction, openDetail]
+  );
+
   const handlePlayChannel = useCallback(
     async (channel: Channel) => {
       // Read parental state at call time (not render time) for callback stability
@@ -545,10 +555,9 @@ export default function MainScreen() {
         return;
       }
 
-      const result = await playChannelAction(channel);
-      if (result?.type === 'series') openDetail(result.channel);
+      await startChannel(channel);
     },
-    [playChannelAction, openDetail]
+    [startChannel]
   );
 
   const handlePlayEpisode = useCallback(
@@ -614,7 +623,7 @@ export default function MainScreen() {
         setPendingChannel(null);
         return;
       }
-      playChannelAction(pendingChannel)
+      startChannel(pendingChannel)
         .then(() => {
           setPendingChannel(null);
         })
@@ -622,7 +631,7 @@ export default function MainScreen() {
           logger.error('Failed to play channel after PIN:', err);
         });
     }
-  }, [pendingChannel, pendingOpen, openDetail, playChannelAction]);
+  }, [pendingChannel, pendingOpen, openDetail, startChannel]);
 
   // Keyboard navigation in the grid. Enter does what a click on the card
   // does: a poster opens its title, a live-shaped card plays.
