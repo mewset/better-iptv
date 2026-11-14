@@ -5,9 +5,10 @@ import type { ParentalVisibility } from './constants';
 
 interface ParentalTabProps {
   /**
-   * A PIN is set and has not been entered during this visit to Settings. The
-   * section then shows and changes nothing: whoever can open Settings could
-   * otherwise unblock every channel without knowing the PIN.
+   * The controls are on with a PIN, and the PIN has not been entered during
+   * this visit to Settings. The section then shows and changes nothing:
+   * whoever can open Settings could otherwise unblock every channel without
+   * knowing the PIN. With the controls off the section is open.
    */
   locked: boolean;
   /** Asks for the PIN that opens the section. */
@@ -60,7 +61,7 @@ export default function ParentalTab({
         <section>
           <h3 className="mb-4 text-lg font-semibold text-text">Parental Controls</h3>
           <p className="mb-4 text-sm text-text-muted">
-            Parental controls are {enabled ? 'on' : 'off'}. Enter the PIN to see or change them.
+            Parental controls are on. Enter the PIN to see or change them.
           </p>
           <button
             onClick={onUnlockRequest}

@@ -643,6 +643,25 @@ describe('Settings as a view', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('with the controls off, a PIN kept from before locks nothing, and turning them on does not lock the section either', async () => {
+    vi.mocked(getParentalSettings).mockImplementation(async () => ({
+      ...NO_PARENTAL,
+      enabled: false,
+      has_pin: true,
+    }));
+    await renderSettings();
+    await goToParental();
+
+    expect(screen.queryByRole('button', { name: 'Enter PIN' })).toBeNull();
+    const enable = screen.getByRole('checkbox', { name: 'Enable Parental Controls' });
+    expect(enable).not.toBeChecked();
+
+    fireEvent.click(enable);
+    expect(enable).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Change PIN' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enter PIN' })).toBeNull();
+  });
+
   it('without a PIN the Parental section is open, and stays open once one is set', async () => {
     vi.mocked(getParentalSettings).mockImplementation(async () => ({
       ...NO_PARENTAL,

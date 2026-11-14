@@ -137,9 +137,12 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   const [blockedCategories, setBlockedCategories] = useState<string[]>([]);
   const [parentalAutoDetect, setParentalAutoDetect] = useState(false);
   const [parentalVisibility, setParentalVisibility] = useState<ParentalVisibility>('hide');
-  // With a PIN set, the Parental section shows and changes nothing until the
-  // PIN was entered, once per visit to Settings.
-  const [parentalOpened, setParentalOpened] = useState(false);
+  // While parental controls are on with a PIN, the Parental section shows
+  // and changes nothing until the PIN was entered, once per visit to
+  // Settings. Decided from what was loaded, not from the form: with the
+  // controls off there is nothing to protect, and ticking Enable must not
+  // lock the section under the one who ticked it.
+  const [parentalLocked, setParentalLocked] = useState(false);
 
   // Modal state
   const [showSetPinModal, setShowSetPinModal] = useState(false);
@@ -343,6 +346,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
 
         setParentalEnabled(parentalSettings.enabled);
         setHasPin(parentalSettings.has_pin);
+        setParentalLocked(parentalSettings.enabled && parentalSettings.has_pin);
         setBlockedChannelIds(new Set(parentalSettings.blocked_channels));
         setBlockedCategories(parentalSettings.blocked_categories);
         setParentalAutoDetect(parentalSettings.auto_detect);
@@ -466,8 +470,6 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
 
   const handlePinSet = async () => {
     setHasPin(true);
-    // Whoever just chose the PIN knows it: the section stays open for them.
-    setParentalOpened(true);
     await loadParentalSettings();
     logger.info('Parental PIN set successfully');
   };
@@ -686,7 +688,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
             <TabsContent value="parental" className="mt-0 min-h-0">
               <LoadedSection unknown={loadFailed}>
                 <ParentalTab
-                  locked={hasPin && !parentalOpened}
+                  locked={parentalLocked}
                   onUnlockRequest={() => setShowOpenParentalModal(true)}
                   enabled={parentalEnabled}
                   onEnabledChange={setParentalEnabled}
@@ -758,7 +760,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       <PinEntryModal
         isOpen={showOpenParentalModal}
         onClose={() => setShowOpenParentalModal(false)}
-        onSuccess={() => setParentalOpened(true)}
+        onSuccess={() => setParentalLocked(false)}
         mode="verify"
         title="Enter PIN to open parental controls"
       />
