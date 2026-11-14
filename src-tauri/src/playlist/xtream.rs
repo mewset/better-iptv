@@ -768,15 +768,47 @@ fn build_stream_url(
 }
 
 /// Fetch series information (seasons and episodes)
-pub async fn fetch_series_info(creds: &XtreamCredentials, series_id: i64) -> Result<SeriesInfo> {
+pub async fn fetch_series_info(
+    creds: &XtreamCredentials,
+    series_id: i64,
+    user_agent: Option<&str>,
+) -> Result<SeriesInfo> {
     let url = player_api_url(
         creds,
         &format!("&action=get_series_info&series_id={series_id}"),
     );
 
-    let mut info: SeriesInfo = fetch_json_with_retry(&url, "series info", None).await?;
+    let mut info: SeriesInfo = fetch_json_with_retry(&url, "series info", user_agent).await?;
     info.normalize_seasons();
     Ok(info)
+}
+
+#[cfg(test)]
+mod series_info_fetch_tests {
+    use super::{fetch_series_info, XtreamCredentials};
+    use crate::http::test_server::{respond, serve};
+
+    #[tokio::test]
+    async fn the_series_request_carries_the_chosen_user_agent() {
+        let body = br#"{"seasons":[],"info":{"name":"Dark"},"episodes":{}}"#;
+        let server = serve(vec![respond("200 OK", body)]).await;
+        let creds = XtreamCredentials {
+            server_url: server.base.clone(),
+            username: "u".into(),
+            password: "p".into(),
+        };
+
+        let info = fetch_series_info(&creds, 7, Some("TiviMate/4.7.0"))
+            .await
+            .unwrap();
+
+        assert_eq!(info.info.name, "Dark");
+        let request = server.first_request().to_ascii_lowercase();
+        assert!(
+            request.contains("user-agent: tivimate/4.7.0\r\n"),
+            "{request}"
+        );
+    }
 }
 
 #[cfg(test)]

@@ -14,7 +14,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use tauri::{AppHandle, Emitter, State};
 
-fn get_playlist_user_agent(db: &rusqlite::Connection) -> Result<String, AppError> {
+/// The User-Agent the user chose for requests to the provider.
+pub(crate) fn get_playlist_user_agent(db: &rusqlite::Connection) -> Result<String, AppError> {
     let settings = queries::get_multiple_settings(
         db,
         &["playlist_user_agent_mode", "playlist_user_agent_custom"],

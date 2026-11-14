@@ -1,4 +1,5 @@
 use crate::commands::playback::build_playback_options;
+use crate::commands::playlist::get_playlist_user_agent;
 use crate::commands::with_db;
 use crate::db::queries;
 use crate::error::AppError;
@@ -11,6 +12,7 @@ use tauri::State;
 
 #[tauri::command]
 pub async fn get_series_info(
+    state: State<'_, AppState>,
     server_url: String,
     username: String,
     password: String,
@@ -25,7 +27,12 @@ pub async fn get_series_info(
         password,
     };
 
-    fetch_series_info(&creds, series_id)
+    // The same User-Agent as every other request to the provider: one that
+    // only answers a known player would otherwise list its series and then
+    // refuse to open any of them.
+    let user_agent = with_db(&state.pool, get_playlist_user_agent).await?;
+
+    fetch_series_info(&creds, series_id, Some(&user_agent))
         .await
         .map_err(|e| AppError::Http(e.to_string()))
 }
