@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useRef } from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
@@ -19,6 +19,7 @@ import {
 } from '../../lib/tauri';
 import type { Channel, Playlist } from '../../types';
 import * as logoFallback from '../../lib/logoFallback';
+import { applyTheme } from '../../lib/theme';
 import { useEpgStore } from '../../stores/epg-store';
 import { epgSource, epgStatus } from '../epgFixtures';
 
@@ -360,6 +361,77 @@ describe('Settings as a view', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape closes from a checkbox or a list, but stays with a field one types in', async () => {
+    const onClose = await renderSettings();
+
+    fireEvent.keyDown(screen.getAllByRole('checkbox')[0], { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(screen.getAllByRole('combobox')[0], { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(2);
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /^metadata$/i }));
+    await screen.findByRole('heading', { level: 1, name: 'Metadata' });
+    fireEvent.keyDown(screen.getByLabelText('TMDB API key'), { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  describe('theme preview', () => {
+    const isDark = () => document.documentElement.classList.contains('dark');
+
+    // The test environment has no localStorage; the theme cache needs one.
+    const cache = new Map<string, string>();
+    beforeEach(() => {
+      cache.clear();
+      vi.stubGlobal('localStorage', {
+        getItem: (key: string) => cache.get(key) ?? null,
+        setItem: (key: string, value: string) => void cache.set(key, value),
+      });
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      document.documentElement.classList.remove('dark');
+    });
+
+    async function openWithDarkSaved() {
+      vi.mocked(getSetting).mockImplementation(async (key: string) =>
+        key === 'theme' ? 'dark' : null
+      );
+      applyTheme('dark');
+      const onClose = vi.fn();
+      const view = render(<Settings onClose={onClose} />);
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled()
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'light' }));
+      expect(isDark()).toBe(false);
+      return { onClose, ...view };
+    }
+
+    it('leaving without Save puts the stored theme back', async () => {
+      const { onClose, unmount } = await openWithDarkSaved();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(onClose).toHaveBeenCalledTimes(1);
+      // The host unmounts the view on close.
+      unmount();
+
+      expect(isDark()).toBe(true);
+      expect(cache.get('better-iptv-theme')).toBe('dark');
+    });
+
+    it('Save keeps the new theme', async () => {
+      const { onClose, unmount } = await openWithDarkSaved();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+      expect(setSetting).toHaveBeenCalledWith('theme', 'light');
+      unmount();
+
+      expect(isDark()).toBe(false);
+      expect(cache.get('better-iptv-theme')).toBe('light');
+    });
   });
 
   it('Escape while the error modal is open does not call onClose', async () => {

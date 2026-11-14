@@ -68,6 +68,15 @@ const SECTIONS: Array<{ value: string; name: string; description: string }> = [
   { value: 'about', name: 'About', description: 'Version and licenses' },
 ];
 
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'password', 'email', 'url', 'tel', 'number']);
+
+/** A field one types text in; Escape there belongs to the field, not to Settings. */
+function isTextEntry(target: globalThis.EventTarget | null): boolean {
+  if (target instanceof globalThis.HTMLInputElement) return TEXT_INPUT_TYPES.has(target.type);
+  if (target instanceof globalThis.HTMLTextAreaElement) return true;
+  return target instanceof globalThis.HTMLElement && target.isContentEditable;
+}
+
 export default function Settings({ onClose, initialTab = 'general', leaveRef }: SettingsProps) {
   const {
     channels,
@@ -201,6 +210,20 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
     return () => window.removeEventListener('resize', measure);
   }, []);
 
+  // A theme click previews at once (applyTheme, which also caches it for the
+  // next launch), but only Save stores it. Whatever way Settings is left,
+  // the stored theme is the one shown afterwards.
+  const storedThemeRef = useRef<Theme | null>(null);
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+  useEffect(
+    () => () => {
+      const stored = storedThemeRef.current;
+      if (stored !== null && themeRef.current !== stored) applyTheme(stored);
+    },
+    []
+  );
+
   // Load settings on mount
   useEffect(() => {
     async function loadSettings() {
@@ -244,6 +267,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
         ]);
 
         if (savedTheme) setTheme(savedTheme as Theme);
+        storedThemeRef.current = (savedTheme as Theme | null) ?? 'system';
 
         if (
           savedPlaylistUserAgentMode &&
@@ -359,8 +383,9 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   // it only marks the event via `preventDefault` (capture phase, ahead of
   // useKeyboardShortcuts' bubble-phase handler, which treats a
   // defaultPrevented Escape as already spoken for and never stops
-  // playback), then closes the view unless the target is a form field, one
-  // of Settings' own modal flags is set, or any `aria-modal="true"` dialog
+  // playback), then closes the view unless the target is a field one types
+  // text in (a checkbox, slider or list has no use for Escape), one of
+  // Settings' own modal flags is set, or any `aria-modal="true"` dialog
   // is open anywhere in the document (Settings' modals and ProfileManager's
   // two inline overlays all carry that attribute on their panel).
   useEffect(() => {
@@ -379,13 +404,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       if (e.key !== 'Escape') return;
       e.preventDefault();
 
-      const target = e.target as globalThis.HTMLElement | null;
-      const isFormField =
-        target instanceof globalThis.HTMLInputElement ||
-        target instanceof globalThis.HTMLTextAreaElement ||
-        target instanceof globalThis.HTMLSelectElement ||
-        target?.isContentEditable;
-      if (isFormField) return;
+      if (isTextEntry(e.target)) return;
 
       if (modalOpen) return;
       if (document.querySelector('[aria-modal="true"]')) return;
@@ -460,6 +479,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
     try {
       setIsSaving(true);
       await setSetting('theme', theme);
+      storedThemeRef.current = theme;
 
       // Save language settings (store ISO codes for MPV)
       const audioIso = LANGUAGE_OPTIONS.find((l) => l.code === audioLang)?.iso || '';
