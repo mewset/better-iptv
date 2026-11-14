@@ -15,13 +15,17 @@ interface ChannelBlockingModalProps {
   onUpdate: (blockedIds: Set<number>) => void;
 }
 
-export default function ChannelBlockingModal({
-  isOpen,
-  onClose,
-  channels,
-  initialBlockedIds,
-  onUpdate,
-}: ChannelBlockingModalProps) {
+/**
+ * The block list editor. Its content is mounted only while open, so every
+ * opening starts from the blocks its host holds at that moment: the host
+ * renders it closed before the saved blocks have loaded.
+ */
+export default function ChannelBlockingModal(props: ChannelBlockingModalProps) {
+  if (!props.isOpen) return null;
+  return <BlockList {...props} />;
+}
+
+function BlockList({ onClose, channels, initialBlockedIds, onUpdate }: ChannelBlockingModalProps) {
   const [blockedIds, setBlockedIds] = useState<Set<number>>(new Set(initialBlockedIds));
   const [searchQuery, setSearchQuery] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -99,15 +103,6 @@ export default function ChannelBlockingModal({
     }
   };
 
-  // Cancel and revert
-  const handleCancel = () => {
-    setBlockedIds(new Set(initialBlockedIds));
-    setSearchQuery('');
-    onClose();
-  };
-
-  if (!isOpen) return null;
-
   const allFilteredBlocked = filteredChannels.every((c) => c.id && blockedIds.has(c.id));
 
   return (
@@ -126,7 +121,7 @@ export default function ChannelBlockingModal({
             </p>
           </div>
           <button
-            onClick={handleCancel}
+            onClick={onClose}
             aria-label="Close"
             className="rounded-lg p-1 hover:bg-surface-hover"
           >
@@ -225,7 +220,7 @@ export default function ChannelBlockingModal({
           <div className="text-sm text-text-faint">{filteredChannels.length} channels shown</div>
           <div className="flex gap-3">
             <button
-              onClick={handleCancel}
+              onClick={onClose}
               className="rounded-lg bg-surface-2 px-4 py-2 text-text hover:bg-surface-hover disabled:opacity-50"
               disabled={isSaving}
             >
