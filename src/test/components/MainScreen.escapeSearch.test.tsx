@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
@@ -175,5 +175,17 @@ describe('MainScreen: Escape and the search', () => {
     render(<MainScreen />);
     press('Escape');
     await waitFor(() => expect(calls('stop_playback')).toHaveLength(1));
+  });
+
+  it('Stop in the dock takes the dock away', async () => {
+    render(<MainScreen />);
+    const dock = screen.getByRole('complementary', { name: 'Now playing' });
+    fireEvent.click(within(dock).getByRole('button', { name: /stop/i }));
+
+    await waitFor(() => expect(calls('stop_playback')).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.queryByRole('complementary', { name: 'Now playing' })).not.toBeInTheDocument()
+    );
+    expect(usePlayerStore.getState().currentChannel).toBeNull();
   });
 });

@@ -7,6 +7,7 @@ import {
   LIBRARY_TYPES,
   LIVE_TYPES,
   setCategoryPinned,
+  stopPlayback as stopMpv,
   toggleFavorite,
 } from '../lib/tauri';
 import type { CategoryGroups, TmdbCard, TmdbStatus } from '../lib/tauri';
@@ -202,6 +203,14 @@ interface PlayerState {
   // Playback
   isPlaying: boolean;
   setIsPlaying: (playing: boolean) => void;
+  /**
+   * The one stop: every Stop button, card and key goes through here. Stops
+   * mpv, then nothing is current (`playbackEnded`). Rejects, with the state
+   * untouched, when the backend could not stop.
+   */
+  stopPlayback: () => Promise<void>;
+  /** Nothing is playing any more: mpv was stopped, or exited on its own. */
+  playbackEnded: () => void;
 
   // TMDB cards for movies and series (channelId -> card)
   tmdbCards: Map<number, TmdbCard>;
@@ -442,6 +451,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   // Playback
   isPlaying: false,
   setIsPlaying: (playing) => set({ isPlaying: playing }),
+  stopPlayback: async () => {
+    await stopMpv();
+    get().playbackEnded();
+  },
+  playbackEnded: () => set({ isPlaying: false, currentChannel: null }),
 
   tmdbCards: new Map(),
   setTmdbCards: (cards) =>

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { usePlayerStore } from '../../stores/player-store';
-import { stopPlayback } from '../../lib/tauri';
+import { playChannel, stopPlayback } from '../../lib/tauri';
 import type { Channel } from '../../types';
 
 vi.mock('../../lib/tauri', () => ({
@@ -113,6 +113,7 @@ describe('useKeyboardShortcuts', () => {
     expect(onEscapeView).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(stopPlayback).toHaveBeenCalledTimes(1));
     expect(usePlayerStore.getState().isPlaying).toBe(false);
+    expect(usePlayerStore.getState().currentChannel).toBeNull();
   });
 
   it('Escape already claimed by another owner (preventDefault) does nothing', async () => {
@@ -136,6 +137,17 @@ describe('useKeyboardShortcuts', () => {
     expect(event.defaultPrevented).toBe(true);
     await waitFor(() => expect(stopPlayback).toHaveBeenCalledTimes(1));
     expect(usePlayerStore.getState().isPlaying).toBe(false);
+    expect(usePlayerStore.getState().currentChannel).toBeNull();
+  });
+
+  it('Space starts nothing: it only stops what is playing', async () => {
+    usePlayerStore.setState({ isPlaying: false, currentChannel: channel });
+    setup();
+    const event = press(' ');
+    expect(event.defaultPrevented).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(playChannel).not.toHaveBeenCalled();
+    expect(stopPlayback).not.toHaveBeenCalled();
   });
 
   it('Space on a button, link or tab is left to that control', async () => {

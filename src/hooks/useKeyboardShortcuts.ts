@@ -1,6 +1,5 @@
 import { useEffect, useCallback } from 'react';
 import { usePlayerStore } from '../stores/player-store';
-import { stopPlayback, playChannel } from '../lib/tauri';
 import { logger } from '../lib/logger';
 
 /**
@@ -8,12 +7,10 @@ import { logger } from '../lib/logger';
  *
  * | Key    | Action                                         |
  * |--------|------------------------------------------------|
- * | Space  | Toggle play/stop                               |
- * | F      | Toggle fullscreen (MPV)                        |
+ * | Space  | Stop playback                                  |
  * | Escape | Close the open view, else stop playback        |
  * | /      | Focus search bar (else `onSearchUnavailable`)  |
  * | G      | Toggle the TV guide (`onToggleGuide`)          |
- * | M      | Mute toggle (future)                           |
  *
  * All shortcuts except Escape are suppressed when focus is inside an
  * input, textarea, select or contenteditable element. G is also ignored
@@ -21,7 +18,8 @@ import { logger } from '../lib/logger';
  *
  * Space pressed on a button, link or tab belongs to that control: it is
  * how the keyboard presses it. The shortcut leaves the key alone there,
- * and toggles playback only when the focus is on nothing that uses Space.
+ * and stops playback only when the focus is on nothing that uses Space.
+ * Space never starts anything: once stopped, nothing is current to resume.
  *
  * Escape: an owner that already handled it (Settings, TopBar's profile
  * menu, the guide's detail panel) marks it with `preventDefault` in the
@@ -32,7 +30,7 @@ import { logger } from '../lib/logger';
  * Escape and G are both left alone while any `aria-modal="true"` dialog is
  * open (a PIN prompt, a confirmation): the dialog owns the keyboard then.
  */
-/** Controls the keyboard activates with Space; the play/stop shortcut never takes the key from them. */
+/** Controls the keyboard activates with Space; the stop shortcut never takes the key from them. */
 const SPACE_CONTROLS =
   'button, a[href], summary, [role="button"], [role="tab"], [role="menuitem"], [role="option"], [role="checkbox"], [role="switch"]';
 
@@ -50,9 +48,16 @@ export function useKeyboardShortcuts(
 ) {
   const { onToggleGuide, onEscapeView, onSearchUnavailable } = options;
   const isPlaying = usePlayerStore((s) => s.isPlaying);
-  const currentChannel = usePlayerStore((s) => s.currentChannel);
-  const setIsPlaying = usePlayerStore((s) => s.setIsPlaying);
-  const setCurrentChannel = usePlayerStore((s) => s.setCurrentChannel);
+  const stopPlayback = usePlayerStore((s) => s.stopPlayback);
+
+  const stopIfPlaying = useCallback(async () => {
+    if (!isPlaying) return;
+    try {
+      await stopPlayback();
+    } catch (err) {
+      logger.error('Failed to stop playback via keyboard:', err);
+    }
+  }, [isPlaying, stopPlayback]);
 
   const handler = useCallback(
     async (e: globalThis.KeyboardEvent) => {
@@ -73,15 +78,7 @@ export function useKeyboardShortcuts(
       if (e.key === 'Escape') {
         if (e.defaultPrevented) return;
         if (onEscapeView?.()) return;
-        if (isPlaying) {
-          try {
-            await stopPlayback();
-            setIsPlaying(false);
-            setCurrentChannel(null);
-          } catch (err) {
-            logger.error('Failed to stop playback via keyboard:', err);
-          }
-        }
+        await stopIfPlaying();
         return;
       }
 
@@ -92,24 +89,7 @@ export function useKeyboardShortcuts(
         case ' ': {
           if (target.closest?.(SPACE_CONTROLS)) break;
           e.preventDefault();
-          if (isPlaying && currentChannel) {
-            try {
-              await stopPlayback();
-              setIsPlaying(false);
-              setCurrentChannel(null);
-            } catch (err) {
-              logger.error('Failed to stop playback via keyboard:', err);
-            }
-          } else if (currentChannel && currentChannel.id > 0) {
-            // A virtual episode channel (id -1) has no row to play again;
-            // its episodes are started from the detail view.
-            try {
-              await playChannel(currentChannel.id);
-              setIsPlaying(true);
-            } catch (err) {
-              logger.error('Failed to resume playback via keyboard:', err);
-            }
-          }
+          await stopIfPlaying();
           break;
         }
 
@@ -127,20 +107,9 @@ export function useKeyboardShortcuts(
           onToggleGuide();
           break;
         }
-
-        // F and M are reserved for future fullscreen / mute toggle via MPV IPC
       }
     },
-    [
-      isPlaying,
-      currentChannel,
-      setIsPlaying,
-      setCurrentChannel,
-      searchInputRef,
-      onToggleGuide,
-      onSearchUnavailable,
-      onEscapeView,
-    ]
+    [stopIfPlaying, searchInputRef, onToggleGuide, onSearchUnavailable, onEscapeView]
   );
 
   useEffect(() => {

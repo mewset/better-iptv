@@ -810,7 +810,7 @@ export default function MainScreen() {
     handleSection,
   ]);
 
-  // Global keyboard shortcuts (Space=play/stop, /=focus search, G=guide,
+  // Global keyboard shortcuts (Space=stop, /=focus search, G=guide,
   // Escape=empty the search or close the view, else stop)
   useKeyboardShortcuts(searchInputRef, {
     onToggleGuide: handleToggleGuide,

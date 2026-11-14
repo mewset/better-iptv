@@ -7,6 +7,7 @@ import {
   playChannel,
   playEpisodeWithSeason,
   getPlaybackStatus,
+  stopPlayback,
 } from '../../lib/tauri';
 import { resetPlaybackGuard } from '../../lib/playGuard';
 import type { Channel, Playlist } from '../../types';
@@ -64,10 +65,12 @@ const svt1: Channel = {
   content_type: 'live',
   is_favorite: false,
 };
+const tv4: Channel = { id: 2, name: 'TV4', content_type: 'live', is_favorite: false };
 
 describe('useChannelPlayback start guard and failure toast', () => {
   beforeEach(() => {
     vi.mocked(playChannel).mockReset().mockResolvedValue(undefined);
+    vi.mocked(stopPlayback).mockReset().mockResolvedValue(undefined);
     vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: true, failed: false });
     resetPlaybackGuard();
     usePlayerStore.setState({ currentChannel: null, isPlaying: false, toast: null });
@@ -84,6 +87,56 @@ describe('useChannelPlayback start guard and failure toast', () => {
       ]);
     });
     expect(playChannel).toHaveBeenCalledTimes(1);
+  });
+
+  it('Stop leaves nothing current', async () => {
+    const { result } = renderHook(() => useChannelPlayback());
+    await act(async () => {
+      await result.current.play(svt1);
+    });
+    await act(async () => {
+      await result.current.stop();
+    });
+    expect(stopPlayback).toHaveBeenCalledTimes(1);
+    expect(usePlayerStore.getState().isPlaying).toBe(false);
+    expect(usePlayerStore.getState().currentChannel).toBeNull();
+  });
+
+  it('a click on the playing card stops it, also right after the start', async () => {
+    const { result } = renderHook(() => useChannelPlayback());
+    await act(async () => {
+      await result.current.play(svt1);
+    });
+    // Well inside the start cooldown: a stop is never held back by it.
+    await act(async () => {
+      await result.current.play(svt1);
+    });
+    expect(stopPlayback).toHaveBeenCalledTimes(1);
+    expect(playChannel).toHaveBeenCalledTimes(1);
+    expect(usePlayerStore.getState().isPlaying).toBe(false);
+    expect(usePlayerStore.getState().currentChannel).toBeNull();
+  });
+
+  it('a stop does not hold up the next start', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useChannelPlayback());
+      await act(async () => {
+        await result.current.play(svt1);
+      });
+      // Past the cooldown of that start; the stop must not begin a new one.
+      vi.setSystemTime(Date.now() + 2500);
+      await act(async () => {
+        await result.current.play(svt1);
+      });
+      await act(async () => {
+        await result.current.play(tv4);
+      });
+      expect(playChannel).toHaveBeenLastCalledWith(2);
+      expect(usePlayerStore.getState().currentChannel?.name).toBe('TV4');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows a toast when MPV exits because the stream failed', async () => {

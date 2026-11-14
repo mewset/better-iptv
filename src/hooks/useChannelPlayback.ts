@@ -2,7 +2,6 @@ import { useCallback, useEffect } from 'react';
 import { usePlayerStore } from '../stores/player-store';
 import {
   playChannel as tauriPlayChannel,
-  stopPlayback as tauriStopPlayback,
   getPlaybackStatus,
   playEpisodeWithSeason,
   playSeriesEpisodes,
@@ -52,6 +51,8 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const setCurrentChannel = usePlayerStore((s) => s.setCurrentChannel);
   const setIsPlaying = usePlayerStore((s) => s.setIsPlaying);
+  const stopPlayback = usePlayerStore((s) => s.stopPlayback);
+  const playbackEnded = usePlayerStore((s) => s.playbackEnded);
   const showToast = usePlayerStore((s) => s.showToast);
 
   // Poll MPV playback status to detect when player is closed externally
@@ -70,8 +71,7 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
               `Couldn't play ${name}. The provider refused the stream, maybe because your line is already in use.`
             );
           }
-          setIsPlaying(false);
-          setCurrentChannel(null);
+          playbackEnded();
         }
       } catch (err) {
         logger.error('Failed to check playback status:', err);
@@ -79,7 +79,7 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [isPlaying, setIsPlaying, setCurrentChannel, showToast]);
+  }, [isPlaying, playbackEnded, showToast]);
 
   // Play a channel
   const play = useCallback(
@@ -89,16 +89,14 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         return { type: 'series', channel };
       }
 
+      // The playing card's button is a stop, and a stop is never gated.
+      if (currentChannel?.id === channel.id && isPlaying) {
+        await stopPlayback();
+        return;
+      }
+
       if (!beginPlaybackStart()) return;
       try {
-        // Toggle playback if same channel
-        if (currentChannel?.id === channel.id && isPlaying) {
-          await tauriStopPlayback();
-          setIsPlaying(false);
-          return;
-        }
-
-        // Play new channel
         await tauriPlayChannel(channel.id);
         setCurrentChannel(channel);
         setIsPlaying(true);
@@ -110,19 +108,18 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         endPlaybackStart();
       }
     },
-    [currentChannel, isPlaying, setCurrentChannel, setIsPlaying, showToast]
+    [currentChannel, isPlaying, setCurrentChannel, setIsPlaying, stopPlayback, showToast]
   );
 
   // Stop playback
   const stop = useCallback(async () => {
     try {
-      await tauriStopPlayback();
-      setIsPlaying(false);
+      await stopPlayback();
     } catch (err) {
       logger.error('Failed to stop playback:', err);
       throw err;
     }
-  }, [setIsPlaying]);
+  }, [stopPlayback]);
 
   // Play episode(s) from a series
   const playEpisode = useCallback(
