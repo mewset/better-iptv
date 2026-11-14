@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import Setup from '../../components/Setup';
 import { usePlayerStore } from '../../stores/player-store';
-import { checkMpvInstalled, importPlaylist } from '../../lib/tauri';
+import { checkMpvInstalled, importPlaylist, getChannels } from '../../lib/tauri';
+import type { Playlist } from '../../types';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
 vi.mock('../../lib/tauri', () => ({
@@ -138,7 +139,7 @@ describe('Setup', () => {
 
     render(<Setup />);
 
-    const m3uTab = screen.getByRole('tab', { name: 'M3U URL' });
+    const m3uTab = screen.getByRole('tab', { name: 'M3U' });
     const xtreamTab = screen.getByRole('tab', { name: 'Xtream Codes' });
 
     expect(m3uTab).toHaveAttribute('tabIndex', '0');
@@ -161,7 +162,7 @@ describe('Setup', () => {
 
     render(<Setup />);
     fireEvent.change(screen.getByLabelText('Playlist Name'), { target: { value: 'Home' } });
-    fireEvent.change(screen.getByPlaceholderText('http://example.com/playlist.m3u'), {
+    fireEvent.change(screen.getByLabelText('Address or file path'), {
       target: { value: 'http://x/list.m3u' },
     });
     fireEvent.submit(screen.getByRole('button', { name: 'Import playlist' }).closest('form')!);
@@ -171,5 +172,65 @@ describe('Setup', () => {
         'The provider returned no channels. Check the address and your subscription.'
       )
     ).toBeInTheDocument();
+  });
+
+  it('asks for an address or file path, since both work', async () => {
+    vi.mocked(checkMpvInstalled).mockResolvedValue(true);
+
+    render(<Setup />);
+    fireEvent.change(screen.getByLabelText('Playlist Name'), { target: { value: 'Home' } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Import playlist' }).closest('form')!);
+
+    expect(
+      await screen.findByText("Please enter the playlist's address or file path")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/\bURL\b/)).toBeNull();
+    expect(importPlaylist).not.toHaveBeenCalled();
+  });
+
+  describe('adding a profile (modal mode)', () => {
+    const created = { id: 7, name: 'Home' } as Playlist;
+
+    function fillAndSubmit() {
+      fireEvent.change(screen.getByLabelText('Playlist Name'), { target: { value: 'Home' } });
+      fireEvent.change(screen.getByLabelText('Address or file path'), {
+        target: { value: '/home/me/list.m3u' },
+      });
+      const form = screen.getByRole('button', { name: 'Import playlist' }).closest('form')!;
+      fireEvent.submit(form);
+      return form;
+    }
+
+    it('runs one import at a time: a second Enter while importing does nothing', async () => {
+      vi.mocked(checkMpvInstalled).mockResolvedValue(true);
+      let finish: (p: Playlist) => void = () => {};
+      vi.mocked(importPlaylist).mockImplementation(
+        () => new Promise<Playlist>((resolve) => (finish = resolve))
+      );
+      const onComplete = vi.fn();
+      render(<Setup onComplete={onComplete} onCancel={vi.fn()} />);
+
+      const form = fillAndSubmit();
+      fireEvent.submit(form);
+
+      expect(importPlaylist).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('button', { name: 'Import playlist' })).toBeDisabled();
+
+      finish(created);
+      await waitFor(() => expect(onComplete).toHaveBeenCalledWith(created));
+      expect(screen.getByRole('button', { name: 'Import playlist' })).toBeEnabled();
+    });
+
+    it('leaves loading the channels to the profile switch', async () => {
+      vi.mocked(checkMpvInstalled).mockResolvedValue(true);
+      vi.mocked(importPlaylist).mockResolvedValue(created);
+      const onComplete = vi.fn();
+      render(<Setup onComplete={onComplete} onCancel={vi.fn()} />);
+
+      fillAndSubmit();
+
+      await waitFor(() => expect(onComplete).toHaveBeenCalledWith(created));
+      expect(getChannels).not.toHaveBeenCalled();
+    });
   });
 });

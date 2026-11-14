@@ -125,6 +125,13 @@ describe('MetadataTab', () => {
     ).toBeInTheDocument();
   });
 
+  it('Test checks the key as Save would store it, without surrounding spaces', async () => {
+    vi.mocked(checkTmdbKey).mockResolvedValueOnce(undefined);
+    renderTab({ apiKey: '  abc \n' });
+    fireEvent.click(screen.getByRole('button', { name: 'Test' }));
+    await waitFor(() => expect(checkTmdbKey).toHaveBeenCalledWith('abc'));
+  });
+
   it('says why the cache could not be cleared', async () => {
     renderTab({
       onClearCache: vi.fn(async () => {

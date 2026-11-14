@@ -129,6 +129,9 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // One import at a time: Enter in a field would otherwise start a second
+    // one, and a second profile, while the first is still running.
+    if (usePlayerStore.getState().isLoading) return;
     setError('');
 
     if (!playlistName.trim()) {
@@ -137,7 +140,7 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
     }
 
     if (importType === 'm3u' && !playlistUrl.trim()) {
-      setError('Please enter a playlist URL');
+      setError("Please enter the playlist's address or file path");
       return;
     }
 
@@ -161,20 +164,21 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
         logger.debug('Xtream import result: playlist id', playlist.id);
       }
 
-      logger.debug('Fetching channels for playlist:', playlist.id);
-      const channels = await getChannels(playlist.id);
-      logger.info('Fetched channels:', channels.length);
-
-      // If modal mode with onComplete callback, call it
+      // Modal mode: the parent switches to the new profile, and the switch
+      // loads its channels.
       if (onComplete) {
         onComplete(playlist);
         return; // Don't set setup complete, parent handles state
       }
 
-      // Normal mode (initial setup): App.checkSetup is not run again, so put
-      // the profile where Settings > Profiles and the switcher read it, and
-      // make it the active one (the backend has no active profile yet, and
-      // the EPG commands need one).
+      // Normal mode (initial setup): App.checkSetup is not run again, so load
+      // the channels here, put the profile where Settings > Profiles and the
+      // switcher read it, and make it the active one (the backend has no
+      // active profile yet, and the EPG commands need one).
+      logger.debug('Fetching channels for playlist:', playlist.id);
+      const channels = await getChannels(playlist.id);
+      logger.info('Fetched channels:', channels.length);
+
       let allPlaylists: Playlist[];
       try {
         allPlaylists = await getPlaylists();
@@ -257,8 +261,8 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
       </h1>
       <p className="mt-2 text-sm text-text-muted">
         {onCancel
-          ? 'Each profile is one playlist or provider. Add an M3U link or sign in to an Xtream Codes provider.'
-          : 'Paste an M3U link or sign in to your Xtream Codes provider. Everything is stored on this computer and nothing is sent anywhere else.'}
+          ? 'Each profile is one playlist or provider. Add an M3U address or file path, or sign in to an Xtream Codes provider.'
+          : 'Paste an M3U address or file path, or sign in to your Xtream Codes provider. Everything is stored on this computer and nothing is sent anywhere else.'}
       </p>
 
       {/* Import type segmented control */}
@@ -279,7 +283,7 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
             importType === 'm3u' ? 'bg-text text-bg' : 'text-text-muted'
           }`}
         >
-          M3U URL
+          M3U
         </button>
         <button
           ref={xtreamTabRef}
@@ -315,14 +319,14 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
         {importType === 'm3u' ? (
           <div>
             <label htmlFor="url" className="mb-1.5 block text-[13px] font-semibold text-text-muted">
-              M3U Playlist URL
+              Address or file path
             </label>
             <input
               id="url"
               type="text"
               value={playlistUrl}
               onChange={(e) => setPlaylistUrl(e.target.value)}
-              placeholder="http://example.com/playlist.m3u"
+              placeholder="http://example.com/playlist.m3u or /path/to/playlist.m3u"
               className="h-11 w-full rounded-xl border border-border-strong bg-text/5 px-3.5 text-text focus:border-transparent focus:outline-none focus:ring-2 focus:ring-accent"
             />
           </div>
@@ -387,6 +391,7 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
 
         <button
           type="submit"
+          disabled={isLoading}
           className="h-12 w-full rounded-xl bg-accent font-bold text-on-accent transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
           Import playlist

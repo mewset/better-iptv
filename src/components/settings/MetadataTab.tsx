@@ -92,7 +92,8 @@ export default function MetadataTab({
     setTesting(true);
     setTestResult('');
     try {
-      await checkTmdbKey(apiKey);
+      // Trimmed, as Save stores it.
+      await checkTmdbKey(apiKey.trim());
       setTestResult('Key works');
     } catch (err) {
       setTestResult(errorText(err));

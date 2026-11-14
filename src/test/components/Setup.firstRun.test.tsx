@@ -5,6 +5,7 @@ import { usePlayerStore } from '../../stores/player-store';
 import {
   checkMpvInstalled,
   importPlaylist,
+  getChannels,
   getPlaylists,
   setActiveProfileId as persistActiveProfileId,
 } from '../../lib/tauri';
@@ -34,7 +35,9 @@ async function submitFirstRun() {
   fireEvent.change(screen.getByLabelText(/profile name|playlist name|name/i), {
     target: { value: 'Home TV' },
   });
-  fireEvent.change(screen.getByLabelText(/url/i), { target: { value: 'http://x/list.m3u' } });
+  fireEvent.change(screen.getByLabelText('Address or file path'), {
+    target: { value: 'http://x/list.m3u' },
+  });
   fireEvent.submit(
     screen.getByRole('button', { name: /import|add|continue|start/i }).closest('form')!
   );
@@ -61,6 +64,8 @@ describe('Setup first run', () => {
     expect(usePlayerStore.getState().playlists).toEqual([created]);
     expect(usePlayerStore.getState().activeProfileId).toBe(7);
     expect(persistActiveProfileId).toHaveBeenCalledWith(7);
+    // The first run has no profile switch to load the channels, so Setup does.
+    expect(getChannels).toHaveBeenCalledWith(7);
   });
 
   it('falls back to the imported playlist when get_playlists fails', async () => {
