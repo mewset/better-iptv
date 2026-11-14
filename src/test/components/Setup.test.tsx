@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import Setup from '../../components/Setup';
 import { usePlayerStore } from '../../stores/player-store';
-import { checkMpvInstalled } from '../../lib/tauri';
+import { checkMpvInstalled, importPlaylist } from '../../lib/tauri';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
 vi.mock('../../lib/tauri', () => ({
@@ -150,5 +150,26 @@ describe('Setup', () => {
     expect(xtreamTab).toHaveAttribute('tabIndex', '0');
     expect(m3uTab).toHaveAttribute('tabIndex', '-1');
     expect(screen.getByLabelText('Server URL')).toBeInTheDocument();
+  });
+
+  it("shows the backend's own sentence when the import is refused", async () => {
+    vi.mocked(checkMpvInstalled).mockResolvedValue(true);
+    vi.mocked(importPlaylist).mockRejectedValue({
+      code: 'InvalidInput',
+      details: 'The provider returned no channels. Check the address and your subscription.',
+    });
+
+    render(<Setup />);
+    fireEvent.change(screen.getByLabelText('Playlist Name'), { target: { value: 'Home' } });
+    fireEvent.change(screen.getByPlaceholderText('http://example.com/playlist.m3u'), {
+      target: { value: 'http://x/list.m3u' },
+    });
+    fireEvent.submit(screen.getByRole('button', { name: 'Import playlist' }).closest('form')!);
+
+    expect(
+      await screen.findByText(
+        'The provider returned no channels. Check the address and your subscription.'
+      )
+    ).toBeInTheDocument();
   });
 });

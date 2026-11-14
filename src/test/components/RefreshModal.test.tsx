@@ -57,4 +57,17 @@ describe('RefreshModal', () => {
     expect(screen.queryByText('Refresh complete')).not.toBeInTheDocument();
     expect(screen.queryByText('New')).not.toBeInTheDocument();
   });
+
+  it("shows the backend's sentence when the refresh is refused, not raw JSON", async () => {
+    vi.mocked(refreshPlaylist).mockRejectedValue({
+      code: 'Http',
+      details: 'The provider did not answer. Check the address.',
+    });
+    render(<RefreshModal {...props} isOpen={true} />);
+    expect(
+      await screen.findByText(
+        'Failed to refresh playlist: The provider did not answer. Check the address.'
+      )
+    ).toBeInTheDocument();
+  });
 });

@@ -115,11 +115,27 @@ describe('MetadataTab', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Test' }));
     await waitFor(() => expect(checkTmdbKey).toHaveBeenCalledWith('abc'));
     expect(await screen.findByText('Key works')).toBeInTheDocument();
-    vi.mocked(checkTmdbKey).mockRejectedValueOnce(
-      'Invalid API key: You must be granted a valid key.'
-    );
+    vi.mocked(checkTmdbKey).mockRejectedValueOnce({
+      code: 'InvalidInput',
+      details: 'Invalid API key: You must be granted a valid key.',
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Test' }));
-    expect(await screen.findByText(/Invalid API key/)).toBeInTheDocument();
+    expect(
+      await screen.findByText('Invalid API key: You must be granted a valid key.')
+    ).toBeInTheDocument();
+  });
+
+  it('says why the cache could not be cleared', async () => {
+    renderTab({
+      onClearCache: vi.fn(async () => {
+        throw { code: 'Database', details: 'database is locked' };
+      }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Clear cached metadata' }));
+    expect(
+      await screen.findByText('Could not clear the cache: database is locked')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Cache cleared')).toBeNull();
   });
 
   it('propagates edits and clears the cache on request', async () => {

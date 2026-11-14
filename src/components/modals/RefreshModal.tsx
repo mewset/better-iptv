@@ -3,6 +3,7 @@ import { RefreshCw, CheckCircle, X } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { refreshPlaylist } from '../../lib/tauri';
 import { logger } from '../../lib/logger';
+import { errorText } from '../../lib/errorText';
 import type { MergeResult } from '../../types';
 
 interface FetchProgress {
@@ -74,8 +75,7 @@ export default function RefreshModal({
         );
       })
       .catch((err) => {
-        const msg = typeof err === 'string' ? err : JSON.stringify(err);
-        setError(msg);
+        setError(errorText(err));
         logger.error('Playlist refresh failed:', err);
       })
       .finally(() => {

@@ -3,6 +3,7 @@ import { Search, X } from 'lucide-react';
 import { searchTmdb, setTmdbMatch, type TmdbCandidate, type TmdbDetails } from '../../lib/tauri';
 import type { Channel } from '../../types';
 import { logger } from '../../lib/logger';
+import { errorText } from '../../lib/errorText';
 
 interface TmdbMatchModalProps {
   isOpen: boolean;
@@ -43,7 +44,7 @@ export default function TmdbMatchModal({
     } catch (err) {
       logger.debug('TMDB manual search failed:', err);
       setResults([]);
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorText(err));
     } finally {
       setState('done');
     }
@@ -82,7 +83,7 @@ export default function TmdbMatchModal({
       onClose();
     } catch (err) {
       logger.error('Failed to store the TMDB match:', err);
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorText(err));
     } finally {
       setSaving(false);
     }

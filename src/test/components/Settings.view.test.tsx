@@ -11,6 +11,7 @@ import {
   stopPlayback,
   deletePlaylist,
   deleteTmdbCache,
+  renamePlaylist,
 } from '../../lib/tauri';
 import type { Channel, Playlist } from '../../types';
 import * as logoFallback from '../../lib/logoFallback';
@@ -204,7 +205,7 @@ describe('Settings as a view', () => {
   it('shows the backend refusal of the background flag in the error modal', async () => {
     vi.mocked(setSetting).mockImplementation(async (key: string, value: string) => {
       if (key === 'tmdb_background_enrich' && value === '1')
-        throw 'Background fetching needs your own TMDB API key';
+        throw { code: 'InvalidInput', details: 'Background fetching needs your own TMDB API key' };
     });
     await renderSettings();
     fireEvent.mouseDown(screen.getByRole('tab', { name: /^metadata$/i }));
@@ -217,7 +218,7 @@ describe('Settings as a view', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await screen.findByRole('heading', { name: 'Failed to Save Settings' });
-    expect(screen.getByText(/Background fetching needs your own TMDB API key/)).toBeInTheDocument();
+    expect(screen.getByText('Background fetching needs your own TMDB API key')).toBeInTheDocument();
   });
 
   it('saving a changed logo setting resets the session and reloads channels', async () => {
@@ -386,6 +387,21 @@ describe('Settings as a view', () => {
     fireEvent.change(input, { target: { value: '  ' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(await screen.findByText('Invalid profile name')).toBeInTheDocument();
+  });
+
+  it("a refused rename shows the backend's sentence", async () => {
+    vi.mocked(renamePlaylist).mockRejectedValueOnce({
+      code: 'InvalidInput',
+      details: 'A profile with that name already exists',
+    });
+    usePlayerStore.setState({ playlists: [playlist(1, 'Home')], activeProfileId: 1 });
+    await renderSettings();
+    await goToProfiles();
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'Cabin' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(await screen.findByText('A profile with that name already exists')).toBeInTheDocument();
   });
 
   it("Escape with ProfileManager's delete-last-profile warning open leaves Settings open", async () => {

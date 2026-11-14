@@ -8,6 +8,7 @@ import {
 } from '../../lib/tmdb';
 import { TMDB_LANGUAGE_OPTIONS, TMDB_ATTRIBUTION, type TmdbLanguage } from './constants';
 import { logger } from '../../lib/logger';
+import { errorText } from '../../lib/errorText';
 import tmdbLogo from '../../assets/tmdb/tmdb-blue-short.svg';
 
 interface MetadataTabProps {
@@ -60,7 +61,7 @@ export default function MetadataTab({
 }: MetadataTabProps) {
   const [testResult, setTestResult] = useState<string>('');
   const [testing, setTesting] = useState(false);
-  const [cleared, setCleared] = useState(false);
+  const [clearResult, setClearResult] = useState('');
   const hasOwnKey = apiKey.trim() !== '';
 
   // The scan's progress: the snapshot from the status on open, then live.
@@ -94,20 +95,20 @@ export default function MetadataTab({
       await checkTmdbKey(apiKey);
       setTestResult('Key works');
     } catch (err) {
-      setTestResult(
-        typeof err === 'string' ? err : err instanceof Error ? err.message : String(err)
-      );
+      setTestResult(errorText(err));
     } finally {
       setTesting(false);
     }
   };
 
   const handleClear = async () => {
+    setClearResult('');
     try {
       await onClearCache();
-      setCleared(true);
+      setClearResult('Cache cleared');
     } catch (err) {
       logger.error('Failed to clear the TMDB cache:', err);
+      setClearResult(`Could not clear the cache: ${errorText(err)}`);
     }
   };
 
@@ -226,7 +227,11 @@ export default function MetadataTab({
             >
               Clear cached metadata
             </button>
-            {cleared && <span className="text-xs text-text-muted">Cache cleared</span>}
+            {clearResult && (
+              <span className="text-xs text-text-muted" role="status">
+                {clearResult}
+              </span>
+            )}
           </div>
         </div>
       </section>

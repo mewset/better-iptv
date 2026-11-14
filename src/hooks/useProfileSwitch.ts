@@ -13,6 +13,7 @@ import { useCallback, useState } from 'react';
 import { usePlayerStore } from '../stores/player-store';
 import { setActiveProfileId } from '../lib/tauri';
 import { logger } from '../lib/logger';
+import { errorText } from '../lib/errorText';
 import type { Playlist } from '../types';
 
 export interface ProfileSwitch {
@@ -44,7 +45,7 @@ export function useProfileSwitch(): ProfileSwitch {
         logger.info(`Profile switched: ${playlist.name}`);
       } catch (err) {
         logger.error('Failed to switch profile:', err);
-        setError(`Failed to switch profile: ${err}`);
+        setError(errorText(err));
       }
     },
     [setStoreActiveId, setCurrentPlaylist, loadChannels]

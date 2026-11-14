@@ -11,6 +11,7 @@ import { usePlayerStore } from '../stores/player-store';
 import { listen } from '@tauri-apps/api/event';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { logger } from '../lib/logger';
+import { errorText } from '../lib/errorText';
 import { parseXtreamLink } from '../lib/xtreamLink';
 import type { Playlist } from '../types';
 import { X, Check, AlertTriangle } from 'lucide-react';
@@ -193,7 +194,7 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
       setIsSetupComplete(true);
     } catch (err) {
       logger.error('Import error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to import playlist');
+      setError(errorText(err));
     } finally {
       setIsLoading(false);
       setImportProgress(null);

@@ -4,6 +4,7 @@ import { X, Search, Lock, Unlock } from 'lucide-react';
 import type { Channel } from '../../types';
 import { setBlockedChannels } from '../../lib/tauri';
 import { searchChannels } from '../../lib/searchText';
+import { errorText } from '../../lib/errorText';
 import ErrorModal from './ErrorModal';
 
 interface ChannelBlockingModalProps {
@@ -91,7 +92,7 @@ export default function ChannelBlockingModal({
     } catch (error) {
       console.error('Failed to save blocked channels:', error);
       setErrorTitle('Failed to Save');
-      setErrorMessage(`Failed to save: ${error}`);
+      setErrorMessage(errorText(error));
       setShowErrorModal(true);
     } finally {
       setIsSaving(false);

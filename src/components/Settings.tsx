@@ -10,6 +10,7 @@ import {
 import type { TmdbStatus } from '../lib/tauri';
 import { usePlayerStore } from '../stores/player-store';
 import { logger } from '../lib/logger';
+import { errorText } from '../lib/errorText';
 import { resetLogoFallbackSession } from '../lib/logoFallback';
 import { applyTheme } from '../lib/theme';
 import { cn } from '../lib/utils';
@@ -436,7 +437,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       logger.info('Parental PIN reset successfully');
     } catch (err) {
       logger.error('Failed to reset PIN:', err);
-      showError('Failed to Reset PIN', `Failed to reset PIN: ${err}`);
+      showError('Failed to Reset PIN', errorText(err));
     }
   };
 
@@ -550,7 +551,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       onClose();
     } catch (err) {
       logger.error('Failed to save settings:', err);
-      showError('Failed to Save Settings', `Failed to save settings: ${err}`);
+      showError('Failed to Save Settings', errorText(err));
     } finally {
       setIsSaving(false);
     }

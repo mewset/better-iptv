@@ -9,6 +9,7 @@ import {
   renamePlaylist,
 } from '../lib/tauri';
 import { logger } from '../lib/logger';
+import { errorText } from '../lib/errorText';
 import { useSubscriptionExpiries } from '../hooks/useSubscriptionExpiries';
 import { useProfileSwitch } from '../hooks/useProfileSwitch';
 import { formatSubscriptionExpiry } from '../lib/subscriptionExpiry';
@@ -116,7 +117,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
     } catch (err) {
       logger.error('Failed to rename profile:', err);
       setErrorTitle('Failed to Rename Profile');
-      setErrorMessage(`Failed to rename profile: ${err}`);
+      setErrorMessage(errorText(err));
       setShowErrorModal(true);
     }
   };
@@ -159,7 +160,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
     } catch (err) {
       logger.error('Failed to delete profile:', err);
       setErrorTitle('Failed to Delete Profile');
-      setErrorMessage(`Failed to delete profile: ${err}`);
+      setErrorMessage(errorText(err));
       setShowErrorModal(true);
     }
   };
@@ -180,7 +181,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
     } catch (err) {
       logger.error('Failed to delete last profile:', err);
       setErrorTitle('Failed to Delete Profile');
-      setErrorMessage(`Failed to delete profile: ${err}`);
+      setErrorMessage(errorText(err));
       setShowErrorModal(true);
     }
   };

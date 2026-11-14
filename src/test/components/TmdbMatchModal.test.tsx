@@ -122,7 +122,7 @@ describe('TmdbMatchModal', () => {
       />
     );
     expect(await screen.findByText('No titles found')).toBeInTheDocument();
-    vi.mocked(searchTmdb).mockRejectedValueOnce(new Error('offline'));
+    vi.mocked(searchTmdb).mockRejectedValueOnce({ code: 'Http', details: 'TMDB is offline' });
     rerender(
       <TmdbMatchModal
         isOpen
@@ -133,7 +133,7 @@ describe('TmdbMatchModal', () => {
       />
     );
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    expect(await screen.findByText(/offline/)).toBeInTheDocument();
+    expect(await screen.findByText('TMDB is offline')).toBeInTheDocument();
   });
 
   it('renders nothing while closed', () => {

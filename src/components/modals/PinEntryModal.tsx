@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { setParentalPin, verifyParentalPin } from '../../lib/tauri';
 import { validatePin } from '../../lib/parentalControls';
 import { logger } from '../../lib/logger';
+import { errorText } from '../../lib/errorText';
 
 interface PinEntryModalProps {
   isOpen: boolean;
@@ -89,7 +90,7 @@ export default function PinEntryModal({
         resetForm();
       }
     } catch (err) {
-      setError(`Failed: ${err}`);
+      setError(errorText(err));
       setIsSubmitting(false);
     }
   };

@@ -95,7 +95,7 @@ describe('useProfileSwitch', () => {
 
   it('keeps the old profile when activating it in the backend fails', async () => {
     mockedInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'set_active_profile_id') throw new Error('db locked');
+      if (cmd === 'set_active_profile_id') throw { code: 'Database', details: 'db locked' };
       return undefined;
     });
 
@@ -104,7 +104,7 @@ describe('useProfileSwitch', () => {
       await result.current.switchTo(cabin);
     });
 
-    expect(result.current.error).toMatch(/db locked/);
+    expect(result.current.error).toBe('db locked');
     const state = usePlayerStore.getState();
     expect(state.activeProfileId).toBe(1);
     expect(state.currentPlaylist).toEqual(home);
