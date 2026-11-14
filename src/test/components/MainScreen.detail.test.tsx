@@ -149,8 +149,11 @@ describe('MainScreen opens the detail view', () => {
     render(<MainScreen />);
     const card = (await screen.findAllByRole('article'))[0];
     fireEvent.click(card);
-    expect(await screen.findByRole('button', { name: 'Back' })).toBeInTheDocument();
+    const back = await screen.findByRole('button', { name: 'Back' });
     expect(calls('play_channel')).toHaveLength(0);
+    // The grid that held the focus is gone; the view has it now.
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toContainElement(back);
   });
 
   it('the overlay Play button plays the movie without opening the view', async () => {

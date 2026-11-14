@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, Play, Star, Clapperboard, RefreshCw, Search } from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { usePlayerStore } from '../stores/player-store';
@@ -6,6 +6,7 @@ import { getTmdbDetails, getTmdbSeason, type TmdbDetails, type TmdbEpisode } fro
 import type { Channel, Episode, SeriesInfo } from '../types';
 import { ColorBars } from './ColorBars';
 import { logger } from '../lib/logger';
+import { errorText } from '../lib/errorText';
 
 interface DetailViewProps {
   channel: Channel;
@@ -128,6 +129,8 @@ export default function DetailView({
   // failed poster shows the ColorBars placeholder in the band and the frame.
   const [failedBackdrop, setFailedBackdrop] = useState<string | null>(null);
   const [failedPoster, setFailedPoster] = useState<string | null>(null);
+  // Bumped by "Try again" after a failed load, like `attempt` for the details.
+  const [seriesAttempt, setSeriesAttempt] = useState(0);
   useEffect(() => {
     if (!isSeries || !loadSeries) return;
     let cancelled = false;
@@ -147,7 +150,7 @@ export default function DetailView({
       } catch (err) {
         if (cancelled) return;
         logger.error('Failed to load series info:', err);
-        setSeriesError(err instanceof Error ? err.message : 'Failed to load series');
+        setSeriesError(errorText(err));
       } finally {
         if (!cancelled) setSeriesLoading(false);
       }
@@ -157,7 +160,17 @@ export default function DetailView({
       setCurrentSeries(null);
       setSelectedSeason(null);
     };
-  }, [isSeries, loadSeries, setCurrentSeries, setSelectedSeason]);
+  }, [isSeries, loadSeries, seriesAttempt, setCurrentSeries, setSelectedSeason]);
+
+  // The view takes the focus when it opens, and again when the failed screen
+  // and the title swap places: the grid that held the focus is unmounted, and
+  // without this Tab would start over from the top of the page. On the scroll
+  // container, so the arrow keys scroll it and the next Tab is its first button.
+  const viewRef = useRef<HTMLDivElement>(null);
+  const seriesFailed = isSeries && seriesError !== '';
+  useEffect(() => {
+    viewRef.current?.focus({ preventScroll: true });
+  }, [seriesFailed]);
 
   // TMDB episodes for the selected season of a matched series.
   useEffect(() => {
@@ -226,24 +239,42 @@ export default function DetailView({
     );
   };
 
-  if (isSeries && seriesError) {
+  if (seriesFailed) {
     return (
-      <div className="flex h-full min-h-0 flex-1 items-center justify-center bg-bg">
+      <div
+        ref={viewRef}
+        tabIndex={-1}
+        className="flex h-full min-h-0 flex-1 items-center justify-center bg-bg outline-none"
+      >
         <div className="text-center">
           <p className="mb-4 font-medium text-danger">{seriesError}</p>
-          <button
-            onClick={onBack}
-            className="rounded-md bg-accent px-4 py-2 text-on-accent hover:bg-accent-hover"
-          >
-            Go back
-          </button>
+          <div className="flex justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSeriesAttempt((n) => n + 1)}
+              className="rounded-md bg-accent px-4 py-2 text-on-accent hover:bg-accent-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            >
+              Try again
+            </button>
+            <button
+              type="button"
+              onClick={onBack}
+              className="rounded-md border border-border-strong px-4 py-2 text-text hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Go back
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto bg-bg pb-32">
+    <div
+      ref={viewRef}
+      tabIndex={-1}
+      className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto bg-bg pb-32 outline-none"
+    >
       {/* Backdrop band */}
       <div className="relative h-[280px] shrink-0 overflow-hidden bg-surface-2">
         {backdrop && backdropOk ? (

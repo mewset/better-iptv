@@ -136,6 +136,16 @@ describe('DetailView for a movie', () => {
     expect(await screen.findByRole('button', { name: 'Add to favorites' })).toBeInTheDocument();
   });
 
+  it('takes the focus when it opens, so the arrows scroll it and Tab starts at Back', async () => {
+    renderMovie(matched);
+    const view = document.activeElement as HTMLElement;
+    expect(view).toHaveAttribute('tabindex', '-1');
+    expect(view).toContainElement(screen.getByRole('button', { name: 'Back' }));
+    // The ring belongs on controls, not around the whole view.
+    expect(view.className).toContain('outline-none');
+    await screen.findByText('A marshal investigates.');
+  });
+
   it('offers "Wrong title?" only when a handler is given and TMDB is available', async () => {
     const onFixMatch = vi.fn();
     renderMovie(matched, { onFixMatch });
@@ -270,6 +280,26 @@ describe('DetailView for a series', () => {
     expect(await screen.findByText('Series not found')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
     expect(onBack).toHaveBeenCalled();
+  });
+
+  it('a series that failed to load says why and can be tried again', async () => {
+    const loadSeries = vi
+      .fn()
+      .mockRejectedValueOnce({ code: 'Network', details: 'The provider did not answer.' })
+      .mockResolvedValue(info);
+    renderSeries(loadSeries);
+
+    expect(await screen.findByText('The provider did not answer.')).toBeInTheDocument();
+    const retry = screen.getByRole('button', { name: 'Try again' });
+    // The failed view holds the focus, so Tab goes to its buttons.
+    expect(document.activeElement).toContainElement(retry);
+
+    fireEvent.click(retry);
+
+    expect(await screen.findByText('Pilot')).toBeInTheDocument();
+    expect(loadSeries).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(document.activeElement).toContainElement(screen.getByRole('button', { name: 'Back' }));
   });
 });
 
