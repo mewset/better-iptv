@@ -36,6 +36,15 @@ interface UseChannelPlaybackResult {
 }
 
 /**
+ * What the dock shows while episodes play. Every successful start sets what
+ * is playing, and an episode has no row in `channels` (its id belongs to the
+ * provider or to series_episodes), so it gets a virtual channel.
+ */
+function episodeChannel(title: string): Channel {
+  return { id: -1, name: title, content_type: 'series', is_favorite: false };
+}
+
+/**
  * Custom hook for channel playback management
  *
  * Consolidates:
@@ -146,16 +155,7 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
           playlist.xtream_password,
           season ? remainingEpisodes : [{ id: episodeId, title, extension }]
         );
-        // As before, a single episode gets a dock entry as a virtual channel
-        // and a season playlist does not.
-        if (!season) {
-          setCurrentChannel({
-            id: -1, // Virtual channel
-            name: title,
-            content_type: 'series',
-            is_favorite: false,
-          });
-        }
+        setCurrentChannel(episodeChannel(title));
         setIsPlaying(true);
       } catch (err) {
         logger.error('Failed to play episode:', err);
@@ -174,12 +174,7 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
       if (!beginPlaybackStart()) return;
       try {
         await playSeriesEpisodes(episodeIds);
-        setCurrentChannel({
-          id: -1, // Virtual channel: the row ids belong to series_episodes, not channels
-          name: title,
-          content_type: 'series',
-          is_favorite: false,
-        });
+        setCurrentChannel(episodeChannel(title));
         setIsPlaying(true);
       } catch (err) {
         logger.error('Failed to play local episodes:', err);

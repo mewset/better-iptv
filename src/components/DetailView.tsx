@@ -209,13 +209,20 @@ export default function DetailView({
   const tmdbOn = details?.available ?? false;
   const firstEpisode = seasonEpisodes[0];
 
-  const playFirst = () => {
-    if (!firstEpisode) return;
+  // The title an episode's row shows, which is also what the dock shows while
+  // it plays: the provider's own title is often empty.
+  const shownTitle = (episode: Episode): string =>
+    episode.title ||
+    tmdbBySeasonEpisode.get(episode.episode_num)?.title ||
+    `Episode ${episode.episode_num}`;
+  const playFrom = (index: number) => {
+    const episode = seasonEpisodes[index];
+    if (!episode) return;
     onPlayEpisode(
-      firstEpisode.id,
-      firstEpisode.container_extension,
-      firstEpisode.title,
-      remainingFrom(seasonEpisodes, 0)
+      episode.id,
+      episode.container_extension,
+      shownTitle(episode),
+      remainingFrom(seasonEpisodes, index)
     );
   };
 
@@ -299,7 +306,7 @@ export default function DetailView({
             {isSeries ? (
               <button
                 type="button"
-                onClick={playFirst}
+                onClick={() => playFrom(0)}
                 disabled={!firstEpisode}
                 className="flex h-11 items-center gap-2 rounded-xl bg-accent px-5 font-bold text-on-accent focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
               >
@@ -450,8 +457,7 @@ export default function DetailView({
                   {seasonEpisodes.map((episode, index) => {
                     const tmdbEp = tmdbBySeasonEpisode.get(episode.episode_num);
                     const thumb = episode.info.movie_image ?? tmdbEp?.still_url ?? null;
-                    const epTitle =
-                      episode.title || tmdbEp?.title || `Episode ${episode.episode_num}`;
+                    const epTitle = shownTitle(episode);
                     const plot = episode.info.plot ?? tmdbEp?.overview ?? null;
                     const duration =
                       episode.info.duration ??
@@ -488,14 +494,7 @@ export default function DetailView({
                         <button
                           type="button"
                           aria-label={`Play ${epTitle}`}
-                          onClick={() =>
-                            onPlayEpisode(
-                              episode.id,
-                              episode.container_extension,
-                              episode.title,
-                              remainingFrom(seasonEpisodes, index)
-                            )
-                          }
+                          onClick={() => playFrom(index)}
                           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent text-on-accent focus-visible:ring-2 focus-visible:ring-accent"
                         >
                           <Play className="h-4 w-4" aria-hidden="true" />

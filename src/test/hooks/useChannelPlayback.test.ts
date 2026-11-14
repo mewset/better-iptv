@@ -240,4 +240,23 @@ describe('useChannelPlayback sends ids and episodes, never stream URLs', () => {
       rest
     );
   });
+
+  it('a season start replaces what was playing in the dock', async () => {
+    const rest = [
+      { id: '901', title: 'Pilot', extension: 'mkv' },
+      { id: '902', title: 'Two', extension: 'mkv' },
+    ];
+    usePlayerStore.setState({ currentChannel: svt1, isPlaying: true });
+    const { result } = renderHook(() => useChannelPlayback());
+    await act(async () => {
+      await result.current.playEpisode('901', 'mkv', 'Pilot', xtream, rest);
+    });
+    expect(usePlayerStore.getState().currentChannel).toEqual({
+      id: -1,
+      name: 'Pilot',
+      content_type: 'series',
+      is_favorite: false,
+    });
+    expect(usePlayerStore.getState().isPlaying).toBe(true);
+  });
 });

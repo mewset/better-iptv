@@ -227,6 +227,18 @@ describe('DetailView for a series', () => {
     ]);
   });
 
+  it('an episode without a title is played under the title its row shows', async () => {
+    const untitled: SeriesInfo = {
+      ...info,
+      episodes: { '1': [episode('11', 1, 1, ''), episode('12', 1, 2, '')], '2': [] },
+    };
+    const { onPlayEpisode } = renderSeries(vi.fn().mockResolvedValue(untitled));
+    fireEvent.click(await screen.findByRole('button', { name: 'Play Episode 2' }));
+    expect(onPlayEpisode.mock.lastCall?.[2]).toBe('Episode 2');
+    fireEvent.click(screen.getByRole('button', { name: 'Play S1 E1' }));
+    expect(onPlayEpisode.mock.lastCall?.[2]).toBe('Episode 1');
+  });
+
   it('switches seasons', async () => {
     renderSeries();
     await screen.findByText('Pilot');
