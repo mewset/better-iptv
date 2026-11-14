@@ -115,7 +115,8 @@ export default function GeneralTab({
             </p>
             {userAgentPreview.usingFallback && (
               <p className="mt-1 text-xs text-accent-text">
-                Custom value is currently invalid or empty, fallback to default will be used.
+                Custom value is empty or invalid. Enter one line of at most 512 characters before
+                saving.
               </p>
             )}
           </div>

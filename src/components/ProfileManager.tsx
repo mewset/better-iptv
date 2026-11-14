@@ -1,13 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Check, Info, KeyRound, Link, Plus, RefreshCw } from 'lucide-react';
 import { usePlayerStore } from '../stores/player-store';
-import {
-  deletePlaylist,
-  getChannels,
-  getPlaylistChannelCounts,
-  getPlaylists,
-  renamePlaylist,
-} from '../lib/tauri';
+import { deletePlaylist, getPlaylistChannelCounts, renamePlaylist } from '../lib/tauri';
+import { reloadAfterPlaylistRefresh } from '../lib/afterPlaylistRefresh';
 import { logger } from '../lib/logger';
 import { errorText } from '../lib/errorText';
 import { useSubscriptionExpiries } from '../hooks/useSubscriptionExpiries';
@@ -30,15 +25,8 @@ const EXPIRY_SOON_DAYS = 60;
 const STALE_REFRESH_DAYS = 7;
 
 export default function ProfileManager({ onClose }: ProfileManagerProps) {
-  const {
-    playlists,
-    activeProfileId,
-    currentPlaylist,
-    setCurrentPlaylist,
-    setIsSetupComplete,
-    setChannels,
-    setPlaylists,
-  } = usePlayerStore();
+  const { playlists, activeProfileId, currentPlaylist, setCurrentPlaylist, setIsSetupComplete } =
+    usePlayerStore();
 
   // Only Xtream profiles have a subscription; an M3U profile is a plain file
   // or address and the backend has nothing to ask about.
@@ -188,22 +176,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
       logger.debug('Failed to reload playlist channel counts after refresh:', err);
     }
 
-    try {
-      setPlaylists(await getPlaylists());
-    } catch (err) {
-      logger.debug('Failed to reload playlists after refresh:', err);
-    }
-
-    if (refreshTarget?.id && refreshTarget.id === currentPlaylist?.id) {
-      try {
-        const freshChannels = await getChannels(refreshTarget.id);
-        // A switch while the fetch was in flight: these are the old profile's channels
-        if (usePlayerStore.getState().currentPlaylist?.id !== refreshTarget.id) return;
-        setChannels(freshChannels);
-      } catch (err) {
-        logger.error('Failed to reload channels after refresh:', err);
-      }
-    }
+    if (refreshTarget?.id) await reloadAfterPlaylistRefresh(refreshTarget.id);
   };
 
   return (

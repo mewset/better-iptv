@@ -48,6 +48,8 @@ function renderTab(extra: Partial<React.ComponentProps<typeof MetadataTab>> = {}
     onBackgroundEnrichChange: vi.fn(),
     logoFallbackEnabled: true,
     onLogoFallbackEnabledChange: vi.fn(),
+    // Unless a test says otherwise, the field holds the stored key.
+    savedApiKey: extra.apiKey ?? '',
     ...extra,
   };
   const view = render(<MetadataTab {...props} />);
@@ -130,6 +132,17 @@ describe('MetadataTab', () => {
     renderTab({ apiKey: '  abc \n' });
     fireEvent.click(screen.getByRole('button', { name: 'Test' }));
     await waitFor(() => expect(checkTmdbKey).toHaveBeenCalledWith('abc'));
+  });
+
+  it('shows the stored key status only while the field holds the stored key', () => {
+    const stored = status({ has_user_key: true });
+    const view = renderTab({ apiKey: 'stored', savedApiKey: 'stored', status: stored });
+    expect(screen.getByText('Using your key')).toBeInTheDocument();
+    view.unmount();
+
+    // A newly typed key has no status yet; the stored key's would be read as its own.
+    renderTab({ apiKey: 'typed', savedApiKey: 'stored', status: stored });
+    expect(screen.queryByText('Using your key')).toBeNull();
   });
 
   it('says why the cache could not be cleared', async () => {

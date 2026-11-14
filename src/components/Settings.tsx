@@ -3,7 +3,6 @@ import {
   getSetting,
   setSetting,
   resetParentalPin,
-  getChannels,
   getTmdbStatus,
   deleteTmdbCache,
 } from '../lib/tauri';
@@ -13,6 +12,7 @@ import { logger } from '../lib/logger';
 import { errorText } from '../lib/errorText';
 import { resetLogoFallbackSession } from '../lib/logoFallback';
 import { applyTheme } from '../lib/theme';
+import { reloadAfterPlaylistRefresh } from '../lib/afterPlaylistRefresh';
 import { cn } from '../lib/utils';
 import ProfileManager from './ProfileManager';
 import PinEntryModal from './modals/PinEntryModal';
@@ -92,14 +92,8 @@ function isTextEntry(target: globalThis.EventTarget | null): boolean {
 }
 
 export default function Settings({ onClose, initialTab = 'general', leaveRef }: SettingsProps) {
-  const {
-    channels,
-    loadParentalSettings,
-    currentPlaylist,
-    setChannels,
-    clearTmdbCards,
-    loadChannels,
-  } = usePlayerStore();
+  const { channels, loadParentalSettings, currentPlaylist, clearTmdbCards, loadChannels } =
+    usePlayerStore();
 
   // UI state
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -490,6 +484,22 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   // Save handler
   const handleSave = async () => {
     if (loadFailed) return;
+
+    // Checked before the first write, so a refused Save has stored nothing.
+    const sanitizedCustomUserAgent = playlistUserAgentCustom.trim();
+    if (playlistUserAgentMode === 'custom' && !sanitizedCustomUserAgent) {
+      showError('Invalid User-Agent', 'Custom User-Agent cannot be empty when Custom is selected.');
+      return;
+    }
+    if (/\r|\n/.test(sanitizedCustomUserAgent)) {
+      showError('Invalid User-Agent', 'Custom User-Agent cannot contain line breaks.');
+      return;
+    }
+    if (sanitizedCustomUserAgent.length > 512) {
+      showError('Invalid User-Agent', 'Custom User-Agent cannot be longer than 512 characters.');
+      return;
+    }
+
     try {
       setIsSaving(true);
       await setSetting('theme', theme);
@@ -500,23 +510,6 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       const subtitleIso = LANGUAGE_OPTIONS.find((l) => l.code === subtitleLang)?.iso || '';
       await setSetting('audio_language', audioIso);
       await setSetting('subtitle_language', subtitleIso);
-
-      const sanitizedCustomUserAgent = playlistUserAgentCustom.trim();
-      if (playlistUserAgentMode === 'custom' && !sanitizedCustomUserAgent) {
-        showError(
-          'Invalid User-Agent',
-          'Custom User-Agent cannot be empty when Custom is selected.'
-        );
-        return;
-      }
-      if (/\r|\n/.test(sanitizedCustomUserAgent)) {
-        showError('Invalid User-Agent', 'Custom User-Agent cannot contain line breaks.');
-        return;
-      }
-      if (sanitizedCustomUserAgent.length > 512) {
-        showError('Invalid User-Agent', 'Custom User-Agent cannot be longer than 512 characters.');
-        return;
-      }
 
       await setSetting('playlist_user_agent_mode', playlistUserAgentMode);
       await setSetting('playlist_user_agent_custom', sanitizedCustomUserAgent);
@@ -681,6 +674,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
                   onApiKeyChange={setTmdbApiKey}
                   language={tmdbLanguage}
                   onLanguageChange={setTmdbLanguage}
+                  savedApiKey={originalTmdbKey}
                   status={tmdbStatus}
                   onClearCache={async () => {
                     await deleteTmdbCache();
@@ -828,19 +822,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
           onClose={() => setShowRefreshModal(false)}
           playlistId={currentPlaylist.id}
           playlistName={currentPlaylist.name}
-          onRefreshComplete={async () => {
-            // Reload channels after refresh
-            if (currentPlaylist.id) {
-              try {
-                const freshChannels = await getChannels(currentPlaylist.id);
-                // A switch while the fetch was in flight: these are the old profile's channels
-                if (usePlayerStore.getState().currentPlaylist?.id !== currentPlaylist.id) return;
-                setChannels(freshChannels);
-              } catch (err) {
-                logger.error('Failed to reload channels after refresh:', err);
-              }
-            }
-          }}
+          onRefreshComplete={() => reloadAfterPlaylistRefresh(currentPlaylist.id!)}
         />
       )}
     </div>

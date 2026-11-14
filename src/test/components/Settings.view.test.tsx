@@ -16,6 +16,7 @@ import {
   getParentalSettings,
   resetParentalPin,
   setBlockedChannels,
+  getPlaylists,
 } from '../../lib/tauri';
 import type { Channel, Playlist } from '../../types';
 import * as logoFallback from '../../lib/logoFallback';
@@ -42,6 +43,8 @@ vi.mock('../../lib/tauri', () => ({
     visibility: 'hide',
   })),
   setBlockedChannels: vi.fn(async () => {}),
+  getPlaylists: vi.fn(async () => []),
+  refreshPlaylist: vi.fn(async () => ({ added: 1, updated: 0, removed: 0 })),
   verifyParentalPin: vi.fn(async () => true),
   setParentalPin: vi.fn(async () => {}),
   stopPlayback: vi.fn(async () => {}),
@@ -542,6 +545,40 @@ describe('Settings as a view', () => {
     fireEvent.change(input, { target: { value: 'Cabin' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(await screen.findByText('A profile with that name already exists')).toBeInTheDocument();
+  });
+
+  it('Refresh from General also updates the refresh date Profiles shows', async () => {
+    const monthAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const stale = { ...playlist(1, 'Home'), last_updated: monthAgo };
+    const fresh = { ...stale, last_updated: new Date().toISOString() };
+    vi.mocked(getPlaylists).mockResolvedValueOnce([fresh]);
+    usePlayerStore.setState({ playlists: [stale], currentPlaylist: stale, activeProfileId: 1 });
+    await renderSettings();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await screen.findByText('Refresh complete');
+    await waitFor(() => expect(usePlayerStore.getState().playlists).toEqual([fresh]));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+
+    await goToProfiles();
+    expect(screen.queryByText('Older than a week')).toBeNull();
+  });
+
+  it('a refused Save has written nothing: the User-Agent is checked before the first write', async () => {
+    const onClose = await renderSettings();
+    // The User-Agent list is the first on General.
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'custom' } });
+    expect(
+      screen.getByText(
+        'Custom value is empty or invalid. Enter one line of at most 512 characters before saving.'
+      )
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await screen.findByRole('heading', { name: 'Invalid User-Agent' });
+    expect(setSetting).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('Reset PIN reloads the parental state the rest of the app reads', async () => {

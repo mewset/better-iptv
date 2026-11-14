@@ -16,6 +16,8 @@ interface MetadataTabProps {
   onEnabledChange: (enabled: boolean) => void;
   apiKey: string;
   onApiKeyChange: (key: string) => void;
+  /** The key as stored; `status` describes this one, not what is typed. */
+  savedApiKey: string;
   language: TmdbLanguage;
   onLanguageChange: (language: TmdbLanguage) => void;
   status: TmdbStatus | null;
@@ -50,6 +52,7 @@ export default function MetadataTab({
   onEnabledChange,
   apiKey,
   onApiKeyChange,
+  savedApiKey,
   language,
   onLanguageChange,
   status,
@@ -166,7 +169,10 @@ export default function MetadataTab({
                 {testResult}
               </p>
             )}
-            <p className="mt-1 text-xs text-text-faint">{keyStatusLine(status, apiKey)}</p>
+            {/* The status is the stored key's: a key being typed has none yet. */}
+            <p className="mt-1 text-xs text-text-faint">
+              {apiKey.trim() === savedApiKey ? keyStatusLine(status, apiKey) : ''}
+            </p>
           </div>
 
           <div>
