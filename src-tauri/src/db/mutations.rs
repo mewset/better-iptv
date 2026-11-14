@@ -230,6 +230,9 @@ fn extract_stream_key_from_url(url: &str) -> Option<String> {
 ///
 /// - If `match_by_stream_id` is true (Xtream), channels are matched by stream_id extracted from URL.
 /// - Otherwise (M3U), channels are matched by `(name, group_name)` with `name`-only fallback.
+/// - Each stored row is matched at most once. Rows that share a key are
+///   paired with the fresh channels of that key in order; a fresh channel
+///   left over is added, a stored row left over is removed.
 /// - A matched row takes every provider field from the fresh list: name, URL,
 ///   logo, group, guide id, order and `content_type`, so a channel that is
 ///   renamed or changes type between refreshes (e.g. live -> series) picks up
@@ -242,15 +245,15 @@ pub fn merge_channels(
     new_channels: &[Channel],
     match_by_stream_id: bool,
 ) -> Result<MergeResult> {
-    use std::collections::HashMap;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet, VecDeque};
 
     let start = Instant::now();
     let tx = crate::db::write_transaction(conn)?;
 
-    // 1. Load existing channels for this playlist
+    // 1. Load existing channels for this playlist, oldest first, so rows
+    // that share a key are matched in the order they were stored.
     let mut stmt = tx.prepare(
-        "SELECT id, name, url, group_name, is_favorite FROM channels WHERE playlist_id = ?1",
+        "SELECT id, name, url, group_name FROM channels WHERE playlist_id = ?1 ORDER BY id",
     )?;
 
     struct ExistingChannel {
@@ -258,7 +261,6 @@ pub fn merge_channels(
         name: String,
         url: String,
         group_name: Option<String>,
-        is_favorite: bool,
     }
 
     let existing: Vec<ExistingChannel> = stmt
@@ -268,40 +270,62 @@ pub fn merge_channels(
                 name: row.get(1)?,
                 url: row.get(2)?,
                 group_name: row.get(3)?,
-                is_favorite: row.get(4)?,
             })
         })?
         .collect::<Result<Vec<_>>>()?;
     drop(stmt);
 
-    // 2. Build lookup map from existing channels
-    // Maps a match key -> (db_id, is_favorite)
-    let mut lookup: HashMap<String, (i64, bool)> = HashMap::new();
+    // 2. Queue the stored rows under their match keys. Several rows can share
+    // a key (backup streams, two films with one title), and each stored row
+    // is matched at most once: a hit takes the first row still unmatched.
+    let exact_key = |name: &str, url: &str, group: Option<&str>| -> Option<String> {
+        if match_by_stream_id {
+            extract_stream_key_from_url(url)
+        } else {
+            Some(format!("{}|{}", name, group.unwrap_or("")))
+        }
+    };
 
-    if match_by_stream_id {
-        for ch in &existing {
-            if let Some(key) = extract_stream_key_from_url(&ch.url) {
-                lookup.insert(format!("sid:{}", key), (ch.id, ch.is_favorite));
-            }
+    let mut by_exact_key: HashMap<String, VecDeque<i64>> = HashMap::new();
+    let mut by_name: HashMap<&str, VecDeque<i64>> = HashMap::new();
+    for ch in &existing {
+        if let Some(key) = exact_key(&ch.name, &ch.url, ch.group_name.as_deref()) {
+            by_exact_key.entry(key).or_default().push_back(ch.id);
         }
-    } else {
-        // M3U: primary key = (name, group_name), fallback = name only
-        // Insert name-only first so (name, group_name) wins if both exist
-        for ch in &existing {
-            lookup.insert(format!("name:{}", ch.name), (ch.id, ch.is_favorite));
-        }
-        for ch in &existing {
-            let key = format!(
-                "namegroup:{}|{}",
-                ch.name,
-                ch.group_name.as_deref().unwrap_or("")
-            );
-            lookup.insert(key, (ch.id, ch.is_favorite));
+        if !match_by_stream_id {
+            by_name.entry(&ch.name).or_default().push_back(ch.id);
         }
     }
 
-    // 3. Process new channels
     let mut matched_ids: HashSet<i64> = HashSet::new();
+    let mut take_unmatched = |queue: Option<&mut VecDeque<i64>>| -> Option<i64> {
+        let queue = queue?;
+        while let Some(id) = queue.pop_front() {
+            if matched_ids.insert(id) {
+                return Some(id);
+            }
+        }
+        None
+    };
+
+    // 3. Pair every fresh channel with a stored row or with none. Exact keys
+    // go first over the whole list; the M3U name-only fallback then gets the
+    // rows no exact key claimed, so a channel that changed group cannot take
+    // the row of a namesake that did not.
+    let mut targets: Vec<Option<i64>> = new_channels
+        .iter()
+        .map(|ch| {
+            let key = exact_key(&ch.name, &ch.url, ch.group_name.as_deref())?;
+            take_unmatched(by_exact_key.get_mut(&key))
+        })
+        .collect();
+    for (ch, target) in new_channels.iter().zip(&mut targets) {
+        if target.is_none() {
+            *target = take_unmatched(by_name.get_mut(ch.name.as_str()));
+        }
+    }
+
+    // 4. Write the fresh channels
     let mut added: usize = 0;
     let mut updated: usize = 0;
 
@@ -315,26 +339,10 @@ pub fn merge_channels(
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         )?;
 
-        for ch in new_channels {
-            // Try to find a match
-            let matched = if match_by_stream_id {
-                extract_stream_key_from_url(&ch.url)
-                    .and_then(|key| lookup.get(&format!("sid:{}", key)))
-            } else {
-                // Try (name, group_name) first, then name only
-                let key = format!(
-                    "namegroup:{}|{}",
-                    ch.name,
-                    ch.group_name.as_deref().unwrap_or("")
-                );
-                lookup
-                    .get(&key)
-                    .or_else(|| lookup.get(&format!("name:{}", ch.name)))
-            };
-
+        for (ch, target) in new_channels.iter().zip(targets) {
             let epg_id = provider_epg_id(ch.epg_id.as_deref());
 
-            if let Some(&(db_id, _is_favorite)) = matched {
+            if let Some(db_id) = target {
                 // A matched row takes every provider field from the fresh
                 // list, the name included: an Xtream row is matched on its
                 // stream id, so a renamed channel would otherwise keep its
@@ -352,7 +360,6 @@ pub fn merge_channels(
                     ch.content_type,
                     db_id,
                 ])?;
-                matched_ids.insert(db_id);
                 updated += 1;
             } else {
                 // Insert new channel
@@ -374,10 +381,10 @@ pub fn merge_channels(
         }
     }
 
-    // 4. Delete the pre-existing rows this refresh did not match.
+    // 5. Delete the pre-existing rows this refresh did not match.
     //
     // Deleting by an explicit stale list rather than by `id NOT IN matched`:
-    // the inverse match also caught every row step 3 had just inserted, since
+    // the inverse match also caught every row step 4 had just inserted, since
     // those are in this playlist and cannot be in `matched_ids`, so a refresh
     // that dropped one stale channel also deleted every channel it had added.
     let stale_ids: Vec<i64> = existing
@@ -1393,7 +1400,7 @@ mod tests {
 
     #[test]
     fn m3u_refresh_keeps_new_channels_when_it_also_removes_a_stale_one() {
-        // Steps 3 and 4 are shared; only the lookup key differs, so the M3U
+        // Steps 4 and 5 are shared; only the lookup key differs, so the M3U
         // path had the identical hole.
         let conn = setup_test_db();
         let pid = create_test_playlist(&conn, "M3U");
@@ -1416,10 +1423,117 @@ mod tests {
         assert_eq!(result.removed, 1);
     }
 
+    fn favourite_by_url(conn: &Connection, pid: i64) -> Vec<(String, bool)> {
+        let mut rows: Vec<(String, bool)> = get_channels(conn, Some(pid))
+            .unwrap()
+            .into_iter()
+            .map(|c| (c.url, c.is_favorite))
+            .collect();
+        rows.sort();
+        rows
+    }
+
+    #[test]
+    fn an_m3u_refresh_keeps_two_channels_that_share_name_and_group() {
+        // Backup streams and two films with one title: both rows are in the
+        // playlist after the import, so both must be there after a refresh.
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "M3U");
+        let twins = || {
+            let mut first = m3u_channel(pid, "CNN", "News");
+            first.url = "http://m3u.test/cnn-1.m3u8".to_string();
+            let mut second = m3u_channel(pid, "CNN", "News");
+            second.url = "http://m3u.test/cnn-2.m3u8".to_string();
+            [first, second]
+        };
+        let [first, second] = twins();
+        let first_id = create_channel(&conn, &first).unwrap();
+        create_channel(&conn, &second).unwrap();
+        toggle_favorite(&conn, first_id).unwrap();
+
+        let result = merge_channels(&conn, pid, &twins(), false).unwrap();
+
+        assert_eq!((result.added, result.updated, result.removed), (0, 2, 0));
+        assert_eq!(
+            favourite_by_url(&conn, pid),
+            [
+                ("http://m3u.test/cnn-1.m3u8".to_string(), true),
+                ("http://m3u.test/cnn-2.m3u8".to_string(), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_xtream_refresh_keeps_two_channels_that_share_a_stream_id() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "Xtream");
+        let first_id = create_channel(&conn, &xtream_channel(pid, "A", "live", 7)).unwrap();
+        create_channel(&conn, &xtream_channel(pid, "B", "live", 7)).unwrap();
+        toggle_favorite(&conn, first_id).unwrap();
+
+        let fresh = [
+            xtream_channel(pid, "A", "live", 7),
+            xtream_channel(pid, "B", "live", 7),
+        ];
+        let result = merge_channels(&conn, pid, &fresh, true).unwrap();
+
+        assert_eq!((result.added, result.updated, result.removed), (0, 2, 0));
+        let first = get_channel_by_id(&conn, first_id).unwrap().unwrap();
+        assert_eq!((first.name.as_str(), first.is_favorite), ("A", true));
+        assert_eq!(get_channels(&conn, Some(pid)).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_second_fresh_channel_with_the_key_of_one_stored_row_is_added() {
+        // The stored row is matched once; the twin the provider added since
+        // is a new channel, not a second write to the same row.
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "M3U");
+        create_channel(&conn, &m3u_channel(pid, "CNN", "News")).unwrap();
+
+        let mut backup = m3u_channel(pid, "CNN", "News");
+        backup.url = "http://m3u.test/cnn-backup.m3u8".to_string();
+        let fresh = [m3u_channel(pid, "CNN", "News"), backup];
+        let result = merge_channels(&conn, pid, &fresh, false).unwrap();
+
+        assert_eq!((result.added, result.updated, result.removed), (1, 1, 0));
+        assert_eq!(
+            favourite_by_url(&conn, pid),
+            [
+                ("http://m3u.test/CNN.m3u8".to_string(), false),
+                ("http://m3u.test/cnn-backup.m3u8".to_string(), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_name_only_fallback_does_not_take_a_row_another_channel_matches_exactly() {
+        // "CNN" moved from Sport to World. The row in News belongs to the
+        // fresh "CNN"/"News" whatever order the provider lists them in.
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "M3U");
+        let news_id = create_channel(&conn, &m3u_channel(pid, "CNN", "News")).unwrap();
+        let sport_id = create_channel(&conn, &m3u_channel(pid, "CNN", "Sport")).unwrap();
+        toggle_favorite(&conn, news_id).unwrap();
+
+        let fresh = [
+            m3u_channel(pid, "CNN", "World"),
+            m3u_channel(pid, "CNN", "News"),
+        ];
+        let result = merge_channels(&conn, pid, &fresh, false).unwrap();
+
+        assert_eq!((result.added, result.updated, result.removed), (0, 2, 0));
+        let news = get_channel_by_id(&conn, news_id).unwrap().unwrap();
+        assert_eq!(news.group_name.as_deref(), Some("News"));
+        assert!(news.is_favorite);
+        let moved = get_channel_by_id(&conn, sport_id).unwrap().unwrap();
+        assert_eq!(moved.group_name.as_deref(), Some("World"));
+    }
+
     #[test]
     fn refresh_that_matches_nothing_replaces_rather_than_empties_the_playlist() {
         // The matched_ids.is_empty() branch deleted the whole playlist,
-        // including the rows step 3 had just inserted.
+        // including the rows step 4 had just inserted.
         let conn = setup_test_db();
         let pid = create_test_playlist(&conn, "M3U");
         create_channel(&conn, &m3u_channel(pid, "Old A", "News")).unwrap();
