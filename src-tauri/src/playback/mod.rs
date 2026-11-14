@@ -39,6 +39,13 @@ impl PlaybackSettings {
     }
 }
 
+/// A failed MPV operation as the frontend shows it: the whole chain, the
+/// reason included ("Queued episode 2 cannot be played: The stream address ...").
+/// Nothing in these chains quotes a stream address, which carries the login.
+fn mpv_failure(e: anyhow::Error) -> AppError {
+    AppError::Mpv(format!("{e:#}"))
+}
+
 fn lock_player(player: &SharedPlayer) -> Result<MutexGuard<'_, MpvPlayer>, AppError> {
     player
         .lock()
@@ -55,7 +62,7 @@ pub async fn play_stream(
     tokio::task::spawn_blocking(move || {
         let mut mpv = lock_player(&player)?;
         mpv.play_stream(&url, &settings.as_options())
-            .map_err(|e| AppError::Mpv(e.to_string()))
+            .map_err(mpv_failure)
     })
     .await?
 }
@@ -69,7 +76,7 @@ pub async fn play_playlist(
     tokio::task::spawn_blocking(move || {
         let mut mpv = lock_player(&player)?;
         mpv.play_playlist(&urls, &settings.as_options())
-            .map_err(|e| AppError::Mpv(e.to_string()))
+            .map_err(mpv_failure)
     })
     .await?
 }
@@ -78,7 +85,7 @@ pub async fn play_playlist(
 pub async fn stop(player: SharedPlayer) -> Result<(), AppError> {
     tokio::task::spawn_blocking(move || {
         let mut mpv = lock_player(&player)?;
-        mpv.stop().map_err(|e| AppError::Mpv(e.to_string()))
+        mpv.stop().map_err(mpv_failure)
     })
     .await?
 }
@@ -95,4 +102,66 @@ pub async fn status(player: SharedPlayer) -> Result<PlaybackStatus, AppError> {
 /// Check if MPV is installed on the system (runs `mpv --version`).
 pub async fn check_mpv_installed() -> Result<bool, AppError> {
     Ok(tokio::task::spawn_blocking(MpvPlayer::check_installed).await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // No test here starts mpv: an address is refused before anything is spawned.
+
+    fn player() -> SharedPlayer {
+        Arc::new(Mutex::new(MpvPlayer::new()))
+    }
+
+    fn settings() -> PlaybackSettings {
+        PlaybackSettings {
+            title: None,
+            audio_lang: None,
+            subtitle_lang: None,
+            hwdec: true,
+            video_output: None,
+            deinterlace: None,
+            start_fullscreen: false,
+            cache_secs: None,
+            start_volume: None,
+            user_agent: None,
+        }
+    }
+
+    fn details(err: AppError) -> String {
+        match err {
+            AppError::Mpv(details) => details,
+            other => panic!("expected an MPV error, got {other:?}"),
+        }
+    }
+
+    const NOT_A_STREAM: &str = "ftp://john:secret@host/get.php?username=john&password=secret";
+
+    #[tokio::test]
+    async fn a_refused_stream_address_gives_the_reason_and_not_the_address() {
+        let err = play_stream(player(), NOT_A_STREAM.to_string(), settings())
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            details(err),
+            "The stream address must start with http, https, rtsp, rtsps, rtmp, rtmps, rtp, udp or srt"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_refused_episode_address_names_the_episode_and_the_reason() {
+        let urls = vec![
+            "http://host/series/john/secret/1.mp4".to_string(),
+            NOT_A_STREAM.to_string(),
+        ];
+
+        let err = play_playlist(player(), urls, settings()).await.unwrap_err();
+
+        assert_eq!(
+            details(err),
+            "Queued episode 2 cannot be played: The stream address must start with http, https, rtsp, rtsps, rtmp, rtmps, rtp, udp or srt"
+        );
+    }
 }

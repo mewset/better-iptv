@@ -30,11 +30,14 @@ const MAX_URL_LENGTH: usize = 4096;
 /// Shell metacharacters such as `&` or `;` are allowed: mpv is started with the
 /// URL as a single argument and no shell in between, so they reach mpv as
 /// plain text, and a query string like `?token=a&exp=1` needs them.
+///
+/// Each error is a sentence the viewer is shown as it stands. None of them
+/// quotes the address: it carries the provider's username and password.
 fn validate_stream_url(url: &str) -> Result<()> {
     // Check URL length
     if url.len() > MAX_URL_LENGTH {
         return Err(anyhow::anyhow!(
-            "URL exceeds maximum length of {} characters",
+            "The stream address is longer than {} characters",
             MAX_URL_LENGTH
         ));
     }
@@ -47,13 +50,15 @@ fn validate_stream_url(url: &str) -> Result<()> {
             url.chars().take(50).collect::<String>()
         );
         return Err(anyhow::anyhow!(
-            "Invalid URL scheme. Allowed: http, https, rtsp, rtsps, rtmp, rtmps, rtp, udp, srt"
+            "The stream address must start with http, https, rtsp, rtsps, rtmp, rtmps, rtp, udp or srt"
         ));
     }
 
     if url.chars().any(char::is_control) {
         warn!("Rejected URL containing control characters");
-        return Err(anyhow::anyhow!("URL contains control characters"));
+        return Err(anyhow::anyhow!(
+            "The stream address contains characters that are not allowed in an address"
+        ));
     }
 
     Ok(())
@@ -277,9 +282,12 @@ impl MpvPlayer {
 
     /// Spawn MPV process and store handle
     fn spawn_mpv(&mut self, cmd: &mut Command) -> Result<()> {
-        let child = cmd
-            .spawn()
-            .context("Failed to spawn MPV process. Is MPV installed?")?;
+        let child = cmd.spawn().map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => anyhow::anyhow!(
+                "mpv could not be started because it was not found. Is mpv installed?"
+            ),
+            _ => anyhow::Error::new(e).context("mpv could not be started"),
+        })?;
 
         self.process = Some(child);
         self.last_exit_failed = false;
@@ -289,7 +297,7 @@ impl MpvPlayer {
     /// Play a stream URL with playback options
     pub fn play_stream(&mut self, url: &str, options: &MpvPlaybackOptions) -> Result<()> {
         // Validate URL before passing to MPV
-        validate_stream_url(url).context("Stream URL validation failed")?;
+        validate_stream_url(url)?;
 
         // Stop any existing playback
         self.stop()?;
@@ -307,13 +315,13 @@ impl MpvPlayer {
     /// Play a playlist of URLs (for series episodes)
     pub fn play_playlist(&mut self, urls: &[String], options: &MpvPlaybackOptions) -> Result<()> {
         if urls.is_empty() {
-            return Err(anyhow::anyhow!("Cannot play empty playlist"));
+            return Err(anyhow::anyhow!("There are no episodes to play"));
         }
 
         // Validate all URLs before passing to MPV
         for (i, url) in urls.iter().enumerate() {
             validate_stream_url(url)
-                .with_context(|| format!("Stream URL validation failed for episode {}", i + 1))?;
+                .with_context(|| format!("Queued episode {} cannot be played", i + 1))?;
         }
 
         // Stop any existing playback
@@ -340,7 +348,10 @@ impl MpvPlayer {
             let _ = child.kill();
 
             // Wait with timeout (5 seconds) to prevent indefinite blocking
-            match child.wait_timeout(Duration::from_secs(5))? {
+            match child
+                .wait_timeout(Duration::from_secs(5))
+                .context("The running mpv could not be stopped")?
+            {
                 Some(_status) => {
                     // Process terminated normally
                 }
@@ -573,6 +584,18 @@ mod tests {
     fn status_does_not_report_a_normal_quit_as_a_failure() {
         let mut player = exited_player(0);
         assert!(!player.status().failed);
+    }
+
+    #[test]
+    fn a_missing_mpv_binary_is_reported_as_not_installed() {
+        let mut player = MpvPlayer::new();
+        let err = player
+            .spawn_mpv(&mut Command::new("/nonexistent/better-iptv-test/mpv"))
+            .unwrap_err();
+        assert_eq!(
+            format!("{err:#}"),
+            "mpv could not be started because it was not found. Is mpv installed?"
+        );
     }
 
     #[test]

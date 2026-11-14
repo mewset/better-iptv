@@ -35,9 +35,7 @@ pub async fn parse_m3u(source: &str, user_agent: Option<&str>) -> Result<Vec<Cha
         decode_playlist(&bytes, charset.as_deref())
     } else {
         // Read from file without blocking the async worker
-        let bytes = tokio::fs::read(source)
-            .await
-            .context("Failed to read M3U file")?;
+        let bytes = tokio::fs::read(source).await.map_err(file_read_error)?;
         decode_playlist(&bytes, None)
     };
 
@@ -45,6 +43,24 @@ pub async fn parse_m3u(source: &str, user_agent: Option<&str>) -> Result<Vec<Cha
     tokio::task::spawn_blocking(move || parse_m3u_content(&content))
         .await
         .context("M3U parse task failed")?
+}
+
+/// Why a playlist file could not be read, as a sentence for the viewer. The
+/// path is left out: what lands here is whatever was typed into the field,
+/// and an address that is not http(s) is read as a path, login and all.
+fn file_read_error(e: std::io::Error) -> anyhow::Error {
+    use std::io::ErrorKind;
+    let message = match e.kind() {
+        ErrorKind::NotFound => {
+            "The playlist file was not found. It may have been moved, renamed or deleted"
+                .to_string()
+        }
+        ErrorKind::PermissionDenied => {
+            "The playlist file could not be opened: the app is not allowed to read it".to_string()
+        }
+        _ => format!("The playlist file could not be read: {e}"),
+    };
+    anyhow::Error::new(e).context(message)
 }
 
 /// The `charset` a response's `Content-Type` declares, if any.
@@ -237,6 +253,30 @@ fn determine_content_type(name: &str, group_name: &Option<String>, url: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_playlist_file_that_is_gone_says_so() {
+        let err = parse_m3u("/nonexistent/better-iptv-test/list.m3u", None)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "The playlist file was not found. It may have been moved, renamed or deleted"
+        );
+    }
+
+    #[test]
+    fn a_playlist_file_that_cannot_be_read_says_why() {
+        use std::io::{Error, ErrorKind};
+        assert_eq!(
+            file_read_error(Error::from(ErrorKind::PermissionDenied)).to_string(),
+            "The playlist file could not be opened: the app is not allowed to read it"
+        );
+        assert_eq!(
+            file_read_error(Error::other("disk on fire")).to_string(),
+            "The playlist file could not be read: disk on fire"
+        );
+    }
 
     const PLAYLIST_WITH_ACCENTS: &str =
         "#EXTM3U\n#EXTINF:-1 group-title=\"Télé\",Señal Ñ\nhttp://example.com/live/1.ts\n";

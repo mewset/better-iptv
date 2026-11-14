@@ -29,6 +29,23 @@ pub(crate) fn get_playlist_user_agent(db: &rusqlite::Connection) -> Result<Strin
     Ok(crate::http::resolve_playlist_user_agent(mode, custom))
 }
 
+/// A failed read or download of an M3U playlist, as the frontend shows it.
+///
+/// `details` is the outermost sentence of the chain and nothing below it:
+/// every fetch writes that sentence for the viewer (`http::download_error`),
+/// while the errors under it are reqwest's own and quote the request
+/// address, username and password included. Those go to the log, which
+/// masks them.
+fn m3u_failure(e: anyhow::Error) -> AppError {
+    AppError::Parse(e.to_string())
+}
+
+/// A failed Xtream fetch, as the frontend shows it. Same rule as
+/// [`m3u_failure`].
+fn xtream_failure(e: anyhow::Error) -> AppError {
+    AppError::Http(e.to_string())
+}
+
 #[tauri::command]
 pub async fn import_playlist(
     app: AppHandle,
@@ -50,7 +67,10 @@ pub async fn import_playlist(
 
     let channels = parse_m3u(&source, Some(&playlist_user_agent))
         .await
-        .map_err(|e| AppError::Parse(e.to_string()))?;
+        .map_err(|e| {
+            error!("M3U import failed: {:#}", e);
+            m3u_failure(e)
+        })?;
 
     // The parser skips lines it does not recognise and needs no #EXTM3U
     // header, so a login page or an expired-subscription notice served under
@@ -148,9 +168,8 @@ pub async fn import_xtream_playlist(
         })
         .await
         .map_err(|e| {
-            let err_msg = format!("Failed to fetch Xtream channels: {}", e);
-            error!("{}", err_msg);
-            AppError::Http(err_msg)
+            error!("Failed to fetch Xtream channels: {:#}", e);
+            xtream_failure(e)
         })?;
 
     info!("Fetched {} channels from Xtream API", channels.len());
@@ -334,8 +353,8 @@ pub async fn refresh_playlist(
             })
             .await
             .map_err(|e| {
-                error!("Failed to fetch Xtream channels for refresh: {}", e);
-                AppError::Http(e.to_string())
+                error!("Failed to fetch Xtream channels for refresh: {:#}", e);
+                xtream_failure(e)
             })?;
         (channels, Vec::new())
     } else {
@@ -354,8 +373,8 @@ pub async fn refresh_playlist(
         let parsed = parse_m3u(&source, Some(&playlist_user_agent))
             .await
             .map_err(|e| {
-                error!("Failed to parse M3U for refresh: {}", e);
-                AppError::Parse(e.to_string())
+                error!("Failed to read M3U for refresh: {:#}", e);
+                m3u_failure(e)
             })?;
 
         let grouped = series_domain::group_series(parsed);
@@ -531,6 +550,87 @@ mod tests {
     fn count(conn: &Connection, table: &str) -> i64 {
         conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
             .unwrap()
+    }
+
+    /// What the frontend receives for an error: the serialized `AppError`.
+    fn sent_to_frontend(err: &AppError) -> String {
+        serde_json::to_string(err).unwrap()
+    }
+
+    fn closed_port() -> u16 {
+        // Bound and released again: nothing listens there, so the connection
+        // is refused at once
+        std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    #[tokio::test]
+    async fn a_failed_m3u_download_never_shows_the_login_in_the_address() {
+        let source = format!(
+            "http://john:secret@127.0.0.1:{}/get.php?username=john&password=secret",
+            closed_port()
+        );
+        let err = parse_m3u(&source, None).await.unwrap_err();
+        assert!(
+            format!("{err:#}").contains("secret"),
+            "precondition: the chain below the sentence carries the address"
+        );
+
+        let sent = sent_to_frontend(&m3u_failure(err));
+
+        assert_eq!(
+            sent,
+            r#"{"code":"Parse","details":"Could not connect to the playlist server"}"#
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_xtream_fetch_never_shows_the_login() {
+        use crate::http::test_server::{respond, serve};
+        let server = serve(vec![respond("404 Not Found", b"")]).await;
+        let creds = XtreamCredentials {
+            server_url: server.base.replace("http://", "http://john:secret@"),
+            username: "john".to_string(),
+            password: "secret".to_string(),
+        };
+        let err = fetch_xtream_channels_with_progress(&creds, None, |_| {})
+            .await
+            .unwrap_err();
+
+        let sent = sent_to_frontend(&xtream_failure(err));
+
+        assert_eq!(
+            sent,
+            r#"{"code":"Http","details":"Could not load the live streams from the provider: The provider answered 404 Not Found"}"#
+        );
+    }
+
+    #[tokio::test]
+    async fn an_xtream_address_that_is_no_web_address_never_shows_the_login() {
+        // The request is never sent, and reqwest's own text for that quotes
+        // the whole address.
+        let creds = XtreamCredentials {
+            server_url: "john:secret@host:8080".to_string(),
+            username: "john".to_string(),
+            password: "secret".to_string(),
+        };
+        let err = fetch_xtream_channels_with_progress(&creds, None, |_| {})
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("secret"),
+            "precondition: the chain below the sentence carries the address"
+        );
+
+        let sent = sent_to_frontend(&xtream_failure(err));
+
+        assert_eq!(
+            sent,
+            r#"{"code":"Http","details":"Could not load the live streams from the provider: The address of the provider is not a web address"}"#
+        );
     }
 
     #[test]
