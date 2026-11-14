@@ -718,6 +718,13 @@ export default function MainScreen() {
     prevView.current = view;
   }, [view, refreshTmdbStatus]);
 
+  // Home's scroll position, for as long as the section is Home: HomeView is
+  // unmounted while a title or Settings is open and returns to this place.
+  const homeScrollTop = useRef(0);
+  useEffect(() => {
+    if (contentTypeFilter !== 'home') homeScrollTop.current = 0;
+  }, [contentTypeFilter]);
+
   // The search box is part of browsing a section; Home has none.
   const searchShown = view === 'browse' && contentTypeFilter !== 'home';
 
@@ -920,6 +927,7 @@ export default function MainScreen() {
             loading={homeLoading}
             progress={homeProgress ?? tmdbStatus?.background_progress ?? null}
             onOpen={handleOpenTitle}
+            scrollTopRef={homeScrollTop}
           />
         ) : contentTypeFilter === 'guide' ? (
           <GuideView

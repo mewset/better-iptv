@@ -206,6 +206,37 @@ describe('MainScreen: Home', () => {
     expect(screen.getAllByText('Title 1').length).toBeGreaterThan(0);
   });
 
+  it('comes back from a title to the place Home was scrolled to', async () => {
+    setupInvoke(true);
+    render(<MainScreen />);
+    await screen.findByRole('region', { name: 'Action Movies' });
+    const home = screen.getByRole('region', { name: 'Home' });
+    home.scrollTop = 900;
+    fireEvent.scroll(home);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Title 1, open details' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Back' }));
+
+    const again = await screen.findByRole('region', { name: 'Home' });
+    expect(again).not.toBe(home);
+    expect(again.scrollTop).toBe(900);
+  });
+
+  it('Home starts at the top again after another section', async () => {
+    setupInvoke(true);
+    render(<MainScreen />);
+    await screen.findByRole('region', { name: 'Action Movies' });
+    const home = screen.getByRole('region', { name: 'Home' });
+    home.scrollTop = 900;
+    fireEvent.scroll(home);
+
+    fireEvent.click(rail().getByRole('button', { name: 'Live TV' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Home' })).toBeNull());
+    fireEvent.click(rail().getByRole('button', { name: 'Home' }));
+
+    expect((await screen.findByRole('region', { name: 'Home' })).scrollTop).toBe(0);
+  });
+
   it('drops blocked titles and hides a row that falls under three', async () => {
     setupInvoke(true, { enabled: true, blocked: [1, 2, 3] }, rowsWithSurvivor);
     usePlayerStore.setState({ parentalEnabled: true, blockedChannelIds: new Set([1, 2, 3]) });

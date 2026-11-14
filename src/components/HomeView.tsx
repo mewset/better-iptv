@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react';
 import { useNow } from '../hooks/useNow';
 import type { HomeRow, TmdbCard } from '../lib/tauri';
 import type { Channel } from '../types';
@@ -24,6 +25,12 @@ interface HomeViewProps {
   loading: boolean;
   progress: TmdbBackgroundProgress | null;
   onOpen: (channel: Channel) => void;
+  /**
+   * Where Home was last scrolled to, kept by MainScreen: this view is
+   * unmounted while a title or Settings is open, and comes back to the same
+   * place. Read once at mount, written on every scroll.
+   */
+  scrollTopRef?: { current: number };
 }
 
 const dateFormat = new Intl.DateTimeFormat(undefined, {
@@ -56,11 +63,28 @@ export function HomeView({
   loading,
   progress,
   onOpen,
+  scrollTopRef,
 }: HomeViewProps) {
   const scanLine = progress?.running ? backgroundProgressLine(progress) : '';
 
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  // Before paint, so coming back never shows the top first.
+  useLayoutEffect(() => {
+    if (scrollerRef.current && scrollTopRef) scrollerRef.current.scrollTop = scrollTopRef.current;
+    // Mount only: afterwards the view itself is the source of the position.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
-    <div className="flex-1 overflow-y-auto px-10 pb-32 pt-6" role="region" aria-label="Home">
+    <div
+      ref={scrollerRef}
+      onScroll={(e) => {
+        if (scrollTopRef) scrollTopRef.current = e.currentTarget.scrollTop;
+      }}
+      className="flex-1 overflow-y-auto px-10 pb-32 pt-6"
+      role="region"
+      aria-label="Home"
+    >
       <header className="mb-8">
         <HomeGreeting />
         <p className="mt-4 max-w-[640px] text-sm text-text-muted">
