@@ -88,8 +88,10 @@ pub fn create_channels_batch(conn: &Connection, channels: &[Channel]) -> Result<
 
     {
         let mut stmt = conn.prepare_cached(
-            "INSERT INTO channels (playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, sort_order, category_order)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+            // `created_at` is the provider's "added" time when the import has
+            // one, else the moment of insertion, as before.
+            "INSERT INTO channels (playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, sort_order, category_order, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE(?11, CURRENT_TIMESTAMP))"
         )?;
 
         for channel in channels {
@@ -104,7 +106,8 @@ pub fn create_channels_batch(conn: &Connection, channels: &[Channel]) -> Result<
                 channel.tvg_name,
                 channel.content_type,
                 channel.sort_order,
-                channel.category_order
+                channel.category_order,
+                channel.created_at
             ])?;
         }
     }
@@ -688,6 +691,30 @@ mod tests {
         assert_eq!(
             stored_epg_id(&conn, "Kanal 5").as_deref(),
             Some("Kanal5.se")
+        );
+    }
+
+    #[test]
+    fn create_channels_batch_keeps_the_provider_added_time_or_defaults_to_now() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        let mut dated = live_channel(pid, "Dated", None, "http://x/1");
+        dated.created_at = Some("2025-10-21 18:49:02".to_string());
+        let undated = live_channel(pid, "Undated", None, "http://x/2");
+        create_channels_batch(&conn, &[dated, undated]).unwrap();
+
+        let created_at = |name: &str| -> Option<String> {
+            conn.query_row(
+                "SELECT created_at FROM channels WHERE name = ?1",
+                [name],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(created_at("Dated").as_deref(), Some("2025-10-21 18:49:02"));
+        assert!(
+            created_at("Undated").is_some(),
+            "falls back to CURRENT_TIMESTAMP"
         );
     }
 

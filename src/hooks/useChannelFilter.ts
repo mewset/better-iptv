@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { usePlayerStore } from '../stores/player-store';
 import { shouldBlockChannel } from '../lib/parentalControls';
+import { sortTitles } from '../lib/titleSort';
 import { searchChannels } from '../lib/searchText';
 import type { Channel } from '../types';
 
@@ -29,6 +30,7 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
   const blockedCategories = usePlayerStore((s) => s.blockedCategories);
   const parentalAutoDetect = usePlayerStore((s) => s.parentalAutoDetect);
   const parentalVisibility = usePlayerStore((s) => s.parentalVisibility);
+  const titleSorts = usePlayerStore((s) => s.titleSorts);
 
   // Step 1: Select base list by content type (O(1) - pre-computed).
   // A non-empty search spans every content type (design doc: "search stays
@@ -92,9 +94,21 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
     }
 
     // Search filter: name or category, whatever the case, accents or stray spaces
-    return searchChannels(result, debouncedSearchQuery);
+    result = searchChannels(result, debouncedSearchQuery);
+
+    // Movies and Series take the user's sort while browsing; a search spans
+    // every content type, so its results keep the playlist order.
+    if (
+      (contentTypeFilter === 'vod' || contentTypeFilter === 'series') &&
+      debouncedSearchQuery.trim() === ''
+    ) {
+      result = sortTitles(result, titleSorts[contentTypeFilter]);
+    }
+    return result;
   }, [
     baseList,
+    contentTypeFilter,
+    titleSorts,
     categoryFilter,
     debouncedSearchQuery,
     parentalEnabled,

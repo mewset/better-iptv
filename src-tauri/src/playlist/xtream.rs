@@ -335,6 +335,29 @@ struct XtreamStream {
     epg_channel_id: Option<String>,
     #[serde(rename = "type")]
     stream_type: Option<String>,
+    // When the provider added the title, as Unix seconds: get_vod_streams and
+    // get_live_streams send `added`; get_series sends `last_modified` (and
+    // often `"added": null` next to it, so the two are separate fields, not an
+    // alias). Becomes the channel's `created_at`; see `provider_added_at`.
+    #[serde(default, deserialize_with = "de_lenient_opt_string")]
+    added: Option<String>,
+    #[serde(default, deserialize_with = "de_lenient_opt_string")]
+    last_modified: Option<String>,
+}
+
+/// The provider's "added" time (Unix seconds) in SQLite's `CURRENT_TIMESTAMP`
+/// form, `YYYY-MM-DD HH:MM:SS` UTC, so it sorts and parses like the column's
+/// default. Anything that is not a positive number of seconds is `None` and
+/// the row keeps the default.
+fn provider_added_at(stream: &XtreamStream) -> Option<String> {
+    stream
+        .added
+        .as_deref()
+        .or(stream.last_modified.as_deref())
+        .and_then(|s| s.trim().parse::<i64>().ok())
+        .filter(|secs| *secs > 0)
+        .and_then(|secs| chrono::DateTime::from_timestamp(secs, 0))
+        .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -808,6 +831,8 @@ fn convert_streams_to_channels(
                 .map(|(name, order)| (Some(name.clone()), *order))
                 .unwrap_or((None, i32::MAX)); // Uncategorized items go last
 
+            let created_at = provider_added_at(&stream);
+
             Channel {
                 id: None,
                 playlist_id: 0, // Will be set when inserting to database
@@ -821,7 +846,7 @@ fn convert_streams_to_channels(
                 is_favorite: false,
                 sort_order: idx as i32,
                 category_order,
-                created_at: None,
+                created_at,
             }
         })
         .collect()
@@ -1125,7 +1150,10 @@ mod series_decoration_tests {
 
 #[cfg(test)]
 mod lenient_scalar_tests {
-    use super::{Episode, Season, SeriesInfo, SeriesMetadata, XtreamCategory, XtreamStream};
+    use super::{
+        provider_added_at, Episode, Season, SeriesInfo, SeriesMetadata, XtreamCategory,
+        XtreamStream,
+    };
 
     // Each case below fails to parse against strict serde typing. They are the
     // shapes real Xtream panels have been observed to return.
@@ -1262,6 +1290,37 @@ mod lenient_scalar_tests {
         let empty = r#"{"name":"Show","rating":""}"#;
         let meta: SeriesMetadata = serde_json::from_str(empty).unwrap();
         assert_eq!(meta.rating, None);
+    }
+
+    #[test]
+    fn provider_added_at_reads_added_or_last_modified() {
+        let at =
+            |json: &str| provider_added_at(&serde_json::from_str::<XtreamStream>(json).unwrap());
+
+        // get_vod_streams: `added` as a string or a number
+        assert_eq!(
+            at(r#"{"name":"M","stream_id":1,"added":"1761072542"}"#).as_deref(),
+            Some("2025-10-21 18:49:02")
+        );
+        assert_eq!(
+            at(r#"{"name":"M","stream_id":1,"added":1761072542}"#).as_deref(),
+            Some("2025-10-21 18:49:02")
+        );
+        // get_series: `last_modified`, with `"added": null` beside it
+        assert_eq!(
+            at(r#"{"name":"S","series_id":2,"added":null,"last_modified":"1761055910"}"#)
+                .as_deref(),
+            Some("2025-10-21 14:11:50")
+        );
+        // Missing, empty, zero or not a number: no date, the column default applies
+        for json in [
+            r#"{"name":"M","stream_id":1}"#,
+            r#"{"name":"M","stream_id":1,"added":""}"#,
+            r#"{"name":"M","stream_id":1,"added":"0"}"#,
+            r#"{"name":"M","stream_id":1,"added":"soon"}"#,
+        ] {
+            assert_eq!(at(json), None, "{json}");
+        }
     }
 
     #[test]

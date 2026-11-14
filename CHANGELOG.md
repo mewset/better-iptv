@@ -7,6 +7,11 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Added
 
+- **Sort Movies and Series** - a select at the end of the category row: Provider order (the default, as before), Recently added, Name A–Z, Name Z–A, Year newest first
+  - `lib/titleSort` sorts the filtered list in `useChannelFilter`, stable, never in place; names compare with `Intl.Collator` (numeric, base sensitivity, punctuation ignored), the year comes from a trailing `(YYYY)`, and titles a key cannot place go last in list order. A search spans every type, so its results keep the playlist order and the select is hidden
+  - The choice is per section, kept in the store and in `localStorage` (`better-iptv:title-sort`), read defensively; changing it starts the list at the top like a new category
+  - **Recently added** needs a real date: the Xtream import now stores the provider's `added` (VOD, live) or `last_modified` (series) Unix time as the channel's `created_at`, in `CURRENT_TIMESTAMP` form, instead of the insert time. Before, every row got the time of the last refresh, so `newestTitles` (the Movies/Series hero) was choosing among equal dates; it now gets the provider's order of arrival too. M3U imports keep the insert time
+  - Tests: `provider_added_at_reads_added_or_last_modified`, `create_channels_batch_keeps_the_provider_added_time_or_defaults_to_now`, `src/test/lib/titleSort.test.ts`
 - **Keyboard navigation in the channel grid** - arrow keys move one card, `Home`/`End` to the ends of the row (with `Ctrl` of the list), `Page Up`/`Page Down` one screen, `Enter` does what a click does; Arrow Down in the search box goes to the first result
   - WAI-ARIA grid with `aria-activedescendant` on the scroll container (`useGridKeyboardNav`, pure math in `lib/gridNav`), as in the 2026-09-10 design: the cards keep no `tabIndex` and are untouched, the cells around them carry the semantics and the ring
   - The ring shows only while the keyboard drives; a click makes a card active without one. The row scrolled into view stays above the dock

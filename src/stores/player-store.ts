@@ -13,6 +13,8 @@ import {
 import type { CategoryGroups, TmdbCard, TmdbStatus } from '../lib/tauri';
 import { applyEpgKeys } from '../lib/epgKeys';
 import { logger } from '../lib/logger';
+import { loadTitleSorts, saveTitleSorts } from '../lib/titleSort';
+import type { SortableSection, TitleSort } from '../lib/titleSort';
 
 /**
  * A section of the app the user is browsing: the destinations behind the
@@ -188,6 +190,10 @@ interface PlayerState {
   // TMDB status, fetched once at boot so the start section is known before MainScreen mounts
   tmdbStatus: TmdbStatus | null;
   setTmdbStatus: (status: TmdbStatus | null) => void;
+
+  // Movies and Series order, per section; remembered between launches
+  titleSorts: Record<SortableSection, TitleSort>;
+  setTitleSort: (section: SortableSection, sort: TitleSort) => void;
 
   // Category Filter (provider categories like "Sweden", "Norway", etc.)
   categoryFilter: string | null;
@@ -431,6 +437,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   // TMDB status
   tmdbStatus: null,
   setTmdbStatus: (status) => set({ tmdbStatus: status }),
+
+  // Title sort
+  titleSorts: loadTitleSorts(),
+  setTitleSort: (section, sort) => {
+    const titleSorts = { ...get().titleSorts, [section]: sort };
+    saveTitleSorts(titleSorts);
+    set({ titleSorts });
+  },
 
   // Category Filter
   categoryFilter: null,
