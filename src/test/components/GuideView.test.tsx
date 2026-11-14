@@ -431,6 +431,53 @@ describe('GuideView', () => {
     );
   });
 
+  it('selecting a programme moves the focus to Watch now', async () => {
+    renderGuide();
+    fireEvent.click(await screen.findByRole('button', { name: blockName(airing, 'SVT1') }));
+    expect(screen.getByRole('button', { name: 'Watch now' })).toHaveFocus();
+
+    // Another programme: the panel stays, and the focus is on its button again.
+    fireEvent.click(screen.getByRole('button', { name: blockName(later, 'SVT1') }));
+    expect(screen.getByRole('button', { name: 'Watch now' })).toHaveFocus();
+  });
+
+  it('on the channel already playing the focus goes to the button that can be pressed', async () => {
+    renderGuide({ playingChannelId: 1 });
+    fireEvent.click(await screen.findByRole('button', { name: blockName(airing, 'SVT1') }));
+    expect(screen.getByRole('button', { name: 'Close programme details' })).toHaveFocus();
+  });
+
+  it('closing the panel returns the focus to the programme, by the X and by Escape', async () => {
+    renderGuide();
+    const block = await screen.findByRole('button', { name: blockName(airing, 'SVT1') });
+
+    fireEvent.click(block);
+    fireEvent.click(screen.getByRole('button', { name: 'Close programme details' }));
+    expect(screen.queryByRole('region', { name: 'Selected programme' })).toBeNull();
+    expect(block).toHaveFocus();
+
+    fireEvent.click(block);
+    expect(block).not.toHaveFocus();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('region', { name: 'Selected programme' })).toBeNull();
+    expect(block).toHaveFocus();
+  });
+
+  it('Escape leaves a focus that is outside the panel where it is', async () => {
+    renderGuide();
+    fireEvent.click(await screen.findByRole('button', { name: blockName(airing, 'SVT1') }));
+    const search = document.createElement('input');
+    document.body.appendChild(search);
+    try {
+      search.focus();
+      fireEvent.keyDown(search, { key: 'Escape' });
+      expect(screen.queryByRole('region', { name: 'Selected programme' })).toBeNull();
+      expect(search).toHaveFocus();
+    } finally {
+      search.remove();
+    }
+  });
+
   it('lifts the panel above the dock when the dock is visible', async () => {
     renderGuide({ dockVisible: true });
     fireEvent.click(await screen.findByRole('button', { name: blockName(airing, 'SVT1') }));

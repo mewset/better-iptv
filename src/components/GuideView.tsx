@@ -261,9 +261,19 @@ interface DetailPanelProps {
   playing: boolean;
   onWatch: (channel: Channel) => void;
   onClose: () => void;
+  /** The panel's element, for the guide to tell whether it holds the focus. */
+  panelRef: React.RefObject<globalThis.HTMLElement | null>;
 }
 
-function DetailPanel({ selection, now, dockVisible, playing, onWatch, onClose }: DetailPanelProps) {
+function DetailPanel({
+  selection,
+  now,
+  dockVisible,
+  playing,
+  onWatch,
+  onClose,
+  panelRef,
+}: DetailPanelProps) {
   const { channel, programme } = selection;
   const logo = useChannelLogo(channel);
   const airing = isAiring(programme, now);
@@ -274,8 +284,17 @@ function DetailPanel({ selection, now, dockVisible, playing, onWatch, onClose }:
     .filter(Boolean)
     .join(' · ');
 
+  // A selected programme takes the focus to the panel's first button that can
+  // be pressed: Watch now, or Close when that channel already plays. The panel
+  // comes after every programme block in the tab order, so without this the
+  // keyboard would have to pass all of them to reach it.
+  useEffect(() => {
+    panelRef.current?.querySelector<globalThis.HTMLElement>('button:not(:disabled)')?.focus();
+  }, [selection, panelRef]);
+
   return (
     <section
+      ref={panelRef}
       aria-label="Selected programme"
       className={cn(
         'absolute left-1/2 z-20 flex w-[min(880px,calc(100%-80px))] -translate-x-1/2 items-center gap-4 rounded-[18px] border border-border-strong bg-surface/85 p-3 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-2xl supports-[not(backdrop-filter:blur(1px))]:bg-surface',
@@ -433,6 +452,19 @@ export function GuideView({
   }, [shownList.version]);
   const virtualRows = rowVirtualizer.getVirtualItems();
 
+  // Closing the panel (its X, or Escape) hands the focus it held back to the
+  // programme it was opened from, when that block's row is still rendered.
+  // A focus that is elsewhere (the search box) stays where it is.
+  const panelRef = useRef<globalThis.HTMLElement>(null);
+  const closeSelection = useCallback(() => {
+    if (panelRef.current?.contains(document.activeElement)) {
+      scrollRef.current
+        ?.querySelector<globalThis.HTMLElement>('button[aria-pressed="true"]')
+        ?.focus();
+    }
+    setSelection(null);
+  }, []);
+
   // Escape closes the detail panel before anything else sees it. A bubble
   // listener on document runs before useKeyboardShortcuts' window listener
   // (and after TopBar's capture-phase profile-menu handler, which stops the
@@ -443,11 +475,11 @@ export function GuideView({
       if (e.key !== 'Escape' || e.defaultPrevented) return;
       if (document.querySelector('[aria-modal="true"]')) return;
       e.preventDefault();
-      setSelection(null);
+      closeSelection();
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [selection]);
+  }, [selection, closeSelection]);
 
   const handleSelect = useCallback((channel: Channel, programme: Programme, lane: Lane) => {
     setSelection({ channel, programme, lane });
@@ -657,7 +689,8 @@ export function GuideView({
           dockVisible={dockVisible}
           playing={playingChannelId === selection.channel.id}
           onWatch={onPlay}
-          onClose={() => setSelection(null)}
+          onClose={closeSelection}
+          panelRef={panelRef}
         />
       )}
     </div>
