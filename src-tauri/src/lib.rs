@@ -259,8 +259,28 @@ pub fn run() {
             get_home_rows,
             get_home_pick,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                stop_player_on_exit(app);
+            }
+        });
+}
+
+/// Stop mpv when the app exits. The process ends without dropping the managed
+/// state, so `Drop for MpvPlayer` never runs, and mpv is a process of its
+/// own: without this it plays on after the window is gone.
+fn stop_player_on_exit(app: &tauri::AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let Ok(mut player) = state.mpv_player.lock() else {
+        return;
+    };
+    if let Err(e) = player.stop() {
+        log::warn!("mpv was not stopped on exit: {e:#}");
+    }
 }
 
 #[cfg(test)]

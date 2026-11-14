@@ -583,6 +583,34 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn stop_ends_a_running_process() {
+        // A stand-in for mpv: stop() is what the app calls on exit.
+        let child = Command::new("sleep").arg("60").spawn().unwrap();
+        #[cfg(target_os = "linux")]
+        let proc_entry = std::path::PathBuf::from(format!("/proc/{}", child.id()));
+        let mut player = MpvPlayer {
+            process: Some(child),
+            last_exit_failure: None,
+        };
+
+        player.stop().unwrap();
+
+        assert!(player.process.is_none());
+        // Killed and reaped: the process is gone, not left as a zombie
+        #[cfg(target_os = "linux")]
+        assert!(!proc_entry.exists());
+        assert_eq!(
+            player.status(),
+            PlaybackStatus {
+                playing: false,
+                failure: None
+            },
+            "a stop is not a failure"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn status_reports_a_failed_exit_once() {
         let mut player = exited_player(2);
         assert_eq!(
