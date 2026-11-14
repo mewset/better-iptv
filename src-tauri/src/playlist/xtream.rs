@@ -137,7 +137,34 @@ pub struct SeriesInfo {
     pub seasons: Vec<Season>,
     #[serde(default, deserialize_with = "de_decoration")]
     pub info: SeriesMetadata,
+    #[serde(default, deserialize_with = "de_episode_groups")]
     pub episodes: HashMap<String, Vec<Episode>>,
+}
+
+/// Reads the episode groups, one per season number.
+///
+/// A panel keeps them in a PHP array keyed by season number. PHP sends such
+/// an array as a JSON object, except when its keys are 0, 1, 2, ... in order:
+/// then it sends a plain list, and the position in the list is the season
+/// number. A series with a season 0 (specials) arrives that way, and so does
+/// one with no episodes at all, as `[]`. Both forms carry the same groups.
+fn de_episode_groups<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<HashMap<String, Vec<Episode>>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Groups {
+        BySeason(HashMap<String, Vec<Episode>>),
+        InOrder(Vec<Vec<Episode>>),
+    }
+    Ok(match Groups::deserialize(d)? {
+        Groups::BySeason(groups) => groups,
+        Groups::InOrder(groups) => groups
+            .into_iter()
+            .enumerate()
+            .map(|(season, episodes)| (season.to_string(), episodes))
+            .collect(),
+    })
 }
 
 impl SeriesInfo {
@@ -974,6 +1001,41 @@ mod series_decoration_tests {
             .map(|s| (s.season_number.as_str(), s.episode_count))
             .collect();
         assert_eq!(seasons, [("2", 2)]);
+    }
+
+    #[test]
+    fn episode_groups_sent_as_a_list_are_keyed_by_their_position() {
+        // What PHP sends when the season numbers are 0, 1, ... in order.
+        let info = decode(
+            r#"{"episodes":[
+                [{"id":"90","episode_num":1,"season":0}],
+                [{"id":"11","episode_num":1,"season":1},{"id":"12","episode_num":2,"season":1}]
+            ]}"#,
+        );
+
+        assert_eq!(info.episodes["0"].len(), 1);
+        assert_eq!(info.episodes["1"].len(), 2);
+        assert_eq!(info.episodes["1"][1].id, "12");
+        let seasons: Vec<&str> = info
+            .seasons
+            .iter()
+            .map(|s| s.season_number.as_str())
+            .collect();
+        assert_eq!(seasons, ["0", "1"]);
+    }
+
+    #[test]
+    fn a_series_without_episodes_is_a_series_with_none() {
+        for json in [
+            r#"{"info":{"name":"Show"},"episodes":[]}"#,
+            r#"{"info":{"name":"Show"},"episodes":{}}"#,
+            r#"{"info":{"name":"Show"}}"#,
+        ] {
+            let info = decode(json);
+            assert_eq!(info.info.name, "Show", "{json}");
+            assert!(info.episodes.is_empty(), "{json}");
+            assert!(info.seasons.is_empty(), "{json}");
+        }
     }
 
     #[test]
