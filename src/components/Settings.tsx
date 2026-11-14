@@ -137,12 +137,14 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   const [blockedCategories, setBlockedCategories] = useState<string[]>([]);
   const [parentalAutoDetect, setParentalAutoDetect] = useState(false);
   const [parentalVisibility, setParentalVisibility] = useState<ParentalVisibility>('hide');
+  // With a PIN set, the Parental section shows and changes nothing until the
+  // PIN was entered, once per visit to Settings.
+  const [parentalOpened, setParentalOpened] = useState(false);
 
   // Modal state
   const [showSetPinModal, setShowSetPinModal] = useState(false);
   const [showChangePinModal, setShowChangePinModal] = useState(false);
-  const [showResetPinModal, setShowResetPinModal] = useState(false);
-  const [showDisablePinModal, setShowDisablePinModal] = useState(false);
+  const [showOpenParentalModal, setShowOpenParentalModal] = useState(false);
   const [showResetPinConfirmation, setShowResetPinConfirmation] = useState(false);
   const [showChannelBlockingModal, setShowChannelBlockingModal] = useState(false);
   const [showErrorModal, setShowErrorModal] = useState(false);
@@ -400,8 +402,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
     const modalOpen =
       showSetPinModal ||
       showChangePinModal ||
-      showResetPinModal ||
-      showDisablePinModal ||
+      showOpenParentalModal ||
       showResetPinConfirmation ||
       showChannelBlockingModal ||
       showErrorModal ||
@@ -426,8 +427,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
     onClose,
     showSetPinModal,
     showChangePinModal,
-    showResetPinModal,
-    showDisablePinModal,
+    showOpenParentalModal,
     showResetPinConfirmation,
     showChannelBlockingModal,
     showErrorModal,
@@ -443,13 +443,6 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   };
 
   // Parental control handlers
-  const handleResetPin = () => setShowResetPinModal(true);
-
-  const handleResetPinSuccess = () => {
-    setShowResetPinModal(false);
-    setShowResetPinConfirmation(true);
-  };
-
   const handleConfirmReset = async () => {
     try {
       await resetParentalPin();
@@ -473,6 +466,8 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
 
   const handlePinSet = async () => {
     setHasPin(true);
+    // Whoever just chose the PIN knows it: the section stays open for them.
+    setParentalOpened(true);
     await loadParentalSettings();
     logger.info('Parental PIN set successfully');
   };
@@ -691,13 +686,14 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
             <TabsContent value="parental" className="mt-0 min-h-0">
               <LoadedSection unknown={loadFailed}>
                 <ParentalTab
+                  locked={hasPin && !parentalOpened}
+                  onUnlockRequest={() => setShowOpenParentalModal(true)}
                   enabled={parentalEnabled}
                   onEnabledChange={setParentalEnabled}
-                  onDisableRequest={() => setShowDisablePinModal(true)}
                   hasPin={hasPin}
                   onSetPin={() => setShowSetPinModal(true)}
                   onChangePin={() => setShowChangePinModal(true)}
-                  onResetPin={handleResetPin}
+                  onResetPin={() => setShowResetPinConfirmation(true)}
                   blockedCount={blockedChannelIds.size}
                   onOpenChannelBlocking={() => setShowChannelBlockingModal(true)}
                   autoDetect={parentalAutoDetect}
@@ -760,23 +756,11 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       />
 
       <PinEntryModal
-        isOpen={showResetPinModal}
-        onClose={() => setShowResetPinModal(false)}
-        onSuccess={handleResetPinSuccess}
+        isOpen={showOpenParentalModal}
+        onClose={() => setShowOpenParentalModal(false)}
+        onSuccess={() => setParentalOpened(true)}
         mode="verify"
-        title="Enter PIN to reset parental controls"
-      />
-
-      <PinEntryModal
-        isOpen={showDisablePinModal}
-        onClose={() => setShowDisablePinModal(false)}
-        onSuccess={() => {
-          setShowDisablePinModal(false);
-          setParentalEnabled(false);
-          logger.info('Parental controls disabled after PIN verification');
-        }}
-        mode="verify"
-        title="Enter PIN to disable parental controls"
+        title="Enter PIN to open parental controls"
       />
 
       <ConfirmationModal

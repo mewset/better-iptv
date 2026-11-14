@@ -17,6 +17,7 @@ import {
   resetParentalPin,
   setBlockedChannels,
   getPlaylists,
+  verifyParentalPin,
 } from '../../lib/tauri';
 import type { Channel, Playlist } from '../../types';
 import * as logoFallback from '../../lib/logoFallback';
@@ -107,6 +108,15 @@ function channel(id: number, name: string): Channel {
 async function goToParental() {
   fireEvent.mouseDown(screen.getByRole('tab', { name: /^parental$/i }));
   await screen.findByRole('heading', { level: 1, name: 'Parental' });
+}
+
+/** The Parental section of a profile with a PIN: it opens with the PIN. */
+async function openParental() {
+  await goToParental();
+  fireEvent.click(screen.getByRole('button', { name: 'Enter PIN' }));
+  fireEvent.change(await screen.findByPlaceholderText('Enter PIN'), { target: { value: '1234' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+  await screen.findByRole('checkbox', { name: 'Enable Parental Controls' });
 }
 
 /** Settings next to the global shortcuts, as MainScreen mounts them. */
@@ -583,7 +593,7 @@ describe('Settings as a view', () => {
     expect(hardware).not.toBeChecked();
 
     // Parental
-    await goToParental();
+    await openParental();
     expect(screen.getByRole('checkbox', { name: 'Enable Parental Controls' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Auto-detect 18+ Content' })).not.toBeChecked();
     expect(screen.getByLabelText('Visibility Mode')).toHaveValue('hide');
@@ -594,22 +604,65 @@ describe('Settings as a view', () => {
     );
   });
 
-  it('unticking Enable Parental Controls with a PIN set still asks for the PIN', async () => {
+  it('with a PIN set, the Parental section shows and changes nothing until the PIN is entered', async () => {
     vi.mocked(getParentalSettings).mockImplementation(async () => ({
       ...NO_PARENTAL,
       enabled: true,
       has_pin: true,
+      blocked_channels: [1],
     }));
     await renderSettings();
     await goToParental();
 
-    const enable = screen.getByRole('checkbox', { name: 'Enable Parental Controls' });
-    fireEvent.click(enable);
-
     expect(
-      await screen.findByRole('heading', { name: 'Enter PIN to disable parental controls' })
+      screen.getByText('Parental controls are on. Enter the PIN to see or change them.')
     ).toBeInTheDocument();
-    expect(enable).toBeChecked();
+    expect(screen.queryByRole('checkbox', { name: 'Enable Parental Controls' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Select Channels/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reset PIN' })).toBeNull();
+
+    // A wrong PIN opens nothing.
+    vi.mocked(verifyParentalPin).mockResolvedValueOnce(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Enter PIN' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Enter PIN to open parental controls' })
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText('Enter PIN'), { target: { value: '0000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+    expect(await screen.findByText('Incorrect PIN')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Enable Parental Controls' })).toBeNull();
+
+    // The right one opens the section for the rest of the visit, and turning
+    // the controls off then needs no second PIN.
+    fireEvent.change(screen.getByPlaceholderText('Enter PIN'), { target: { value: '1234' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+    const enable = await screen.findByRole('checkbox', { name: 'Enable Parental Controls' });
+    expect(screen.getByRole('button', { name: 'Select Channels (1 blocked)' })).toBeInTheDocument();
+    fireEvent.click(enable);
+    expect(enable).not.toBeChecked();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('without a PIN the Parental section is open, and stays open once one is set', async () => {
+    vi.mocked(getParentalSettings).mockImplementation(async () => ({
+      ...NO_PARENTAL,
+      enabled: true,
+    }));
+    await renderSettings();
+    await goToParental();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set PIN' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByPlaceholderText('Enter new PIN'), {
+      target: { value: '1234' },
+    });
+    fireEvent.change(within(dialog).getByPlaceholderText('Confirm PIN'), {
+      target: { value: '1234' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Set PIN' }));
+
+    expect(await screen.findByRole('button', { name: 'Change PIN' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Enable Parental Controls' })).toBeChecked();
   });
 
   it('Refresh from General also updates the refresh date Profiles shows', async () => {
@@ -653,14 +706,10 @@ describe('Settings as a view', () => {
       has_pin: true,
     }));
     await renderSettings();
-    await goToParental();
+    await openParental();
     const loadsBefore = vi.mocked(getParentalSettings).mock.calls.length;
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset PIN' }));
-    fireEvent.change(await screen.findByPlaceholderText('Enter PIN'), {
-      target: { value: '1234' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
     const confirm = await screen.findByRole('heading', { name: 'Reset PIN?' });
     fireEvent.click(
       within(confirm.closest('[role="dialog"]') as globalThis.HTMLElement).getByRole('button', {
@@ -685,7 +734,7 @@ describe('Settings as a view', () => {
       channels: [channel(1, 'One'), channel(2, 'Two'), channel(3, 'Three')],
     });
     const onClose = await renderSettings();
-    await goToParental();
+    await openParental();
 
     fireEvent.click(screen.getByRole('button', { name: 'Select Channels (1 blocked)' }));
     const dialog = await screen.findByRole('dialog');

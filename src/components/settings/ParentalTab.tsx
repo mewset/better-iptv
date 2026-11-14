@@ -4,11 +4,18 @@ import ToggleRow from './ToggleRow';
 import type { ParentalVisibility } from './constants';
 
 interface ParentalTabProps {
+  /**
+   * A PIN is set and has not been entered during this visit to Settings. The
+   * section then shows and changes nothing: whoever can open Settings could
+   * otherwise unblock every channel without knowing the PIN.
+   */
+  locked: boolean;
+  /** Asks for the PIN that opens the section. */
+  onUnlockRequest: () => void;
+
   // Enable state
   enabled: boolean;
   onEnabledChange: (enabled: boolean) => void;
-  /** Called when user tries to disable while a PIN is set — should trigger PIN verification */
-  onDisableRequest: () => void;
 
   // PIN state
   hasPin: boolean;
@@ -30,9 +37,10 @@ interface ParentalTabProps {
 }
 
 export default function ParentalTab({
+  locked,
+  onUnlockRequest,
   enabled,
   onEnabledChange,
-  onDisableRequest,
   hasPin,
   onSetPin,
   onChangePin,
@@ -46,6 +54,26 @@ export default function ParentalTab({
 }: ParentalTabProps) {
   const visibilityId = useId();
 
+  if (locked) {
+    return (
+      <div className="space-y-6">
+        <section>
+          <h3 className="mb-4 text-lg font-semibold text-text">Parental Controls</h3>
+          <p className="mb-4 text-sm text-text-muted">
+            Parental controls are {enabled ? 'on' : 'off'}. Enter the PIN to see or change them.
+          </p>
+          <button
+            onClick={onUnlockRequest}
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-on-accent hover:bg-accent-hover"
+          >
+            <Lock className="h-4 w-4" aria-hidden="true" />
+            <span>Enter PIN</span>
+          </button>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <section>
@@ -56,14 +84,7 @@ export default function ParentalTab({
             title="Enable Parental Controls"
             description="Restrict access to channels with PIN protection"
             checked={enabled}
-            onChange={(checked) => {
-              if (!checked && hasPin) {
-                // Require PIN to disable parental controls
-                onDisableRequest();
-              } else {
-                onEnabledChange(checked);
-              }
-            }}
+            onChange={onEnabledChange}
           />
 
           {enabled && (
