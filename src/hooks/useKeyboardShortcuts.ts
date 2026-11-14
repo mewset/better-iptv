@@ -27,8 +27,8 @@ import { logger } from '../lib/logger';
  * gets the first go; when it returns true (it closed something) playback
  * keeps going, and only when it returns false does Escape stop playback.
  *
- * Escape and G are both left alone while any `aria-modal="true"` dialog is
- * open (a PIN prompt, a confirmation): the dialog owns the keyboard then.
+ * No shortcut acts while any `aria-modal="true"` dialog is open (a PIN
+ * prompt, a confirmation): the dialog owns the keyboard then.
  */
 /** Controls the keyboard activates with Space; the stop shortcut never takes the key from them. */
 const SPACE_CONTROLS =
@@ -61,17 +61,15 @@ export function useKeyboardShortcuts(
 
   const handler = useCallback(
     async (e: globalThis.KeyboardEvent) => {
+      // An open modal dialog owns the keyboard: no global shortcut acts behind it.
+      if (document.querySelector('[aria-modal="true"]')) return;
+
       const target = e.target as globalThis.HTMLElement;
       const isInput =
         target instanceof globalThis.HTMLInputElement ||
         target instanceof globalThis.HTMLTextAreaElement ||
         target instanceof globalThis.HTMLSelectElement ||
         target.isContentEditable;
-
-      const isGuideKey = e.key === 'g' || e.key === 'G';
-      if ((e.key === 'Escape' || isGuideKey) && document.querySelector('[aria-modal="true"]')) {
-        return;
-      }
 
       // Escape always works, unless something already claimed it (Settings,
       // TopBar's profile menu) via preventDefault - it owns the key instead.

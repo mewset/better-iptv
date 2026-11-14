@@ -49,21 +49,38 @@ describe('useKeyboardShortcuts', () => {
     expect(onToggleGuide).toHaveBeenCalledTimes(1);
   });
 
-  it('Escape and G do nothing while an aria-modal dialog is open', async () => {
-    const { onToggleGuide, onEscapeView } = setup(vi.fn(() => true));
+  it('no shortcut acts while an aria-modal dialog is open', async () => {
+    const onToggleGuide = vi.fn();
+    const onEscapeView = vi.fn(() => true);
+    const onSearchUnavailable = vi.fn();
+    const search = document.createElement('input');
     const dialog = document.createElement('div');
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
-    document.body.appendChild(dialog);
+    document.body.append(search, dialog);
+    renderHook(() =>
+      useKeyboardShortcuts(
+        { current: search },
+        { onToggleGuide, onEscapeView, onSearchUnavailable }
+      )
+    );
 
     press('g');
     press('G', document.body, { shiftKey: true });
     press('Escape');
+    const space = press(' ', dialog);
+    const slash = press('/', dialog);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(onToggleGuide).not.toHaveBeenCalled();
     expect(onEscapeView).not.toHaveBeenCalled();
+    expect(onSearchUnavailable).not.toHaveBeenCalled();
     expect(stopPlayback).not.toHaveBeenCalled();
+    expect(usePlayerStore.getState().isPlaying).toBe(true);
+    expect(search).not.toHaveFocus();
+    // The keys are the dialog's: nothing here swallowed them.
+    expect(space.defaultPrevented).toBe(false);
+    expect(slash.defaultPrevented).toBe(false);
   });
 
   it('g typed inside an input does not toggle the guide', () => {
