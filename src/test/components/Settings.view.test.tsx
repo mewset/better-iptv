@@ -192,6 +192,26 @@ describe('Settings as a view', () => {
     fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true });
     await new Promise((r) => setTimeout(r, 20));
     expect(setSetting).not.toHaveBeenCalled();
+
+    // The sections showing defaults in place of the unknown values are inert:
+    // "Set PIN" on a PIN that failed to load would replace the real one.
+    expect(screen.getAllByRole('checkbox')[0]).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'dark' })).toBeDisabled();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /^playback$/i }));
+    await screen.findByRole('heading', { level: 1, name: 'Playback' });
+    for (const control of [...screen.getAllByRole('checkbox'), ...screen.getAllByRole('combobox')])
+      expect(control).toBeDisabled();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /^metadata$/i }));
+    await screen.findByRole('heading', { level: 1, name: 'Metadata' });
+    expect(screen.getByLabelText('TMDB API key')).toBeDisabled();
+    await goToParental();
+    // Disabled is as far as jsdom goes: unlike a browser it still delivers a
+    // click to a control inside a disabled fieldset.
+    expect(screen.getByRole('checkbox')).toBeDisabled();
+
+    // Profiles act at once and never depended on the failed load.
+    await goToProfiles();
+    expect(screen.getByRole('button', { name: 'Add profile' })).toBeEnabled();
   });
 
   it('renders seven section triggers with their descriptions', async () => {

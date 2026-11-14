@@ -70,6 +70,20 @@ const SECTIONS: Array<{ value: string; name: string; description: string }> = [
 
 const TEXT_INPUT_TYPES = new Set(['text', 'search', 'password', 'email', 'url', 'tel', 'number']);
 
+/**
+ * A section whose values come from the settings load. While they are unknown
+ * (the load failed) it shows defaults, so it is inert: acting on a default
+ * would write over the real value, as "Set PIN" would over a PIN that only
+ * failed to load.
+ */
+function LoadedSection({ unknown, children }: { unknown: boolean; children: React.ReactNode }) {
+  return (
+    <fieldset disabled={unknown} className={cn('min-w-0', unknown && 'opacity-60')}>
+      {children}
+    </fieldset>
+  );
+}
+
 /** A field one types text in; Escape there belongs to the field, not to Settings. */
 function isTextEntry(target: globalThis.EventTarget | null): boolean {
   if (target instanceof globalThis.HTMLInputElement) return TEXT_INPUT_TYPES.has(target.type);
@@ -610,44 +624,48 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
             </h1>
 
             <TabsContent value="general" className="mt-0 min-h-0">
-              <GeneralTab
-                theme={theme}
-                onThemeChange={(t) => {
-                  setTheme(t);
-                  applyTheme(t);
-                }}
-                playlistUserAgentMode={playlistUserAgentMode}
-                onPlaylistUserAgentModeChange={setPlaylistUserAgentMode}
-                playlistUserAgentCustom={playlistUserAgentCustom}
-                onPlaylistUserAgentCustomChange={setPlaylistUserAgentCustom}
-                onRefreshPlaylist={
-                  currentPlaylist?.id ? () => setShowRefreshModal(true) : undefined
-                }
-                playlistName={currentPlaylist?.name}
-                updateCheckEnabled={updateCheckEnabled}
-                onUpdateCheckEnabledChange={setUpdateCheckEnabled}
-              />
+              <LoadedSection unknown={loadFailed}>
+                <GeneralTab
+                  theme={theme}
+                  onThemeChange={(t) => {
+                    setTheme(t);
+                    applyTheme(t);
+                  }}
+                  playlistUserAgentMode={playlistUserAgentMode}
+                  onPlaylistUserAgentModeChange={setPlaylistUserAgentMode}
+                  playlistUserAgentCustom={playlistUserAgentCustom}
+                  onPlaylistUserAgentCustomChange={setPlaylistUserAgentCustom}
+                  onRefreshPlaylist={
+                    currentPlaylist?.id ? () => setShowRefreshModal(true) : undefined
+                  }
+                  playlistName={currentPlaylist?.name}
+                  updateCheckEnabled={updateCheckEnabled}
+                  onUpdateCheckEnabledChange={setUpdateCheckEnabled}
+                />
+              </LoadedSection>
             </TabsContent>
 
             <TabsContent value="playback" className="mt-0 min-h-0">
-              <PlaybackTab
-                hardwareAcceleration={hardwareAcceleration}
-                onHardwareAccelerationChange={setHardwareAcceleration}
-                videoOutput={videoOutput}
-                onVideoOutputChange={setVideoOutput}
-                deinterlace={deinterlace}
-                onDeinterlaceChange={setDeinterlace}
-                startFullscreen={startFullscreen}
-                onStartFullscreenChange={setStartFullscreen}
-                cacheSecs={cacheSecs}
-                onCacheSecsChange={setCacheSecs}
-                startVolume={startVolume}
-                onStartVolumeChange={setStartVolume}
-                audioLang={audioLang}
-                onAudioLangChange={setAudioLang}
-                subtitleLang={subtitleLang}
-                onSubtitleLangChange={setSubtitleLang}
-              />
+              <LoadedSection unknown={loadFailed}>
+                <PlaybackTab
+                  hardwareAcceleration={hardwareAcceleration}
+                  onHardwareAccelerationChange={setHardwareAcceleration}
+                  videoOutput={videoOutput}
+                  onVideoOutputChange={setVideoOutput}
+                  deinterlace={deinterlace}
+                  onDeinterlaceChange={setDeinterlace}
+                  startFullscreen={startFullscreen}
+                  onStartFullscreenChange={setStartFullscreen}
+                  cacheSecs={cacheSecs}
+                  onCacheSecsChange={setCacheSecs}
+                  startVolume={startVolume}
+                  onStartVolumeChange={setStartVolume}
+                  audioLang={audioLang}
+                  onAudioLangChange={setAudioLang}
+                  subtitleLang={subtitleLang}
+                  onSubtitleLangChange={setSubtitleLang}
+                />
+              </LoadedSection>
             </TabsContent>
 
             <TabsContent value="epg" className="mt-0 min-h-0">
@@ -655,41 +673,45 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
             </TabsContent>
 
             <TabsContent value="metadata" className="mt-0 min-h-0">
-              <MetadataTab
-                enabled={tmdbEnabled}
-                onEnabledChange={setTmdbEnabled}
-                apiKey={tmdbApiKey}
-                onApiKeyChange={setTmdbApiKey}
-                language={tmdbLanguage}
-                onLanguageChange={setTmdbLanguage}
-                status={tmdbStatus}
-                onClearCache={async () => {
-                  await deleteTmdbCache();
-                  clearTmdbCards();
-                }}
-                backgroundEnrich={tmdbBackgroundEnrich}
-                onBackgroundEnrichChange={setTmdbBackgroundEnrich}
-                logoFallbackEnabled={logoFallbackEnabled}
-                onLogoFallbackEnabledChange={setLogoFallbackEnabled}
-              />
+              <LoadedSection unknown={loadFailed}>
+                <MetadataTab
+                  enabled={tmdbEnabled}
+                  onEnabledChange={setTmdbEnabled}
+                  apiKey={tmdbApiKey}
+                  onApiKeyChange={setTmdbApiKey}
+                  language={tmdbLanguage}
+                  onLanguageChange={setTmdbLanguage}
+                  status={tmdbStatus}
+                  onClearCache={async () => {
+                    await deleteTmdbCache();
+                    clearTmdbCards();
+                  }}
+                  backgroundEnrich={tmdbBackgroundEnrich}
+                  onBackgroundEnrichChange={setTmdbBackgroundEnrich}
+                  logoFallbackEnabled={logoFallbackEnabled}
+                  onLogoFallbackEnabledChange={setLogoFallbackEnabled}
+                />
+              </LoadedSection>
             </TabsContent>
 
             <TabsContent value="parental" className="mt-0 min-h-0">
-              <ParentalTab
-                enabled={parentalEnabled}
-                onEnabledChange={setParentalEnabled}
-                onDisableRequest={() => setShowDisablePinModal(true)}
-                hasPin={hasPin}
-                onSetPin={() => setShowSetPinModal(true)}
-                onChangePin={() => setShowChangePinModal(true)}
-                onResetPin={handleResetPin}
-                blockedCount={blockedChannelIds.size}
-                onOpenChannelBlocking={() => setShowChannelBlockingModal(true)}
-                autoDetect={parentalAutoDetect}
-                onAutoDetectChange={setParentalAutoDetect}
-                visibility={parentalVisibility}
-                onVisibilityChange={setParentalVisibility}
-              />
+              <LoadedSection unknown={loadFailed}>
+                <ParentalTab
+                  enabled={parentalEnabled}
+                  onEnabledChange={setParentalEnabled}
+                  onDisableRequest={() => setShowDisablePinModal(true)}
+                  hasPin={hasPin}
+                  onSetPin={() => setShowSetPinModal(true)}
+                  onChangePin={() => setShowChangePinModal(true)}
+                  onResetPin={handleResetPin}
+                  blockedCount={blockedChannelIds.size}
+                  onOpenChannelBlocking={() => setShowChannelBlockingModal(true)}
+                  autoDetect={parentalAutoDetect}
+                  onAutoDetectChange={setParentalAutoDetect}
+                  visibility={parentalVisibility}
+                  onVisibilityChange={setParentalVisibility}
+                />
+              </LoadedSection>
             </TabsContent>
 
             <TabsContent value="profiles" className="mt-0 min-h-0">
