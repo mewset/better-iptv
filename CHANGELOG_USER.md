@@ -12,6 +12,14 @@ A simple overview of new features and improvements.
 - Added search that finds names whatever their accents, e.g. "tele" finds "Télé"
 - Added a button that clears the search box
 
+### Improvements
+
+- Error messages now say what went wrong, e.g. when a playlist cannot be imported or a channel cannot start
+- Parental controls in Settings now open with your PIN while they are turned on
+- Deleting a profile now asks first
+- Empty lists now say why they are empty, e.g. when a search finds nothing in the chosen category
+- Xtream setup now accepts a server address without http://
+
 ### Fixes
 
 - Fixed series that would not open, or showed no episodes, with some Xtream providers
@@ -20,6 +28,16 @@ A simple overview of new features and improvements.
 - Fixed playlists saved in older text formats not importing, or showing broken letters
 - Fixed some streams being refused, e.g. rtmps and SRT links
 - Fixed a local playlist not importing when given as a file:// address or a path in quotes
+- Fixed the video player staying open after you closed the app
+- Fixed the now-playing bar staying on screen after you pressed Stop
+- Fixed the now-playing bar not showing an episode you started
+- Fixed the list of blocked channels opening empty, which could remove your earlier blocks when saved
+- Fixed channels keeping their old name after your provider renamed them
+- Fixed a playlist update that could merge two channels with the same name into one
+- Fixed a playlist update that could leave you without categories
+- Fixed adding a profile twice when pressing Enter twice
+- Fixed the theme not going back when you pressed Cancel in Settings
+- Fixed Enter not working in the PIN box
 
 ### Thanks
 
