@@ -13,6 +13,9 @@ import {
   deleteTmdbCache,
   renamePlaylist,
   setActiveProfileId,
+  getParentalSettings,
+  resetParentalPin,
+  setBlockedChannels,
 } from '../../lib/tauri';
 import type { Channel, Playlist } from '../../types';
 import * as logoFallback from '../../lib/logoFallback';
@@ -38,6 +41,8 @@ vi.mock('../../lib/tauri', () => ({
     visibility: 'hide',
   })),
   setBlockedChannels: vi.fn(async () => {}),
+  verifyParentalPin: vi.fn(async () => true),
+  setParentalPin: vi.fn(async () => {}),
   stopPlayback: vi.fn(async () => {}),
   playChannel: vi.fn(async () => {}),
   renamePlaylist: vi.fn(async () => {}),
@@ -58,6 +63,47 @@ vi.mock('../../lib/tauri', () => ({
   checkTmdbKey: vi.fn(async () => {}),
   deleteTmdbCache: vi.fn(async () => 0),
 }));
+
+// jsdom has no layout, so the block list's real virtualizer would render no rows.
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: ({ count }: { count: number }) => ({
+    getVirtualItems: () =>
+      Array.from({ length: count }, (_, index) => ({
+        index,
+        key: index,
+        start: index * 68,
+        size: 68,
+      })),
+    getTotalSize: () => count * 68,
+  }),
+}));
+
+const NO_PARENTAL = {
+  enabled: false,
+  has_pin: false,
+  auto_detect: false,
+  blocked_channels: [] as number[],
+  blocked_categories: [] as string[],
+  unlock_duration: '0',
+  visibility: 'hide' as const,
+};
+
+function channel(id: number, name: string): Channel {
+  return {
+    id,
+    playlist_id: 1,
+    name,
+    url: `http://home.example/${id}.ts`,
+    content_type: 'live',
+    is_favorite: false,
+    sort_order: id,
+  } as Channel;
+}
+
+async function goToParental() {
+  fireEvent.mouseDown(screen.getByRole('tab', { name: /^parental$/i }));
+  await screen.findByRole('heading', { level: 1, name: 'Parental' });
+}
 
 /** Settings next to the global shortcuts, as MainScreen mounts them. */
 function WithShortcuts({ onClose }: { onClose: () => void }) {
@@ -93,6 +139,7 @@ describe('Settings as a view', () => {
     // have swapped out.
     vi.mocked(getSetting).mockImplementation(async () => null);
     vi.mocked(setSetting).mockImplementation(async () => {});
+    vi.mocked(getParentalSettings).mockImplementation(async () => NO_PARENTAL);
     // The EPG tab's guide commands go through invoke, not the tauri module.
     vi.mocked(invoke).mockReset();
     vi.mocked(invoke).mockImplementation(async (cmd: string) =>
@@ -403,6 +450,86 @@ describe('Settings as a view', () => {
     fireEvent.change(input, { target: { value: 'Cabin' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(await screen.findByText('A profile with that name already exists')).toBeInTheDocument();
+  });
+
+  it('Reset PIN reloads the parental state the rest of the app reads', async () => {
+    vi.mocked(getParentalSettings).mockImplementation(async () => ({
+      ...NO_PARENTAL,
+      enabled: true,
+      has_pin: true,
+    }));
+    await renderSettings();
+    await goToParental();
+    const loadsBefore = vi.mocked(getParentalSettings).mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset PIN' }));
+    fireEvent.change(await screen.findByPlaceholderText('Enter PIN'), {
+      target: { value: '1234' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+    const confirm = await screen.findByRole('heading', { name: 'Reset PIN?' });
+    fireEvent.click(
+      within(confirm.closest('[role="dialog"]') as globalThis.HTMLElement).getByRole('button', {
+        name: 'Reset PIN',
+      })
+    );
+
+    await waitFor(() => expect(resetParentalPin).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(vi.mocked(getParentalSettings).mock.calls.length).toBe(loadsBefore + 1)
+    );
+  });
+
+  it('the block list only edits: Done keeps it unsaved, Save changes writes it', async () => {
+    vi.mocked(getParentalSettings).mockImplementation(async () => ({
+      ...NO_PARENTAL,
+      enabled: true,
+      has_pin: true,
+      blocked_channels: [1],
+    }));
+    usePlayerStore.setState({
+      channels: [channel(1, 'One'), channel(2, 'Two'), channel(3, 'Three')],
+    });
+    const onClose = await renderSettings();
+    await goToParental();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Channels (1 blocked)' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('1 of 3 channels blocked')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Block All' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Select Channels (3 blocked)' })).toBeInTheDocument();
+    expect(setBlockedChannels).not.toHaveBeenCalled();
+
+    // Unsaved for real now, so leaving asks.
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(await screen.findByText('Discard changes?')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(setBlockedChannels).toHaveBeenCalledWith([1, 2, 3]));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it('Save leaves auto-detected channels out of the manual block list', async () => {
+    vi.mocked(getParentalSettings).mockImplementation(async () => ({
+      ...NO_PARENTAL,
+      enabled: true,
+      has_pin: true,
+      auto_detect: true,
+      blocked_channels: [1],
+    }));
+    usePlayerStore.setState({
+      channels: [channel(1, 'One'), channel(2, 'Late Night XXX'), channel(3, 'Three')],
+    });
+    await renderSettings();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(setBlockedChannels).toHaveBeenCalledWith([1]));
+    expect(setSetting).toHaveBeenCalledWith('parental_auto_detect', 'true');
   });
 
   it('Delete asks first, and deletes only on confirmation', async () => {

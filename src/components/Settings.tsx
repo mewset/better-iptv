@@ -434,6 +434,9 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
         if (prev === null) return prev;
         return JSON.stringify({ ...JSON.parse(prev), parentalEnabled: false });
       });
+      // Written at once, like Set and Change PIN: the rest of the app must
+      // see it now, not after a restart.
+      await loadParentalSettings();
       logger.info('Parental PIN reset successfully');
     } catch (err) {
       logger.error('Failed to reset PIN:', err);
@@ -526,25 +529,13 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       await setSetting('parental_auto_detect', parentalAutoDetect.toString());
       await setSetting('parental_visibility', parentalVisibility);
 
-      // If auto-detect is enabled, scan all channels and add adult content to blocked list
-      let updatedBlockedIds = new Set(blockedChannelIds);
-      if (parentalAutoDetect) {
-        const { isAdultContent } = await import('../lib/parentalControls');
-        channels.forEach((channel) => {
-          if (channel.id && isAdultContent(channel.name, channel.group_name)) {
-            updatedBlockedIds.add(channel.id);
-          }
-        });
-        logger.info(
-          `Auto-detect found ${updatedBlockedIds.size - blockedChannelIds.size} additional adult channels`
-        );
-      }
-
+      // Only the hand-picked channels: auto-detect is a rule applied when the
+      // lists are shown (shouldBlockChannel), so turning it off unblocks its
+      // matches again.
       const { setBlockedChannels } = await import('../lib/tauri');
-      await setBlockedChannels(Array.from(updatedBlockedIds));
+      await setBlockedChannels(Array.from(blockedChannelIds));
       await setSetting('parental_blocked_categories', JSON.stringify(blockedCategories));
 
-      setBlockedChannelIds(updatedBlockedIds);
       await loadParentalSettings();
 
       logger.info('Settings saved successfully');

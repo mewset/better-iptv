@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import ChannelBlockingModal from '../../components/modals/ChannelBlockingModal';
+import { setBlockedChannels } from '../../lib/tauri';
 import type { Channel } from '../../types';
 
 vi.mock('../../lib/tauri', () => ({
@@ -34,7 +35,11 @@ const channels = [1, 2, 3].map(
     }) as Channel
 );
 
-function modal(isOpen: boolean, blocked: number[], extra: { onUpdate?: () => void } = {}) {
+function modal(
+  isOpen: boolean,
+  blocked: number[],
+  extra: { onUpdate?: (ids: Set<number>) => void } = {}
+) {
   return (
     <ChannelBlockingModal
       isOpen={isOpen}
@@ -70,5 +75,16 @@ describe('ChannelBlockingModal', () => {
     rerender(modal(true, [1]));
 
     expect(screen.getByText('1 of 3 channels blocked')).toBeInTheDocument();
+  });
+
+  it('Done hands the edited list to its host and writes nothing itself', () => {
+    const onUpdate = vi.fn();
+    render(modal(true, [1], { onUpdate }));
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Channel 2/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+
+    expect(onUpdate).toHaveBeenCalledWith(new Set([1, 2]));
+    expect(setBlockedChannels).not.toHaveBeenCalled();
   });
 });

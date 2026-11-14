@@ -2,10 +2,7 @@ import { useState, useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { X, Search, Lock, Unlock } from 'lucide-react';
 import type { Channel } from '../../types';
-import { setBlockedChannels } from '../../lib/tauri';
 import { searchChannels } from '../../lib/searchText';
-import { errorText } from '../../lib/errorText';
-import ErrorModal from './ErrorModal';
 
 interface ChannelBlockingModalProps {
   isOpen: boolean;
@@ -16,9 +13,12 @@ interface ChannelBlockingModalProps {
 }
 
 /**
- * The block list editor. Its content is mounted only while open, so every
- * opening starts from the blocks its host holds at that moment: the host
- * renders it closed before the saved blocks have loaded.
+ * The block list editor. It only edits: Done hands the list to its host
+ * (Settings), which writes it with everything else on "Save changes".
+ *
+ * Its content is mounted only while open, so every opening starts from the
+ * blocks its host holds at that moment: the host renders it closed before
+ * the saved blocks have loaded.
  */
 export default function ChannelBlockingModal(props: ChannelBlockingModalProps) {
   if (!props.isOpen) return null;
@@ -28,13 +28,7 @@ export default function ChannelBlockingModal(props: ChannelBlockingModalProps) {
 function BlockList({ onClose, channels, initialBlockedIds, onUpdate }: ChannelBlockingModalProps) {
   const [blockedIds, setBlockedIds] = useState<Set<number>>(new Set(initialBlockedIds));
   const [searchQuery, setSearchQuery] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
   const parentRef = useRef<HTMLDivElement>(null);
-
-  // Error modal state
-  const [showErrorModal, setShowErrorModal] = useState(false);
-  const [errorTitle, setErrorTitle] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
 
   // Filter channels by search query
   const filteredChannels = useMemo(
@@ -85,22 +79,9 @@ function BlockList({ onClose, channels, initialBlockedIds, onUpdate }: ChannelBl
     });
   };
 
-  // Save changes
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      const idsArray = Array.from(blockedIds);
-      await setBlockedChannels(idsArray);
-      onUpdate(blockedIds);
-      onClose();
-    } catch (error) {
-      console.error('Failed to save blocked channels:', error);
-      setErrorTitle('Failed to Save');
-      setErrorMessage(errorText(error));
-      setShowErrorModal(true);
-    } finally {
-      setIsSaving(false);
-    }
+  const handleDone = () => {
+    onUpdate(blockedIds);
+    onClose();
   };
 
   const allFilteredBlocked = filteredChannels.every((c) => c.id && blockedIds.has(c.id));
@@ -221,29 +202,19 @@ function BlockList({ onClose, channels, initialBlockedIds, onUpdate }: ChannelBl
           <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="rounded-lg bg-surface-2 px-4 py-2 text-text hover:bg-surface-hover disabled:opacity-50"
-              disabled={isSaving}
+              className="rounded-lg bg-surface-2 px-4 py-2 text-text hover:bg-surface-hover"
             >
               Cancel
             </button>
             <button
-              onClick={handleSave}
-              className="rounded-lg bg-accent px-4 py-2 text-on-accent hover:bg-accent-hover disabled:opacity-50"
-              disabled={isSaving}
+              onClick={handleDone}
+              className="rounded-lg bg-accent px-4 py-2 text-on-accent hover:bg-accent-hover"
             >
-              {isSaving ? 'Saving...' : 'Save'}
+              Done
             </button>
           </div>
         </div>
       </div>
-
-      {/* Error Modal */}
-      <ErrorModal
-        isOpen={showErrorModal}
-        onClose={() => setShowErrorModal(false)}
-        title={errorTitle}
-        message={errorMessage}
-      />
     </div>
   );
 }
