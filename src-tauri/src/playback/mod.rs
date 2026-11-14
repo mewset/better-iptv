@@ -90,7 +90,7 @@ pub async fn stop(player: SharedPlayer) -> Result<(), AppError> {
     .await?
 }
 
-/// Poll the MPV process: still playing, or exited, and if so whether it failed.
+/// Poll the MPV process: still playing, or exited, and if on a failure, whose.
 pub async fn status(player: SharedPlayer) -> Result<PlaybackStatus, AppError> {
     tokio::task::spawn_blocking(move || {
         let mut mpv = lock_player(&player)?;

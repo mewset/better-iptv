@@ -151,7 +151,7 @@ fn env_without_appdir(
 pub struct MpvPlayer {
     process: Option<Child>,
     /// Set when the last process exited with a failure code, until `status()` reports it.
-    last_exit_failed: bool,
+    last_exit_failure: Option<PlaybackFailure>,
 }
 
 /// MPV playback options
@@ -175,13 +175,15 @@ impl MpvPlayer {
     pub fn new() -> Self {
         Self {
             process: None,
-            last_exit_failed: false,
+            last_exit_failure: None,
         }
     }
 
-    /// Check if MPV is installed on the system
+    /// Check if MPV is installed on the system: `mpv --version` runs and
+    /// succeeds. An mpv that starts but exits with an error (a broken
+    /// install, a library it cannot load) cannot play anything either.
     pub fn check_installed() -> bool {
-        mpv_command().arg("--version").output().is_ok()
+        command_succeeds(mpv_command().arg("--version"))
     }
 
     /// Apply MPV arguments from playback options
@@ -290,7 +292,7 @@ impl MpvPlayer {
         })?;
 
         self.process = Some(child);
-        self.last_exit_failed = false;
+        self.last_exit_failure = None;
         Ok(())
     }
 
@@ -368,19 +370,19 @@ impl MpvPlayer {
     }
 
     /// Poll the process and report whether it is still playing and, if it has
-    /// exited, whether it exited because the stream could not be played. A
-    /// failure is reported once: the next call after it reads `failed: false`.
+    /// exited, whether it exited on a failure and whose. A failure is
+    /// reported once: the next call after it reads `failure: None`.
     pub fn status(&mut self) -> PlaybackStatus {
         if let Some(child) = &mut self.process {
             match child.try_wait() {
                 Ok(None) => {
                     return PlaybackStatus {
                         playing: true,
-                        failed: false,
+                        failure: None,
                     }
                 }
                 Ok(Some(exit)) => {
-                    self.last_exit_failed = exit_code_is_failure(exit.code());
+                    self.last_exit_failure = exit_failure(exit.code());
                     self.process = None;
                 }
                 Err(_) => self.process = None,
@@ -388,27 +390,50 @@ impl MpvPlayer {
         }
         PlaybackStatus {
             playing: false,
-            failed: std::mem::take(&mut self.last_exit_failed),
+            failure: self.last_exit_failure.take(),
         }
     }
 }
 
-/// What the frontend's playback poll learns about MPV.
+/// Whether a command runs and exits successfully.
+fn command_succeeds(cmd: &mut Command) -> bool {
+    cmd.output().is_ok_and(|output| output.status.success())
+}
+
+/// What the frontend's playback poll learns about MPV. Serialized as
+/// `{"playing":false,"failure":"player"}`, with `null` for no failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct PlaybackStatus {
     pub playing: bool,
-    /// MPV exited on its own because the stream could not be played.
-    pub failed: bool,
+    /// Why MPV exited on its own, when it did so on a failure.
+    pub failure: Option<PlaybackFailure>,
 }
 
-/// Whether an MPV exit code means playback failed rather than ended normally.
+/// Who a failed exit of MPV is down to. The viewer is told different things:
+/// a stream that cannot be played is the provider's, an mpv that cannot
+/// start is this machine's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlaybackFailure {
+    /// mpv could not start (exit code 1).
+    Player,
+    /// The stream could not be played (exit code 2 or 3).
+    Stream,
+}
+
+/// The failure an MPV exit code stands for, if any.
 ///
-/// mpv exits 1 when it fails to initialise, 2 when the file could not be
-/// played (a provider answering 503, a dead link), and 3 when only some files
-/// of a playlist played. Closing the window exits 0, and `stop()` kills the
-/// process with a signal, which has no exit code at all; neither is a failure.
-pub fn exit_code_is_failure(code: Option<i32>) -> bool {
-    matches!(code, Some(1) | Some(2) | Some(3))
+/// mpv exits 1 when it fails to initialise, which includes an option or a
+/// profile it does not know, 2 when the file could not be played (a provider
+/// answering 503, a dead link), and 3 when only some files of a playlist
+/// played. Closing the window exits 0, and `stop()` kills the process with a
+/// signal, which has no exit code at all; neither is a failure.
+pub fn exit_failure(code: Option<i32>) -> Option<PlaybackFailure> {
+    match code {
+        Some(1) => Some(PlaybackFailure::Player),
+        Some(2) | Some(3) => Some(PlaybackFailure::Stream),
+        _ => None,
+    }
 }
 
 impl Drop for MpvPlayer {
@@ -497,13 +522,49 @@ mod tests {
     }
 
     #[test]
-    fn exit_codes_1_to_3_are_failures_and_normal_quit_or_a_signal_is_not() {
-        assert!(exit_code_is_failure(Some(1)));
-        assert!(exit_code_is_failure(Some(2)));
-        assert!(exit_code_is_failure(Some(3)));
-        assert!(!exit_code_is_failure(Some(0)));
-        assert!(!exit_code_is_failure(Some(4)));
-        assert!(!exit_code_is_failure(None));
+    fn exit_code_1_blames_the_player_and_2_or_3_the_stream() {
+        assert_eq!(exit_failure(Some(1)), Some(PlaybackFailure::Player));
+        assert_eq!(exit_failure(Some(2)), Some(PlaybackFailure::Stream));
+        assert_eq!(exit_failure(Some(3)), Some(PlaybackFailure::Stream));
+    }
+
+    #[test]
+    fn a_normal_quit_or_a_signal_is_no_failure() {
+        assert_eq!(exit_failure(Some(0)), None);
+        assert_eq!(exit_failure(Some(4)), None);
+        assert_eq!(exit_failure(None), None);
+    }
+
+    #[test]
+    fn the_status_reaches_the_frontend_as_player_stream_or_null() {
+        let json = |failure| {
+            serde_json::to_string(&PlaybackStatus {
+                playing: false,
+                failure,
+            })
+            .unwrap()
+        };
+        assert_eq!(
+            json(Some(PlaybackFailure::Player)),
+            r#"{"playing":false,"failure":"player"}"#
+        );
+        assert_eq!(
+            json(Some(PlaybackFailure::Stream)),
+            r#"{"playing":false,"failure":"stream"}"#
+        );
+        assert_eq!(json(None), r#"{"playing":false,"failure":null}"#);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_command_that_runs_but_exits_with_an_error_is_not_an_installed_mpv() {
+        assert!(command_succeeds(Command::new("sh").arg("-c").arg("exit 0")));
+        assert!(!command_succeeds(
+            Command::new("sh").arg("-c").arg("exit 1")
+        ));
+        assert!(!command_succeeds(&mut Command::new(
+            "/nonexistent/better-iptv-test/mpv"
+        )));
     }
 
     #[cfg(unix)]
@@ -516,7 +577,7 @@ mod tests {
         child.wait().unwrap();
         MpvPlayer {
             process: Some(child),
-            last_exit_failed: false,
+            last_exit_failure: None,
         }
     }
 
@@ -528,16 +589,23 @@ mod tests {
             player.status(),
             PlaybackStatus {
                 playing: false,
-                failed: true
+                failure: Some(PlaybackFailure::Stream)
             }
         );
         assert_eq!(
             player.status(),
             PlaybackStatus {
                 playing: false,
-                failed: false
+                failure: None
             }
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn status_reports_an_mpv_that_could_not_start_as_a_player_failure() {
+        let mut player = exited_player(1);
+        assert_eq!(player.status().failure, Some(PlaybackFailure::Player));
     }
 
     fn args_of(options: &MpvPlaybackOptions) -> Vec<String> {
@@ -583,7 +651,7 @@ mod tests {
     #[test]
     fn status_does_not_report_a_normal_quit_as_a_failure() {
         let mut player = exited_player(0);
-        assert!(!player.status().failed);
+        assert_eq!(player.status().failure, None);
     }
 
     #[test]

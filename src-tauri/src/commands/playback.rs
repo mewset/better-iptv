@@ -113,7 +113,8 @@ pub async fn stop_playback(state: State<'_, AppState>) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Whether MPV is still playing, and whether it stopped because the stream failed.
+/// Whether MPV is still playing, and if it stopped on a failure, whether the
+/// player or the stream was at fault.
 #[tauri::command]
 pub async fn playback_status(
     state: State<'_, AppState>,
