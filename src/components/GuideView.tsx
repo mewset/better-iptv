@@ -343,6 +343,8 @@ export interface GuideViewProps {
    * guide's five days.
    */
   channels: Channel[];
+  /** The search that narrowed `channels` (trimmed), so an empty guide can say so. */
+  query?: string;
   playingChannelId: number | null;
   /** MainScreen's play path, so parental checks apply. */
   onPlay: (channel: Channel) => void;
@@ -364,6 +366,7 @@ export interface GuideViewProps {
  */
 export function GuideView({
   channels,
+  query = '',
   playingChannelId,
   onPlay,
   onOpenEpgSettings,
@@ -558,11 +561,13 @@ export function GuideView({
           <p className="py-16 text-center text-text-muted">Loading guide…</p>
         ) : rows.length === 0 ? (
           <p className="py-16 text-center text-text-muted">
-            {listed.length === 0
-              ? favoritesOnly
-                ? 'No favorite channels yet'
-                : 'No channels in this list'
-              : 'None of these channels has guide data'}
+            {listed.length > 0
+              ? 'None of these channels has guide data'
+              : query
+                ? `No matches for \u201c${query}\u201d`
+                : favoritesOnly
+                  ? 'No favorite channels yet'
+                  : 'No channels in this list'}
           </p>
         ) : (
           <>

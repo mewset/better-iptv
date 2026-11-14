@@ -139,6 +139,51 @@ describe('MainScreen: channel load placeholders', () => {
     expect(screen.queryByTestId('channel-grid-placeholder')).toBeNull();
   });
 
+  it('an empty Favorites says how to fill it', () => {
+    usePlayerStore.setState({
+      contentTypeFilter: 'favorites',
+      channels: [svt1],
+      liveChannels: [svt1],
+      channelLoad: { live: 'loaded', library: 'loaded' },
+    });
+    render(<MainScreen />);
+    expect(
+      screen.getByText('No favorites yet. Use the star on a channel, movie or series.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Nothing in this section yet')).toBeNull();
+  });
+
+  it('a search with no match inside a category names the category and offers the rest', async () => {
+    const norway = { ...svt1, id: 2, name: 'NRK1', group_name: 'Norway' };
+    usePlayerStore.setState({
+      channels: [{ ...svt1, group_name: 'Sweden' }, norway],
+      liveChannels: [{ ...svt1, group_name: 'Sweden' }, norway],
+      channelLoad: { live: 'loaded', library: 'loaded' },
+      categoryFilter: 'Sweden',
+      searchQuery: 'nrk',
+    });
+    render(<MainScreen />);
+
+    expect(await screen.findByText('No matches for \u201cnrk\u201d in Sweden')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Search everything' }));
+
+    expect(usePlayerStore.getState().categoryFilter).toBeNull();
+    expect(usePlayerStore.getState().searchQuery).toBe('nrk');
+    expect(await screen.findByText('NRK1')).toBeInTheDocument();
+  });
+
+  it('a search with no match anywhere offers nothing to widen', async () => {
+    usePlayerStore.setState({
+      channels: [svt1],
+      liveChannels: [svt1],
+      channelLoad: { live: 'loaded', library: 'loaded' },
+      searchQuery: 'zzz',
+    });
+    render(<MainScreen />);
+    expect(await screen.findByText('No matches for \u201czzz\u201d')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Search everything' })).toBeNull();
+  });
+
   it('requests no EPG while the section shows placeholders', async () => {
     // A search needs the library too: SVT1 matches but its card is not shown yet. The query is
     // set before the first render, so the card is never on screen (typing it would leave the

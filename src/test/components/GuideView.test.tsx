@@ -141,6 +141,12 @@ describe('GuideView', () => {
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
   });
 
+  it('a search with no match says so, not that the list has no channels', async () => {
+    renderGuide({ channels: [], query: 'zzz' });
+    expect(await screen.findByText('No matches for \u201czzz\u201d')).toBeInTheDocument();
+    expect(screen.queryByText('No channels in this list')).toBeNull();
+  });
+
   it('shows the error state with Retry when they failed', async () => {
     const props = renderGuide({ channels: [], loadStatus: 'error' });
     expect(await screen.findByTestId('channel-load-error')).toBeInTheDocument();

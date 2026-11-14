@@ -109,6 +109,7 @@ export default function MainScreen() {
   const categoryFilter = usePlayerStore((s) => s.categoryFilter);
   const setSearchQuery = usePlayerStore((s) => s.setSearchQuery);
   const setContentTypeFilter = usePlayerStore((s) => s.setContentTypeFilter);
+  const setCategoryFilter = usePlayerStore((s) => s.setCategoryFilter);
   const setCategoryGroups = usePlayerStore((s) => s.setCategoryGroups);
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300);
   const trimmedQuery = debouncedSearchQuery.trim();
@@ -923,6 +924,7 @@ export default function MainScreen() {
         ) : contentTypeFilter === 'guide' ? (
           <GuideView
             channels={filteredChannels}
+            query={trimmedQuery}
             playingChannelId={isPlaying ? (currentChannel?.id ?? null) : null}
             onPlay={handlePlayChannel}
             onOpenEpgSettings={() => openSettings('epg')}
@@ -950,12 +952,28 @@ export default function MainScreen() {
               ) : loadStatus === 'error' ? (
                 <ChannelLoadError onRetry={retryChannels} />
               ) : filteredChannels.length === 0 ? (
+                // The empty state names what narrows the list: the search,
+                // the category it ran inside, or a Favorites nobody filled.
                 <div className="flex flex-col items-center gap-3 py-16 text-center text-text-muted">
                   {trimmedQuery ? (
                     <>
                       <Search className="h-6 w-6" aria-hidden="true" />
-                      <p>No matches for &ldquo;{trimmedQuery}&rdquo;</p>
+                      <p>
+                        No matches for &ldquo;{trimmedQuery}&rdquo;
+                        {categoryFilter ? ` in ${categoryFilter}` : ''}
+                      </p>
+                      {categoryFilter && (
+                        <button
+                          type="button"
+                          onClick={() => setCategoryFilter(null)}
+                          className="rounded-lg border border-border-strong px-3 py-1.5 text-sm text-text hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-accent"
+                        >
+                          Search everything
+                        </button>
+                      )}
                     </>
+                  ) : contentTypeFilter === 'favorites' ? (
+                    <p>No favorites yet. Use the star on a channel, movie or series.</p>
                   ) : (
                     <p>Nothing in this section yet</p>
                   )}
