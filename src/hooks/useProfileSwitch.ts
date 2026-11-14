@@ -5,9 +5,10 @@
  *
  * The store only changes after the backend accepted the switch, so a failed
  * activation leaves the previous profile active; that failure is kept in
- * `error` for the caller to show. Channel loading never blocks or fails the
- * switch: `loadChannels` reports through `channelLoad`, and the user stays on
- * the new profile with an error state.
+ * `error` for the caller to show, and `switchTo` resolves to false so the
+ * caller never goes on as if it had switched. Channel loading never blocks or
+ * fails the switch: `loadChannels` reports through `channelLoad`, and the user
+ * stays on the new profile with an error state.
  */
 import { useCallback, useState } from 'react';
 import { usePlayerStore } from '../stores/player-store';
@@ -17,7 +18,8 @@ import { errorText } from '../lib/errorText';
 import type { Playlist } from '../types';
 
 export interface ProfileSwitch {
-  switchTo: (playlist: Playlist) => Promise<void>;
+  /** Resolves to whether the backend accepted the switch. */
+  switchTo: (playlist: Playlist) => Promise<boolean>;
   error: string | null;
   clearError: () => void;
 }
@@ -43,9 +45,11 @@ export function useProfileSwitch(): ProfileSwitch {
         void loadChannels(playlist.id!);
 
         logger.info(`Profile switched: ${playlist.name}`);
+        return true;
       } catch (err) {
         logger.error('Failed to switch profile:', err);
         setError(errorText(err));
+        return false;
       }
     },
     [setStoreActiveId, setCurrentPlaylist, loadChannels]

@@ -16,6 +16,7 @@ import { formatSubscriptionExpiry } from '../lib/subscriptionExpiry';
 import { daysSince, refreshedAgo } from '../lib/relativeDays';
 import { cn } from '../lib/utils';
 import Setup from './Setup';
+import ConfirmationModal from './modals/ConfirmationModal';
 import ErrorModal from './modals/ErrorModal';
 import RefreshModal from './modals/RefreshModal';
 import type { Playlist } from '../types';
@@ -69,7 +70,8 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
-  const [showDeleteWarning, setShowDeleteWarning] = useState<number | null>(null);
+  // The profile whose Delete waits on "Delete Profile?"; null while no one asks.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
 
   // Error modal state
@@ -128,58 +130,34 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
     setEditName('');
   };
 
-  // Delete profile with special logic
-  const handleDeleteProfile = async (id: number) => {
-    const isActive = id === activeProfileId;
-    const isLastProfile = playlists.length === 1;
+  // Every Delete asks first (the dialog is rendered below); this runs on its
+  // confirmation. An active profile is left before it is deleted, and a
+  // failed switch stops the delete: useProfileSwitch shows why.
+  const deleteTarget = playlists.find((p) => p.id === confirmDeleteId) ?? null;
+  const deletingLastProfile = playlists.length === 1;
 
-    if (isLastProfile) {
-      // Show warning modal for last profile
-      setShowDeleteWarning(id);
-      return;
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget?.id) return;
+    const id = deleteTarget.id;
+    const remaining = playlists.filter((p) => p.id !== id);
+
+    if (id === activeProfileId && remaining.length > 0) {
+      const switched = await handleActivateProfile(remaining[0]);
+      if (!switched) return;
     }
 
-    if (isActive) {
-      // Deleting active profile, need to switch first
-      const remainingPlaylists = playlists.filter((p) => p.id !== id);
-      const nextProfile = remainingPlaylists[0];
-
-      // Switch to next profile first
-      await handleActivateProfile(nextProfile);
-    }
-
-    // Now delete the profile
     try {
       await deletePlaylist(id);
-
-      // Update store
-      const updatedPlaylists = playlists.filter((p) => p.id !== id);
-      usePlayerStore.setState({ playlists: updatedPlaylists });
-
+      usePlayerStore.setState({ playlists: remaining });
       logger.info(`Profile ID ${id} deleted`);
+
+      if (remaining.length === 0) {
+        // Nothing left to browse or manage: back to adding a playlist.
+        setIsSetupComplete(false);
+        onClose();
+      }
     } catch (err) {
       logger.error('Failed to delete profile:', err);
-      setErrorTitle('Failed to Delete Profile');
-      setErrorMessage(errorText(err));
-      setShowErrorModal(true);
-    }
-  };
-
-  // Confirm delete last profile
-  const handleConfirmDeleteLastProfile = async () => {
-    const id = showDeleteWarning!;
-
-    try {
-      await deletePlaylist(id);
-
-      // Reset to setup screen
-      setIsSetupComplete(false);
-      setShowDeleteWarning(null);
-      onClose(); // Back to browse - Settings has nothing left to manage
-
-      logger.info('Last profile deleted, returning to setup');
-    } catch (err) {
-      logger.error('Failed to delete last profile:', err);
       setErrorTitle('Failed to Delete Profile');
       setErrorMessage(errorText(err));
       setShowErrorModal(true);
@@ -393,7 +371,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleDeleteProfile(playlist.id!)}
+                        onClick={() => setConfirmDeleteId(playlist.id!)}
                         className="rounded px-2 py-1 text-sm text-text-muted transition-colors hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                       >
                         Delete
@@ -418,32 +396,21 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
         </div>
       )}
 
-      {/* Delete Last Profile Warning Modal */}
-      {showDeleteWarning !== null && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm">
-          <div role="dialog" aria-modal="true" className="max-w-md rounded-lg bg-surface p-6">
-            <h3 className="mb-4 text-xl font-bold text-text">Delete Last Profile?</h3>
-            <p className="mb-6 text-text-muted">
-              This is your only profile. If you delete it, the onboarding process will start again
-              and you'll need to add a new playlist.
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowDeleteWarning(null)}
-                className="rounded-lg bg-surface-2 px-4 py-2 text-text hover:bg-surface-hover"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmDeleteLastProfile}
-                className="rounded-lg bg-danger px-4 py-2 text-on-danger hover:bg-danger/90"
-              >
-                Delete and Restart
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Every Delete is confirmed here; the only profile gets its own wording */}
+      <ConfirmationModal
+        isOpen={deleteTarget !== null}
+        onClose={() => setConfirmDeleteId(null)}
+        onConfirm={handleConfirmDelete}
+        title={deletingLastProfile ? 'Delete Last Profile?' : 'Delete Profile?'}
+        message={
+          deletingLastProfile
+            ? `"${deleteTarget?.name}" is your only profile. Deleting it removes its favorites, pinned categories and guide matches, and you will be asked to add a playlist again.`
+            : `Deleting "${deleteTarget?.name}" removes its favorites, pinned categories and guide matches. This cannot be undone.`
+        }
+        confirmText="Delete"
+        cancelText="Cancel"
+        confirmVariant="danger"
+      />
 
       {/* Error Modal */}
       <ErrorModal

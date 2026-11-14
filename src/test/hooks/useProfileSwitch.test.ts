@@ -39,10 +39,12 @@ describe('useProfileSwitch', () => {
     );
 
     const { result } = renderHook(() => useProfileSwitch());
+    let switched: boolean | undefined;
     await act(async () => {
-      await result.current.switchTo(cabin);
+      switched = await result.current.switchTo(cabin);
     });
 
+    expect(switched).toBe(true);
     expect(mockedInvoke).toHaveBeenNthCalledWith(1, 'set_active_profile_id', { profileId: 2 });
     expect(mockedInvoke.mock.calls.slice(1).every((c) => c[0] === 'get_channels')).toBe(true);
     expect(mockedInvoke.mock.calls.length).toBeGreaterThan(1);
@@ -100,10 +102,13 @@ describe('useProfileSwitch', () => {
     });
 
     const { result } = renderHook(() => useProfileSwitch());
+    let switched: boolean | undefined;
     await act(async () => {
-      await result.current.switchTo(cabin);
+      switched = await result.current.switchTo(cabin);
     });
 
+    // The caller is told, so it never acts as if the switch went through.
+    expect(switched).toBe(false);
     expect(result.current.error).toBe('db locked');
     const state = usePlayerStore.getState();
     expect(state.activeProfileId).toBe(1);

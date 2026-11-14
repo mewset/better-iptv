@@ -12,6 +12,7 @@ import {
   deletePlaylist,
   deleteTmdbCache,
   renamePlaylist,
+  setActiveProfileId,
 } from '../../lib/tauri';
 import type { Channel, Playlist } from '../../types';
 import * as logoFallback from '../../lib/logoFallback';
@@ -402,6 +403,78 @@ describe('Settings as a view', () => {
     fireEvent.change(input, { target: { value: 'Cabin' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(await screen.findByText('A profile with that name already exists')).toBeInTheDocument();
+  });
+
+  it('Delete asks first, and deletes only on confirmation', async () => {
+    usePlayerStore.setState({
+      playlists: [playlist(1, 'Home'), playlist(2, 'Cabin')],
+      activeProfileId: 1,
+    });
+    await renderSettings();
+    await goToProfiles();
+
+    // Cabin is the second card and not the active profile.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[1]);
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: 'Delete Profile?' })).toBeInTheDocument();
+    expect(within(dialog).getByText(/"Cabin"/)).toBeInTheDocument();
+    expect(deletePlaylist).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(deletePlaylist).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[1]);
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' })
+    );
+    await waitFor(() => expect(deletePlaylist).toHaveBeenCalledWith(2));
+    await waitFor(() => expect(screen.queryByText('Cabin')).toBeNull());
+    // An inactive profile is deleted without touching the active one.
+    expect(setActiveProfileId).not.toHaveBeenCalled();
+  });
+
+  it('keeps the active profile when the switch away from it fails', async () => {
+    vi.mocked(setActiveProfileId).mockRejectedValueOnce({
+      code: 'Database',
+      details: 'database is locked',
+    });
+    usePlayerStore.setState({
+      playlists: [playlist(1, 'Home'), playlist(2, 'Cabin')],
+      activeProfileId: 1,
+    });
+    await renderSettings();
+    await goToProfiles();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0]);
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' })
+    );
+
+    expect(await screen.findByText('database is locked')).toBeInTheDocument();
+    expect(setActiveProfileId).toHaveBeenCalledWith(2);
+    expect(deletePlaylist).not.toHaveBeenCalled();
+    expect(usePlayerStore.getState().playlists).toHaveLength(2);
+  });
+
+  it('deleting the only profile says what happens and goes back to adding a playlist', async () => {
+    usePlayerStore.setState({
+      playlists: [playlist(1, 'Home')],
+      activeProfileId: 1,
+      isSetupComplete: true,
+    });
+    const onClose = await renderSettings();
+    await goToProfiles();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/asked to add a playlist again/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/restart|onboarding/i)).toBeNull();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(deletePlaylist).toHaveBeenCalledWith(1));
+    await waitFor(() => expect(usePlayerStore.getState().isSetupComplete).toBe(false));
+    expect(onClose).toHaveBeenCalled();
   });
 
   it("Escape with ProfileManager's delete-last-profile warning open leaves Settings open", async () => {
