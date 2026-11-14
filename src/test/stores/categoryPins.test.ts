@@ -106,13 +106,15 @@ describe('toggleCategoryPin', () => {
     expect(s.pinnedCategories).toEqual([]);
   });
 
-  it('leaves the state on an error', async () => {
-    vi.mocked(invoke).mockRejectedValue(new Error('db locked'));
+  it('leaves the state on an error and says so', async () => {
+    usePlayerStore.setState({ toast: null });
+    vi.mocked(invoke).mockRejectedValue({ code: 'Database', details: 'database is locked' });
     await usePlayerStore.getState().toggleCategoryPin('Norway');
     const s = usePlayerStore.getState();
     expect(s.categories).toEqual(['Sweden', 'Norway']);
     expect(s.pinnedCategories).toEqual([]);
     expect(logger.error).toHaveBeenCalled();
+    expect(s.toast?.message).toBe("Couldn't update pinned categories.");
   });
 
   it('does nothing outside a section with categories', async () => {

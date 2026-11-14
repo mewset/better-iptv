@@ -56,6 +56,7 @@ describe('useChannelPlayback.playLocalEpisodes', () => {
     ).rejects.toThrow('mpv missing');
 
     expect(usePlayerStore.getState().isPlaying).toBe(false);
+    expect(usePlayerStore.getState().toast?.message).toBe("Couldn't start Pilot: mpv missing");
   });
 });
 
@@ -87,6 +88,21 @@ describe('useChannelPlayback start guard and failure toast', () => {
       ]);
     });
     expect(playChannel).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refused start shows the reason the backend gave', async () => {
+    vi.mocked(playChannel).mockRejectedValue({
+      code: 'MpvNotFound',
+      details: 'mpv is not installed.',
+    });
+    const { result } = renderHook(() => useChannelPlayback());
+    await act(async () => {
+      await result.current.play(svt1).catch(() => {});
+    });
+    expect(usePlayerStore.getState().toast?.message).toBe(
+      "Couldn't start SVT1: mpv is not installed."
+    );
+    expect(usePlayerStore.getState().currentChannel).toBeNull();
   });
 
   it('Stop leaves nothing current', async () => {
@@ -260,6 +276,20 @@ describe('useChannelPlayback sends ids and episodes, never stream URLs', () => {
       'alice',
       's3cret',
       rest
+    );
+  });
+
+  it('a refused episode start shows the reason the backend gave', async () => {
+    vi.mocked(playEpisodeWithSeason).mockRejectedValue({
+      code: 'Network',
+      details: 'The provider did not answer.',
+    });
+    const { result } = renderHook(() => useChannelPlayback());
+    await act(async () => {
+      await result.current.playEpisode('901', 'mkv', 'Pilot', xtream).catch(() => {});
+    });
+    expect(usePlayerStore.getState().toast?.message).toBe(
+      "Couldn't start Pilot: The provider did not answer."
     );
   });
 

@@ -656,10 +656,6 @@ export default function MainScreen() {
     scrollToIndex: scrollToCard,
   });
 
-  const handleStop = useCallback(async () => {
-    await stopPlaybackAction();
-  }, [stopPlaybackAction]);
-
   const closeDetail = useCallback(() => {
     setDetailChannel(null);
     setDetailPlaylistId(null);
@@ -1108,7 +1104,7 @@ export default function MainScreen() {
             channel={currentChannel}
             epg={nowNextFor(nowNext, currentChannel)}
             now={now}
-            onStop={handleStop}
+            onStop={stopPlaybackAction}
           />
         )}
         <Toast aboveDock={Boolean(currentChannel) && view !== 'settings'} />

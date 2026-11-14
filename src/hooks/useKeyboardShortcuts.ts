@@ -1,6 +1,5 @@
 import { useEffect, useCallback } from 'react';
 import { usePlayerStore } from '../stores/player-store';
-import { logger } from '../lib/logger';
 
 /**
  * Global keyboard shortcuts for media control.
@@ -51,12 +50,7 @@ export function useKeyboardShortcuts(
   const stopPlayback = usePlayerStore((s) => s.stopPlayback);
 
   const stopIfPlaying = useCallback(async () => {
-    if (!isPlaying) return;
-    try {
-      await stopPlayback();
-    } catch (err) {
-      logger.error('Failed to stop playback via keyboard:', err);
-    }
+    if (isPlaying) await stopPlayback();
   }, [isPlaying, stopPlayback]);
 
   const handler = useCallback(

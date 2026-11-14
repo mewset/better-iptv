@@ -164,6 +164,10 @@ interface PlayerState {
   /**
    * `currentValue` is the caller's view of the favourite state; it is only used
    * for a title that is not in `channels` yet.
+   *
+   * Like every write a card, a chip or the dock starts (this, `toggleCategoryPin`,
+   * `stopPlayback`): it never rejects. A write the backend refuses is logged,
+   * said in the toast, and leaves the state as it was.
    */
   toggleChannelFavorite: (channelId: number, currentValue?: boolean) => Promise<void>;
   /**
@@ -205,8 +209,8 @@ interface PlayerState {
   setIsPlaying: (playing: boolean) => void;
   /**
    * The one stop: every Stop button, card and key goes through here. Stops
-   * mpv, then nothing is current (`playbackEnded`). Rejects, with the state
-   * untouched, when the backend could not stop.
+   * mpv, then nothing is current (`playbackEnded`). When the backend could
+   * not stop, the state is untouched and the toast says so.
    */
   stopPlayback: () => Promise<void>;
   /** Nothing is playing any more: mpv was stopped, or exited on its own. */
@@ -365,7 +369,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   toggleChannelFavorite: async (channelId, currentValue) => {
     // Call backend IPC to persist the favorite toggle
-    await toggleFavorite(channelId);
+    try {
+      await toggleFavorite(channelId);
+    } catch (error) {
+      logger.error('Failed to toggle favorite:', error);
+      get().showToast("Couldn't update favorites.");
+      return;
+    }
 
     // Update local state: rebuild only affected arrays
     set((state) => {
@@ -452,6 +462,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       get().setCategoryGroups(groups);
     } catch (error) {
       logger.error('Failed to pin category:', error);
+      get().showToast("Couldn't update pinned categories.");
     }
   },
 
@@ -459,7 +470,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   isPlaying: false,
   setIsPlaying: (playing) => set({ isPlaying: playing }),
   stopPlayback: async () => {
-    await stopMpv();
+    try {
+      await stopMpv();
+    } catch (error) {
+      logger.error('Failed to stop playback:', error);
+      get().showToast("Couldn't stop playback.");
+      return;
+    }
     get().playbackEnded();
   },
   playbackEnded: () => set({ isPlaying: false, currentChannel: null }),

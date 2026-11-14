@@ -236,6 +236,38 @@ describe('usePlayerStore', () => {
     });
   });
 
+  describe('a write the backend refuses', () => {
+    const locked = { code: 'Database', details: 'database is locked' };
+    const live1 = { id: 1, name: 'Live', content_type: 'live', is_favorite: false } as Channel;
+
+    beforeEach(() => {
+      vi.mocked(invoke).mockReset();
+      usePlayerStore.setState({ toast: null });
+    });
+
+    it('a favourite that could not be saved says so and changes nothing', async () => {
+      vi.mocked(invoke).mockRejectedValue(locked);
+      usePlayerStore.getState().setChannels([live1]);
+
+      await expect(usePlayerStore.getState().toggleChannelFavorite(1)).resolves.toBeUndefined();
+
+      expect(usePlayerStore.getState().toast?.message).toBe("Couldn't update favorites.");
+      expect(usePlayerStore.getState().favoriteChannels).toHaveLength(0);
+      expect(usePlayerStore.getState().channels[0].is_favorite).toBe(false);
+    });
+
+    it('a stop that failed says so and leaves the dock', async () => {
+      vi.mocked(invoke).mockRejectedValue(locked);
+      usePlayerStore.setState({ isPlaying: true, currentChannel: live1 });
+
+      await expect(usePlayerStore.getState().stopPlayback()).resolves.toBeUndefined();
+
+      expect(usePlayerStore.getState().toast?.message).toBe("Couldn't stop playback.");
+      expect(usePlayerStore.getState().isPlaying).toBe(true);
+      expect(usePlayerStore.getState().currentChannel).toBe(live1);
+    });
+  });
+
   describe('profile management', () => {
     const home = { id: 1, name: 'Home', url: 'http://home.example', auto_refresh: false };
     const cabin = { id: 2, name: 'Cabin', url: 'http://cabin.example', auto_refresh: false };

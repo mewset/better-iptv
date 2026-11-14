@@ -9,6 +9,7 @@ import {
   type PlaylistEpisode,
 } from '../lib/tauri';
 import { logger } from '../lib/logger';
+import { errorText } from '../lib/errorText';
 import { beginPlaybackStart, endPlaybackStart } from '../lib/playGuard';
 import type { Channel, Playlist } from '../types';
 
@@ -22,7 +23,7 @@ interface UseChannelPlaybackResult {
   isPlaying: boolean;
   /** Play a channel (or open series view for series content) */
   play: (channel: Channel) => Promise<{ type: 'series'; channel: Channel } | void>;
-  /** Stop current playback */
+  /** Stop current playback (the store's `stopPlayback`; never rejects) */
   stop: () => Promise<void>;
   /** Play episode(s) from a series */
   playEpisode: (
@@ -116,7 +117,7 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         setIsPlaying(true);
       } catch (err) {
         logger.error('Failed to play channel:', err);
-        showToast(`Couldn't start ${channel.name}.`);
+        showToast(`Couldn't start ${channel.name}: ${errorText(err)}`);
         throw err;
       } finally {
         endPlaybackStart();
@@ -124,16 +125,6 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
     },
     [currentChannel, isPlaying, setCurrentChannel, setIsPlaying, stopPlayback, showToast]
   );
-
-  // Stop playback
-  const stop = useCallback(async () => {
-    try {
-      await stopPlayback();
-    } catch (err) {
-      logger.error('Failed to stop playback:', err);
-      throw err;
-    }
-  }, [stopPlayback]);
 
   // Play episode(s) from a series
   const playEpisode = useCallback(
@@ -164,7 +155,7 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         setIsPlaying(true);
       } catch (err) {
         logger.error('Failed to play episode:', err);
-        showToast(`Couldn't start ${title}.`);
+        showToast(`Couldn't start ${title}: ${errorText(err)}`);
         throw err;
       } finally {
         endPlaybackStart();
@@ -183,7 +174,7 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
         setIsPlaying(true);
       } catch (err) {
         logger.error('Failed to play local episodes:', err);
-        showToast(`Couldn't start ${title}.`);
+        showToast(`Couldn't start ${title}: ${errorText(err)}`);
         throw err;
       } finally {
         endPlaybackStart();
@@ -196,7 +187,7 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
     currentChannel,
     isPlaying,
     play,
-    stop,
+    stop: stopPlayback,
     playEpisode,
     playLocalEpisodes,
   };
