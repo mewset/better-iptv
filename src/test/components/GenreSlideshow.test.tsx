@@ -82,9 +82,25 @@ describe('GenreSlideshow', () => {
   it('pauses while hovered', () => {
     render(<GenreSlideshow row={row} onOpen={vi.fn()} />);
     fireEvent.mouseEnter(screen.getByTestId('slide'));
-    act(() => vi.advanceTimersByTime(SLIDE_INTERVAL_MS * 3));
+    act(() => vi.advanceTimersByTime(SLIDE_INTERVAL_MS * 2));
     expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('First');
     fireEvent.mouseLeave(screen.getByTestId('slide'));
+    act(() => vi.advanceTimersByTime(SLIDE_INTERVAL_MS));
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('Second');
+  });
+
+  it('pauses while the keyboard focus is in the slide', () => {
+    render(<GenreSlideshow row={row} onOpen={vi.fn()} />);
+    act(() => screen.getByRole('button', { name: 'First, open details' }).focus());
+    act(() => vi.advanceTimersByTime(SLIDE_INTERVAL_MS * 2));
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('First');
+
+    // Moving on to another control of the same slide is not leaving it.
+    act(() => screen.getByRole('button', { name: 'Next' }).focus());
+    act(() => vi.advanceTimersByTime(SLIDE_INTERVAL_MS * 2));
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('First');
+
+    act(() => screen.getByRole('button', { name: 'Next' }).blur());
     act(() => vi.advanceTimersByTime(SLIDE_INTERVAL_MS));
     expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('Second');
   });
@@ -92,7 +108,7 @@ describe('GenreSlideshow', () => {
   it('pauses while the document is hidden', () => {
     render(<GenreSlideshow row={row} onOpen={vi.fn()} />);
     act(() => setHidden(true));
-    act(() => vi.advanceTimersByTime(SLIDE_INTERVAL_MS * 3));
+    act(() => vi.advanceTimersByTime(SLIDE_INTERVAL_MS * 2));
     expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('First');
     act(() => setHidden(false));
     act(() => vi.advanceTimersByTime(SLIDE_INTERVAL_MS));
@@ -102,7 +118,7 @@ describe('GenreSlideshow', () => {
   it('never autoplays under reduced motion', () => {
     setReducedMotion(true);
     render(<GenreSlideshow row={row} onOpen={vi.fn()} />);
-    act(() => vi.advanceTimersByTime(SLIDE_INTERVAL_MS * 3));
+    act(() => vi.advanceTimersByTime(SLIDE_INTERVAL_MS * 2));
     expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('First');
   });
 

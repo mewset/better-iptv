@@ -21,14 +21,16 @@ function prefersReducedMotion(): boolean {
 
 /**
  * One Home slideshow: a genre heading, dots, and one full-width backdrop at
- * a time. Autoplays every 8 s; pauses on hover and while the tab is hidden;
- * never autoplays under reduced motion. The whole slide is a button that
+ * a time. Autoplays every 8 s; stands still while the pointer or the
+ * keyboard focus is in the slide and while the tab is hidden; never
+ * autoplays under reduced motion. The whole slide is a button that
  * opens the title's detail view.
  */
 export function GenreSlideshow({ row, onOpen }: GenreSlideshowProps) {
   const count = row.items.length;
   const [index, setIndex] = useState(0);
   const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [hidden, setHidden] = useState(() => document.hidden);
   const [broken, setBroken] = useState<Set<number>>(() => new Set());
   const current = row.items[Math.min(index, count - 1)];
@@ -48,10 +50,10 @@ export function GenreSlideshow({ row, onOpen }: GenreSlideshowProps) {
   // The interval restarts whenever `index` changes, so a manual step gets
   // the full interval before the next automatic one.
   useEffect(() => {
-    if (count < 2 || hovered || hidden || prefersReducedMotion()) return;
+    if (count < 2 || hovered || focused || hidden || prefersReducedMotion()) return;
     const id = window.setInterval(() => go(1), SLIDE_INTERVAL_MS);
     return () => window.clearInterval(id);
-  }, [count, hovered, hidden, go, index]);
+  }, [count, hovered, focused, hidden, go, index]);
 
   // Preload the next backdrop so the switch does not flash.
   useEffect(() => {
@@ -98,6 +100,13 @@ export function GenreSlideshow({ row, onOpen }: GenreSlideshowProps) {
         style={{ height: 'clamp(320px, 45vh, 600px)' }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        onFocus={() => setFocused(true)}
+        onBlur={(e) => {
+          // Focus moving between the slide's own buttons has not left it.
+          if (!e.currentTarget.contains(e.relatedTarget as globalThis.Node | null)) {
+            setFocused(false);
+          }
+        }}
       >
         {art ? (
           <img
