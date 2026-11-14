@@ -184,11 +184,17 @@ pub fn validate_import_not_empty(channel_count: usize) -> Result<(), AppError> {
 /// M3U link, and some players expect exactly that. Every request appends its
 /// own `/player_api.php`, so the address is cut back to what comes before the
 /// `.php` file: query, fragment and the file itself go, a path prefix such as
-/// `/panel` stays. Text that is not an http(s) URL is only trimmed and left
-/// for the request to fail on as before.
+/// `/panel` stays. An address written without a scheme (`host:8080`) is an
+/// http address. Text that is still not an http(s) URL is only trimmed and
+/// left for the request to refuse.
 pub fn normalize_xtream_server_url(input: &str) -> String {
     let trimmed = input.trim();
-    let Ok(mut url) = url::Url::parse(trimmed) else {
+    let with_scheme = if trimmed.contains("://") {
+        trimmed.to_string()
+    } else {
+        format!("http://{trimmed}")
+    };
+    let Ok(mut url) = url::Url::parse(&with_scheme) else {
         return trimmed.to_string();
     };
     if !matches!(url.scheme(), "http" | "https") {
@@ -420,9 +426,38 @@ mod tests {
     }
 
     #[test]
-    fn xtream_server_url_that_is_not_http_is_only_trimmed() {
-        assert_eq!(normalize_xtream_server_url(" host:8080 "), "host:8080");
-        assert_eq!(normalize_xtream_server_url("not a url"), "not a url");
+    fn xtream_server_url_without_a_scheme_gets_http() {
+        assert_eq!(
+            normalize_xtream_server_url(" host:8080 "),
+            "http://host:8080"
+        );
+        assert_eq!(
+            normalize_xtream_server_url("example.com"),
+            "http://example.com"
+        );
+        assert_eq!(
+            normalize_xtream_server_url("host:8080/player_api.php?username=a&password=b"),
+            "http://host:8080"
+        );
+    }
+
+    #[test]
+    fn xtream_server_url_keeps_the_scheme_it_was_given() {
+        assert_eq!(
+            normalize_xtream_server_url("https://host:8080"),
+            "https://host:8080"
+        );
+        assert_eq!(
+            normalize_xtream_server_url("HTTP://host:8080"),
+            "http://host:8080"
+        );
+    }
+
+    #[test]
+    fn xtream_server_url_that_is_not_a_web_address_is_only_trimmed() {
+        assert_eq!(normalize_xtream_server_url(" not a url "), "not a url");
+        assert_eq!(normalize_xtream_server_url("rtsp://host"), "rtsp://host");
+        assert_eq!(normalize_xtream_server_url("  "), "");
     }
 
     #[test]

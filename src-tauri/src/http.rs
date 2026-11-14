@@ -87,6 +87,9 @@ pub fn download_error(
         }
     } else if e.is_connect() {
         format!("Could not connect to the {server}")
+    } else if e.is_builder() {
+        // No request could be made from the address, so nothing was sent
+        format!("The address of the {server} is not a web address")
     } else {
         format!("The connection to the {server} was interrupted")
     };

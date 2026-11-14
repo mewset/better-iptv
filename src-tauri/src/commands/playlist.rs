@@ -122,7 +122,12 @@ pub async fn import_xtream_playlist(
     username: String,
     password: String,
 ) -> Result<Playlist, AppError> {
+    // The fields are taken as typed, minus the spaces a paste brings along.
+    // Trimmed here, once, so what is validated is what is stored and sent.
     let server_url = playlist_domain::normalize_xtream_server_url(&server_url);
+    let name = name.trim().to_string();
+    let username = username.trim().to_string();
+    let password = password.trim().to_string();
     playlist_domain::validate_playlist_name(&name)?;
     playlist_domain::validate_xtream_credentials(&server_url, &username)?;
 

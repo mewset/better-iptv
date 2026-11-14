@@ -397,9 +397,9 @@ async fn fetch_json_with_retry<T: DeserializeOwned + Send + 'static>(
 /// The body is read and decoded in two separate steps on purpose. reqwest
 /// reports a body read that timed out as a decode error, so with `json()` a
 /// stalled stream list looked like malformed JSON and was never retried.
-/// Here every failure while reading is transient and only a body that does
-/// not decode is permanent. The stream lists run to tens of megabytes, so
-/// decoding happens on the blocking pool.
+/// Here every failure on the network is transient; a request that could not
+/// be built and a body that does not decode are permanent. The stream lists
+/// run to tens of megabytes, so decoding happens on the blocking pool.
 async fn fetch_json_once<T: DeserializeOwned + Send + 'static>(
     client: &reqwest::Client,
     url: &str,
@@ -416,11 +416,18 @@ async fn fetch_json_once<T: DeserializeOwned + Send + 'static>(
         request
     };
 
-    // Connection failures and timeouts: transient.
+    // Connection failures and timeouts: transient. An address no request can
+    // be built from never reached the network and fails the same way again.
     let response = request.send().await.map_err(|e| {
+        let never_sent = e.is_builder();
         let err = download_error(e, SERVER, started, deadline);
-        warn!("Xtream API {} failed, retrying: {:#}", action, err);
-        backoff::Error::transient(err)
+        if never_sent {
+            warn!("Xtream API {} not sent, giving up: {:#}", action, err);
+            backoff::Error::permanent(err)
+        } else {
+            warn!("Xtream API {} failed, retrying: {:#}", action, err);
+            backoff::Error::transient(err)
+        }
     })?;
 
     let status = response.status();
@@ -1502,6 +1509,30 @@ mod json_fetch_tests {
             attempt(vec![respond("403 Forbidden", b"")]).await,
             Err(backoff::Error::Permanent(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn an_address_no_request_can_be_built_from_is_not_retried() {
+        // No server: the request never reaches the network, so a second
+        // attempt cannot go differently.
+        let client = build_client(Duration::from_millis(500), Duration::from_millis(500));
+        let err = fetch_json_once::<Vec<u32>>(
+            &client,
+            "host:8080/player_api.php?username=john&password=secret",
+            "live streams",
+            None,
+            Duration::from_secs(10),
+        )
+        .await
+        .unwrap_err();
+
+        let backoff::Error::Permanent(err) = err else {
+            panic!("expected a permanent error, got {err:?}");
+        };
+        assert_eq!(
+            err.to_string(),
+            "The address of the provider is not a web address"
+        );
     }
 
     #[tokio::test]
