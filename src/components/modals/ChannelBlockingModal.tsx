@@ -3,6 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { X, Search, Lock, Unlock } from 'lucide-react';
 import type { Channel } from '../../types';
 import { searchChannels } from '../../lib/searchText';
+import { useModalDialog } from '../../hooks/useModalDialog';
 
 interface ChannelBlockingModalProps {
   isOpen: boolean;
@@ -84,19 +85,23 @@ function BlockList({ onClose, channels, initialBlockedIds, onUpdate }: ChannelBl
     onClose();
   };
 
+  // Mounted only while open (see above), and Escape is its Cancel.
+  const { dialogProps, titleId } = useModalDialog({ isOpen: true, onCancel: onClose });
+
   const allFilteredBlocked = filteredChannels.every((c) => c.id && blockedIds.has(c.id));
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 backdrop-blur-sm">
       <div
-        role="dialog"
-        aria-modal="true"
-        className="flex h-[80vh] w-full max-w-3xl flex-col rounded-lg bg-surface shadow-xl"
+        {...dialogProps}
+        className="flex h-[80vh] w-full max-w-3xl flex-col rounded-lg bg-surface shadow-xl outline-none"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border p-6">
           <div>
-            <h3 className="text-xl font-bold text-text">Block Channels</h3>
+            <h3 id={titleId} className="text-xl font-bold text-text">
+              Block Channels
+            </h3>
             <p className="mt-1 text-sm text-text-faint">
               {blockedIds.size} of {channels.length} channels blocked
             </p>

@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { refreshPlaylist } from '../../lib/tauri';
 import { logger } from '../../lib/logger';
 import { errorText } from '../../lib/errorText';
+import { useModalDialog } from '../../hooks/useModalDialog';
 import type { MergeResult } from '../../types';
 
 interface FetchProgress {
@@ -83,18 +84,24 @@ export default function RefreshModal({
       });
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Closable once there is an outcome, which is also when the X is shown.
+  const { dialogProps, titleId } = useModalDialog({
+    isOpen,
+    onCancel: onClose,
+    busy: !result && !error,
+  });
+
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 backdrop-blur-sm">
       <div
-        role="dialog"
-        aria-modal="true"
-        className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl"
+        {...dialogProps}
+        className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl outline-none"
       >
         {/* Header */}
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-xl font-bold text-text">
+          <h3 id={titleId} className="text-xl font-bold text-text">
             {result ? 'Refresh Complete' : 'Refreshing Playlist'}
           </h3>
           {(result || error) && (

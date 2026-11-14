@@ -1,4 +1,5 @@
 import { AlertTriangle, X } from 'lucide-react';
+import { useModalDialog } from '../../hooks/useModalDialog';
 
 interface ConfirmationModalProps {
   isOpen: boolean;
@@ -21,6 +22,7 @@ export default function ConfirmationModal({
   cancelText = 'Cancel',
   confirmVariant = 'primary',
 }: ConfirmationModalProps) {
+  const { dialogProps, titleId } = useModalDialog({ isOpen, onCancel: onClose });
   if (!isOpen) return null;
 
   const handleConfirm = () => {
@@ -31,9 +33,8 @@ export default function ConfirmationModal({
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 backdrop-blur-sm">
       <div
-        role="dialog"
-        aria-modal="true"
-        className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl"
+        {...dialogProps}
+        className="w-full max-w-md rounded-lg bg-surface p-6 shadow-xl outline-none"
       >
         {/* Header */}
         <div className="mb-4 flex items-center justify-between">
@@ -43,7 +44,9 @@ export default function ConfirmationModal({
                 <AlertTriangle className="h-5 w-5 text-danger" aria-hidden="true" />
               </div>
             )}
-            <h3 className="text-xl font-bold text-text">{title}</h3>
+            <h3 id={titleId} className="text-xl font-bold text-text">
+              {title}
+            </h3>
           </div>
           <button
             onClick={onClose}

@@ -457,8 +457,8 @@ describe('Settings as a view', () => {
     });
   });
 
-  it('Escape while the error modal is open does not call onClose', async () => {
-    vi.mocked(setSetting).mockRejectedValueOnce(new Error('boom'));
+  it('Escape while the error modal is open closes the modal, not Settings', async () => {
+    vi.mocked(setSetting).mockRejectedValueOnce({ code: 'Database', details: 'boom' });
     const onClose = await renderSettings();
 
     fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
@@ -466,9 +466,9 @@ describe('Settings as a view', () => {
 
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole('heading', { name: 'Failed to Save Settings' })).toBeNull();
 
-    // Closing the modal lets Escape reach Settings again.
-    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    // With the modal gone, the next Escape reaches Settings.
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -798,7 +798,7 @@ describe('Settings as a view', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("Escape with ProfileManager's delete-last-profile warning open leaves Settings open", async () => {
+  it("Escape with ProfileManager's delete-last-profile warning open cancels it and leaves Settings open", async () => {
     usePlayerStore.setState({ playlists: [playlist(1, 'Home')], activeProfileId: 1 });
     const onClose = await renderSettings();
 
@@ -808,8 +808,10 @@ describe('Settings as a view', () => {
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
+    // Escape is the dialog's Cancel: nothing is deleted and Settings stays.
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByText('Delete Last Profile?')).toBeInTheDocument();
+    expect(screen.queryByText('Delete Last Profile?')).toBeNull();
     expect(deletePlaylist).not.toHaveBeenCalled();
+    expect(screen.getByText('Home')).toBeInTheDocument();
   });
 });

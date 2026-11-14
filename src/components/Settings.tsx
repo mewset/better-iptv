@@ -385,9 +385,9 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   // first. Unlike TopBar's profile menu (a self-contained popup), Settings
   // hosts arbitrary descendants - an inline profile rename input, PIN/
   // blocking/confirmation/refresh/error modals, ProfileManager's own Setup
-  // and delete-last-profile overlays - that must get to handle Escape
-  // themselves (cancel the rename, do nothing and let the open dialog's own
-  // Cancel button be used, etc). So this listener does NOT stopPropagation:
+  // overlay and delete confirmation - that must get to handle Escape
+  // themselves (cancel the rename; a dialog takes it as its Cancel, see
+  // useModalDialog). So this listener does NOT stopPropagation:
   // it only marks the event via `preventDefault` (capture phase, ahead of
   // useKeyboardShortcuts' bubble-phase handler, which treats a
   // defaultPrevented Escape as already spoken for and never stops
@@ -395,7 +395,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   // text in (a checkbox, slider or list has no use for Escape), one of
   // Settings' own modal flags is set, or any `aria-modal="true"` dialog
   // is open anywhere in the document (Settings' modals and ProfileManager's
-  // two inline overlays all carry that attribute on their panel).
+  // overlay and dialogs all carry that attribute on their panel).
   useEffect(() => {
     const modalOpen =
       showSetPinModal ||
