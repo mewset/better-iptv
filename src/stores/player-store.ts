@@ -260,7 +260,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   currentPlaylist: null,
   activeProfileId: null,
   setPlaylists: (playlists) => set({ playlists }),
-  setCurrentPlaylist: (playlist) => set({ currentPlaylist: playlist }),
+  // A category belongs to one profile's list, so another profile starts on
+  // "All"; the same profile set again (a rename, a refresh) keeps its place.
+  setCurrentPlaylist: (playlist) =>
+    set((state) =>
+      playlist?.id === state.currentPlaylist?.id
+        ? { currentPlaylist: playlist }
+        : { currentPlaylist: playlist, categoryFilter: null }
+    ),
   setActiveProfileId: (id) => set({ activeProfileId: id }),
 
   // Channels

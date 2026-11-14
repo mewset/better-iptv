@@ -139,6 +139,17 @@ describe('MainScreen: switching profile with a series open', () => {
     expect(calls('get_local_series_info')).toHaveLength(0);
   });
 
+  it("the new profile opens on All, not on the old profile's category", async () => {
+    usePlayerStore.setState({ categoryFilter: 'Drama' });
+    render(<MainScreen />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Home' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Cabin' }));
+
+    await waitFor(() => expect(usePlayerStore.getState().activeProfileId).toBe(2));
+    expect(usePlayerStore.getState().categoryFilter).toBeNull();
+  });
+
   it('returns focus to the rail avatar when the menu it opened closes with Escape', () => {
     render(<MainScreen />);
     const avatar = screen.getByRole('button', { name: 'Switch profile' });

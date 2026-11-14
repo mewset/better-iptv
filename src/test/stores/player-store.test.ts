@@ -237,6 +237,22 @@ describe('usePlayerStore', () => {
   });
 
   describe('profile management', () => {
+    const home = { id: 1, name: 'Home', url: 'http://home.example', auto_refresh: false };
+    const cabin = { id: 2, name: 'Cabin', url: 'http://cabin.example', auto_refresh: false };
+
+    it("another profile starts without the previous one's category", () => {
+      usePlayerStore.setState({ currentPlaylist: home, categoryFilter: 'Sweden' });
+      usePlayerStore.getState().setCurrentPlaylist(cabin);
+      expect(usePlayerStore.getState().categoryFilter).toBeNull();
+    });
+
+    it('the same profile set again (a rename, a refresh) keeps its category', () => {
+      usePlayerStore.setState({ currentPlaylist: home, categoryFilter: 'Sweden' });
+      usePlayerStore.getState().setCurrentPlaylist({ ...home, name: 'Home 2' });
+      expect(usePlayerStore.getState().categoryFilter).toBe('Sweden');
+      expect(usePlayerStore.getState().currentPlaylist?.name).toBe('Home 2');
+    });
+
     it('should track active profile ID', () => {
       expect(usePlayerStore.getState().activeProfileId).toBeNull();
 
