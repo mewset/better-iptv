@@ -230,8 +230,10 @@ fn extract_stream_key_from_url(url: &str) -> Option<String> {
 ///
 /// - If `match_by_stream_id` is true (Xtream), channels are matched by stream_id extracted from URL.
 /// - Otherwise (M3U), channels are matched by `(name, group_name)` with `name`-only fallback.
-/// - `content_type` is refreshed on matched rows too, so a channel that
-///   changes type between refreshes (e.g. live -> series) picks up the change.
+/// - A matched row takes every provider field from the fresh list: name, URL,
+///   logo, group, guide id, order and `content_type`, so a channel that is
+///   renamed or changes type between refreshes (e.g. live -> series) picks up
+///   the change. The id, the favourite and the guide match stay.
 ///
 /// Returns counts of added, updated, and removed channels.
 pub fn merge_channels(
@@ -305,7 +307,7 @@ pub fn merge_channels(
 
     {
         let mut update_stmt = tx.prepare_cached(
-            "UPDATE channels SET url=?1, logo=?2, group_name=?3, epg_id=?4, tvg_name=?5, sort_order=?6, category_order=?7, content_type=?8 WHERE id=?9",
+            "UPDATE channels SET name=?1, url=?2, logo=?3, group_name=?4, epg_id=?5, tvg_name=?6, sort_order=?7, category_order=?8, content_type=?9 WHERE id=?10",
         )?;
 
         let mut insert_stmt = tx.prepare_cached(
@@ -333,8 +335,13 @@ pub fn merge_channels(
             let epg_id = provider_epg_id(ch.epg_id.as_deref());
 
             if let Some(&(db_id, _is_favorite)) = matched {
-                // Update existing channel (preserve is_favorite)
+                // A matched row takes every provider field from the fresh
+                // list, the name included: an Xtream row is matched on its
+                // stream id, so a renamed channel would otherwise keep its
+                // old name for good. What the user owns stays: the id, the
+                // favourite and the guide match.
                 update_stmt.execute(params![
+                    ch.name,
                     ch.url,
                     ch.logo,
                     ch.group_name,
@@ -1336,6 +1343,24 @@ mod tests {
             live.url
         );
         assert_eq!(live.content_type, "live");
+    }
+
+    #[test]
+    fn an_xtream_refresh_takes_the_new_name_of_a_renamed_channel() {
+        // Xtream rows match on the stream id, so the name is provider data
+        // like the logo and the group, not part of the key.
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "Xtream");
+        let id = create_channel(&conn, &xtream_channel(pid, "Old", "live", 5)).unwrap();
+        toggle_favorite(&conn, id).unwrap();
+
+        let fresh = [xtream_channel(pid, "New", "live", 5)];
+        let result = merge_channels(&conn, pid, &fresh, true).unwrap();
+
+        assert_eq!((result.added, result.updated, result.removed), (0, 1, 0));
+        let row = get_channel_by_id(&conn, id).unwrap().unwrap();
+        assert_eq!(row.name, "New");
+        assert!(row.is_favorite, "the favourite stays on the renamed row");
     }
 
     #[test]
