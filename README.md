@@ -69,13 +69,13 @@ Better IPTV is a desktop app for watching IPTV: live channels, movies and series
 ### Profiles
 
 - One profile per playlist or provider; switch between them from the top-right menu, and add a new one from the same place
-- Each profile keeps its own favorites, language preferences and playlist refresh
+- Each profile keeps its own favorites, pinned categories, TV guides and playlist refresh
 
 ### Parental controls
 
 - A 4–6 digit PIN, hashed with Argon2, that locks the controls
-- Block channels by hand, block whole categories, or let the app pick out adult content by its labels
-- Blocked channels can be hidden, shown with a lock, or blurred; unlocking lasts until you close the app
+- Block channels by hand, or let the app pick out adult content by its labels
+- Blocked channels can be hidden, shown with a lock, or blurred; a locked one plays after the PIN
 
 ### Playback
 
@@ -87,7 +87,7 @@ Better IPTV is a desktop app for watching IPTV: live channels, movies and series
 
 ### Looks
 
-- Dark by default, with a light theme in Settings → General
+- Light or dark after your system, or the one you pick in Settings → General
 - New fonts, a floating now-playing dock, and a colour-bar placeholder for channels without a logo
 
 ---
@@ -156,7 +156,7 @@ The first screen asks for one playlist. Give it a name, then either:
 - **M3U:** paste the playlist URL, or the path to a `.m3u` file on your computer
 - **Xtream Codes:** enter the server URL, username and password from your provider
 
-Click **Add playlist**. Live TV, Movies and Series import together. More playlists can be added later from the profile menu in the top-right corner.
+Click **Import playlist**. Live TV, Movies and Series import together. More playlists can be added later from the profile menu in the top-right corner.
 
 ### Watch
 
@@ -191,7 +191,7 @@ When metadata is on, the app sends the names of your movies and series to TMDB t
 
 | Key                     | Action                                                                                     |
 | ----------------------- | ------------------------------------------------------------------------------------------ |
-| `Space`                 | Play or stop the selected channel; on a focused button, press that button                  |
+| `Space`                 | Stop playback; on a focused button, press that button                                      |
 | `/`                     | Focus the search box                                                                       |
 | `↓` in the search box   | Go to the first result                                                                     |
 | `←` `→` `↑` `↓`         | Move through channels, movies and series                                                   |
