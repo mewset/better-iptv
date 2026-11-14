@@ -22,7 +22,6 @@ A simple overview of new features and improvements.
 
 ### Fixes
 
-- Linux: smoother scrolling is now possible by starting the app with `WEBKIT_DISABLE_DMABUF_RENDERER=0` (see Troubleshooting)
 - Fixed series that would not open, or showed no episodes, with some Xtream providers
 - Fixed the Space key not pressing buttons when you move around with the keyboard, e.g. Play or the favorite star
 - Fixed Escape in the search box stopping playback; it now clears the search first
@@ -43,6 +42,7 @@ A simple overview of new features and improvements.
 ### Thanks
 
 - **@h4r0n1** for finding and fixing series that would not open with some Xtream providers (#93)
+- **@RyanBeckett** for a Linux setting that can make scrolling smoother (#94)
 
 ## Version 3.3.0 (November 11, 2026)
 

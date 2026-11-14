@@ -309,7 +309,7 @@ Delete `better-ip-tv.db` from the data folder below and add your playlist again.
 - Windows: check that Windows Defender did not quarantine it
 - macOS: allow the app under System Settings → Privacy & Security
 
-**Scrolling stutters on Linux.** The app turns off WebKit's DMA-BUF renderer by default to avoid a blank window on some GPUs. If yours is not affected (often Intel or AMD), start it with `WEBKIT_DISABLE_DMABUF_RENDERER=0` in the environment for the faster renderer, e.g. `WEBKIT_DISABLE_DMABUF_RENDERER=0 ./Better.IPTV_*.AppImage`. If the window goes blank, leave it at the default.
+**Scrolling stutters on Linux.** The app turns off WebKit's DMA-BUF renderer by default, because on some systems it leaves the window blank. You can try it by starting the app with `WEBKIT_DISABLE_DMABUF_RENDERER=0`, e.g. `WEBKIT_DISABLE_DMABUF_RENDERER=0 ./Better.IPTV_*.AppImage`. Scrolling may get smoother, but on some systems it causes flicker or a blank window; if so, go back to the default.
 
 **Where your files are**
 

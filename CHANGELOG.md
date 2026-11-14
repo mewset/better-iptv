@@ -18,9 +18,6 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Fixed
 
-- **Laggy scrolling on Linux** - `run()` always set `WEBKIT_DISABLE_DMABUF_RENDERER=1` (the WebKitGTK 2.50+ EGL workaround), overwriting any value in the environment, so every window rendered through the CPU-copy path even on GPUs the bug does not affect. On a HiDPI display that made scrolling stutter
-  - The workaround is now applied only when the variable is unset, so the default is unchanged; `WEBKIT_DISABLE_DMABUF_RENDERER=0` opts back into the DMA-BUF renderer
-  - Troubleshooting entry in the README
 - **Xtream series that never opened** - some panels answer `get_series_info` in shapes the series view could not use, so the series showed an error or no episodes at all
   - Seasons without an `id`: `Season.id` was required, so one such season failed the whole response ("The provider sent series info that could not be read", log: ``missing field `id` ``). It is now `#[serde(default)]`, and `SeriesInfo::normalize_seasons` fills an empty id with the season number, the rule `series_domain::build_series_info` already uses for M3U series. The frontend keys the season list on it
   - `"seasons": []` next to a full `episodes` map: the response parsed, but with no season to select the view listed nothing. `normalize_seasons` now adds a `Season N` for every non-empty episode group that no listed season covers, in numeric order; a complete list from the panel keeps its own order
@@ -74,6 +71,10 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Changed
 
+- **Opt-out of the DMA-BUF workaround on Linux** - `run()` always set `WEBKIT_DISABLE_DMABUF_RENDERER=1` (the WebKitGTK 2.50+ EGL workaround), overwriting any value in the environment, and the desktop file's `Exec` forced it again with `env`, so no install could use the DMA-BUF renderer even on GPUs the bug does not affect
+  - `run()` now sets `1` only when the variable is unset, and the `env` prefix is gone from `templates/better-iptv.desktop`; the default is unchanged, `WEBKIT_DISABLE_DMABUF_RENDERER=0` opts in
+  - Trade-off seen on Intel iGPU + Hyprland: scrolling a bit smoother, but the play button flickers when hovering channel cards. That is why the default stays and the README calls it an opt-in with that caveat
+  - Thanks to @RyanBeckett (#94)
 - **The PIN opens the whole Parental section** - only turning the controls off and resetting the PIN asked for it; the block list, auto-detect and the visibility mode did not, so anyone who could open Settings could unblock everything. While the controls are on with a PIN, the section shows and changes nothing until the PIN is entered, once per visit to Settings (decided from what was loaded, so ticking Enable does not lock it). The two per-action prompts are gone; Change PIN still asks for the current one
 - **Unused error helpers removed** - `useErrorHandler` and `getErrorMessage`, `getErrorSeverity` and `parseError` in `types/errors.ts`, which only their tests used
 
