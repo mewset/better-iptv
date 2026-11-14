@@ -15,7 +15,7 @@ import type { Channel, Playlist } from '../../types';
 vi.mock('../../lib/tauri', () => ({
   playChannel: vi.fn(),
   stopPlayback: vi.fn(),
-  getPlaybackStatus: vi.fn().mockResolvedValue({ playing: false, failed: false }),
+  getPlaybackStatus: vi.fn().mockResolvedValue({ playing: false, failure: null }),
   playEpisodeWithSeason: vi.fn(),
   playSeriesEpisodes: vi.fn().mockResolvedValue(undefined),
 }));
@@ -23,7 +23,7 @@ vi.mock('../../lib/tauri', () => ({
 describe('useChannelPlayback.playLocalEpisodes', () => {
   beforeEach(() => {
     vi.mocked(playSeriesEpisodes).mockClear();
-    vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: false, failed: false });
+    vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: false, failure: null });
     resetPlaybackGuard();
     usePlayerStore.setState({
       currentChannel: null,
@@ -71,7 +71,7 @@ describe('useChannelPlayback start guard and failure toast', () => {
   beforeEach(() => {
     vi.mocked(playChannel).mockReset().mockResolvedValue(undefined);
     vi.mocked(stopPlayback).mockReset().mockResolvedValue(undefined);
-    vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: true, failed: false });
+    vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: true, failure: null });
     resetPlaybackGuard();
     usePlayerStore.setState({ currentChannel: null, isPlaying: false, toast: null });
   });
@@ -146,13 +146,35 @@ describe('useChannelPlayback start guard and failure toast', () => {
       await act(async () => {
         await result.current.play(svt1);
       });
-      vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: false, failed: true });
+      vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: false, failure: 'stream' });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(3000);
       });
       const toast = usePlayerStore.getState().toast;
-      expect(toast?.message).toMatch(/Couldn't play SVT1/);
+      expect(toast?.message).toBe(
+        "Couldn't play SVT1. The provider refused the stream, maybe because your line is already in use."
+      );
       expect(usePlayerStore.getState().isPlaying).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('says so when it was mpv itself that could not start', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useChannelPlayback());
+      await act(async () => {
+        await result.current.play(svt1);
+      });
+      vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: false, failure: 'player' });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(usePlayerStore.getState().toast?.message).toBe(
+        "Couldn't play SVT1. mpv could not start. Check the video settings in Settings → Playback, or update mpv."
+      );
+      expect(usePlayerStore.getState().currentChannel).toBeNull();
     } finally {
       vi.useRealTimers();
     }
@@ -165,7 +187,7 @@ describe('useChannelPlayback start guard and failure toast', () => {
       await act(async () => {
         await result.current.play(svt1);
       });
-      vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: false, failed: false });
+      vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: false, failure: null });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(3000);
       });
@@ -190,7 +212,7 @@ describe('useChannelPlayback sends ids and episodes, never stream URLs', () => {
   beforeEach(() => {
     vi.mocked(playChannel).mockReset().mockResolvedValue(undefined);
     vi.mocked(playEpisodeWithSeason).mockReset().mockResolvedValue(undefined);
-    vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: true, failed: false });
+    vi.mocked(getPlaybackStatus).mockResolvedValue({ playing: true, failure: null });
     resetPlaybackGuard();
     usePlayerStore.setState({ currentChannel: null, isPlaying: false, toast: null });
   });

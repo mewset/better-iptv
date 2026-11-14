@@ -16,10 +16,14 @@ export async function stopPlayback(): Promise<void> {
   await invoke('stop_playback');
 }
 
-/** Whether MPV is still playing, and whether it stopped because the stream failed. */
+/**
+ * Whether MPV is still playing and, when it stopped by itself, what failed:
+ * 'stream' when the provider refused the stream, 'player' when mpv itself
+ * could not start (video output, configuration). null when it was closed.
+ */
 export interface PlaybackStatus {
   playing: boolean;
-  failed: boolean;
+  failure: 'player' | 'stream' | null;
 }
 
 export async function getPlaybackStatus(): Promise<PlaybackStatus> {

@@ -5,6 +5,7 @@ import {
   getPlaybackStatus,
   playEpisodeWithSeason,
   playSeriesEpisodes,
+  type PlaybackStatus,
   type PlaylistEpisode,
 } from '../lib/tauri';
 import { logger } from '../lib/logger';
@@ -34,6 +35,12 @@ interface UseChannelPlaybackResult {
   /** Play stored M3U episodes by database id, in the order given */
   playLocalEpisodes: (episodeIds: number[], title: string) => Promise<void>;
 }
+
+/** Why mpv exited by itself, after "Couldn't play X." in the toast. */
+const FAILURE_TEXT: Record<NonNullable<PlaybackStatus['failure']>, string> = {
+  stream: 'The provider refused the stream, maybe because your line is already in use.',
+  player: 'mpv could not start. Check the video settings in Settings → Playback, or update mpv.',
+};
 
 /**
  * What the dock shows while episodes play. Every successful start sets what
@@ -72,13 +79,11 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
       try {
         const status = await getPlaybackStatus();
         if (!status.playing) {
-          // MPV exited: closed by the user, or (failed) the stream could not
-          // be opened, which used to look like nothing happened at all.
-          if (status.failed) {
+          // MPV exited: closed by the user, or it failed, which used to look
+          // like nothing happened at all.
+          if (status.failure) {
             const name = usePlayerStore.getState().currentChannel?.name ?? 'this stream';
-            showToast(
-              `Couldn't play ${name}. The provider refused the stream, maybe because your line is already in use.`
-            );
+            showToast(`Couldn't play ${name}. ${FAILURE_TEXT[status.failure]}`);
           }
           playbackEnded();
         }

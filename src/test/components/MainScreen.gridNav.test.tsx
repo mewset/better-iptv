@@ -57,7 +57,7 @@ function setupInvoke() {
       case 'get_epg_now_next':
         return {};
       case 'playback_status':
-        return { playing: true, failed: false };
+        return { playing: true, failure: null };
       case 'get_parental_settings':
         return {
           enabled: false,

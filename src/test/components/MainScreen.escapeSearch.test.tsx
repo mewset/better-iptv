@@ -55,7 +55,7 @@ function setupInvoke() {
       case 'get_epg_guide_keys':
         return ['svt1.se'];
       case 'playback_status':
-        return { playing: true, failed: false };
+        return { playing: true, failure: null };
       case 'get_parental_settings':
         return {
           enabled: false,
