@@ -1,3 +1,5 @@
+import { useId } from 'react';
+import ToggleRow from './ToggleRow';
 import {
   LANGUAGE_OPTIONS,
   VIDEO_OUTPUT_OPTIONS,
@@ -52,6 +54,8 @@ export default function PlaybackTab({
   subtitleLang,
   onSubtitleLangChange,
 }: PlaybackTabProps) {
+  const id = useId();
+
   return (
     <div className="space-y-6">
       {/* Video Settings */}
@@ -59,23 +63,23 @@ export default function PlaybackTab({
         <h3 className="mb-4 text-lg font-semibold text-text">Video</h3>
         <div className="space-y-4">
           {/* Hardware Acceleration */}
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-text-muted">Hardware Acceleration</p>
-              <p className="text-xs text-text-faint">Use GPU for video decoding (recommended)</p>
-            </div>
-            <input
-              type="checkbox"
-              checked={hardwareAcceleration}
-              onChange={(e) => onHardwareAccelerationChange(e.target.checked)}
-              className="h-4 w-4 rounded text-accent-text focus:ring-accent"
-            />
-          </div>
+          <ToggleRow
+            title="Hardware Acceleration"
+            description="Use GPU for video decoding (recommended)"
+            checked={hardwareAcceleration}
+            onChange={onHardwareAccelerationChange}
+          />
 
           {/* Video Output */}
           <div>
-            <label className="mb-2 block text-sm font-medium text-text-muted">Video Output</label>
+            <label
+              htmlFor={`${id}-video-output`}
+              className="mb-2 block text-sm font-medium text-text-muted"
+            >
+              Video Output
+            </label>
             <select
+              id={`${id}-video-output`}
               value={videoOutput}
               onChange={(e) => onVideoOutputChange(e.target.value as VideoOutput)}
               className="w-full rounded-lg border border-border-strong bg-surface px-4 py-2 text-text focus:border-transparent focus:ring-2 focus:ring-accent dark:[color-scheme:dark]"
@@ -93,8 +97,14 @@ export default function PlaybackTab({
 
           {/* Deinterlacing */}
           <div>
-            <label className="mb-2 block text-sm font-medium text-text-muted">Deinterlacing</label>
+            <label
+              htmlFor={`${id}-deinterlace`}
+              className="mb-2 block text-sm font-medium text-text-muted"
+            >
+              Deinterlacing
+            </label>
             <select
+              id={`${id}-deinterlace`}
               value={deinterlace}
               onChange={(e) => onDeinterlaceChange(e.target.value as DeinterlaceMode)}
               className="w-full rounded-lg border border-border-strong bg-surface px-4 py-2 text-text focus:border-transparent focus:ring-2 focus:ring-accent dark:[color-scheme:dark]"
@@ -111,18 +121,12 @@ export default function PlaybackTab({
           </div>
 
           {/* Start Fullscreen */}
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-text-muted">Start in Fullscreen</p>
-              <p className="text-xs text-text-faint">Open video player in fullscreen mode</p>
-            </div>
-            <input
-              type="checkbox"
-              checked={startFullscreen}
-              onChange={(e) => onStartFullscreenChange(e.target.checked)}
-              className="h-4 w-4 rounded text-accent-text focus:ring-accent"
-            />
-          </div>
+          <ToggleRow
+            title="Start in Fullscreen"
+            description="Open video player in fullscreen mode"
+            checked={startFullscreen}
+            onChange={onStartFullscreenChange}
+          />
         </div>
       </section>
 
@@ -131,10 +135,14 @@ export default function PlaybackTab({
         <h3 className="mb-4 text-lg font-semibold text-text">Audio & Subtitles</h3>
         <div className="space-y-4">
           <div>
-            <label className="mb-2 block text-sm font-medium text-text-muted">
+            <label
+              htmlFor={`${id}-audio`}
+              className="mb-2 block text-sm font-medium text-text-muted"
+            >
               Default Audio Language
             </label>
             <select
+              id={`${id}-audio`}
               value={audioLang}
               onChange={(e) => onAudioLangChange(e.target.value as LanguageCode)}
               className="w-full rounded-lg border border-border-strong bg-surface px-4 py-2 text-text focus:border-transparent focus:ring-2 focus:ring-accent dark:[color-scheme:dark]"
@@ -151,10 +159,14 @@ export default function PlaybackTab({
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-text-muted">
+            <label
+              htmlFor={`${id}-subtitles`}
+              className="mb-2 block text-sm font-medium text-text-muted"
+            >
               Default Subtitles Language
             </label>
             <select
+              id={`${id}-subtitles`}
               value={subtitleLang}
               onChange={(e) => onSubtitleLangChange(e.target.value as LanguageCode)}
               className="w-full rounded-lg border border-border-strong bg-surface px-4 py-2 text-text focus:border-transparent focus:ring-2 focus:ring-accent dark:[color-scheme:dark]"
@@ -172,10 +184,14 @@ export default function PlaybackTab({
 
           {/* Start Volume */}
           <div>
-            <label className="mb-2 block text-sm font-medium text-text-muted">
+            <label
+              htmlFor={`${id}-volume`}
+              className="mb-2 block text-sm font-medium text-text-muted"
+            >
               Start Volume: {startVolume}%
             </label>
             <input
+              id={`${id}-volume`}
               type="range"
               min={0}
               max={100}
@@ -196,8 +212,14 @@ export default function PlaybackTab({
         <h3 className="mb-4 text-lg font-semibold text-text">Buffering</h3>
         <div className="space-y-4">
           <div>
-            <label className="mb-2 block text-sm font-medium text-text-muted">Cache Duration</label>
+            <label
+              htmlFor={`${id}-cache`}
+              className="mb-2 block text-sm font-medium text-text-muted"
+            >
+              Cache Duration
+            </label>
             <select
+              id={`${id}-cache`}
               value={cacheSecs}
               onChange={(e) => onCacheSecsChange(Number(e.target.value))}
               className="w-full rounded-lg border border-border-strong bg-surface px-4 py-2 text-text focus:border-transparent focus:ring-2 focus:ring-accent dark:[color-scheme:dark]"

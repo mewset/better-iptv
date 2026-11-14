@@ -1,4 +1,6 @@
+import { useId } from 'react';
 import { Lock } from 'lucide-react';
+import ToggleRow from './ToggleRow';
 import type { ParentalVisibility } from './constants';
 
 interface ParentalTabProps {
@@ -42,33 +44,27 @@ export default function ParentalTab({
   visibility,
   onVisibilityChange,
 }: ParentalTabProps) {
+  const visibilityId = useId();
+
   return (
     <div className="space-y-6">
       <section>
         <h3 className="mb-4 text-lg font-semibold text-text">Parental Controls</h3>
         <div className="space-y-4">
           {/* Enable toggle */}
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-text-muted">Enable Parental Controls</p>
-              <p className="text-xs text-text-faint">
-                Restrict access to channels with PIN protection
-              </p>
-            </div>
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(e) => {
-                if (!e.target.checked && hasPin) {
-                  // Require PIN to disable parental controls
-                  onDisableRequest();
-                } else {
-                  onEnabledChange(e.target.checked);
-                }
-              }}
-              className="h-4 w-4 rounded text-accent-text focus:ring-accent"
-            />
-          </div>
+          <ToggleRow
+            title="Enable Parental Controls"
+            description="Restrict access to channels with PIN protection"
+            checked={enabled}
+            onChange={(checked) => {
+              if (!checked && hasPin) {
+                // Require PIN to disable parental controls
+                onDisableRequest();
+              } else {
+                onEnabledChange(checked);
+              }
+            }}
+          />
 
           {enabled && (
             <>
@@ -120,27 +116,23 @@ export default function ParentalTab({
                   </div>
 
                   {/* Auto-detection toggle */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-text-muted">Auto-detect 18+ Content</p>
-                      <p className="text-xs text-text-faint">
-                        Automatically blocks channels with +18, XXX, Adult in name
-                      </p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={autoDetect}
-                      onChange={(e) => onAutoDetectChange(e.target.checked)}
-                      className="h-4 w-4 rounded text-accent-text focus:ring-accent"
-                    />
-                  </div>
+                  <ToggleRow
+                    title="Auto-detect 18+ Content"
+                    description="Automatically blocks channels with +18, XXX, Adult in name"
+                    checked={autoDetect}
+                    onChange={onAutoDetectChange}
+                  />
 
                   {/* Visibility mode */}
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-text-muted">
+                    <label
+                      htmlFor={visibilityId}
+                      className="mb-2 block text-sm font-medium text-text-muted"
+                    >
                       Visibility Mode
                     </label>
                     <select
+                      id={visibilityId}
                       value={visibility}
                       onChange={(e) => onVisibilityChange(e.target.value as ParentalVisibility)}
                       className="w-full rounded-lg border border-border-strong bg-surface px-4 py-2 text-text focus:border-transparent focus:ring-2 focus:ring-accent dark:[color-scheme:dark]"

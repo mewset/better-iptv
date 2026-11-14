@@ -547,6 +547,71 @@ describe('Settings as a view', () => {
     expect(await screen.findByText('A profile with that name already exists')).toBeInTheDocument();
   });
 
+  it('every control has a name, and a click on its text reaches it', async () => {
+    vi.mocked(getParentalSettings).mockImplementation(async () => ({
+      ...NO_PARENTAL,
+      enabled: true,
+      has_pin: true,
+    }));
+    await renderSettings();
+
+    // General
+    expect(screen.getByRole('checkbox', { name: 'Check for new versions' })).toBeChecked();
+    fireEvent.change(screen.getByLabelText('User-Agent'), { target: { value: 'custom' } });
+    expect(screen.getByLabelText('Custom User-Agent')).toHaveValue('');
+    fireEvent.change(screen.getByLabelText('User-Agent'), { target: { value: 'default' } });
+
+    // Playback
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /^playback$/i }));
+    await screen.findByRole('heading', { level: 1, name: 'Playback' });
+    const hardware = screen.getByRole('checkbox', { name: 'Hardware Acceleration' });
+    expect(hardware).toBeChecked();
+    expect(hardware).toHaveAccessibleDescription('Use GPU for video decoding (recommended)');
+    expect(screen.getByRole('checkbox', { name: 'Start in Fullscreen' })).not.toBeChecked();
+    for (const name of [
+      'Video Output',
+      'Deinterlacing',
+      'Default Audio Language',
+      'Default Subtitles Language',
+      'Cache Duration',
+    ]) {
+      expect(screen.getByLabelText(name).tagName).toBe('SELECT');
+    }
+    expect(screen.getByRole('slider', { name: 'Start Volume: 100%' })).toBeInTheDocument();
+    // The row is the label: a click on the text toggles the box.
+    fireEvent.click(screen.getByText('Hardware Acceleration'));
+    expect(hardware).not.toBeChecked();
+
+    // Parental
+    await goToParental();
+    expect(screen.getByRole('checkbox', { name: 'Enable Parental Controls' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Auto-detect 18+ Content' })).not.toBeChecked();
+    expect(screen.getByLabelText('Visibility Mode')).toHaveValue('hide');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(setSetting).toHaveBeenCalledWith('mpv_hardware_acceleration', 'false')
+    );
+  });
+
+  it('unticking Enable Parental Controls with a PIN set still asks for the PIN', async () => {
+    vi.mocked(getParentalSettings).mockImplementation(async () => ({
+      ...NO_PARENTAL,
+      enabled: true,
+      has_pin: true,
+    }));
+    await renderSettings();
+    await goToParental();
+
+    const enable = screen.getByRole('checkbox', { name: 'Enable Parental Controls' });
+    fireEvent.click(enable);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Enter PIN to disable parental controls' })
+    ).toBeInTheDocument();
+    expect(enable).toBeChecked();
+  });
+
   it('Refresh from General also updates the refresh date Profiles shows', async () => {
     const monthAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
     const stale = { ...playlist(1, 'Home'), last_updated: monthAgo };

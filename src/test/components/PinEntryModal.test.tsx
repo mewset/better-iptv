@@ -70,6 +70,19 @@ describe('PinEntryModal', () => {
     expect(screen.getByRole('button', { name: 'Close' })).toHaveAttribute('type', 'button');
   });
 
+  it('names every field by its label', () => {
+    const verify = render(
+      <PinEntryModal isOpen onClose={vi.fn()} onSuccess={vi.fn()} mode="verify" />
+    );
+    expect(screen.getByLabelText('PIN')).toHaveAttribute('placeholder', 'Enter PIN');
+    verify.unmount();
+
+    renderModal('change');
+    expect(screen.getByLabelText('Current PIN')).toBeInTheDocument();
+    expect(screen.getByLabelText('New PIN (4-6 digits)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Confirm PIN')).toBeInTheDocument();
+  });
+
   it("shows the backend's sentence when the PIN could not be checked", async () => {
     vi.mocked(verifyParentalPin).mockRejectedValueOnce({
       code: 'Database',

@@ -1,4 +1,6 @@
+import { useId } from 'react';
 import { RefreshCw } from 'lucide-react';
+import ToggleRow from './ToggleRow';
 import { USER_AGENT_OPTIONS, type Theme, type UserAgentMode } from './constants';
 import { DEFAULT_USER_AGENT } from '../../lib/userAgent';
 
@@ -62,6 +64,7 @@ export default function GeneralTab({
   updateCheckEnabled,
   onUpdateCheckEnabledChange,
 }: GeneralTabProps) {
+  const id = useId();
   const userAgentPreview = getUserAgentPreview(playlistUserAgentMode, playlistUserAgentCustom);
 
   return (
@@ -95,8 +98,14 @@ export default function GeneralTab({
         <h3 className="mb-4 text-lg font-semibold text-text">Playlist Requests</h3>
         <div className="space-y-4">
           <div>
-            <label className="mb-2 block text-sm font-medium text-text-muted">User-Agent</label>
+            <label
+              htmlFor={`${id}-user-agent`}
+              className="mb-2 block text-sm font-medium text-text-muted"
+            >
+              User-Agent
+            </label>
             <select
+              id={`${id}-user-agent`}
               value={playlistUserAgentMode}
               onChange={(e) => onPlaylistUserAgentModeChange(e.target.value as UserAgentMode)}
               className="w-full rounded-lg border border-border-strong bg-surface px-4 py-2 text-text focus:border-transparent focus:ring-2 focus:ring-accent dark:[color-scheme:dark]"
@@ -123,10 +132,14 @@ export default function GeneralTab({
 
           {playlistUserAgentMode === 'custom' && (
             <div>
-              <label className="mb-2 block text-sm font-medium text-text-muted">
+              <label
+                htmlFor={`${id}-custom-user-agent`}
+                className="mb-2 block text-sm font-medium text-text-muted"
+              >
                 Custom User-Agent
               </label>
               <input
+                id={`${id}-custom-user-agent`}
                 type="text"
                 value={playlistUserAgentCustom}
                 onChange={(e) => onPlaylistUserAgentCustomChange(e.target.value)}
@@ -165,21 +178,12 @@ export default function GeneralTab({
 
       <section>
         <h3 className="mb-4 text-lg font-semibold text-text">Updates</h3>
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-text-muted">Check for new versions</p>
-            <p className="text-xs text-text-faint">
-              Asks GitHub once a day whether a newer release exists, and shows a link next to the
-              title when there is one. Nothing is downloaded or installed automatically.
-            </p>
-          </div>
-          <input
-            type="checkbox"
-            checked={updateCheckEnabled}
-            onChange={(e) => onUpdateCheckEnabledChange(e.target.checked)}
-            className="h-4 w-4 rounded text-accent-text focus:ring-accent"
-          />
-        </div>
+        <ToggleRow
+          title="Check for new versions"
+          description="Asks GitHub once a day whether a newer release exists, and shows a link next to the title when there is one. Nothing is downloaded or installed automatically."
+          checked={updateCheckEnabled}
+          onChange={onUpdateCheckEnabledChange}
+        />
       </section>
     </div>
   );

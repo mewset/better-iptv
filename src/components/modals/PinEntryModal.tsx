@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { X } from 'lucide-react';
 import { setParentalPin, verifyParentalPin } from '../../lib/tauri';
 import { validatePin } from '../../lib/parentalControls';
@@ -20,6 +20,7 @@ export default function PinEntryModal({
   mode,
   title,
 }: PinEntryModalProps) {
+  const id = useId();
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -145,10 +146,14 @@ export default function PinEntryModal({
           <div className="space-y-4">
             {(mode === 'change' || mode === 'verify') && (
               <div>
-                <label className="mb-2 block text-sm font-medium text-text-muted">
+                <label
+                  htmlFor={`${id}-current`}
+                  className="mb-2 block text-sm font-medium text-text-muted"
+                >
                   {mode === 'change' ? 'Current PIN' : 'PIN'}
                 </label>
                 <input
+                  id={`${id}-current`}
                   type="password"
                   inputMode="numeric"
                   value={currentPin}
@@ -164,10 +169,14 @@ export default function PinEntryModal({
             {mode !== 'verify' && (
               <>
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-text-muted">
+                  <label
+                    htmlFor={`${id}-new`}
+                    className="mb-2 block text-sm font-medium text-text-muted"
+                  >
                     {mode === 'set' ? 'PIN' : 'New PIN'} (4-6 digits)
                   </label>
                   <input
+                    id={`${id}-new`}
                     type="password"
                     inputMode="numeric"
                     value={newPin}
@@ -180,10 +189,14 @@ export default function PinEntryModal({
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-text-muted">
+                  <label
+                    htmlFor={`${id}-confirm`}
+                    className="mb-2 block text-sm font-medium text-text-muted"
+                  >
                     Confirm PIN
                   </label>
                   <input
+                    id={`${id}-confirm`}
                     type="password"
                     inputMode="numeric"
                     value={confirmPin}
