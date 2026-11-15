@@ -156,7 +156,7 @@ export function GenreSlideshow({ row, onOpen }: GenreSlideshowProps) {
               type="button"
               aria-label="Previous"
               onClick={() => go(-1)}
-              className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-bg/70 p-2 text-text opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100"
+              className="absolute inset-y-0 left-3 my-auto h-fit rounded-full bg-bg/70 p-2 text-text opacity-0 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100"
             >
               <ChevronLeft className="h-5 w-5" aria-hidden="true" />
             </button>
@@ -164,7 +164,7 @@ export function GenreSlideshow({ row, onOpen }: GenreSlideshowProps) {
               type="button"
               aria-label="Next"
               onClick={() => go(1)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-bg/70 p-2 text-text opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100"
+              className="absolute inset-y-0 right-3 my-auto h-fit rounded-full bg-bg/70 p-2 text-text opacity-0 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100"
             >
               <ChevronRight className="h-5 w-5" aria-hidden="true" />
             </button>

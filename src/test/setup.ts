@@ -44,6 +44,12 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
+// jsdom has no FontFaceSet; the app loads its fonts through it at boot (lib/fonts)
+Object.defineProperty(document, 'fonts', {
+  writable: true,
+  value: { load: vi.fn().mockResolvedValue([]) },
+});
+
 // Mock ResizeObserver. A class, not an arrow-function mock: components build
 // it with `new`, which an arrow implementation cannot be.
 (globalThis as typeof globalThis & { ResizeObserver: unknown }).ResizeObserver = class {

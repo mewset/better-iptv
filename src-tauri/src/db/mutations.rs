@@ -335,13 +335,16 @@ pub fn merge_channels(
     let mut updated: usize = 0;
 
     {
+        // `created_at` is the provider's "added" time when the fresh list has
+        // one, as in `create_channels_batch`. A matched row without one keeps
+        // the time it has; a new row without one gets the moment of insertion.
         let mut update_stmt = tx.prepare_cached(
-            "UPDATE channels SET name=?1, url=?2, logo=?3, group_name=?4, epg_id=?5, tvg_name=?6, sort_order=?7, category_order=?8, content_type=?9 WHERE id=?10",
+            "UPDATE channels SET name=?1, url=?2, logo=?3, group_name=?4, epg_id=?5, tvg_name=?6, sort_order=?7, category_order=?8, content_type=?9, created_at=COALESCE(?10, created_at), rating=?11, genres=?12 WHERE id=?13",
         )?;
 
         let mut insert_stmt = tx.prepare_cached(
-            "INSERT INTO channels (playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, is_favorite, sort_order, category_order)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO channels (playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, is_favorite, sort_order, category_order, created_at, rating, genres)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, COALESCE(?12, CURRENT_TIMESTAMP), ?13, ?14)",
         )?;
 
         for (ch, target) in new_channels.iter().zip(targets) {
@@ -363,6 +366,9 @@ pub fn merge_channels(
                     ch.sort_order,
                     ch.category_order,
                     ch.content_type,
+                    ch.created_at,
+                    ch.rating,
+                    ch.genres,
                     db_id,
                 ])?;
                 updated += 1;
@@ -380,6 +386,9 @@ pub fn merge_channels(
                     false, // new channels start unfavorited
                     ch.sort_order,
                     ch.category_order,
+                    ch.created_at,
+                    ch.rating,
+                    ch.genres,
                 ])?;
                 added += 1;
             }
@@ -696,6 +705,99 @@ mod tests {
             stored_epg_id(&conn, "Kanal 5").as_deref(),
             Some("Kanal5.se")
         );
+    }
+
+    fn added_and_rating(conn: &Connection, name: &str) -> (Option<String>, Option<f64>) {
+        conn.query_row(
+            "SELECT created_at, rating FROM channels WHERE name = ?1",
+            [name],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn refresh_stores_the_provider_added_time_and_rating() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        // Imported before the app stored either: the insert time and no rating
+        let stored = live_channel(pid, "Stored", None, "http://x/movie/u/p/1.mkv");
+        create_channels_batch(&conn, &[stored]).unwrap();
+
+        let mut known = live_channel(pid, "Stored", None, "http://x/movie/u/p/1.mkv");
+        known.created_at = Some("2020-01-02 03:04:05".to_string());
+        known.rating = Some(7.5);
+        let mut new = live_channel(pid, "New", None, "http://x/movie/u/p/2.mkv");
+        new.created_at = Some("2021-06-07 08:09:10".to_string());
+        new.rating = Some(8.5);
+        merge_channels(&conn, pid, &[known, new], true).unwrap();
+
+        assert_eq!(
+            added_and_rating(&conn, "Stored"),
+            (Some("2020-01-02 03:04:05".to_string()), Some(7.5)),
+            "a row the refresh matched"
+        );
+        assert_eq!(
+            added_and_rating(&conn, "New"),
+            (Some("2021-06-07 08:09:10".to_string()), Some(8.5)),
+            "a row the refresh added"
+        );
+    }
+
+    #[test]
+    fn refresh_stores_the_provider_genres() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        // Imported before the app stored genres
+        let stored = live_channel(pid, "Stored", None, "http://x/series/u/p/1.mkv");
+        create_channels_batch(&conn, &[stored]).unwrap();
+
+        let mut known = live_channel(pid, "Stored", None, "http://x/series/u/p/1.mkv");
+        known.genres = Some("Crime, Drama".to_string());
+        let mut new = live_channel(pid, "New", None, "http://x/series/u/p/2.mkv");
+        new.genres = Some("Comedy".to_string());
+        merge_channels(&conn, pid, &[known, new], true).unwrap();
+
+        let genres = |name: &str| -> Option<String> {
+            conn.query_row("SELECT genres FROM channels WHERE name = ?1", [name], |r| {
+                r.get(0)
+            })
+            .unwrap()
+        };
+        assert_eq!(
+            genres("Stored").as_deref(),
+            Some("Crime, Drama"),
+            "a row the refresh matched"
+        );
+        assert_eq!(
+            genres("New").as_deref(),
+            Some("Comedy"),
+            "a row the refresh added"
+        );
+    }
+
+    #[test]
+    fn refresh_keeps_the_stored_time_when_the_provider_sends_none() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        let mut stored = live_channel(pid, "Stored", None, "http://x/movie/u/p/1.mkv");
+        stored.created_at = Some("2020-01-02 03:04:05".to_string());
+        stored.rating = Some(7.5);
+        create_channels_batch(&conn, &[stored]).unwrap();
+
+        // An M3U list, or a panel that stopped sending the two fields
+        let undated = live_channel(pid, "Stored", None, "http://x/movie/u/p/1.mkv");
+        let new = live_channel(pid, "New", None, "http://x/movie/u/p/2.mkv");
+        merge_channels(&conn, pid, &[undated, new], true).unwrap();
+
+        // The date is still the best one known; the rating is the provider's, so it goes
+        assert_eq!(
+            added_and_rating(&conn, "Stored"),
+            (Some("2020-01-02 03:04:05".to_string()), None)
+        );
+        let (added, rating) = added_and_rating(&conn, "New");
+        assert!(added.is_some(), "falls back to CURRENT_TIMESTAMP");
+        assert_eq!(rating, None);
     }
 
     #[test]
