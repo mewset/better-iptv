@@ -316,6 +316,20 @@ export async function getTmdbCards(channelIds: number[]): Promise<TmdbCard[]> {
   return await invoke('get_tmdb_cards', { channelIds });
 }
 
+export interface FeaturedTitle {
+  channel_id: number;
+  /** On TMDB's trending list today, or most voted among recent releases. */
+  source: 'trending' | 'popular';
+}
+
+/** The Movies / Series banner's titles; empty while TMDB is off or nothing is matched. */
+export async function getFeaturedTitles(
+  playlistId: number,
+  contentType: 'vod' | 'series'
+): Promise<FeaturedTitle[]> {
+  return await invoke('get_featured_titles', { playlistId, contentType });
+}
+
 /**
  * TMDB's rating and vote count per title in a Movies or Series section, for
  * the "Highest rated" sort; empty while TMDB is off.
