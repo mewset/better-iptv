@@ -59,7 +59,7 @@ export function MoviesHero({
   return (
     <section
       aria-label={eyebrow}
-      className="relative h-[272px] overflow-hidden rounded-[18px] border border-border bg-surface-2"
+      className="relative h-[340px] overflow-hidden rounded-[18px] border border-border bg-surface-2"
     >
       {art ? (
         <img

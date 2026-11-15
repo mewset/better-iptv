@@ -485,7 +485,7 @@ export default function MainScreen() {
   //
   // The hero (when shown) is virtual row 0, ahead of every card row: card
   // rows shift by one so their `startIndex` math still lines up with
-  // `filteredChannels`. Its `272 + 20` estimate is only the initial guess -
+  // `filteredChannels`. Its `340 + 20` estimate is only the initial guess -
   // like every other row, it measures its own real height via
   // `measureElement`.
   const gridRowCount = Math.ceil(filteredChannels.length / columns);
@@ -494,7 +494,7 @@ export default function MainScreen() {
   const rowVirtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: (index) => (showHero && index === 0 ? 272 + 20 : estimatedRowHeight),
+    estimateSize: (index) => (showHero && index === 0 ? 340 + 20 : estimatedRowHeight),
     // One row above and below the view: every mounted card costs render and layout time on
     // the first frame and on every list switch. The guide and TMDB look-ahead is separate
     // (LOOKAHEAD_ROWS), so this only has to cover scrolling.
@@ -1105,7 +1105,7 @@ export default function MainScreen() {
                         >
                           {/* pb-5 (20px) carries the gap below the hero, the
                               same estimate the virtualiser's initial guess
-                              uses (272 + 20); the row still measures its own
+                              uses (340 + 20); the row still measures its own
                               real height via `measureElement` above. */}
                           <div
                             className="pb-5"
