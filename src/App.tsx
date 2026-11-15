@@ -5,6 +5,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { usePlayerStore } from './stores/player-store';
 import { getPlaylists, getActiveProfileId, getTmdbStatus } from './lib/tauri';
 import { homeGateOpen } from './lib/tmdb';
+import { loadAppFonts } from './lib/fonts';
 import { logger } from './lib/logger';
 
 export default function App() {
@@ -31,11 +32,14 @@ export default function App() {
         // Parental settings are awaited before MainScreen mounts, so the first render already
         // filters. loadParentalSettings swallows its own errors: if it fails, the defaults
         // (parental off) apply until a later load succeeds.
+        // The fonts are awaited for the same reason: the first screen is laid out once, in
+        // its own faces. main.tsx started the load, and it never rejects.
         const [playlists, activeId, tmdbStatus] = await Promise.all([
           getPlaylists(),
           getActiveProfileId(),
           getTmdbStatus().catch(() => null),
           loadParentalSettings(),
+          loadAppFonts(),
         ]);
 
         if (playlists.length > 0) {
