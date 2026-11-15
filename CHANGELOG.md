@@ -7,6 +7,11 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Added
 
+- **Movies and Series banner rotates through featured titles** - the hero showed one title, the newest the provider added (often an old film the provider just uploaded). It now rotates through up to ten every 6 s, with dots to jump between them
+  - The titles come from a new `get_featured_titles` command: the section's library titles on TMDB's trending list today (the list Home already fetches once a day, `trending_for_today`), in its order, labelled "Trending today"; then the most-voted matched titles released in the last three years, labelled "Popular" (`build_featured`, `POPULAR_YEARS_BACK`). With TMDB off or nothing matched yet it falls back to the newest additions, labelled "Recently added" as before
+  - It holds still while the pointer or the focus is on it and while the window is hidden, and swaps at once with no cross-fade (see the DMA-BUF stale-frame note in #95). Changing section or filter starts again from the first title
+  - The artwork's left edge fades into the panel (a CSS mask on the image) instead of starting on a hard line
+  - Test: `featured_puts_trending_first_then_the_most_voted_recent_titles`
 - **Keyboard navigation in the channel grid** - arrow keys move one card, `Home`/`End` to the ends of the row (with `Ctrl` of the list), `Page Up`/`Page Down` one screen, `Enter` does what a click does; Arrow Down in the search box goes to the first result
   - WAI-ARIA grid with `aria-activedescendant` on the scroll container (`useGridKeyboardNav`, pure math in `lib/gridNav`), as in the 2026-09-10 design: the cards keep no `tabIndex` and are untouched, the cells around them carry the semantics and the ring
   - The ring shows only while the keyboard drives; a click makes a card active without one. The row scrolled into view stays above the dock

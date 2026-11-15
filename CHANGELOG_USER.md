@@ -8,6 +8,7 @@ A simple overview of new features and improvements.
 
 ### New Features
 
+- The banner at the top of Movies and Series now rotates through what's trending today and popular recent titles in your library
 - Added moving through channels, movies and series with the arrow keys; press Enter to play
 - Added search that finds names whatever their accents, e.g. "tele" finds "Télé"
 - Added a button that clears the search box
