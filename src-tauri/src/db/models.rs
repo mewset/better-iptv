@@ -42,6 +42,9 @@ pub struct Channel {
     /// The provider's rating, 0-10 (TMDB scale); None when it sends none.
     #[serde(default)]
     pub rating: Option<f64>,
+    /// The provider's genre list as sent ("Drama, Crime"); series only.
+    #[serde(default)]
+    pub genres: Option<String>,
 }
 
 /// What the Home rows and pick read of a vod or series channel: the id,
@@ -211,6 +214,7 @@ mod channel_summary_tests {
             category_order: 2,
             created_at: Some("2026-09-01 10:00:00".into()),
             rating: None,
+            genres: None,
         }
     }
 

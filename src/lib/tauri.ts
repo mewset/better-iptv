@@ -316,6 +316,17 @@ export async function getTmdbCards(channelIds: number[]): Promise<TmdbCard[]> {
   return await invoke('get_tmdb_cards', { channelIds });
 }
 
+/**
+ * Genres per title in a Movies or Series section, keyed by channel id: series
+ * from the provider, movies from TMDB (only titles matched so far).
+ */
+export async function getTitleGenres(
+  playlistId: number,
+  contentType: 'vod' | 'series'
+): Promise<Record<number, string[]>> {
+  return await invoke('get_title_genres', { playlistId, contentType });
+}
+
 export async function getTmdbStatus(): Promise<TmdbStatus> {
   return await invoke('get_tmdb_status');
 }

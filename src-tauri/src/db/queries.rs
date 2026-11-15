@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 /// SQL columns for channel SELECT queries (in order)
 const CHANNEL_SELECT_COLUMNS: &str =
-    "id, playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, is_favorite, sort_order, category_order, created_at, rating";
+    "id, playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, is_favorite, sort_order, category_order, created_at, rating, genres";
 
 /// Maps a database row to a Channel struct
 fn map_channel_row(row: &Row) -> rusqlite::Result<Channel> {
@@ -26,6 +26,7 @@ fn map_channel_row(row: &Row) -> rusqlite::Result<Channel> {
         category_order: row.get(11)?,
         created_at: row.get(12)?,
         rating: row.get(13)?,
+        genres: row.get(14)?,
     })
 }
 
@@ -619,6 +620,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             };
             create_channel(conn, &ch).unwrap();
         }
@@ -720,6 +722,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             };
             ids.insert(name, create_channel(&conn, &ch).unwrap());
         }
@@ -806,6 +809,7 @@ mod tests {
                 category_order: *cat_order,
                 created_at: None,
                 rating: None,
+                genres: None,
             };
             create_channel(&conn, &channel).unwrap();
         }
@@ -860,6 +864,7 @@ mod tests {
             category_order: 0,
             created_at: None,
             rating: None,
+            genres: None,
         };
         create_channel(&conn, &live_channel).unwrap();
 
@@ -879,6 +884,7 @@ mod tests {
             category_order: 0,
             created_at: None,
             rating: None,
+            genres: None,
         };
         create_channel(&conn, &vod_channel).unwrap();
 

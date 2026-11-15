@@ -90,8 +90,8 @@ pub fn create_channels_batch(conn: &Connection, channels: &[Channel]) -> Result<
         let mut stmt = conn.prepare_cached(
             // `created_at` is the provider's "added" time when the import has
             // one, else the moment of insertion, as before.
-            "INSERT INTO channels (playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, sort_order, category_order, created_at, rating)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE(?11, CURRENT_TIMESTAMP), ?12)"
+            "INSERT INTO channels (playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, sort_order, category_order, created_at, rating, genres)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE(?11, CURRENT_TIMESTAMP), ?12, ?13)"
         )?;
 
         for channel in channels {
@@ -108,7 +108,8 @@ pub fn create_channels_batch(conn: &Connection, channels: &[Channel]) -> Result<
                 channel.sort_order,
                 channel.category_order,
                 channel.created_at,
-                channel.rating
+                channel.rating,
+                channel.genres
             ])?;
         }
     }
@@ -664,6 +665,7 @@ mod tests {
             category_order: 0,
             created_at: None,
             rating: None,
+            genres: None,
         }
     }
 
@@ -933,6 +935,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             })
             .collect();
 
@@ -985,6 +988,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             })
             .collect();
         create_channels_batch(&conn, &channels).unwrap();
@@ -1038,6 +1042,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             })
             .collect();
         let tx = conn.unchecked_transaction().unwrap();
@@ -1086,6 +1091,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             })
             .collect();
         let tx = conn.unchecked_transaction().unwrap();
@@ -1110,6 +1116,7 @@ mod tests {
             category_order: 0,
             created_at: None,
             rating: None,
+            genres: None,
         });
         let result = merge_channels(&conn, playlist_id, &refreshed, false).unwrap();
 
@@ -1210,6 +1217,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             },
             episodes: episodes
                 .iter()
@@ -1338,6 +1346,7 @@ mod tests {
             category_order: 0,
             created_at: None,
             rating: None,
+            genres: None,
         }
     }
 
@@ -1357,6 +1366,7 @@ mod tests {
             category_order: 0,
             created_at: None,
             rating: None,
+            genres: None,
         }
     }
 
@@ -1723,6 +1733,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             };
             create_channels_batch(&tx, std::slice::from_ref(&plain_channel)).unwrap();
 

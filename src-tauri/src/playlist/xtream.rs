@@ -346,6 +346,9 @@ struct XtreamStream {
     // 0-10 (TMDB scale), sent as a number or a string; see `provider_rating`.
     #[serde(default, deserialize_with = "de_lenient_opt_string")]
     rating: Option<String>,
+    // get_series only: "Drama, Crime", as sent.
+    #[serde(default, deserialize_with = "de_lenient_opt_string")]
+    genre: Option<String>,
 }
 
 /// The provider's rating when it is a usable 0-10 number. Panels send `0` or
@@ -846,6 +849,7 @@ fn convert_streams_to_channels(
 
             let created_at = provider_added_at(&stream);
             let rating = provider_rating(&stream);
+            let genres = stream.genre.clone();
 
             Channel {
                 id: None,
@@ -862,6 +866,7 @@ fn convert_streams_to_channels(
                 category_order,
                 created_at,
                 rating,
+                genres,
             }
         })
         .collect()

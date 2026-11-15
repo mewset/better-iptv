@@ -709,6 +709,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             },
             Channel {
                 id: None,
@@ -725,6 +726,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             },
         ];
 
@@ -752,6 +754,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             })
             .collect();
 

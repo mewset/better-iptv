@@ -8,6 +8,7 @@ A simple overview of new features and improvements.
 
 ### New Features
 
+- Movies and Series have a new bar: genres along the top, a categories panel, a 4K switch and 4K badges on posters
 - Added sorting for Movies and Series: recently added, highest rated, name A–Z or Z–A, or year. Refresh an Xtream playlist once for "Recently added" to know the dates
 - Added moving through channels, movies and series with the arrow keys; press Enter to play
 - Added search that finds names whatever their accents, e.g. "tele" finds "Télé"

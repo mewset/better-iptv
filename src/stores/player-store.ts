@@ -191,6 +191,15 @@ interface PlayerState {
   tmdbStatus: TmdbStatus | null;
   setTmdbStatus: (status: TmdbStatus | null) => void;
 
+  // Movies and Series browse filters: genres per title (null until loaded),
+  // the chosen genre chip and the 4K chip. Reset with the section.
+  titleGenres: Record<number, string[]> | null;
+  setTitleGenres: (genres: Record<number, string[]> | null) => void;
+  genreFilter: string | null;
+  setGenreFilter: (genre: string | null) => void;
+  fourKOnly: boolean;
+  setFourKOnly: (on: boolean) => void;
+
   // Movies and Series order, per section; remembered between launches
   titleSorts: Record<SortableSection, TitleSort>;
   setTitleSort: (section: SortableSection, sort: TitleSort) => void;
@@ -276,7 +285,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set((state) =>
       playlist?.id === state.currentPlaylist?.id
         ? { currentPlaylist: playlist }
-        : { currentPlaylist: playlist, categoryFilter: null }
+        : {
+            currentPlaylist: playlist,
+            categoryFilter: null,
+            genreFilter: null,
+            fourKOnly: false,
+            titleGenres: null,
+          }
     ),
   setActiveProfileId: (id) => set({ activeProfileId: id }),
 
@@ -432,11 +447,26 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   // Content Type Filter
   contentTypeFilter: 'live',
-  setContentTypeFilter: (filter) => set({ contentTypeFilter: filter, categoryFilter: null }),
+  setContentTypeFilter: (filter) =>
+    set({
+      contentTypeFilter: filter,
+      categoryFilter: null,
+      genreFilter: null,
+      fourKOnly: false,
+      titleGenres: null,
+    }),
 
   // TMDB status
   tmdbStatus: null,
   setTmdbStatus: (status) => set({ tmdbStatus: status }),
+
+  // Browse filters
+  titleGenres: null,
+  setTitleGenres: (titleGenres) => set({ titleGenres }),
+  genreFilter: null,
+  setGenreFilter: (genreFilter) => set({ genreFilter }),
+  fourKOnly: false,
+  setFourKOnly: (fourKOnly) => set({ fourKOnly }),
 
   // Title sort
   titleSorts: loadTitleSorts(),

@@ -7,6 +7,13 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Added
 
+- **Movies and Series browse bar** - the category chip row in Movies and Series becomes one bar under the top bar: genre tabs on the left, then the provider category, a 4K switch (Movies) and the sort menu on the right. Live TV keeps its category chips
+  - **Genre tabs** (`BrowseBar`): one line that scrolls sideways with no scrollbar; edge fades and ‹ › buttons show where there is more, and a mouse wheel over the strip scrolls it. Ordered by how many titles carry each genre; clicking the active one clears it. Genres combine with the category
+  - Genres come from a new `get_title_genres` command: series use the provider's own `genre` from `get_series` (stored in a new `channels.genres` column), movies use TMDB (`get_vod_streams` sends none), so movie genres grow as the background scan matches titles; the strip re-reads them every minute in Movies
+  - **Categories** move into a side panel (`CategoryPanel`) that opens from the right beside its button: All, pinned, then the rest, with a filter box and the same pins; built on `useModalDialog`
+  - **4K**: a switch in Movies and a 4K badge on posters, from `lib/fourK` (4K, UHD or 2160p as a word in the title or category, so "24K Magic" is not 4K). A series in the Series section no longer wears the "Series" tag (it still does in Favorites and search, where types mix)
+  - Nothing in the bar animates (no transitions, instant scroll jumps): see the DMA-BUF stale-frame note in #95
+  - The test setup's `ResizeObserver` mock is now a class, since components construct it with `new`
 - **Sort Movies and Series** - a menu at the end of the category row: Provider order (the default, as before), Recently added, Highest rated, Name A–Z, Name Z–A, Year newest first
   - The menu is a chip that names the current order and opens a small panel of the options, built like the profile switcher (same panel and rows; Escape or a press outside closes it, arrows/Home/End move, it opens on the current option)
   - **Highest rated** uses the provider's own `rating` (0-10, TMDB scale) from `get_vod_streams` / `get_series`, now stored in a new `channels.rating` column (migration in `schema.rs`, `provider_rating` in `xtream.rs`); `0`, empty or out-of-range values count as no rating and sort last
