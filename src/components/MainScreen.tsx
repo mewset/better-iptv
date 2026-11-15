@@ -9,6 +9,8 @@ import {
   getXtreamSeriesId,
   getLocalSeriesInfo,
   getTmdbStatus,
+  getFeaturedTitles,
+  type FeaturedTitle,
   type CategoryGroups,
   type TmdbDetails,
 } from '../lib/tauri';
@@ -102,6 +104,9 @@ const guideDateFormat = new Intl.DateTimeFormat(undefined, {
 function guideSubtitle(now: number): string {
   return `${guideDateFormat.format(now)} · ${formatClockAt(now)}`;
 }
+
+/** A stable empty list, so the banner's memos do not rebuild every render. */
+const NO_FEATURED: FeaturedTitle[] = [];
 
 export default function MainScreen() {
   // Search & filters
@@ -371,22 +376,56 @@ export default function MainScreen() {
   //    asks for the candidates as soon as channels load, so this is a one-off
   //    per profile.
   const HERO_CANDIDATES = 10;
+  const HERO_ROTATE_MS = 6_000;
   const tmdbCards = usePlayerStore((s) => s.tmdbCards);
   const vodChannels = usePlayerStore((s) => s.vodChannels);
   const seriesChannels = usePlayerStore((s) => s.seriesChannels);
   const heroSafe = (c: Channel) => !isAdultContent(c.name, c.group_name);
-  const heroWarmupIds = useMemo(
+  // The banner's titles for the section: TMDB's trending today, then popular
+  // recent releases, from the backend; refreshed every ten minutes (the
+  // trending list itself changes once a day).
+  const [featured, setFeatured] = useState<{ section: string; items: FeaturedTitle[] } | null>(
+    null
+  );
+  useEffect(() => {
+    const pid = currentPlaylist?.id;
+    if (!pid || (contentTypeFilter !== 'vod' && contentTypeFilter !== 'series')) return;
+    const section = contentTypeFilter;
+    let alive = true;
+    const load = () =>
+      getFeaturedTitles(pid, section)
+        .then((items) => {
+          if (alive) setFeatured({ section, items });
+        })
+        .catch((err) => logger.warn('Could not load featured titles:', err));
+    void load();
+    const timer = setInterval(load, 10 * 60_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [currentPlaylist?.id, contentTypeFilter]);
+  const featuredItems = useMemo(
     () =>
-      [
-        ...newestTitles(vodChannels.filter(heroSafe), HERO_CANDIDATES),
-        ...newestTitles(seriesChannels.filter(heroSafe), HERO_CANDIDATES),
-      ].map((c) => c.id),
-    [vodChannels, seriesChannels]
+      featured?.section === contentTypeFilter && Array.isArray(featured.items)
+        ? featured.items
+        : NO_FEATURED,
+    [featured, contentTypeFilter]
+  );
+
+  const heroWarmupIds = useMemo(
+    () => [
+      ...newestTitles(vodChannels.filter(heroSafe), HERO_CANDIDATES).map((c) => c.id),
+      ...newestTitles(seriesChannels.filter(heroSafe), HERO_CANDIDATES).map((c) => c.id),
+      ...featuredItems.map((f) => f.channel_id),
+    ],
+    [vodChannels, seriesChannels, featuredItems]
   );
   // The candidates depend on the list alone. Each arriving TMDB card (up to
   // five a second during the background scan) only re-checks these ten
-  // instead of re-ranking the whole section.
-  const heroCandidates = useMemo(() => {
+  // instead of re-ranking the whole section. Featured titles when TMDB has
+  // any for the section; else the provider's newest additions.
+  const heroCandidates = useMemo((): { channel: Channel; eyebrow: string }[] => {
     if (
       (contentTypeFilter !== 'vod' && contentTypeFilter !== 'series') ||
       categoryFilter ||
@@ -395,12 +434,49 @@ export default function MainScreen() {
       return [];
     }
     const eligible = filteredChannels.filter((c) => !blockedMap.get(c.id!) && heroSafe(c));
-    return newestTitles(eligible, HERO_CANDIDATES);
-  }, [contentTypeFilter, categoryFilter, trimmedQuery, filteredChannels, blockedMap]);
-  const heroChannel = useMemo(
-    () => heroCandidates.find((c) => tmdbCards.has(c.id)) ?? null,
+    if (featuredItems.length > 0) {
+      const byId = new Map(eligible.map((c) => [c.id, c]));
+      const picked = featuredItems.flatMap((f) => {
+        const channel = byId.get(f.channel_id);
+        if (!channel) return [];
+        return [{ channel, eyebrow: f.source === 'trending' ? 'Trending today' : 'Popular' }];
+      });
+      if (picked.length > 0) return picked;
+    }
+    return newestTitles(eligible, HERO_CANDIDATES).map((channel) => ({
+      channel,
+      eyebrow: 'Recently added',
+    }));
+  }, [
+    contentTypeFilter,
+    categoryFilter,
+    trimmedQuery,
+    filteredChannels,
+    blockedMap,
+    featuredItems,
+  ]);
+  // The banner rotates through those that TMDB has artwork for, in order,
+  // every HERO_ROTATE_MS. It holds still while the pointer or the focus is
+  // on it and while the window is hidden, and swaps at once (no cross-fade;
+  // see the DMA-BUF stale-frame note in ChannelCard).
+  const heroPool = useMemo(
+    () => heroCandidates.filter((h) => tmdbCards.has(h.channel.id)),
     [heroCandidates, tmdbCards]
   );
+  const [heroIndex, setHeroIndex] = useState(0);
+  const [heroHeld, setHeroHeld] = useState(false);
+  // A new list (section, category, genre...) starts on its first title; the
+  // pool only growing as TMDB answers keeps the current one.
+  useEffect(() => setHeroIndex(0), [heroCandidates]);
+  useEffect(() => {
+    if (heroPool.length < 2 || heroHeld) return;
+    const timer = setInterval(() => {
+      if (!document.hidden) setHeroIndex((i) => i + 1);
+    }, HERO_ROTATE_MS);
+    return () => clearInterval(timer);
+  }, [heroPool.length, heroHeld]);
+  const heroItem = heroPool.length > 0 ? heroPool[heroIndex % heroPool.length] : null;
+  const heroChannel = heroItem?.channel ?? null;
   const showHero = heroChannel !== null;
 
   // Virtual scrolling setup - virtualize by rows (dynamic items per row).
@@ -414,7 +490,7 @@ export default function MainScreen() {
   //
   // The hero (when shown) is virtual row 0, ahead of every card row: card
   // rows shift by one so their `startIndex` math still lines up with
-  // `filteredChannels`. Its `272 + 20` estimate is only the initial guess -
+  // `filteredChannels`. Its `340 + 20` estimate is only the initial guess -
   // like every other row, it measures its own real height via
   // `measureElement`.
   const gridRowCount = Math.ceil(filteredChannels.length / columns);
@@ -423,7 +499,7 @@ export default function MainScreen() {
   const rowVirtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: (index) => (showHero && index === 0 ? 272 + 20 : estimatedRowHeight),
+    estimateSize: (index) => (showHero && index === 0 ? 340 + 20 : estimatedRowHeight),
     // One row above and below the view: every mounted card costs render and layout time on
     // the first frame and on every list switch. The guide and TMDB look-ahead is separate
     // (LOOKAHEAD_ROWS), so this only has to cover scrolling.
@@ -1043,11 +1119,27 @@ export default function MainScreen() {
                         >
                           {/* pb-5 (20px) carries the gap below the hero, the
                               same estimate the virtualiser's initial guess
-                              uses (272 + 20); the row still measures its own
+                              uses (340 + 20); the row still measures its own
                               real height via `measureElement` above. */}
-                          <div className="pb-5">
+                          <div
+                            className="pb-5"
+                            onMouseEnter={() => setHeroHeld(true)}
+                            onMouseLeave={() => setHeroHeld(false)}
+                            onFocus={() => setHeroHeld(true)}
+                            onBlur={(e) => {
+                              if (!e.currentTarget.contains(e.relatedTarget as globalThis.Node))
+                                setHeroHeld(false);
+                            }}
+                          >
                             <MoviesHero
+                              key={heroChannel!.id}
+                              rotation={{
+                                index: heroIndex % heroPool.length,
+                                count: heroPool.length,
+                                onSelect: setHeroIndex,
+                              }}
                               channel={heroChannel!}
+                              eyebrow={heroItem!.eyebrow}
                               onPlay={handlePlayChannel}
                               onOpen={handleOpenTitle}
                               isPlaying={isPlaying && currentChannel?.id === heroChannel!.id}

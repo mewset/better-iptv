@@ -24,7 +24,7 @@ use chrono::{Datelike, Local, NaiveDate, Utc};
 use log::debug;
 use rusqlite::Connection;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tauri::State;
 
 /// Upper bound on ids per `get_tmdb_cards` call; a visible page is far fewer.
@@ -297,6 +297,127 @@ async fn trending_for_today(
     })
     .await?;
     Ok(fetched)
+}
+
+/// How many titles the Movies / Series banner rotates through.
+pub const FEATURED_MAX: usize = 10;
+/// "Popular" fills the banner from titles released this many years back.
+pub const POPULAR_YEARS_BACK: i32 = 3;
+
+/// One title for the Movies / Series banner and why it is there.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FeaturedTitle {
+    pub channel_id: i64,
+    /// "trending" (on TMDB's trending list today) or "popular" (most voted
+    /// on TMDB among recent releases in the library).
+    pub source: &'static str,
+}
+
+/// The pure half of `get_featured_titles`: the section's library titles on
+/// today's trending list, in its order, then the most-voted recent releases,
+/// up to `FEATURED_MAX`, each title once.
+pub fn build_featured(
+    trending: &[(String, i64)],
+    channels: &[LibraryChannel],
+    candidates: &HashMap<TmdbKey, TmdbHomeCandidate>,
+    content_type: &str,
+    this_year: i32,
+) -> Vec<FeaturedTitle> {
+    let titles: Vec<(i64, &TmdbHomeCandidate)> = library_titles(channels, candidates)
+        .into_iter()
+        .filter(|(_, c)| c.key.content_type == content_type)
+        .collect();
+    let mut out = Vec::new();
+    let mut used = HashSet::new();
+    for (kind, tmdb_id) in trending {
+        if out.len() >= FEATURED_MAX {
+            return out;
+        }
+        if kind != content_type {
+            continue;
+        }
+        if let Some((id, _)) = titles
+            .iter()
+            .filter(|(_, c)| c.tmdb_id == *tmdb_id)
+            .min_by_key(|(id, _)| *id)
+        {
+            if used.insert(*id) {
+                out.push(FeaturedTitle {
+                    channel_id: *id,
+                    source: "trending",
+                });
+            }
+        }
+    }
+    let mut popular: Vec<&(i64, &TmdbHomeCandidate)> = titles
+        .iter()
+        .filter(|(id, c)| {
+            !used.contains(id)
+                && c.release_year
+                    .is_some_and(|y| y >= this_year - POPULAR_YEARS_BACK)
+        })
+        .collect();
+    popular.sort_by(|a, b| {
+        b.1.vote_count
+            .unwrap_or(0)
+            .cmp(&a.1.vote_count.unwrap_or(0))
+            .then(a.0.cmp(&b.0))
+    });
+    out.extend(
+        popular
+            .into_iter()
+            .take(FEATURED_MAX - out.len())
+            .map(|(id, _)| FeaturedTitle {
+                channel_id: *id,
+                source: "popular",
+            }),
+    );
+    out
+}
+
+/// The Movies / Series banner's titles: today's trending titles in the
+/// library, then popular recent ones (`build_featured`). Empty while TMDB is
+/// off or nothing in the library is matched yet; the banner then falls back
+/// to the newest additions.
+#[tauri::command]
+pub async fn get_featured_titles(
+    playlist_id: i64,
+    content_type: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<FeaturedTitle>, AppError> {
+    if content_type != "vod" && content_type != "series" {
+        return Err(AppError::InvalidInput(format!(
+            "No featured titles for content type {content_type}"
+        )));
+    }
+    let today = Local::now().date_naive();
+    let (enabled, channels, candidates) = with_db(&state.pool, move |conn| {
+        if !read_key_settings(conn)?.enabled {
+            return Ok((false, Vec::new(), HashMap::new()));
+        }
+        let candidates: HashMap<TmdbKey, TmdbHomeCandidate> =
+            queries::get_tmdb_home_candidates(conn, today.year() - HOME_YEARS_BACK)?
+                .into_iter()
+                .map(|c| (c.key.clone(), c))
+                .collect();
+        Ok((
+            true,
+            queries::get_library_channels(conn, playlist_id)?,
+            candidates,
+        ))
+    })
+    .await?;
+    if !enabled || candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+    let trending = trending_for_today(&state, &today.format("%Y-%m-%d").to_string()).await?;
+    Ok(build_featured(
+        &trending,
+        &channels,
+        &candidates,
+        &content_type,
+        today.year(),
+    ))
 }
 
 /// "Our pick of the day" for the Home hero: TMDB's trending list (fetched
@@ -1406,5 +1527,47 @@ mod tests {
         assert!(!d.available && !d.matched && !d.manual);
         let manual_no = provider_only_details(true, true);
         assert!(manual_no.available && !manual_no.matched && manual_no.manual);
+    }
+
+    #[test]
+    fn featured_puts_trending_first_then_the_most_voted_recent_titles() {
+        let names = ["alpha", "bravo", "charlie", "delta", "echo"];
+        let channels: Vec<LibraryChannel> = names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| library(i as i64 + 1, n, "vod"))
+            .collect();
+        let mut candidates: HashMap<TmdbKey, TmdbHomeCandidate> = HashMap::new();
+        for (n, tmdb_id, votes, year) in [
+            ("alpha", 101, 10, 2025),
+            ("bravo", 102, 9000, 2024),
+            ("charlie", 103, 50, 2025),
+            ("delta", 104, 99999, 2001), // popular but old: not "popular" here
+            ("echo", 105, 700, 2026),
+        ] {
+            let mut c = candidate(n, "vod", &[18]);
+            c.tmdb_id = tmdb_id;
+            c.vote_count = Some(votes);
+            c.release_year = Some(year);
+            candidates.insert(c.key.clone(), c);
+        }
+        // Trending: a series (other section), charlie, then alpha
+        let trending = vec![
+            ("series".to_string(), 999),
+            ("vod".to_string(), 103),
+            ("vod".to_string(), 101),
+        ];
+        let got = build_featured(&trending, &channels, &candidates, "vod", 2026);
+        let summary: Vec<(i64, &str)> = got.iter().map(|f| (f.channel_id, f.source)).collect();
+        assert_eq!(
+            summary,
+            vec![
+                (3, "trending"),
+                (1, "trending"),
+                (2, "popular"),
+                (5, "popular"),
+            ]
+        );
+        assert!(build_featured(&trending, &channels, &candidates, "series", 2026).is_empty());
     }
 }

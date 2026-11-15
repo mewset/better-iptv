@@ -18,6 +18,11 @@ interface MoviesHeroProps {
   eyebrow?: string;
   /** An extra line under the meta row, e.g. where a pick came from. */
   note?: string;
+  /**
+   * Set when the banner rotates through several titles: which one this is,
+   * how many there are, and a jump to another (the dots).
+   */
+  rotation?: { index: number; count: number; onSelect: (index: number) => void };
 }
 
 /**
@@ -26,6 +31,13 @@ interface MoviesHeroProps {
  * virtualiser by the caller (`MainScreen`) — this component only renders the
  * row's content, it does not manage its own position or measurement.
  */
+
+/** Transparent at the image's left edge, fully opaque from 40% across. */
+const ART_FADE = {
+  WebkitMaskImage: 'linear-gradient(to right, transparent, black 40%)',
+  maskImage: 'linear-gradient(to right, transparent, black 40%)',
+} as const;
+
 export function MoviesHero({
   channel,
   onPlay,
@@ -34,6 +46,7 @@ export function MoviesHero({
   tmdb,
   eyebrow = 'Recently added',
   note,
+  rotation,
 }: MoviesHeroProps) {
   const artUrl = tmdb?.backdrop_url ?? channel.logo;
   // Remember which URL failed rather than a flag: a new URL gets a fresh try
@@ -46,7 +59,7 @@ export function MoviesHero({
   return (
     <section
       aria-label={eyebrow}
-      className="relative h-[272px] overflow-hidden rounded-[18px] border border-border bg-surface-2"
+      className="relative h-[340px] overflow-hidden rounded-[18px] border border-border bg-surface-2"
     >
       {art ? (
         <img
@@ -55,7 +68,14 @@ export function MoviesHero({
           aria-hidden="true"
           draggable={false}
           onError={() => setFailedArt(artUrl ?? null)}
-          className="absolute inset-y-0 right-0 w-[55%] object-cover"
+          // Never wider than 2.4:1 at the banner's 340 px. The image fills
+          // its box, so on a very wide window 55% of the banner left only a
+          // thin strip of the artwork showing.
+          className="absolute inset-y-0 right-0 w-[55%] max-w-[816px] object-cover"
+          // The artwork's left edge fades out instead of starting on a hard
+          // line where a bright backdrop meets the panel. A mask, not a
+          // second gradient: it only shapes the image's own alpha.
+          style={ART_FADE}
         />
       ) : (
         <div className="absolute inset-y-0 right-0 w-[40%]">
@@ -105,6 +125,34 @@ export function MoviesHero({
           </button>
         )}
       </div>
+
+      {rotation && rotation.count > 1 && (
+        <div
+          role="group"
+          aria-label="Featured titles"
+          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-bg/70 px-2 py-1.5"
+        >
+          {Array.from({ length: rotation.count }, (_, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-label={`Show featured title ${i + 1} of ${rotation.count}`}
+              aria-current={i === rotation.index ? 'true' : undefined}
+              onClick={() => rotation.onSelect(i)}
+              className="flex h-5 w-5 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <span
+                aria-hidden="true"
+                className={
+                  i === rotation.index
+                    ? 'h-2 w-5 rounded-full bg-accent'
+                    : 'h-2 w-2 rounded-full bg-text/40 hover:bg-text/70'
+                }
+              />
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
