@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 /// SQL columns for channel SELECT queries (in order)
 const CHANNEL_SELECT_COLUMNS: &str =
-    "id, playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, is_favorite, sort_order, category_order, created_at";
+    "id, playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, is_favorite, sort_order, category_order, created_at, rating";
 
 /// Maps a database row to a Channel struct
 fn map_channel_row(row: &Row) -> rusqlite::Result<Channel> {
@@ -25,6 +25,7 @@ fn map_channel_row(row: &Row) -> rusqlite::Result<Channel> {
         sort_order: row.get(10)?,
         category_order: row.get(11)?,
         created_at: row.get(12)?,
+        rating: row.get(13)?,
     })
 }
 
@@ -143,7 +144,7 @@ pub fn get_channels(conn: &Connection, playlist_id: Option<i64>) -> Result<Vec<C
 /// (`epg::matching`), not the provider's raw id: it is what the frontend
 /// asks the guide for. `CHANNEL_SELECT_COLUMNS` keeps the raw id.
 const SUMMARY_COLUMNS: &str =
-    "id, name, COALESCE(logo_override, logo), group_name, epg_match_key, content_type, is_favorite, created_at";
+    "id, name, COALESCE(logo_override, logo), group_name, epg_match_key, content_type, is_favorite, created_at, rating";
 
 fn map_summary_row(row: &Row) -> rusqlite::Result<ChannelSummary> {
     Ok(ChannelSummary {
@@ -155,6 +156,7 @@ fn map_summary_row(row: &Row) -> rusqlite::Result<ChannelSummary> {
         content_type: row.get(5)?,
         is_favorite: row.get(6)?,
         created_at: row.get(7)?,
+        rating: row.get(8)?,
     })
 }
 
@@ -616,6 +618,7 @@ mod tests {
                 sort_order: (i % 3) as i32,
                 category_order: 0,
                 created_at: None,
+                rating: None,
             };
             create_channel(conn, &ch).unwrap();
         }
@@ -716,6 +719,7 @@ mod tests {
                 sort_order: 0,
                 category_order: 0,
                 created_at: None,
+                rating: None,
             };
             ids.insert(name, create_channel(&conn, &ch).unwrap());
         }
@@ -801,6 +805,7 @@ mod tests {
                 sort_order: i as i32,
                 category_order: *cat_order,
                 created_at: None,
+                rating: None,
             };
             create_channel(&conn, &channel).unwrap();
         }
@@ -854,6 +859,7 @@ mod tests {
             sort_order: 0,
             category_order: 0,
             created_at: None,
+            rating: None,
         };
         create_channel(&conn, &live_channel).unwrap();
 
@@ -872,6 +878,7 @@ mod tests {
             sort_order: 1,
             category_order: 0,
             created_at: None,
+            rating: None,
         };
         create_channel(&conn, &vod_channel).unwrap();
 

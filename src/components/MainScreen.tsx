@@ -14,6 +14,7 @@ import {
 } from '../lib/tauri';
 import { CategoryBar } from './CategoryBar';
 import { SearchTypeTabs, SEARCH_TYPES, type SearchType } from './SearchTypeTabs';
+import { TitleSortMenu } from './TitleSortMenu';
 import { GuideView } from './GuideView';
 import { ChannelGridPlaceholder } from './ChannelGridPlaceholder';
 import { ChannelLoadError } from './ChannelLoadError';
@@ -108,6 +109,10 @@ export default function MainScreen() {
   const searchQuery = usePlayerStore((s) => s.searchQuery);
   const contentTypeFilter = usePlayerStore((s) => s.contentTypeFilter);
   const categoryFilter = usePlayerStore((s) => s.categoryFilter);
+  // Movies and Series can be sorted; a search keeps the playlist order
+  const sortSection =
+    contentTypeFilter === 'vod' || contentTypeFilter === 'series' ? contentTypeFilter : null;
+  const titleSort = usePlayerStore((s) => (sortSection ? s.titleSorts[sortSection] : null));
   const setSearchQuery = usePlayerStore((s) => s.setSearchQuery);
   const setContentTypeFilter = usePlayerStore((s) => s.setContentTypeFilter);
   const setCategoryFilter = usePlayerStore((s) => s.setCategoryFilter);
@@ -470,7 +475,8 @@ export default function MainScreen() {
   }, [kind, columns, showHero, rowVirtualizer]);
 
   // A new list starts at the top: switching section, picking a category
-  // chip, or starting/clearing a search all replace `filteredChannels`, and
+  // chip, changing the sort, or starting/clearing a search all replace
+  // `filteredChannels`, and
   // a scroll offset left over from the previous list would land the user
   // somewhere arbitrary in the new one. Returning from the detail view is
   // not a new list, so it keeps its place (nothing here changes then).
@@ -478,7 +484,7 @@ export default function MainScreen() {
   // rows below, so the first render of the new list already starts at the
   // top instead of mounting rows at the old list's depth. The DOM follows
   // before paint.
-  const listKey = `${contentTypeFilter}\u0000${categoryFilter ?? ''}\u0000${trimmedQuery}\u0000${searching ? searchType : ''}`;
+  const listKey = `${contentTypeFilter}\u0000${categoryFilter ?? ''}\u0000${trimmedQuery}\u0000${titleSort ?? ''}\u0000${searching ? searchType : ''}`;
   const [renderedListKey, setRenderedListKey] = useState(listKey);
   if (renderedListKey !== listKey) {
     setRenderedListKey(listKey);
@@ -985,7 +991,7 @@ export default function MainScreen() {
           />
         ) : (
           <>
-            <div className={searching ? 'px-10' : 'px-10 pt-6'}>
+            <div className={searching ? 'px-10' : 'flex items-start gap-3 px-10 pt-6'}>
               {searching ? (
                 <SearchTypeTabs
                   counts={searchCounts}
@@ -993,7 +999,17 @@ export default function MainScreen() {
                   onSelect={setChosenSearchType}
                 />
               ) : (
-                <CategoryBar />
+                <>
+                  <div className="min-w-0 flex-1">
+                    <CategoryBar />
+                  </div>
+                  {sortSection && (
+                    // pt-3 lines it up with the chips inside the category row
+                    <div className="pt-3">
+                      <TitleSortMenu section={sortSection} />
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
