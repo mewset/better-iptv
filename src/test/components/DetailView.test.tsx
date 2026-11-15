@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import DetailView from '../../components/DetailView';
 import { usePlayerStore } from '../../stores/player-store';
 import type { Channel, Episode, SeriesInfo } from '../../types';
@@ -110,6 +110,37 @@ describe('DetailView for a movie', () => {
     expect(screen.getByText('Leonardo DiCaprio')).toBeInTheDocument();
     expect(screen.getByText('Teddy Daniels')).toBeInTheDocument();
     expect(screen.getByText('MOVIE · Thriller')).toBeInTheDocument();
+  });
+
+  it('offers Quality and Audio pickers for a film with versions and plays the chosen one', async () => {
+    const standard = { ...movie, id: 20, name: 'Shutter Island (2010)', group_name: 'Thriller' };
+    const fourK = { ...movie, id: 21, name: 'Shutter Island (2010) 4K', group_name: '4K Releases' };
+    const german = { ...movie, id: 22, name: 'Shutter Island (2010)', group_name: 'German Movies' };
+    usePlayerStore.setState({ versionPrefs: { quality: '4k', language: null } });
+    const { onPlay } = renderMovie(matched, {
+      channel: standard,
+      versions: [standard, fourK, german],
+    });
+    await screen.findByText('A marshal investigates.');
+
+    const quality = screen.getByRole('group', { name: 'Quality' });
+    const audio = screen.getByRole('group', { name: 'Audio' });
+    expect(within(quality).getByRole('button', { name: '4K' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(within(audio).getByRole('button', { name: 'Original' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+    expect(onPlay).toHaveBeenLastCalledWith(fourK);
+
+    // German has no 4K copy: its standard copy plays, and Quality has no choice to offer
+    fireEvent.click(within(audio).getByRole('button', { name: 'German' }));
+    expect(screen.queryByRole('group', { name: 'Quality' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+    expect(onPlay).toHaveBeenLastCalledWith(german);
   });
 
   it('plays, opens the trailer in the browser and toggles the favourite', async () => {

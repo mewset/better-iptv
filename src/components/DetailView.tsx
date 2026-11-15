@@ -7,6 +7,7 @@ import type { Channel, Episode, SeriesInfo } from '../types';
 import { ColorBars } from './ColorBars';
 import { logger } from '../lib/logger';
 import { errorText } from '../lib/errorText';
+import { pickVersion, versionLanguage, versionQuality, type Quality } from '../lib/versions';
 
 interface DetailViewProps {
   channel: Channel;
@@ -28,6 +29,11 @@ interface DetailViewProps {
   onDetails?: (details: TmdbDetails) => void;
   /** Details chosen in the re-match modal (Task 12); applied whenever it changes. */
   detailsOverride?: TmdbDetails | null;
+  /**
+   * A movie's versions (standard, 4K, dubs) when it has more than one; the
+   * view then offers Quality and Audio pickers and plays the chosen one.
+   */
+  versions?: Channel[];
 }
 
 type RemainingEpisode = { id: string; title: string; extension: string };
@@ -60,6 +66,44 @@ function metaRow(d: TmdbDetails | null, fallbackYear?: string): string {
  * keep the season/episode flow of the old series view, with TMDB filling gaps in
  * the episode rows.
  */
+/** A small segmented choice for the version pickers; no transitions (#95). */
+function VersionPicker<T extends string | null>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: Array<{ value: T; text: string }>;
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div role="group" aria-label={label} className="flex items-center gap-2">
+      <span className="text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">
+        {label}
+      </span>
+      <div className="flex gap-1 rounded-xl bg-surface-2 p-1">
+        {options.map((option) => (
+          <button
+            key={option.text}
+            type="button"
+            aria-pressed={option.value === value}
+            onClick={() => onChange(option.value)}
+            className={`h-8 rounded-lg px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+              option.value === value
+                ? 'bg-accent text-on-accent'
+                : 'text-text-muted hover:text-text'
+            }`}
+          >
+            {option.text}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function DetailView({
   channel,
   loadSeries,
@@ -71,8 +115,46 @@ export default function DetailView({
   onFixMatch,
   onDetails,
   detailsOverride = null,
+  versions,
 }: DetailViewProps) {
   const isSeries = channel.content_type === 'series';
+
+  // Versions: start on the viewer's preferred one, then follow the pickers.
+  // A language without the chosen quality plays the copy it has.
+  const versionPrefs = usePlayerStore((s) => s.versionPrefs);
+  const versionList = !isSeries && versions && versions.length > 1 ? versions : null;
+  const [chosenVersion, setChosenVersion] = useState<{
+    quality: Quality;
+    language: string | null;
+  }>(() => {
+    const start = versionList ? pickVersion(versionList, versionPrefs) : channel;
+    return { quality: versionQuality(start), language: versionLanguage(start) };
+  });
+  const playChannel = useMemo(() => {
+    if (!versionList) return channel;
+    const lang = (c: Channel) => versionLanguage(c);
+    return (
+      versionList.find(
+        (c) => lang(c) === chosenVersion.language && versionQuality(c) === chosenVersion.quality
+      ) ??
+      versionList.find((c) => lang(c) === chosenVersion.language) ??
+      channel
+    );
+  }, [versionList, chosenVersion, channel]);
+  const languages = useMemo(
+    () => [...new Set((versionList ?? []).map((c) => versionLanguage(c)))],
+    [versionList]
+  );
+  const qualities = useMemo(
+    () => [
+      ...new Set(
+        (versionList ?? [])
+          .filter((c) => versionLanguage(c) === versionLanguage(playChannel))
+          .map((c) => versionQuality(c))
+      ),
+    ],
+    [versionList, playChannel]
+  );
   // The channel prop is a snapshot; favourite state lives in the store.
   // A title not in the store yet (library still loading) may have a pending toggle.
   const isFavorite = usePlayerStore(
@@ -349,7 +431,7 @@ export default function DetailView({
             ) : (
               <button
                 type="button"
-                onClick={() => onPlay(channel)}
+                onClick={() => onPlay(playChannel)}
                 disabled={isPlaying}
                 className="flex h-11 items-center gap-2 rounded-xl bg-accent px-5 font-bold text-on-accent focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default"
               >
@@ -403,6 +485,33 @@ export default function DetailView({
               </button>
             )}
           </div>
+          {versionList && (
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pt-2">
+              {qualities.length > 1 && (
+                <VersionPicker
+                  label="Quality"
+                  options={qualities.map((q) => ({
+                    value: q,
+                    text: q === '4k' ? '4K' : 'Standard',
+                  }))}
+                  value={versionQuality(playChannel)}
+                  onChange={(quality) => setChosenVersion((v) => ({ ...v, quality }))}
+                />
+              )}
+              {languages.length > 1 && (
+                <VersionPicker
+                  label="Audio"
+                  options={languages.map((l) => ({ value: l, text: l ?? 'Original' }))}
+                  value={versionLanguage(playChannel)}
+                  onChange={(language) => setChosenVersion((v) => ({ ...v, language }))}
+                />
+              )}
+              <span className="text-xs text-text-faint">
+                Plays {playChannel.name}
+                {playChannel.group_name ? ` · ${playChannel.group_name.trim()}` : ''}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

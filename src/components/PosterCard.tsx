@@ -20,6 +20,8 @@ interface PosterCardProps {
   parentalVisibility?: 'hide' | 'lock' | 'blur';
   /** Callback when the favourite star is toggled */
   onToggleFavorite?: (channelId: number) => void;
+  /** How many versions the film has (standard, 4K, dubs); noted when more than one. */
+  versionCount?: number;
 }
 
 /** 2/3, the target poster ratio. */
@@ -39,6 +41,7 @@ export const PosterCard = memo(function PosterCard({
   isBlocked = false,
   parentalVisibility = 'hide',
   onToggleFavorite,
+  versionCount,
 }: PosterCardProps) {
   const [tmdbArtFailed, setTmdbArtFailed] = useState(false);
   // A re-match brings a new poster URL; give it a chance even if the old one failed.
@@ -189,7 +192,10 @@ export const PosterCard = memo(function PosterCard({
       </div>
 
       <div className="flex items-center justify-between gap-2 text-xs">
-        <span className="truncate text-text-faint">{metaLine(tmdb, channel.group_name ?? '')}</span>
+        <span className="truncate text-text-faint">
+          {metaLine(tmdb, channel.group_name ?? '')}
+          {versionCount !== undefined && versionCount > 1 && ` · ${versionCount} versions`}
+        </span>
       </div>
     </article>
   );

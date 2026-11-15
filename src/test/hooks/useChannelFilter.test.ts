@@ -168,4 +168,55 @@ describe('channel filtering logic', () => {
 
     expect(result.current.map((c) => c.name)).toEqual(['B']);
   });
+
+  describe('one card per film', () => {
+    const versions = [
+      makeChannel({ id: 1, name: 'Heat (1995)', content_type: 'vod', group_name: 'Crime' }),
+      makeChannel({ id: 2, name: 'Heat (1995)', content_type: 'vod', group_name: 'German Movies' }),
+      makeChannel({
+        id: 3,
+        name: 'Heat (1995) 4K',
+        content_type: 'vod',
+        group_name: '4K Releases',
+      }),
+      makeChannel({ id: 4, name: 'Ronin (1998)', content_type: 'vod', group_name: 'Action' }),
+    ];
+
+    it("collapses a film's versions into its preferred one in Movies", () => {
+      usePlayerStore.getState().setChannels(versions);
+      usePlayerStore.setState({
+        contentTypeFilter: 'vod',
+        versionPrefs: { quality: '4k', language: null },
+      });
+      const { result } = renderHook(() => useChannelFilter(''));
+      expect(result.current.map((c) => c.id)).toEqual([3, 4]);
+
+      act(() =>
+        usePlayerStore.setState({ versionPrefs: { quality: 'standard', language: 'German' } })
+      );
+      expect(result.current.map((c) => c.id)).toEqual([2, 4]);
+    });
+
+    it('lists every entry of a chosen category as it is', () => {
+      usePlayerStore.getState().setChannels(versions);
+      usePlayerStore.setState({ contentTypeFilter: 'vod', categoryFilter: 'German Movies' });
+      const { result } = renderHook(() => useChannelFilter(''));
+      expect(result.current.map((c) => c.id)).toEqual([2]);
+    });
+
+    it('collapses search results too, leaving other types alone', () => {
+      usePlayerStore
+        .getState()
+        .setChannels([
+          ...versions,
+          makeChannel({ id: 9, name: 'Heat TV', content_type: 'live', group_name: 'UK' }),
+        ]);
+      usePlayerStore.setState({
+        contentTypeFilter: 'live',
+        versionPrefs: { quality: '4k', language: null },
+      });
+      const { result } = renderHook(() => useChannelFilter('heat'));
+      expect(result.current.map((c) => c.id).sort()).toEqual([3, 9]);
+    });
+  });
 });

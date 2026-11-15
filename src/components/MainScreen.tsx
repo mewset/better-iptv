@@ -56,6 +56,7 @@ import { useHomeRows } from '../hooks/useHomeRows';
 import type { HomePickView } from './HomeView';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { newestTitles } from '../lib/newestTitle';
+import { groupVersions, titleKey } from '../lib/versions';
 import { cardEpg, formatClockAt } from '../lib/epgTime';
 
 const SECTION_TITLES: Record<Section, string> = {
@@ -379,6 +380,14 @@ export default function MainScreen() {
   const HERO_ROTATE_MS = 6_000;
   const tmdbCards = usePlayerStore((s) => s.tmdbCards);
   const vodChannels = usePlayerStore((s) => s.vodChannels);
+  // Every movie's versions (standard, 4K, dubs): the card notes how many, the
+  // detail view offers them
+  const movieVersions = useMemo(() => groupVersions(vodChannels), [vodChannels]);
+  const versionsOf = useCallback(
+    (channel: Channel) =>
+      channel.content_type === 'vod' ? movieVersions.get(titleKey(channel.name)) : undefined,
+    [movieVersions]
+  );
   const seriesChannels = usePlayerStore((s) => s.seriesChannels);
   const heroSafe = (c: Channel) => !isAdultContent(c.name, c.group_name);
   // The banner's titles for the section: TMDB's trending today, then popular
@@ -999,7 +1008,13 @@ export default function MainScreen() {
             onPlay={handlePlayChannel}
             onPlayEpisode={handlePlayEpisode}
             onToggleFavorite={toggleChannelFavorite}
-            isPlaying={isPlaying && currentChannel?.id === detailChannel.id}
+            versions={versionsOf(detailChannel)}
+            isPlaying={
+              isPlaying &&
+              (versionsOf(detailChannel) ?? [detailChannel]).some(
+                (v) => v.id === currentChannel?.id
+              )
+            }
             onFixMatch={handleFixMatch}
             onDetails={handleDetails}
             detailsOverride={matchOverride}
@@ -1207,6 +1222,7 @@ export default function MainScreen() {
                                     onToggleFavorite={toggleChannelFavorite}
                                     isBlocked={isChannelBlocked}
                                     parentalVisibility={parentalVisibility}
+                                    versionCount={versionsOf(channel)?.length}
                                   />
                                 ) : (
                                   <ChannelCard

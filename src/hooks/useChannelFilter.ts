@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { usePlayerStore } from '../stores/player-store';
 import { shouldBlockChannel } from '../lib/parentalControls';
 import { sortTitles } from '../lib/titleSort';
+import { collapseVersions, groupVersions } from '../lib/versions';
 import { searchChannels } from '../lib/searchText';
 import type { Channel } from '../types';
 
@@ -20,6 +21,9 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
   const channels = usePlayerStore((s) => s.channels);
   const liveChannels = usePlayerStore((s) => s.liveChannels);
   const vodChannels = usePlayerStore((s) => s.vodChannels);
+  const versionPrefs = usePlayerStore((s) => s.versionPrefs);
+  // Every movie's versions (standard, 4K, dubs), for one card per film
+  const movieVersions = useMemo(() => groupVersions(vodChannels), [vodChannels]);
   const seriesChannels = usePlayerStore((s) => s.seriesChannels);
   const favoriteChannels = usePlayerStore((s) => s.favoriteChannels);
   const contentTypeFilter = usePlayerStore((s) => s.contentTypeFilter);
@@ -104,8 +108,19 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
     ) {
       result = sortTitles(result, titleSorts[contentTypeFilter]);
     }
+
+    // One card per film in Movies (unless a category is chosen, which lists
+    // exactly its own entries) and in search results: the preferred version
+    // stands in for its standard, 4K and dubbed copies, which the detail view
+    // offers. Series and channels are left as they are.
+    const searching = debouncedSearchQuery.trim() !== '' && contentTypeFilter !== 'guide';
+    if ((contentTypeFilter === 'vod' && !categoryFilter) || searching) {
+      result = collapseVersions(result, movieVersions, versionPrefs);
+    }
     return result;
   }, [
+    movieVersions,
+    versionPrefs,
     baseList,
     contentTypeFilter,
     titleSorts,

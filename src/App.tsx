@@ -23,6 +23,7 @@ export default function App() {
         setPlaylists,
         loadChannels,
         loadParentalSettings,
+        loadVersionPrefs,
         setCurrentPlaylist,
         setActiveProfileId,
         setTmdbStatus,
@@ -39,6 +40,7 @@ export default function App() {
           getActiveProfileId(),
           getTmdbStatus().catch(() => null),
           loadParentalSettings(),
+          loadVersionPrefs(),
           loadAppFonts(),
         ]);
 
