@@ -237,6 +237,30 @@ describe('DetailView for a series', () => {
     ]);
   });
 
+  it('switches the episodes between list and tiles; a tile plays its episode', async () => {
+    const { onPlayEpisode } = renderSeries();
+    await screen.findByText('Pilot');
+    const list = screen.getByRole('button', { name: 'List view' });
+    const tiles = screen.getByRole('button', { name: 'Tiles view' });
+    expect(list).toHaveAttribute('aria-pressed', 'true');
+    // These episodes have no thumbnail: the list shows an "E2" placeholder,
+    // a tile shows it plus its episode badge
+    expect(screen.getAllByText('E2')).toHaveLength(1);
+
+    fireEvent.click(tiles);
+    expect(tiles).toHaveAttribute('aria-pressed', 'true');
+    expect(list).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getAllByText('E2')).toHaveLength(2);
+    expect(screen.getByText('Pilot')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: "Play Cat's in the Bag" }));
+    expect(onPlayEpisode).toHaveBeenLastCalledWith('12', 'mp4', "Cat's in the Bag", [
+      { id: '12', title: "Cat's in the Bag", extension: 'mp4' },
+    ]);
+
+    fireEvent.click(list);
+    expect(screen.getAllByText('E2')).toHaveLength(1);
+  });
+
   it('an episode without a title is played under the title its row shows', async () => {
     const untitled: SeriesInfo = {
       ...info,

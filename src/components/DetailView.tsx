@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Play, Star, Clapperboard, RefreshCw, Search } from 'lucide-react';
+import {
+  ChevronLeft,
+  Play,
+  Star,
+  Clapperboard,
+  RefreshCw,
+  Search,
+  LayoutGrid,
+  List,
+} from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { usePlayerStore } from '../stores/player-store';
 import { getTmdbDetails, getTmdbSeason, type TmdbDetails, type TmdbEpisode } from '../lib/tauri';
@@ -60,6 +69,27 @@ function metaRow(d: TmdbDetails | null, fallbackYear?: string): string {
  * keep the season/episode flow of the old series view, with TMDB filling gaps in
  * the episode rows.
  */
+
+/** How a series' episodes are shown: rows with the plot, or a grid of thumbnails. */
+type EpisodeView = 'list' | 'tiles';
+const EPISODE_VIEW_KEY = 'better-iptv:episode-view';
+
+function loadEpisodeView(): EpisodeView {
+  try {
+    return globalThis.localStorage?.getItem(EPISODE_VIEW_KEY) === 'tiles' ? 'tiles' : 'list';
+  } catch {
+    return 'list';
+  }
+}
+
+function saveEpisodeView(view: EpisodeView): void {
+  try {
+    globalThis.localStorage?.setItem(EPISODE_VIEW_KEY, view);
+  } catch {
+    // The choice still holds for this view
+  }
+}
+
 export default function DetailView({
   channel,
   loadSeries,
@@ -131,6 +161,11 @@ export default function DetailView({
   const [failedPoster, setFailedPoster] = useState<string | null>(null);
   // Bumped by "Try again" after a failed load, like `attempt` for the details.
   const [seriesAttempt, setSeriesAttempt] = useState(0);
+  const [episodeView, setEpisodeViewState] = useState<EpisodeView>(loadEpisodeView);
+  const setEpisodeView = (view: EpisodeView) => {
+    setEpisodeViewState(view);
+    saveEpisodeView(view);
+  };
   useEffect(() => {
     if (!isSeries || !loadSeries) return;
     let cancelled = false;
@@ -456,35 +491,71 @@ export default function DetailView({
             <p className="text-text-muted">Loading episodes…</p>
           ) : (
             <>
-              <div
-                role="tablist"
-                aria-label="Seasons"
-                className="mb-4 flex gap-1 overflow-x-auto rounded-xl bg-surface-2 p-1"
-              >
-                {currentSeries?.seasons.map((season) => {
-                  const active = selectedSeason === season.season_number;
-                  return (
+              <div className="mb-4 flex items-start gap-3">
+                <div
+                  role="tablist"
+                  aria-label="Seasons"
+                  className="flex min-w-0 flex-1 gap-1 overflow-x-auto rounded-xl bg-surface-2 p-1"
+                >
+                  {currentSeries?.seasons.map((season) => {
+                    const active = selectedSeason === season.season_number;
+                    return (
+                      <button
+                        key={season.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => setSelectedSeason(season.season_number)}
+                        className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+                          active ? 'bg-accent text-on-accent' : 'text-text-muted hover:text-text'
+                        }`}
+                      >
+                        {season.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div
+                  role="group"
+                  aria-label="Episode layout"
+                  className="flex shrink-0 gap-1 rounded-xl bg-surface-2 p-1"
+                >
+                  {(
+                    [
+                      ['list', 'List', List],
+                      ['tiles', 'Tiles', LayoutGrid],
+                    ] as const
+                  ).map(([view, label, Icon]) => (
                     <button
-                      key={season.id}
+                      key={view}
                       type="button"
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => setSelectedSeason(season.season_number)}
-                      className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
-                        active ? 'bg-accent text-on-accent' : 'text-text-muted hover:text-text'
+                      aria-pressed={episodeView === view}
+                      aria-label={`${label} view`}
+                      title={`${label} view`}
+                      onClick={() => setEpisodeView(view)}
+                      className={`flex h-9 w-9 items-center justify-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                        episodeView === view
+                          ? 'bg-accent text-on-accent'
+                          : 'text-text-muted hover:text-text'
                       }`}
                     >
-                      {season.name}
+                      <Icon className="h-4 w-4" aria-hidden="true" />
                     </button>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
               {seasonEpisodes.length === 0 ? (
                 <p className="py-8 text-center text-text-muted">
                   No episodes available for this season
                 </p>
               ) : (
-                <ul className="flex flex-col gap-2">
+                <ul
+                  className={
+                    episodeView === 'tiles'
+                      ? 'grid grid-cols-2 gap-x-5 gap-y-6 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'
+                      : 'flex flex-col gap-2'
+                  }
+                >
                   {seasonEpisodes.map((episode, index) => {
                     const tmdbEp = tmdbBySeasonEpisode.get(episode.episode_num);
                     const thumb = episode.info.movie_image ?? tmdbEp?.still_url ?? null;
@@ -493,6 +564,48 @@ export default function DetailView({
                     const duration =
                       episode.info.duration ??
                       (tmdbEp?.runtime_minutes ? `${tmdbEp.runtime_minutes} min` : null);
+                    if (episodeView === 'tiles') {
+                      // The whole thumbnail plays; the Play badge shows on hover
+                      // or focus at once, without a fade (see ChannelCard).
+                      return (
+                        <li key={episode.id} className="flex min-w-0 flex-col gap-2">
+                          <button
+                            type="button"
+                            aria-label={`Play ${epTitle}`}
+                            onClick={() => playFrom(index)}
+                            className="group relative aspect-video w-full overflow-hidden rounded-xl border border-border bg-surface-2 hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                          >
+                            {thumb ? (
+                              <img
+                                src={thumb}
+                                alt=""
+                                draggable={false}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <span className="flex h-full items-center justify-center text-2xl font-bold text-text-faint">
+                                E{episode.episode_num}
+                              </span>
+                            )}
+                            <span className="absolute left-2 top-2 rounded-md bg-bg/80 px-2 py-0.5 text-xs font-bold text-text">
+                              E{episode.episode_num}
+                            </span>
+                            {duration && (
+                              <span className="absolute bottom-2 right-2 rounded-md bg-bg/80 px-2 py-0.5 text-xs font-medium text-text">
+                                {duration}
+                              </span>
+                            )}
+                            <span className="absolute inset-0 m-auto hidden h-12 w-12 items-center justify-center rounded-full bg-accent text-on-accent group-hover:flex group-focus-visible:flex">
+                              <Play className="h-5 w-5" aria-hidden="true" />
+                            </span>
+                          </button>
+                          <p className="line-clamp-2 text-[15px] font-semibold text-text">
+                            <span className="text-text-faint">{episode.episode_num}.</span>{' '}
+                            {epTitle}
+                          </p>
+                        </li>
+                      );
+                    }
                     return (
                       <li
                         key={episode.id}

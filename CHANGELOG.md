@@ -7,6 +7,7 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Added
 
+- **Episodes as a list or as tiles** - a series' detail view gets a List / Tiles switch beside the season tabs. Tiles are a grid of 16:9 thumbnails (five a row on a wide window, down to two), each with an episode badge and the running time on the image and the title below; the whole tile plays the episode, continuing through the season as a row does. The choice is kept per viewer in `localStorage` (`better-iptv:episode-view`), read defensively. Nothing fades (#95)
 - **Keyboard navigation in the channel grid** - arrow keys move one card, `Home`/`End` to the ends of the row (with `Ctrl` of the list), `Page Up`/`Page Down` one screen, `Enter` does what a click does; Arrow Down in the search box goes to the first result
   - WAI-ARIA grid with `aria-activedescendant` on the scroll container (`useGridKeyboardNav`, pure math in `lib/gridNav`), as in the 2026-09-10 design: the cards keep no `tabIndex` and are untouched, the cells around them carry the semantics and the ring
   - The ring shows only while the keyboard drives; a click makes a card active without one. The row scrolled into view stays above the dock
