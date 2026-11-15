@@ -344,15 +344,30 @@ describe('MainScreen: Series hero', () => {
     );
   });
 
-  it('shows a movie in cross-type search results with its TMDB year and rating, not "No guide data"', async () => {
+  it('splits cross-type search results into type tabs, each with poster cards and TMDB data', async () => {
     setupInvoke(defaultParentalSettings(), [11, 12, 2]);
     usePlayerStore.setState({ contentTypeFilter: 'live', searchQuery: 'Newest' });
     usePlayerStore
       .getState()
       .setChannels([olderShow, newestShow, movie(2, 'Newest Movie', '2026-06-01T00:00:00Z')]);
     render(<MainScreen />);
-    expect(await screen.findByText('Movie · 2024 · ★ 7.5')).toBeInTheDocument();
-    expect(screen.getByText('Series · 2024 · ★ 7.5')).toBeInTheDocument();
+
+    // No live result, so no Live TV tab; Movies opens first (a tie goes to the tab order)
+    const tabs = within(await screen.findByRole('group', { name: 'Result types' }));
+    const movies = tabs.getByRole('button', { name: /^Movies/ });
+    const series = tabs.getByRole('button', { name: /^Series/ });
+    expect(tabs.queryByRole('button', { name: /^Live TV/ })).not.toBeInTheDocument();
+    // Titled as a search, not after the section it started in
+    expect(screen.getByRole('heading', { name: 'Search' })).toBeInTheDocument();
+    expect(movies).toHaveAttribute('aria-pressed', 'true');
+    expect((await screen.findAllByText('Newest Movie')).length).toBeGreaterThan(0);
+    expect(screen.queryAllByText('Newest Show')).toHaveLength(0);
+    expect((await screen.findAllByText('2024 · ★ 7.5')).length).toBeGreaterThan(0);
     expect(screen.queryByText('No guide data')).not.toBeInTheDocument();
+
+    fireEvent.click(series);
+    expect(series).toHaveAttribute('aria-pressed', 'true');
+    expect((await screen.findAllByText('Newest Show')).length).toBeGreaterThan(0);
+    expect(screen.queryAllByText('Newest Movie')).toHaveLength(0);
   });
 });

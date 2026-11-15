@@ -7,6 +7,7 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Added
 
+- **Search results by type** - a search spans every content type, so its results used the channel card for everything: movie and series posters shrank into the logo slot, a click played a movie instead of opening it, and the header kept the name of the section the search started in. While searching, `SearchTypeTabs` now splits the results into Movies / Series / Live TV (types without a result are left out, each with its count) and the grid shows one type at a time with its own card: posters for Movies and Series (a click opens the detail view), channel cards for Live TV. It opens on the section's own type when that has results, else the type with the most; the choice resets when the search is cleared. The header reads "Search" and "N results for “query”" (the total across types). The guide keeps its own live-only search
 - **Keyboard navigation in the channel grid** - arrow keys move one card, `Home`/`End` to the ends of the row (with `Ctrl` of the list), `Page Up`/`Page Down` one screen, `Enter` does what a click does; Arrow Down in the search box goes to the first result
   - WAI-ARIA grid with `aria-activedescendant` on the scroll container (`useGridKeyboardNav`, pure math in `lib/gridNav`), as in the 2026-09-10 design: the cards keep no `tabIndex` and are untouched, the cells around them carry the semantics and the ring
   - The ring shows only while the keyboard drives; a click makes a card active without one. The row scrolled into view stays above the dock

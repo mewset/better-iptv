@@ -8,6 +8,7 @@ A simple overview of new features and improvements.
 
 ### New Features
 
+- Search results are split into Movies, Series and Live TV tabs, with posters for movies and series; a movie or series opens its page instead of playing
 - Added moving through channels, movies and series with the arrow keys; press Enter to play
 - Added search that finds names whatever their accents, e.g. "tele" finds "Télé"
 - Added a button that clears the search box
