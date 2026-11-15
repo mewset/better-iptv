@@ -316,6 +316,17 @@ export async function getTmdbCards(channelIds: number[]): Promise<TmdbCard[]> {
   return await invoke('get_tmdb_cards', { channelIds });
 }
 
+/**
+ * TMDB's rating and vote count per title in a Movies or Series section, for
+ * the "Highest rated" sort; empty while TMDB is off.
+ */
+export async function getTitleRatings(
+  playlistId: number,
+  contentType: 'vod' | 'series'
+): Promise<Record<number, { rating: number; votes: number }>> {
+  return await invoke('get_title_ratings', { playlistId, contentType });
+}
+
 export async function getTmdbStatus(): Promise<TmdbStatus> {
   return await invoke('get_tmdb_status');
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { metaLine, heroMetaLine, cardFromDetails } from '../../lib/tmdb';
+import { metaLine, heroMetaLine, cardFromDetails, votesText } from '../../lib/tmdb';
 import type { TmdbDetails } from '../../lib/tauri';
 
 describe('metaLine', () => {
@@ -61,5 +61,14 @@ describe('cardFromDetails', () => {
   });
   it('is null for an unmatched title', () => {
     expect(cardFromDetails(9, { ...details, matched: false, tmdb_id: null })).toBeNull();
+  });
+});
+
+describe('votesText', () => {
+  it('writes a vote count compactly', () => {
+    expect(votesText(1)).toBe('1 vote');
+    expect(votesText(857)).toBe('857 votes');
+    expect(votesText(12000)).toBe('12k votes');
+    expect(votesText(1234567)).toBe('1.2m votes');
   });
 });

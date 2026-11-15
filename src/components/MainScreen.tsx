@@ -48,6 +48,7 @@ import { useChannelPlayback } from '../hooks/useChannelPlayback';
 import { isAdultContent, shouldBlockChannel } from '../lib/parentalControls';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useChannelFilter } from '../hooks/useChannelFilter';
+import { useTitleRatings } from '../hooks/useTitleRatings';
 import { useUpdateCheck } from '../hooks/useUpdateCheck';
 import { useTmdbCards } from '../hooks/useTmdbCards';
 import { useHomeRows } from '../hooks/useHomeRows';
@@ -112,6 +113,7 @@ export default function MainScreen() {
   const sortSection =
     contentTypeFilter === 'vod' || contentTypeFilter === 'series' ? contentTypeFilter : null;
   const titleSort = usePlayerStore((s) => (sortSection ? s.titleSorts[sortSection] : null));
+  useTitleRatings(sortSection);
   const setSearchQuery = usePlayerStore((s) => s.setSearchQuery);
   const setContentTypeFilter = usePlayerStore((s) => s.setContentTypeFilter);
   const setCategoryFilter = usePlayerStore((s) => s.setCategoryFilter);
@@ -121,6 +123,8 @@ export default function MainScreen() {
 
   // Consolidated channel filtering (content type, category, parental, search)
   const filteredChannels = useChannelFilter(debouncedSearchQuery);
+  // "Highest rated" ranks by TMDB's vote-weighted rating and shows the votes
+  const titleRatings = usePlayerStore((s) => s.titleRatings);
 
   // Playback (hook handles MPV status polling)
   const {
@@ -1115,6 +1119,11 @@ export default function MainScreen() {
                                     onToggleFavorite={toggleChannelFavorite}
                                     isBlocked={isChannelBlocked}
                                     parentalVisibility={parentalVisibility}
+                                    votes={
+                                      titleSort === 'rating' && !trimmedQuery
+                                        ? titleRatings?.[channel.id]?.votes
+                                        : undefined
+                                    }
                                   />
                                 ) : (
                                   <ChannelCard

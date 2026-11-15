@@ -14,7 +14,7 @@ import type { CategoryGroups, TmdbCard, TmdbStatus } from '../lib/tauri';
 import { applyEpgKeys } from '../lib/epgKeys';
 import { logger } from '../lib/logger';
 import { loadTitleSorts, saveTitleSorts } from '../lib/titleSort';
-import type { SortableSection, TitleSort } from '../lib/titleSort';
+import type { SortableSection, TitleRatings, TitleSort } from '../lib/titleSort';
 
 /**
  * A section of the app the user is browsing: the destinations behind the
@@ -194,6 +194,9 @@ interface PlayerState {
   // Movies and Series order, per section; remembered between launches
   titleSorts: Record<SortableSection, TitleSort>;
   setTitleSort: (section: SortableSection, sort: TitleSort) => void;
+  /** TMDB ratings for the section's titles, for "Highest rated"; null until loaded. */
+  titleRatings: TitleRatings | null;
+  setTitleRatings: (ratings: TitleRatings | null) => void;
 
   // Category Filter (provider categories like "Sweden", "Norway", etc.)
   categoryFilter: string | null;
@@ -276,7 +279,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set((state) =>
       playlist?.id === state.currentPlaylist?.id
         ? { currentPlaylist: playlist }
-        : { currentPlaylist: playlist, categoryFilter: null }
+        : { currentPlaylist: playlist, categoryFilter: null, titleRatings: null }
     ),
   setActiveProfileId: (id) => set({ activeProfileId: id }),
 
@@ -432,13 +435,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   // Content Type Filter
   contentTypeFilter: 'live',
-  setContentTypeFilter: (filter) => set({ contentTypeFilter: filter, categoryFilter: null }),
+  setContentTypeFilter: (filter) =>
+    set({ contentTypeFilter: filter, categoryFilter: null, titleRatings: null }),
 
   // TMDB status
   tmdbStatus: null,
   setTmdbStatus: (status) => set({ tmdbStatus: status }),
 
   // Title sort
+  titleRatings: null,
+  setTitleRatings: (titleRatings) => set({ titleRatings }),
   titleSorts: loadTitleSorts(),
   setTitleSort: (section, sort) => {
     const titleSorts = { ...get().titleSorts, [section]: sort };

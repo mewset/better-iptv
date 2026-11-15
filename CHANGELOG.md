@@ -27,6 +27,10 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Fixed
 
+- **Highest rated put obscure titles first** - it sorted by the provider's `rating`, a copy of TMDB's average without the vote count, so a 10.0 from one or two votes topped the list (72 titles at 10.0 in a 22,800-movie library), while the posters showed TMDB's own, different rating
+  - Titles TMDB has matched now rank by the vote-weighted rating IMDb's Top 250 uses, `(v / (v + m)) · R + (m / (v + m)) · C` with `m` = 250 votes and a fixed `C` = 6.5 (`lib/titleSort`), from a new `get_title_ratings` command (TMDB rating and vote count per channel, via the cards' title key). Loaded only while the sort is on, re-read every minute as the scan matches more (`useTitleRatings`)
+  - Titles without TMDB data follow, by the provider's rating; a perfect 10 counts as no rating there, since an average of exactly 10 only comes from a handful of votes. Without TMDB this is the whole order
+  - While sorted by rating a poster shows TMDB's vote count after its stars, "★ 8.7 · 32k votes" (`votesText`)
 - **Xtream series that never opened** - some panels answer `get_series_info` in shapes the series view could not use, so the series showed an error or no episodes at all
   - Seasons without an `id`: `Season.id` was required, so one such season failed the whole response ("The provider sent series info that could not be read", log: ``missing field `id` ``). It is now `#[serde(default)]`, and `SeriesInfo::normalize_seasons` fills an empty id with the season number, the rule `series_domain::build_series_info` already uses for M3U series. The frontend keys the season list on it
   - `"seasons": []` next to a full `episodes` map: the response parsed, but with no season to select the view listed nothing. `normalize_seasons` now adds a `Season N` for every non-empty episode group that no listed season covers, in numeric order; a complete list from the panel keeps its own order
