@@ -89,6 +89,7 @@ mod tests {
             sort_order: 0,
             category_order: order,
             created_at: None,
+            rating: None,
         };
         mutations::create_channel(conn, &channel).unwrap();
     }

@@ -736,6 +736,7 @@ mod tests {
             sort_order: 0,
             category_order: 0,
             created_at: None,
+            rating: None,
         };
         merge_channels(
             &conn,
@@ -1014,6 +1015,7 @@ mod tests {
             sort_order: 0,
             category_order: 0,
             created_at: None,
+            rating: None,
         };
         merge_channels(&conn, p, &[channel("tv4.se")], false).unwrap();
         let tv4: i64 = conn
