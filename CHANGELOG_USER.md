@@ -8,7 +8,7 @@ A simple overview of new features and improvements.
 
 ### New Features
 
-- Added sorting for Movies and Series: recently added, name A–Z or Z–A, or year. Refresh an Xtream playlist once for "Recently added" to know the dates
+- Added sorting for Movies and Series: recently added, highest rated, name A–Z or Z–A, or year. Refresh an Xtream playlist once for "Recently added" to know the dates
 - Added moving through channels, movies and series with the arrow keys; press Enter to play
 - Added search that finds names whatever their accents, e.g. "tele" finds "Télé"
 - Added a button that clears the search box

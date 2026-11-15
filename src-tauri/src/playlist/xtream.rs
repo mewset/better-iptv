@@ -343,6 +343,19 @@ struct XtreamStream {
     added: Option<String>,
     #[serde(default, deserialize_with = "de_lenient_opt_string")]
     last_modified: Option<String>,
+    // 0-10 (TMDB scale), sent as a number or a string; see `provider_rating`.
+    #[serde(default, deserialize_with = "de_lenient_opt_string")]
+    rating: Option<String>,
+}
+
+/// The provider's rating when it is a usable 0-10 number. Panels send `0` or
+/// `""` for "no rating", so zero counts as none.
+fn provider_rating(stream: &XtreamStream) -> Option<f64> {
+    stream
+        .rating
+        .as_deref()
+        .and_then(|s| s.trim().parse::<f64>().ok())
+        .filter(|r| r.is_finite() && *r > 0.0 && *r <= 10.0)
 }
 
 /// The provider's "added" time (Unix seconds) in SQLite's `CURRENT_TIMESTAMP`
@@ -832,6 +845,7 @@ fn convert_streams_to_channels(
                 .unwrap_or((None, i32::MAX)); // Uncategorized items go last
 
             let created_at = provider_added_at(&stream);
+            let rating = provider_rating(&stream);
 
             Channel {
                 id: None,
@@ -847,6 +861,7 @@ fn convert_streams_to_channels(
                 sort_order: idx as i32,
                 category_order,
                 created_at,
+                rating,
             }
         })
         .collect()
@@ -1151,8 +1166,8 @@ mod series_decoration_tests {
 #[cfg(test)]
 mod lenient_scalar_tests {
     use super::{
-        provider_added_at, Episode, Season, SeriesInfo, SeriesMetadata, XtreamCategory,
-        XtreamStream,
+        provider_added_at, provider_rating, Episode, Season, SeriesInfo, SeriesMetadata,
+        XtreamCategory, XtreamStream,
     };
 
     // Each case below fails to parse against strict serde typing. They are the
@@ -1290,6 +1305,25 @@ mod lenient_scalar_tests {
         let empty = r#"{"name":"Show","rating":""}"#;
         let meta: SeriesMetadata = serde_json::from_str(empty).unwrap();
         assert_eq!(meta.rating, None);
+    }
+
+    #[test]
+    fn provider_rating_reads_numbers_and_strings_and_drops_no_rating() {
+        let at = |json: &str| provider_rating(&serde_json::from_str::<XtreamStream>(json).unwrap());
+        assert_eq!(
+            at(r#"{"name":"M","stream_id":1,"rating":5.294}"#),
+            Some(5.294)
+        );
+        assert_eq!(at(r#"{"name":"S","series_id":2,"rating":"7"}"#), Some(7.0));
+        for json in [
+            r#"{"name":"M","stream_id":1}"#,
+            r#"{"name":"M","stream_id":1,"rating":""}"#,
+            r#"{"name":"M","stream_id":1,"rating":0}"#,
+            r#"{"name":"M","stream_id":1,"rating":"n/a"}"#,
+            r#"{"name":"M","stream_id":1,"rating":42}"#,
+        ] {
+            assert_eq!(at(json), None, "{json}");
+        }
     }
 
     #[test]

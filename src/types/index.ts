@@ -29,6 +29,8 @@ export interface Channel {
   content_type: 'live' | 'vod' | 'series';
   is_favorite: boolean;
   created_at?: string;
+  /** The provider's rating, 0-10 (TMDB scale); absent when it sends none */
+  rating?: number;
 }
 
 export interface SeriesInfo {

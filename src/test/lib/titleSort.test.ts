@@ -54,6 +54,17 @@ describe('sortTitles', () => {
     ]);
   });
 
+  it('sorts by rating highest first; unrated goes last in list order', () => {
+    const rated = [
+      { ...title(1, 'A'), rating: 6.1 },
+      title(2, 'B'),
+      { ...title(3, 'C'), rating: 8.4 },
+      { ...title(4, 'D'), rating: 0 },
+      { ...title(5, 'E'), rating: 8.4 },
+    ];
+    expect(names(sortTitles(rated, 'rating'))).toEqual(['C', 'E', 'A', 'B', 'D']);
+  });
+
   it('sorts by added date newest first; ties keep list order, undated goes last', () => {
     expect(names(sortTitles(list, 'added'))).toEqual([
       '#Alive (2020)',
@@ -118,7 +129,7 @@ describe('loadTitleSorts / saveTitleSorts', () => {
   it('ignores a corrupt or unknown value', () => {
     localStorage.setItem('better-iptv:title-sort', '{not json');
     expect(loadTitleSorts()).toEqual(DEFAULT_TITLE_SORTS);
-    localStorage.setItem('better-iptv:title-sort', JSON.stringify({ vod: 'rating' }));
+    localStorage.setItem('better-iptv:title-sort', JSON.stringify({ vod: 'popularity' }));
     expect(loadTitleSorts()).toEqual(DEFAULT_TITLE_SORTS);
   });
 });

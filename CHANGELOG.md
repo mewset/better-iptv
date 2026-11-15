@@ -7,7 +7,9 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Added
 
-- **Sort Movies and Series** - a select at the end of the category row: Provider order (the default, as before), Recently added, Name A–Z, Name Z–A, Year newest first
+- **Sort Movies and Series** - a menu at the end of the category row: Provider order (the default, as before), Recently added, Highest rated, Name A–Z, Name Z–A, Year newest first
+  - The menu is a chip that names the current order and opens a small panel of the options, built like the profile switcher (same panel and rows; Escape or a press outside closes it, arrows/Home/End move, it opens on the current option)
+  - **Highest rated** uses the provider's own `rating` (0-10, TMDB scale) from `get_vod_streams` / `get_series`, now stored in a new `channels.rating` column (migration in `schema.rs`, `provider_rating` in `xtream.rs`); `0`, empty or out-of-range values count as no rating and sort last
   - `lib/titleSort` sorts the filtered list in `useChannelFilter`, stable, never in place; names compare with `Intl.Collator` (numeric, base sensitivity, punctuation ignored), the year comes from a trailing `(YYYY)`, and titles a key cannot place go last in list order. A search spans every type, so its results keep the playlist order and the select is hidden
   - The choice is per section, kept in the store and in `localStorage` (`better-iptv:title-sort`), read defensively; changing it starts the list at the top like a new category
   - **Recently added** needs a real date: the Xtream import now stores the provider's `added` (VOD, live) or `last_modified` (series) Unix time as the channel's `created_at`, in `CURRENT_TIMESTAMP` form, instead of the insert time. Before, every row got the time of the last refresh, so `newestTitles` (the Movies/Series hero) was choosing among equal dates; it now gets the provider's order of arrival too. M3U imports keep the insert time

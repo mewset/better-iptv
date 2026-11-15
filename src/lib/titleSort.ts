@@ -5,7 +5,7 @@ import type { Channel } from '../types';
  * own order (categories in provider order, titles as listed), the order the
  * grid had before sorting existed.
  */
-export type TitleSort = 'provider' | 'added' | 'name' | 'name-desc' | 'year';
+export type TitleSort = 'provider' | 'added' | 'rating' | 'name' | 'name-desc' | 'year';
 
 /** The sortable sections. */
 export type SortableSection = 'vod' | 'series';
@@ -14,6 +14,7 @@ export type SortableSection = 'vod' | 'series';
 export const TITLE_SORTS: ReadonlyArray<{ value: TitleSort; label: string }> = [
   { value: 'provider', label: 'Provider order' },
   { value: 'added', label: 'Recently added' },
+  { value: 'rating', label: 'Highest rated' },
   { value: 'name', label: 'Name A–Z' },
   { value: 'name-desc', label: 'Name Z–A' },
   { value: 'year', label: 'Year, newest first' },
@@ -84,6 +85,12 @@ export function sortTitles(channels: Channel[], sort: TitleSort): Channel[] {
       return [...channels].sort((a, b) => collator.compare(a.name, b.name));
     case 'name-desc':
       return [...channels].sort((a, b) => collator.compare(b.name, a.name));
+    case 'rating':
+      return sortByKey(
+        channels,
+        (c) => (typeof c.rating === 'number' && c.rating > 0 ? c.rating : null),
+        (a, b) => b - a
+      );
     case 'year':
       return sortByKey(
         channels,
