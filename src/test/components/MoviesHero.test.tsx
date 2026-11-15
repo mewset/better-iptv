@@ -66,6 +66,15 @@ describe('MoviesHero with TMDB data', () => {
     expect(screen.getByText('2023 · Action, Thriller · ★ 7.4')).toBeInTheDocument();
   });
 
+  it('caps the width of the artwork, so a very wide banner does not crop it to a strip', () => {
+    // jsdom has no layout, so check the rule: 816 px is 2.4:1 at the banner's 340 px
+    const { container } = render(
+      <MoviesHero channel={{ ...movie, logo: 'x.jpg' }} onPlay={vi.fn()} />
+    );
+    expect(container.querySelector('section')).toHaveClass('h-[340px]');
+    expect(container.querySelector('img')).toHaveClass('w-[55%]', 'max-w-[816px]');
+  });
+
   it('offers "Open" instead of "Play" for a series and calls onOpen', () => {
     const onPlay = vi.fn();
     const onOpen = vi.fn();
