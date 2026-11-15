@@ -8,6 +8,7 @@ A simple overview of new features and improvements.
 
 ### New Features
 
+- Added sorting for Movies and Series, e.g. by name, year, rating or recently added. Update your Xtream playlist once to get ratings and dates
 - The banner at the top of Movies and Series now rotates through what's trending today and popular recent titles in your library
 - Added moving through channels, movies and series with the arrow keys; press Enter to play
 - Added search that finds names whatever their accents, e.g. "tele" finds "Télé"
@@ -20,6 +21,8 @@ A simple overview of new features and improvements.
 - Deleting a profile now asks first
 - Empty lists now say why they are empty, e.g. when a search finds nothing in the chosen category
 - Xtream setup now accepts a server address without http://
+- Improved startup speed
+- Play buttons and other controls on cards now appear instantly when you hover
 
 ### Fixes
 
@@ -43,7 +46,7 @@ A simple overview of new features and improvements.
 ### Thanks
 
 - **@h4r0n1** for finding and fixing series that would not open with some Xtream providers (#93)
-- **@RyanBeckett** for a Linux setting that can make scrolling smoother (#94)
+- **@RyanBeckett** for sorting in Movies and Series, a Linux setting that can make scrolling smoother, and for removing a flicker that came with it (#94, #95, #96)
 
 ## Version 3.3.0 (November 11, 2026)
 
