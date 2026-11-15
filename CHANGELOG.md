@@ -12,7 +12,9 @@ This file is a developer-changelog, aimed towards development changes.
   - It holds still while the pointer or the focus is on it and while the window is hidden, and swaps at once with no cross-fade (see the DMA-BUF stale-frame note in #95). Changing section or filter starts again from the first title
   - The artwork's left edge fades into the panel (a CSS mask on the image) instead of starting on a hard line
   - The banner is taller, 340 px instead of 272 (`MoviesHero`, and the virtualiser's first-row estimate in `MainScreen`), on Home too
-  - Test: `featured_puts_trending_first_then_the_most_voted_recent_titles`
+  - The artwork's box is 55 % of the banner's width, now capped at 816 px (2.4:1 at 340 px). The image fills its box, so on a very wide window only a thin strip of it showed; that was so before the rotation too
+  - Tests: `featured_puts_trending_first_then_the_most_voted_recent_titles`, and "caps the width of the artwork" in `MoviesHero.test.tsx`
+  - Thanks to @RyanBeckett (#98)
 - **Sort Movies and Series** - a menu at the end of the category row: Provider order (the default, as before), Recently added, Highest rated, Name A–Z, Name Z–A, Year newest first
   - The menu is a chip that names the current order and opens a small panel of the options, built like the profile switcher (same panel and rows; Escape or a press outside closes it, arrows/Home/End move, it opens on the current option)
   - **Highest rated** uses the provider's own `rating` (0-10, TMDB scale) from `get_vod_streams` / `get_series`, now stored in a new `channels.rating` column (migration in `schema.rs`, `provider_rating` in `xtream.rs`); `0`, empty or out-of-range values count as no rating and sort last
