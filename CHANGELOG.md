@@ -83,6 +83,11 @@ This file is a developer-changelog, aimed towards development changes.
   - `lib/fonts` holds the `@fontsource` imports and the list of their faces; `loadAppFonts()` starts `document.fonts.load` for each at JS start (`main.tsx`), and `checkSetup` in `App.tsx` waits for it next to its first invokes, so `MainScreen` and `Setup` are laid out once, in their own faces. It never rejects: a face that fails stays on the fallback
   - Measured (LTO build, 26,053 channels, 8 alternating starts per variant, ms after JS start): first layout 72 -> 15; first frame with live cards done 346 -> 297 with the database in the page cache, 412 -> 324 without. With the cache the cards themselves are laid out 17 ms later (252 -> 269), because the category bar's 999 elements now commit before them in most starts; without it they are 57 ms earlier (338 -> 280)
   - Tests in `src/test/lib/fonts.test.ts` and `App.boot.test.tsx` ("loads the app fonts before mounting"); `src/test/setup.ts` gives jsdom a `document.fonts`
+- **Hover controls appear at once** - the play button and the favourite star on a channel card, the title and controls over a poster, and the arrows of the Home genre slideshow no longer fade in over 150 ms, and a poster no longer zooms to 104 %. The accent border and the shadow still mark the hovered card
+  - With `WEBKIT_DISABLE_DMABUF_RENDERER=0` (#94) WebKitGTK now and then presents a stale frame for one refresh. A fade repaints the card about ten times per hover, and each repaint was a chance to show one: that was the flickering play button. @RyanBeckett found it in 60 fps recordings; redrawing the whole window every frame in Hyprland and turning off WebKit's damage propagation both left it in, removing the animation did not
+  - The change applies to every renderer, not only DMA-BUF: one behaviour instead of two
+  - The play button is centred with `inset-0 m-auto`, the slideshow arrows with `inset-y-0 my-auto`, instead of a translate
+  - Thanks to @RyanBeckett (#95)
 - **Unused error helpers removed** - `useErrorHandler` and `getErrorMessage`, `getErrorSeverity` and `parseError` in `types/errors.ts`, which only their tests used
 
 - **Test timeouts for loaded machines** - component tests that mount `MainScreen` or `Settings` timed out at random on a busy machine without being broken (a different handful each run, all passing alone)

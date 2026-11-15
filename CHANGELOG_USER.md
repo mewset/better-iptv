@@ -20,6 +20,7 @@ A simple overview of new features and improvements.
 - Empty lists now say why they are empty, e.g. when a search finds nothing in the chosen category
 - Xtream setup now accepts a server address without http://
 - Improved startup speed
+- Play buttons and other controls on cards now appear instantly when you hover
 
 ### Fixes
 
@@ -43,7 +44,7 @@ A simple overview of new features and improvements.
 ### Thanks
 
 - **@h4r0n1** for finding and fixing series that would not open with some Xtream providers (#93)
-- **@RyanBeckett** for a Linux setting that can make scrolling smoother (#94)
+- **@RyanBeckett** for a Linux setting that can make scrolling smoother, and for removing a flicker that came with it (#94, #95)
 
 ## Version 3.3.0 (November 11, 2026)
 
