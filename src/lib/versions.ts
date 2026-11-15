@@ -101,22 +101,58 @@ export function titleKey(name: string): string {
     /(^|[^0-9a-z])(4k|uhd|2160p?|1080p|720p|fhd|hd|hdr|multi[\s-]?sub)(?![0-9a-z])/g,
     ' '
   );
-  return key
-    .replace(/[\s\-–—:|.]+$/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  // Punctuation is spelling, not identity: "Avatar: Aang, The Last Airbender"
+  // and "Avatar Aang: The Last Airbender" are one film. Apostrophes join
+  // ("Schindler's" -> "schindlers"); other marks split; the year's brackets stay.
+  key = key.replace(/['’`]/g, '').replace(/[^\p{L}\p{N}()]+/gu, ' ');
+  return key.replace(/\s+/g, ' ').trim();
 }
 
-/** The section's entries grouped by film; each group in list order. */
-export function groupVersions(channels: Channel[]): Map<string, Channel[]> {
-  const groups = new Map<string, Channel[]>();
+/** Channel id -> TMDB id, for the titles TMDB has matched. */
+export type TmdbIds = Record<number, number>;
+
+/** The section's films: each film's versions, and which film each entry belongs to. */
+export interface VersionIndex {
+  /** Film key -> its versions, in list order. */
+  groups: Map<string, Channel[]>;
+  /** Channel id -> its film key. */
+  keyOf: Map<number, string>;
+}
+
+/**
+ * Groups a section's entries into films. Entries with the same `titleKey`
+ * are one film; so are entries TMDB matched to the same title, which catches
+ * translated titles ("Schindlers Liste (1993)" is "Schindler's List (1993)").
+ * A title group takes the TMDB id of any of its entries, so one matched copy
+ * is enough to join its unmatched copies to the film.
+ */
+export function indexVersions(channels: Channel[], tmdbIds?: TmdbIds | null): VersionIndex {
+  const byTitle = new Map<string, Channel[]>();
   for (const channel of channels) {
     const key = titleKey(channel.name);
-    const group = groups.get(key);
+    const group = byTitle.get(key);
     if (group) group.push(channel);
-    else groups.set(key, [channel]);
+    else byTitle.set(key, [channel]);
   }
-  return groups;
+  const groups = new Map<string, Channel[]>();
+  const keyOf = new Map<number, string>();
+  for (const [title, members] of byTitle) {
+    const tmdbId = tmdbIds
+      ? members.map((c) => tmdbIds[c.id]).find((id) => id !== undefined)
+      : undefined;
+    const key = tmdbId !== undefined ? `tmdb:${tmdbId}` : `title:${title}`;
+    const group = groups.get(key);
+    if (group) group.push(...members);
+    else groups.set(key, [...members]);
+    for (const c of members) keyOf.set(c.id, key);
+  }
+  return { groups, keyOf };
+}
+
+/** The versions of `channel`'s film (itself alone when it has no others). */
+export function versionsOf(channel: Channel, index: VersionIndex): Channel[] {
+  const key = index.keyOf.get(channel.id);
+  return (key && index.groups.get(key)) || [channel];
 }
 
 /**
@@ -138,12 +174,12 @@ export function pickVersion(versions: Channel[], prefs: VersionPrefs): Channel {
 /**
  * One entry per film, in the list's order (a film sits where its first
  * version did), each the version `pickVersion` prefers among all its
- * versions in `groups`. Entries whose film has a single version pass as is,
+ * versions in `index`. Entries whose film has a single version pass as is,
  * and so does anything that is not a movie (a search mixes types).
  */
 export function collapseVersions(
   list: Channel[],
-  groups: Map<string, Channel[]>,
+  index: VersionIndex,
   prefs: VersionPrefs
 ): Channel[] {
   const seen = new Set<string>();
@@ -153,10 +189,10 @@ export function collapseVersions(
       out.push(channel);
       continue;
     }
-    const key = titleKey(channel.name);
+    const key = index.keyOf.get(channel.id) ?? `title:${titleKey(channel.name)}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const group = groups.get(key);
+    const group = index.groups.get(key);
     out.push(group && group.length > 1 ? pickVersion(group, prefs) : channel);
   }
   return out;

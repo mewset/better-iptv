@@ -16,7 +16,7 @@ import { applyEpgKeys } from '../lib/epgKeys';
 import { logger } from '../lib/logger';
 import { loadTitleSorts, saveTitleSorts } from '../lib/titleSort';
 import type { SortableSection, TitleSort } from '../lib/titleSort';
-import { DEFAULT_VERSION_PREFS, type VersionPrefs } from '../lib/versions';
+import { DEFAULT_VERSION_PREFS, type TmdbIds, type VersionPrefs } from '../lib/versions';
 
 /**
  * A section of the app the user is browsing: the destinations behind the
@@ -266,6 +266,9 @@ interface PlayerState {
   /** Which version of a film plays by default (Settings > Playback > Preferred version) */
   versionPrefs: VersionPrefs;
   setVersionPrefs: (prefs: VersionPrefs) => void;
+  /** TMDB ids of the movies TMDB matched, so translated copies join their film */
+  movieTmdbIds: TmdbIds | null;
+  setMovieTmdbIds: (ids: TmdbIds | null) => void;
   loadVersionPrefs: () => Promise<void>;
   checkChannelBlocked: (channel: Channel) => boolean;
 }
@@ -282,7 +285,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set((state) =>
       playlist?.id === state.currentPlaylist?.id
         ? { currentPlaylist: playlist }
-        : { currentPlaylist: playlist, categoryFilter: null }
+        : { currentPlaylist: playlist, categoryFilter: null, movieTmdbIds: null }
     ),
   setActiveProfileId: (id) => set({ activeProfileId: id }),
 
@@ -552,6 +555,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   versionPrefs: DEFAULT_VERSION_PREFS,
   setVersionPrefs: (versionPrefs) => set({ versionPrefs }),
+  movieTmdbIds: null,
+  setMovieTmdbIds: (movieTmdbIds) => set({ movieTmdbIds }),
   loadVersionPrefs: async () => {
     try {
       const [quality, language] = await Promise.all([

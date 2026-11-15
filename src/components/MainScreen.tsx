@@ -56,7 +56,8 @@ import { useHomeRows } from '../hooks/useHomeRows';
 import type { HomePickView } from './HomeView';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { newestTitles } from '../lib/newestTitle';
-import { groupVersions, titleKey } from '../lib/versions';
+import { indexVersions, versionsOf as filmVersions } from '../lib/versions';
+import { useMovieTmdbIds } from '../hooks/useMovieTmdbIds';
 import { cardEpg, formatClockAt } from '../lib/epgTime';
 
 const SECTION_TITLES: Record<Section, string> = {
@@ -382,10 +383,15 @@ export default function MainScreen() {
   const vodChannels = usePlayerStore((s) => s.vodChannels);
   // Every movie's versions (standard, 4K, dubs): the card notes how many, the
   // detail view offers them
-  const movieVersions = useMemo(() => groupVersions(vodChannels), [vodChannels]);
+  useMovieTmdbIds();
+  const movieTmdbIds = usePlayerStore((s) => s.movieTmdbIds);
+  const movieVersions = useMemo(
+    () => indexVersions(vodChannels, movieTmdbIds),
+    [vodChannels, movieTmdbIds]
+  );
   const versionsOf = useCallback(
-    (channel: Channel) =>
-      channel.content_type === 'vod' ? movieVersions.get(titleKey(channel.name)) : undefined,
+    (channel: Channel): Channel[] | undefined =>
+      channel.content_type === 'vod' ? filmVersions(channel, movieVersions) : undefined,
     [movieVersions]
   );
   const seriesChannels = usePlayerStore((s) => s.seriesChannels);

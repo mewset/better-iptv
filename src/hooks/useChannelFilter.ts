@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { usePlayerStore } from '../stores/player-store';
 import { shouldBlockChannel } from '../lib/parentalControls';
 import { sortTitles } from '../lib/titleSort';
-import { collapseVersions, groupVersions } from '../lib/versions';
+import { collapseVersions, indexVersions } from '../lib/versions';
 import { searchChannels } from '../lib/searchText';
 import type { Channel } from '../types';
 
@@ -23,7 +23,11 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
   const vodChannels = usePlayerStore((s) => s.vodChannels);
   const versionPrefs = usePlayerStore((s) => s.versionPrefs);
   // Every movie's versions (standard, 4K, dubs), for one card per film
-  const movieVersions = useMemo(() => groupVersions(vodChannels), [vodChannels]);
+  const movieTmdbIds = usePlayerStore((s) => s.movieTmdbIds);
+  const movieVersions = useMemo(
+    () => indexVersions(vodChannels, movieTmdbIds),
+    [vodChannels, movieTmdbIds]
+  );
   const seriesChannels = usePlayerStore((s) => s.seriesChannels);
   const favoriteChannels = usePlayerStore((s) => s.favoriteChannels);
   const contentTypeFilter = usePlayerStore((s) => s.contentTypeFilter);

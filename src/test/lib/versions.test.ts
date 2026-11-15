@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   collapseVersions,
-  groupVersions,
+  indexVersions,
   pickVersion,
   titleKey,
   versionLanguage,
@@ -51,6 +51,45 @@ describe('titleKey', () => {
   });
 });
 
+describe('indexVersions', () => {
+  it('treats punctuation as spelling: a French "Title : Subtitle" joins its film', () => {
+    const list = [
+      film(1, 'Top Gun: Maverick (2022)', 'Action'),
+      film(2, 'Top Gun: Maverick (2022) 4K', '4K Releases'),
+      film(3, 'Top Gun : Maverick (2022)', 'Films Français'),
+      film(4, 'Avatar: Aang, The Last Airbender (2026)', '2026 Movies'),
+      film(5, 'Avatar Aang: The Last Airbender (2026) 4K', '4K Releases'),
+    ];
+    const index = indexVersions(list);
+    expect(index.groups.size).toBe(2);
+    expect(index.keyOf.get(3)).toBe(index.keyOf.get(1));
+    expect(index.keyOf.get(5)).toBe(index.keyOf.get(4));
+  });
+
+  it('joins translated titles TMDB matched to the same film', () => {
+    const list = [
+      film(1, 'The Truman Show (1998)', 'Comedy'),
+      film(2, 'Die Truman Show (1998)', 'German Movies'),
+      film(3, 'Truman & Tennessee (2021)', 'Documentary'),
+    ];
+    const index = indexVersions(list, { 1: 37165, 2: 37165, 3: 730081 });
+    expect(index.keyOf.get(2)).toBe(index.keyOf.get(1));
+    expect(index.keyOf.get(3)).not.toBe(index.keyOf.get(1));
+  });
+
+  it('lets one matched copy bring its unmatched copies along', () => {
+    const list = [
+      film(1, "Schindler's List (1993)", 'Drama'),
+      film(2, "Schindler's List (1993) 4K", '4K Releases'),
+      film(3, 'Schindlers Liste (1993)', 'German Movies'),
+    ];
+    // Only the plain copy and the German one are matched yet
+    const index = indexVersions(list, { 1: 424, 3: 424 });
+    expect(index.groups.size).toBe(1);
+    expect(index.groups.values().next().value).toHaveLength(3);
+  });
+});
+
 describe('pickVersion', () => {
   const all = [standard, german, fourK, french];
 
@@ -66,8 +105,7 @@ describe('pickVersion', () => {
 describe('collapseVersions', () => {
   it('keeps one entry per film where its first version was, as the preferred version', () => {
     const list = [german, rises, standard, fourK, french];
-    const groups = groupVersions(list);
-    const out = collapseVersions(list, groups, { quality: '4k', language: null });
+    const out = collapseVersions(list, indexVersions(list), { quality: '4k', language: null });
     expect(out).toEqual([fourK, rises]);
   });
 });
