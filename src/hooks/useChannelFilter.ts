@@ -103,7 +103,7 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
       (contentTypeFilter === 'vod' || contentTypeFilter === 'series') &&
       debouncedSearchQuery.trim() === ''
     ) {
-      result = sortTitles(result, titleSorts[contentTypeFilter], titleRatings);
+      result = sortTitles(result, titleSorts[contentTypeFilter], titleRatings[contentTypeFilter]);
     }
     return result;
   }, [

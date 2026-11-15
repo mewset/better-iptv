@@ -194,9 +194,13 @@ interface PlayerState {
   // Movies and Series order, per section; remembered between launches
   titleSorts: Record<SortableSection, TitleSort>;
   setTitleSort: (section: SortableSection, sort: TitleSort) => void;
-  /** TMDB ratings for the section's titles, for "Highest rated"; null until loaded. */
-  titleRatings: TitleRatings | null;
-  setTitleRatings: (ratings: TitleRatings | null) => void;
+  /**
+   * TMDB ratings for "Highest rated", per section, kept across section
+   * switches (a switch that dropped them sorted on the provider's ratings
+   * until TMDB's came back, then reordered). Cleared with the profile.
+   */
+  titleRatings: Partial<Record<SortableSection, TitleRatings>>;
+  setTitleRatings: (section: SortableSection, ratings: TitleRatings) => void;
 
   // Category Filter (provider categories like "Sweden", "Norway", etc.)
   categoryFilter: string | null;
@@ -279,7 +283,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set((state) =>
       playlist?.id === state.currentPlaylist?.id
         ? { currentPlaylist: playlist }
-        : { currentPlaylist: playlist, categoryFilter: null, titleRatings: null }
+        : { currentPlaylist: playlist, categoryFilter: null, titleRatings: {} }
     ),
   setActiveProfileId: (id) => set({ activeProfileId: id }),
 
@@ -435,16 +439,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   // Content Type Filter
   contentTypeFilter: 'live',
-  setContentTypeFilter: (filter) =>
-    set({ contentTypeFilter: filter, categoryFilter: null, titleRatings: null }),
+  setContentTypeFilter: (filter) => set({ contentTypeFilter: filter, categoryFilter: null }),
 
   // TMDB status
   tmdbStatus: null,
   setTmdbStatus: (status) => set({ tmdbStatus: status }),
 
   // Title sort
-  titleRatings: null,
-  setTitleRatings: (titleRatings) => set({ titleRatings }),
+  titleRatings: {},
+  setTitleRatings: (section, ratings) =>
+    set((state) => ({ titleRatings: { ...state.titleRatings, [section]: ratings } })),
   titleSorts: loadTitleSorts(),
   setTitleSort: (section, sort) => {
     const titleSorts = { ...get().titleSorts, [section]: sort };

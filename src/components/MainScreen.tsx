@@ -113,7 +113,7 @@ export default function MainScreen() {
   const sortSection =
     contentTypeFilter === 'vod' || contentTypeFilter === 'series' ? contentTypeFilter : null;
   const titleSort = usePlayerStore((s) => (sortSection ? s.titleSorts[sortSection] : null));
-  useTitleRatings(sortSection);
+  useTitleRatings();
   const setSearchQuery = usePlayerStore((s) => s.setSearchQuery);
   const setContentTypeFilter = usePlayerStore((s) => s.setContentTypeFilter);
   const setCategoryFilter = usePlayerStore((s) => s.setCategoryFilter);
@@ -1121,7 +1121,7 @@ export default function MainScreen() {
                                     parentalVisibility={parentalVisibility}
                                     votes={
                                       titleSort === 'rating' && !trimmedQuery
-                                        ? titleRatings?.[channel.id]?.votes
+                                        ? titleRatings[sortSection ?? 'vod']?.[channel.id]?.votes
                                         : undefined
                                     }
                                   />
