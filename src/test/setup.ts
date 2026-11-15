@@ -44,6 +44,12 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
+// jsdom has no FontFaceSet; the app loads its fonts through it at boot (lib/fonts)
+Object.defineProperty(document, 'fonts', {
+  writable: true,
+  value: { load: vi.fn().mockResolvedValue([]) },
+});
+
 // Mock ResizeObserver
 (globalThis as typeof globalThis & { ResizeObserver: unknown }).ResizeObserver = vi
   .fn()
