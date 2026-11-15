@@ -19,6 +19,7 @@ A simple overview of new features and improvements.
 - Deleting a profile now asks first
 - Empty lists now say why they are empty, e.g. when a search finds nothing in the chosen category
 - Xtream setup now accepts a server address without http://
+- Improved startup speed
 
 ### Fixes
 

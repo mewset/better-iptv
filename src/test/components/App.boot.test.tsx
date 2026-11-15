@@ -9,6 +9,9 @@ import type { Playlist } from '../../types';
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
 }));
+// The font load is the test's to release; by default it is done at once
+const fonts = vi.hoisted(() => ({ load: (): Promise<void> => Promise.resolve() }));
+vi.mock('../../lib/fonts', () => ({ loadAppFonts: () => fonts.load() }));
 const mainScreen = vi.hoisted(() => ({ renders: 0 }));
 vi.mock('../../components/MainScreen', () => ({
   default: () => {
@@ -62,6 +65,7 @@ const base: Handler = (cmd) => {
 
 describe('App boot', () => {
   beforeEach(() => {
+    fonts.load = () => Promise.resolve();
     useEpgStore.setState(useEpgStore.getInitialState(), true);
     usePlayerStore.setState({
       isSetupComplete: false,
@@ -135,6 +139,23 @@ describe('App boot', () => {
     release();
     await findByTestId('main-screen');
     expect(usePlayerStore.getState().parentalEnabled).toBe(true);
+  });
+
+  it('loads the app fonts before mounting', async () => {
+    let release: () => void = () => {};
+    fonts.load = () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    mockBackend(base);
+    const { queryByTestId, findByTestId } = render(<App />);
+    await waitFor(() => expect(calls('get_playlists')).toHaveLength(1));
+    // A full macrotask, so every boot request has settled while the fonts are pending
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(queryByTestId('main-screen')).not.toBeInTheDocument();
+    expect(calls('get_channels')).toHaveLength(0);
+    release();
+    await findByTestId('main-screen');
   });
 
   it('fetches live channels first', async () => {
