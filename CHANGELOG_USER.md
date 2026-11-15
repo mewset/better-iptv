@@ -24,6 +24,7 @@ A simple overview of new features and improvements.
 
 ### Fixes
 
+- Fixed episode names repeating the show name and season/episode number, e.g. "Absentia - S01E01 - Comeback" now shows as "Comeback"
 - Fixed series that would not open, or showed no episodes, with some Xtream providers
 - Fixed the Space key not pressing buttons when you move around with the keyboard, e.g. Play or the favorite star
 - Fixed Escape in the search box stopping playback; it now clears the search first
