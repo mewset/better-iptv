@@ -122,7 +122,7 @@ export const ChannelCard = memo(function ChannelCard({
                 e.stopPropagation();
                 onToggleFavorite?.(channel.id);
               }}
-              className={`absolute right-2 top-2 flex h-[30px] w-[30px] items-center justify-center rounded-full bg-black/35 transition-opacity focus-visible:ring-2 focus-visible:ring-accent ${
+              className={`absolute right-2 top-2 flex h-[30px] w-[30px] items-center justify-center rounded-full bg-black/35 focus-visible:ring-2 focus-visible:ring-accent ${
                 channel.is_favorite
                   ? 'opacity-100'
                   : 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100'
@@ -139,6 +139,10 @@ export const ChannelCard = memo(function ChannelCard({
               />
             </button>
 
+            {/* Shown and hidden at once, without a fade. With WebKitGTK's DMA-BUF
+                renderer (WEBKIT_DISABLE_DMABUF_RENDERER=0) WebKit now and then
+                presents a stale frame; a fade repaints the card ~10 times per
+                hover, and each repaint was a chance to flash an old one. */}
             <button
               type="button"
               aria-label={isPlaying ? `Stop ${channel.name}` : `Play ${channel.name}`}
@@ -146,7 +150,7 @@ export const ChannelCard = memo(function ChannelCard({
                 e.stopPropagation();
                 onPlay(channel);
               }}
-              className="absolute left-1/2 top-1/2 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-accent text-on-accent opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100"
+              className="absolute inset-0 m-auto flex h-11 w-11 items-center justify-center rounded-full bg-accent text-on-accent opacity-0 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100"
             >
               <span
                 aria-hidden="true"

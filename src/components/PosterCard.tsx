@@ -78,7 +78,7 @@ export const PosterCard = memo(function PosterCard({
       className="group relative flex cursor-pointer flex-col gap-2"
     >
       <div
-        className={`relative aspect-[2/3] overflow-hidden rounded-xl border border-border bg-surface-2 transition-transform duration-150 group-focus-within:scale-[1.04] group-focus-within:border-accent group-hover:scale-[1.04] group-hover:border-accent group-hover:shadow-2xl`}
+        className={`relative aspect-[2/3] overflow-hidden rounded-xl border border-border bg-surface-2 group-focus-within:border-accent group-hover:border-accent group-hover:shadow-2xl`}
       >
         {showArt ? (
           <img
@@ -123,8 +123,10 @@ export const PosterCard = memo(function PosterCard({
           <div
             // The one allowed gradient (see global constraints): a scrim
             // behind the hover/focus overlay's title and controls, not
-            // decoration.
-            className="absolute inset-x-0 bottom-0 flex flex-col justify-end gap-2 bg-gradient-to-t from-bg/95 via-bg/40 to-transparent p-2.5 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
+            // decoration. Shown at once, without a fade or a zoom: with the
+            // WebKitGTK DMA-BUF renderer every repaint of an animation is a
+            // chance to flash a stale frame (see ChannelCard).
+            className="absolute inset-x-0 bottom-0 flex flex-col justify-end gap-2 bg-gradient-to-t from-bg/95 via-bg/40 to-transparent p-2.5 opacity-0 focus-within:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
           >
             <span className="truncate font-display text-lg font-bold text-text">
               {channel.name}
