@@ -492,6 +492,12 @@ describe('Settings as a view', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
     await screen.findByRole('heading', { name: 'Failed to Save Settings' });
+    // The dialog takes the focus in the same effect that starts its Escape
+    // listener. The heading alone is in the page a moment earlier, and on a
+    // busy machine the key then arrived before anything listened for it.
+    await waitFor(() =>
+      expect(screen.getByRole('dialog', { name: 'Failed to Save Settings' })).toHaveFocus()
+    );
 
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).not.toHaveBeenCalled();
