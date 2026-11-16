@@ -631,18 +631,44 @@ local function draw_episodes_panel(ass, anchor_x, anchor_hovered)
   end
 end
 
+-- Where an episode's credits start: a chapter named for them when the file
+-- has one; else the last 5 % of it, and never less than its last 2½ minutes
+local function credits_start(duration)
+  for _, c in ipairs(prop('chapter-list', {})) do
+    local title = (c.title or ''):lower()
+    if (c.time or 0) > duration * 0.5
+      and (title:find('credit') or title:find('outro') or title:find('ending') or title:find('end')) then
+      return c.time
+    end
+  end
+  return duration - math.max(150, duration * 0.05)
+end
+
+-- "Watch credits" hides the card for the rest of this episode
+local credits_watched = false
+mp.register_event('file-loaded', function() credits_watched = false end)
+
 local function draw_next_episode_card(ass)
-  -- In the last minute of an episode, a button to go on, shown even without the controls
-  if not has_next() then return end
-  local remaining = prop('time-remaining', 1e9)
+  -- From the credits on, a button to go on, shown even without the controls
+  if not has_next() or credits_watched then return end
   local duration = prop('duration', 0)
-  if duration < 300 or remaining > 60 then return end
+  local pos = prop('time-pos', 0)
+  if duration < 300 or pos < credits_start(duration) then return end
   local bw, bh = 280 * s, 64 * s
   local bx, by = w - bw - 80 * s, h - (visible and 260 or 120) * s
   local hovered = target('next-card', bx, by, bw, bh, function() mp.command('playlist-next') end)
   rounded(ass, bx, by, bw, bh, 4 * s, hovered and 'E6E6E6' or WHITE)
   icon(ass, bx + 26 * s, by + bh / 2 - 14 * s, 28 * s, ICONS.play, '000000')
   text(ass, bx + 70 * s, by + bh / 2, 'Next Episode', 30 * s, '000000', 4, true)
+  -- Beside it, as quiet as a secondary button: keep watching the credits
+  local cw = 230 * s
+  local cx = bx - cw - 16 * s
+  local stay = target('watch-credits', cx, by, cw, bh, function()
+    credits_watched = true
+    render()
+  end)
+  rounded(ass, cx, by, cw, bh, 4 * s, '000000', stay and '30' or '60')
+  text(ass, cx + cw / 2, by + bh / 2, 'Watch credits', 28 * s, WHITE, 5, true)
 end
 
 ---------------------------------------------------------------------------
@@ -800,7 +826,9 @@ end)
 local pending_click = nil
 mp.add_forced_key_binding('MBTN_LEFT', 'biptv-click', function(e)
   if e.event == 'down' then
-    local t = visible and hit() or nil
+    -- With the controls hidden, the only targets drawn are the Next Episode
+    -- card's, so they stay clickable
+    local t = hit()
     if t then
       t.fn()
       if t.id == 'timeline' then seek_to_mouse(false) end
