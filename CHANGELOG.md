@@ -97,6 +97,7 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Changed
 
+- **Play on a series plays it** - A series' Play (posters, and the banner) opened its page. It now plays where the series' page would carry on (#107's `nextUp`): the episode left part-way, from its position; else the next unwatched; else the first, with the rest of the series queued behind it (`lib/seriesQueue.ts`: into the next seasons, specials only when starting in them, up to 60, each titled "S2 E5 · Name"). Clicking the poster itself still opens the page, and the banner gets **More info** beside Play for that. If the provider fails to answer, the page opens instead
 - **Opt-out of the DMA-BUF workaround on Linux** - `run()` always set `WEBKIT_DISABLE_DMABUF_RENDERER=1` (the WebKitGTK 2.50+ EGL workaround), overwriting any value in the environment, and the desktop file's `Exec` forced it again with `env`, so no install could use the DMA-BUF renderer even on GPUs the bug does not affect
   - `run()` now sets `1` only when the variable is unset, and the `env` prefix is gone from `templates/better-iptv.desktop`; the default is unchanged, `WEBKIT_DISABLE_DMABUF_RENDERER=0` opts in
   - Trade-off seen on Intel iGPU + Hyprland: scrolling a bit smoother, but the play button flickers when hovering channel cards. That is why the default stays and the README calls it an opt-in with that caveat

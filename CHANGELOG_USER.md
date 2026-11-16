@@ -17,6 +17,7 @@ A simple overview of new features and improvements.
 
 ### Improvements
 
+- Play on a series plays its next episode (or resumes the one you left part-way); click the poster or More info to open the series
 - Error messages now say what went wrong, e.g. when a playlist cannot be imported or a channel cannot start
 - Parental controls in Settings now open with your PIN while they are turned on
 - Deleting a profile now asks first

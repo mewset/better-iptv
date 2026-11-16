@@ -75,15 +75,16 @@ describe('MoviesHero with TMDB data', () => {
     expect(container.querySelector('img')).toHaveClass('w-[55%]', 'max-w-[816px]');
   });
 
-  it('offers "Open" instead of "Play" for a series and calls onOpen', () => {
+  it('offers Play and More info for a series', () => {
     const onPlay = vi.fn();
     const onOpen = vi.fn();
     const series = { ...movie, id: 42, name: 'Newest Show', content_type: 'series' as const };
     render(<MoviesHero channel={series} onPlay={onPlay} onOpen={onOpen} />);
-    expect(screen.queryByRole('button', { name: /Play/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Open Newest Show' }));
+    fireEvent.click(screen.getByRole('button', { name: 'More info about Newest Show' }));
     expect(onOpen).toHaveBeenCalledWith(series);
     expect(onPlay).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Play Newest Show' }));
+    expect(onPlay).toHaveBeenCalledWith(series);
   });
 
   it('uses the TMDB title instead of the provider name when matched', () => {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Clapperboard, Play } from 'lucide-react';
+import { Info, Play } from 'lucide-react';
 import type { Channel } from '../types';
 import { ColorBars } from './ColorBars';
 import { heroMetaLine } from '../lib/tmdb';
@@ -104,15 +104,29 @@ export function MoviesHero({
         </p>
         {note && <p className="text-[13px] text-text-muted">{note}</p>}
         {isSeries ? (
-          <button
-            type="button"
-            aria-label={`Open ${channel.name}`}
-            onClick={() => (onOpen ?? onPlay)(channel)}
-            className="flex h-11 w-fit items-center gap-2 rounded-xl bg-accent px-5 font-bold text-on-accent focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            <Clapperboard className="h-4 w-4" aria-hidden="true" />
-            <span>Open</span>
-          </button>
+          // Play carries on with the series (its next episode); More info opens its page
+          <div className="flex gap-2">
+            <button
+              type="button"
+              aria-label={`Play ${channel.name}`}
+              onClick={() => onPlay(channel)}
+              className="flex h-11 w-fit items-center gap-2 rounded-xl bg-accent px-5 font-bold text-on-accent focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <Play className="h-4 w-4" aria-hidden="true" />
+              <span>Play</span>
+            </button>
+            {onOpen && (
+              <button
+                type="button"
+                aria-label={`More info about ${channel.name}`}
+                onClick={() => onOpen(channel)}
+                className="flex h-11 w-fit items-center gap-2 rounded-xl border border-border-strong px-4 font-semibold text-text hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                <Info className="h-4 w-4" aria-hidden="true" />
+                <span>More info</span>
+              </button>
+            )}
+          </div>
         ) : (
           <button
             type="button"

@@ -1,6 +1,6 @@
 import { memo, useEffect, useState } from 'react';
 import { useChannelLogo } from '../hooks/useChannelLogo';
-import { Play, Clapperboard, Star, Lock, Check } from 'lucide-react';
+import { Play, Star, Lock, Check } from 'lucide-react';
 import type { Channel } from '../types';
 import { ColorBars } from './ColorBars';
 import { metaLine, votesText } from '../lib/tmdb';
@@ -166,19 +166,16 @@ export const PosterCard = memo(function PosterCard({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                aria-label={`${isSeries ? 'Open' : 'Play'} ${channel.name}`}
+                aria-label={`Play ${channel.name}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  (isSeries ? onOpen : (onPlay ?? onOpen))(channel);
+                  // A series plays its next episode (MainScreen's playSeries)
+                  (onPlay ?? onOpen)(channel);
                 }}
                 className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-[10px] bg-accent px-2 text-sm font-semibold text-on-accent focus-visible:ring-2 focus-visible:ring-accent"
               >
-                {isSeries ? (
-                  <Clapperboard className="h-4 w-4 shrink-0" aria-hidden="true" />
-                ) : (
-                  <Play className="h-4 w-4 shrink-0" aria-hidden="true" />
-                )}
-                <span>{isSeries ? 'Open' : 'Play'}</span>
+                <Play className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>Play</span>
               </button>
               <button
                 type="button"
