@@ -334,6 +334,28 @@ mod desktop_entry_tests {
         );
     }
 
+    /// "Open logs folder" in Settings > About calls the opener plugin's
+    /// `open_path`. The permission alone only enables the command: without a
+    /// path in its scope every path is refused ("Not allowed to open path"),
+    /// and the button did nothing.
+    #[test]
+    fn default_capability_lets_the_logs_folder_be_opened() {
+        let capability: serde_json::Value =
+            serde_json::from_str(CAPABILITY).expect("capability must be valid JSON");
+        let open_path = capability["permissions"]
+            .as_array()
+            .expect("capability must list permissions")
+            .iter()
+            .find(|p| p["identifier"] == "opener:allow-open-path")
+            .expect("opener:allow-open-path must be granted with a scope, not as a bare name");
+
+        assert_eq!(
+            open_path["allow"],
+            serde_json::json!([{ "path": "$APPLOG" }]),
+            "only the logs folder, and the folder itself: that is all the app opens"
+        );
+    }
+
     /// The Linux desktop entry must announce the same string the window
     /// reports as its class, or KDE's taskbar and GNOME Shell fall back to a
     /// generic icon. The window class is the main binary name, which the
