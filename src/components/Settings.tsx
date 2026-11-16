@@ -415,6 +415,12 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
 
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      // Already taken by a dialog (useModalDialog marks it the same way).
+      // The dialog check below is not enough on its own: this listener is
+      // subscribed again whenever its dependencies change, which can put it
+      // behind an open dialog's listener, and by the time it runs then the
+      // dialog has cancelled and left the page.
+      if (e.defaultPrevented) return;
       e.preventDefault();
 
       if (isTextEntry(e.target)) return;

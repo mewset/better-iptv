@@ -396,6 +396,25 @@ describe('Settings as a view', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('leaves an Escape alone that a dialog has already taken', async () => {
+    // A dialog's listener can sit ahead of Settings' own, and by the time
+    // Settings runs the dialog has cancelled and left the page: the mark on
+    // the event is then all that says the key was spoken for
+    const taken = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') e.preventDefault();
+    };
+    window.addEventListener('keydown', taken, true);
+    try {
+      const onClose = await renderSettings();
+
+      fireEvent.keyDown(window, { key: 'Escape' });
+
+      expect(onClose).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', taken, true);
+    }
+  });
+
   it('Escape closes from a checkbox or a list, but stays with a field one types in', async () => {
     const onClose = await renderSettings();
 
