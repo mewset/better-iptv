@@ -5,6 +5,7 @@ import { deletePlaylist, getPlaylistChannelCounts, renamePlaylist } from '../lib
 import { reloadAfterPlaylistRefresh } from '../lib/afterPlaylistRefresh';
 import { logger } from '../lib/logger';
 import { errorText } from '../lib/errorText';
+import { useModalDialog } from '../hooks/useModalDialog';
 import { useSubscriptionExpiries } from '../hooks/useSubscriptionExpiries';
 import { useProfileSwitch } from '../hooks/useProfileSwitch';
 import { formatSubscriptionExpiry } from '../lib/subscriptionExpiry';
@@ -56,6 +57,14 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
   }, [playlistIdsKey]);
 
   const [showSetupModal, setShowSetupModal] = useState(false);
+  // The Add-profile overlay follows the dialogs' one rule (useModalDialog):
+  // Escape is its Cancel, except while a playlist is being imported
+  const importing = usePlayerStore((s) => s.isLoading);
+  const setupDialog = useModalDialog({
+    isOpen: showSetupModal,
+    onCancel: () => setShowSetupModal(false),
+    busy: importing,
+  });
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
   // The profile whose Delete waits on "Delete Profile?"; null while no one asks.
@@ -361,11 +370,14 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
       {/* Setup Modal for Creating New Profile */}
       {showSetupModal && (
         <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm"
+          {...setupDialog.dialogProps}
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 p-4 outline-none backdrop-blur-sm"
         >
-          <Setup onComplete={handleProfileCreated} onCancel={() => setShowSetupModal(false)} />
+          <Setup
+            onComplete={handleProfileCreated}
+            onCancel={() => setShowSetupModal(false)}
+            titleId={setupDialog.titleId}
+          />
         </div>
       )}
 

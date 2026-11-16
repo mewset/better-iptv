@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRef, useRef, useState } from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { TopBar } from '../../components/TopBar';
 import { usePlayerStore } from '../../stores/player-store';
@@ -21,12 +21,14 @@ vi.mock('../../components/Setup', () => ({
   default: ({
     onComplete,
     onCancel,
+    titleId,
   }: {
     onComplete?: (p: Playlist) => void;
     onCancel?: () => void;
+    titleId?: string;
   }) => (
     <div>
-      <h1>Add a profile</h1>
+      <h1 id={titleId}>Add a profile</h1>
       <button type="button" onClick={onCancel} aria-label="Cancel">
         Cancel
       </button>
@@ -351,6 +353,22 @@ describe('TopBar profile menu and the global Escape shortcut', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Add profile' }));
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it('Escape closes the setup dialog too, and not while a playlist is being imported', async () => {
+    render(<Controlled />);
+    const trigger = screen.getByRole('button', { name: /Home/ });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add profile' }));
+
+    act(() => usePlayerStore.setState({ isLoading: true }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: 'Add a profile' })).toBeInTheDocument();
+
+    act(() => usePlayerStore.setState({ isLoading: false }));
+    fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await waitFor(() => expect(trigger).toHaveFocus());
   });

@@ -26,9 +26,11 @@ type ImportType = 'm3u' | 'xtream';
 interface SetupProps {
   onComplete?: (playlist: Playlist) => void; // Callback when profile created (modal mode)
   onCancel?: () => void; // Callback to cancel modal
+  /** The `id` its heading takes when it is a dialog, which is named by it. */
+  titleId?: string;
 }
 
-export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
+export default function Setup({ onComplete, onCancel, titleId }: SetupProps = {}) {
   const [importType, setImportType] = useState<ImportType>('m3u');
   const [playlistName, setPlaylistName] = useState('');
 
@@ -256,7 +258,7 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
         className="mb-4 h-[52px] w-[52px] rounded-[14px]"
       />
 
-      <h1 className="font-display text-[34px] font-bold text-text">
+      <h1 id={titleId} className="font-display text-[34px] font-bold text-text">
         {onCancel ? 'Add a profile' : 'Add your first playlist'}
       </h1>
       <p className="mt-2 text-sm text-text-muted">

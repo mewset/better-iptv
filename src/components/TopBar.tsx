@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Plus, Search, X } from 'lucide-react';
 import { usePlayerStore } from '../stores/player-store';
 import { useProfileSwitch } from '../hooks/useProfileSwitch';
+import { useModalDialog } from '../hooks/useModalDialog';
 import ErrorModal from './modals/ErrorModal';
 import Setup from './Setup';
 import type { Playlist, UpdateInfo } from '../types';
@@ -135,6 +136,14 @@ export function TopBar({
     setShowSetup(false);
     returnFocus();
   };
+  // The overlay follows the dialogs' one rule (useModalDialog): Escape is its
+  // Cancel, except while a playlist is being imported
+  const importing = usePlayerStore((s) => s.isLoading);
+  const setupDialog = useModalDialog({
+    isOpen: showSetup,
+    onCancel: cancelSetup,
+    busy: importing,
+  });
 
   // Same steps as ProfileManager.handleProfileCreated: the new profile joins
   // the list and becomes the active one (switchTo reloads its channels).
@@ -287,12 +296,10 @@ export function TopBar({
           modal: a fixed overlay inside it would be clipped to the bar. */}
       {showSetup && (
         <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Add a profile"
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm"
+          {...setupDialog.dialogProps}
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 p-4 outline-none backdrop-blur-sm"
         >
-          <Setup onComplete={profileCreated} onCancel={cancelSetup} />
+          <Setup onComplete={profileCreated} onCancel={cancelSetup} titleId={setupDialog.titleId} />
         </div>
       )}
 
