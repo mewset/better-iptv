@@ -131,6 +131,48 @@ describe('live ChannelCard', () => {
     }
   );
 
+  it('in blur mode blurs the artwork itself, not only what lies behind the overlay', () => {
+    // backdrop-filter is not drawn by WebKitGTK's default renderer on Linux,
+    // so the picture of a blocked title needs a filter of its own
+    const blurred = (c: Channel) =>
+      render(
+        <ChannelCard
+          channel={c}
+          isPlaying={false}
+          onPlay={vi.fn()}
+          isBlocked
+          parentalVisibility="blur"
+        />
+      ).container;
+    expect(blurred({ ...ch, logo: 'https://l/svt1.png' }).querySelector('img')).toHaveClass(
+      'blur-xl'
+    );
+    // No logo: the colour bars carry the channel's initial
+    expect(blurred(ch).querySelector('.blur-xl')).not.toBeNull();
+  });
+
+  it('in lock mode and when not blocked nothing is blurred', () => {
+    const { container, rerender } = render(
+      <ChannelCard
+        channel={{ ...ch, logo: 'https://l/svt1.png' }}
+        isPlaying={false}
+        onPlay={vi.fn()}
+        isBlocked
+        parentalVisibility="lock"
+      />
+    );
+    expect(container.querySelector('.blur-xl')).toBeNull();
+    rerender(
+      <ChannelCard
+        channel={{ ...ch, logo: 'https://l/svt1.png' }}
+        isPlaying={false}
+        onPlay={vi.fn()}
+        parentalVisibility="blur"
+      />
+    );
+    expect(container.querySelector('.blur-xl')).toBeNull();
+  });
+
   it.each(['lock', 'blur'] as const)(
     'in %s mode exposes only the unlock control, not favourite or play',
     (mode) => {
