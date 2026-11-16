@@ -166,17 +166,17 @@ describe('MainScreen: Home', () => {
     seedStore();
   });
 
-  it('starts on Home with the gate open and shows the slideshow', async () => {
+  it('starts on Home with the gate open and shows the genre rows', async () => {
     setupInvoke(true);
     render(<MainScreen />);
     expect(await rail().findByRole('button', { name: 'Home' })).toHaveAttribute(
       'aria-current',
       'page'
     );
-    expect(await screen.findByRole('region', { name: 'Action Movies' })).toBeInTheDocument();
-    // TopBar owns the page's h1 ("Home"); the greeting is an h2.
+    expect(await screen.findByRole('region', { name: 'Action movies' })).toBeInTheDocument();
+    // The greeting is the top bar's h1.
     expect(
-      screen.getByRole('heading', { level: 2, name: /^Good (morning|afternoon|evening)$/ })
+      screen.getByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening)$/ })
     ).toBeInTheDocument();
     expect(screen.queryByRole('searchbox')).toBeNull();
   });
@@ -197,11 +197,17 @@ describe('MainScreen: Home', () => {
     expect(mockedInvoke.mock.calls.some((c) => c[0] === 'get_home_rows')).toBe(false);
   });
 
-  it('opens the detail view from a slide', async () => {
+  it('opens the detail view from a poster', async () => {
     setupInvoke(true);
     render(<MainScreen />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Title 1, open details' }));
-    await waitFor(() => expect(screen.queryByRole('region', { name: 'Action Movies' })).toBeNull());
+    fireEvent.click(
+      (
+        await within(await screen.findByRole('region', { name: 'Action movies' })).findAllByText(
+          'Title 1'
+        )
+      )[0]
+    );
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Action movies' })).toBeNull());
     // The detail view and the top-bar subtitle both carry the name.
     expect(screen.getAllByText('Title 1').length).toBeGreaterThan(0);
   });
@@ -209,12 +215,14 @@ describe('MainScreen: Home', () => {
   it('comes back from a title to the place Home was scrolled to', async () => {
     setupInvoke(true);
     render(<MainScreen />);
-    await screen.findByRole('region', { name: 'Action Movies' });
+    await screen.findByRole('region', { name: 'Action movies' });
     const home = screen.getByRole('region', { name: 'Home' });
     home.scrollTop = 900;
     fireEvent.scroll(home);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Title 1, open details' }));
+    fireEvent.click(
+      within(screen.getByRole('region', { name: 'Action movies' })).getAllByText('Title 1')[0]
+    );
     fireEvent.click(await screen.findByRole('button', { name: 'Back' }));
 
     const again = await screen.findByRole('region', { name: 'Home' });
@@ -225,7 +233,7 @@ describe('MainScreen: Home', () => {
   it('Home starts at the top again after another section', async () => {
     setupInvoke(true);
     render(<MainScreen />);
-    await screen.findByRole('region', { name: 'Action Movies' });
+    await screen.findByRole('region', { name: 'Action movies' });
     const home = screen.getByRole('region', { name: 'Home' });
     home.scrollTop = 900;
     fireEvent.scroll(home);
@@ -246,15 +254,15 @@ describe('MainScreen: Home', () => {
     await waitFor(() =>
       expect(mockedInvoke.mock.calls.some((c) => c[0] === 'get_home_rows')).toBe(true)
     );
-    expect(screen.queryByRole('region', { name: 'Action Movies' })).toBeNull();
-    expect(await screen.findByRole('region', { name: 'Comedy Series' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Action movies' })).toBeNull();
+    expect(await screen.findByRole('region', { name: 'Comedy series' })).toBeInTheDocument();
   });
 
-  it('shows the slideshow and the pick before the channel list has loaded', async () => {
+  it('shows the rows and the pick before the channel list has loaded', async () => {
     setupInvoke(true);
     usePlayerStore.getState().setChannels([]);
     render(<MainScreen />);
-    expect(await screen.findByRole('region', { name: 'Action Movies' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Action movies' })).toBeInTheDocument();
     expect(await screen.findByRole('region', { name: 'Our pick of the day' })).toHaveTextContent(
       'Title 1'
     );
@@ -270,24 +278,30 @@ describe('MainScreen: Home', () => {
     usePlayerStore.getState().setChannels([]);
     render(<MainScreen />);
     await rail().findByRole('button', { name: 'Home' });
-    expect(await screen.findByRole('region', { name: 'Comedy Series' })).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Action Movies' })).toBeNull();
+    expect(await screen.findByRole('region', { name: 'Comedy series' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Action movies' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Our pick of the day' })).toBeNull();
   });
 
-  it('opens the detail view from a slide before the channel list has loaded', async () => {
+  it('opens the detail view from a poster before the channel list has loaded', async () => {
     setupInvoke(true);
     usePlayerStore.getState().setChannels([]);
     render(<MainScreen />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Title 1, open details' }));
-    await waitFor(() => expect(screen.queryByRole('region', { name: 'Action Movies' })).toBeNull());
+    fireEvent.click(
+      (
+        await within(await screen.findByRole('region', { name: 'Action movies' })).findAllByText(
+          'Title 1'
+        )
+      )[0]
+    );
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Action movies' })).toBeNull());
     expect(screen.getAllByText('Title 1').length).toBeGreaterThan(0);
   });
 
   it('leaves Home for Live TV when the gate closes', async () => {
     setupInvoke(true);
     render(<MainScreen />);
-    await screen.findByRole('region', { name: 'Action Movies' });
+    await screen.findByRole('region', { name: 'Action movies' });
     gateOpen = false;
     fireEvent.click(screen.getByRole('button', { name: /settings/i }));
     await screen.findByRole('heading', { level: 1, name: 'General' });
@@ -310,7 +324,7 @@ describe('MainScreen: Home', () => {
   it('leaving Settings through the rail refreshes the gate', async () => {
     setupInvoke(true);
     render(<MainScreen />);
-    await screen.findByRole('region', { name: 'Action Movies' });
+    await screen.findByRole('region', { name: 'Action movies' });
     fireEvent.click(screen.getByRole('button', { name: /settings/i }));
     await screen.findByRole('heading', { level: 1, name: 'General' });
     // Let the load effect settle so the clean snapshot is taken.
@@ -325,7 +339,7 @@ describe('MainScreen: Home', () => {
   it('"/" on Home switches to Live TV and focuses search', async () => {
     setupInvoke(true);
     render(<MainScreen />);
-    await screen.findByRole('region', { name: 'Action Movies' });
+    await screen.findByRole('region', { name: 'Action movies' });
     fireEvent.keyDown(document, { key: '/' });
     await waitFor(() =>
       expect(rail().getByRole('button', { name: 'Live TV' })).toHaveAttribute(
@@ -339,7 +353,7 @@ describe('MainScreen: Home', () => {
   it('"/" inside Settings opened from Home leaves Settings alone', async () => {
     setupInvoke(true);
     render(<MainScreen />);
-    await screen.findByRole('region', { name: 'Action Movies' });
+    await screen.findByRole('region', { name: 'Action movies' });
     fireEvent.click(screen.getByRole('button', { name: /settings/i }));
     await screen.findByRole('heading', { level: 1, name: 'General' });
     await waitFor(() =>
@@ -355,6 +369,13 @@ describe('MainScreen: Home', () => {
     );
   });
 
+  it('groups the genre rows under one heading', async () => {
+    setupInvoke(true);
+    render(<MainScreen />);
+    await screen.findByRole('region', { name: 'Action movies' });
+    expect(screen.getAllByRole('heading', { level: 2, name: "Today's genres" })).toHaveLength(1);
+  });
+
   it('shows the pick of the day hero with its source', async () => {
     setupInvoke(true);
     render(<MainScreen />);
@@ -367,7 +388,7 @@ describe('MainScreen: Home', () => {
     setupInvoke(true, { enabled: true, blocked: [1] });
     usePlayerStore.setState({ parentalEnabled: true, blockedChannelIds: new Set([1]) });
     render(<MainScreen />);
-    await screen.findByRole('region', { name: 'Action Movies' });
+    await screen.findByRole('region', { name: 'Action movies' });
     expect(screen.queryByRole('region', { name: 'Our pick of the day' })).toBeNull();
   });
 
@@ -380,7 +401,7 @@ describe('MainScreen: Home', () => {
       contentTypeFilter: 'home',
     });
     render(<MainScreen />);
-    await screen.findByRole('region', { name: 'Action Movies' });
+    await screen.findByRole('region', { name: 'Action movies' });
     fireEvent.click(rail().getByRole('button', { name: 'Movies' }));
     await waitFor(() => expect(usePlayerStore.getState().contentTypeFilter).toBe('vod'));
 

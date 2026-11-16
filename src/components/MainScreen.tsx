@@ -53,7 +53,9 @@ import { useChannelFilter } from '../hooks/useChannelFilter';
 import { useUpdateCheck } from '../hooks/useUpdateCheck';
 import { useTmdbCards } from '../hooks/useTmdbCards';
 import { useHomeRows } from '../hooks/useHomeRows';
-import type { HomePickView } from './HomeView';
+import type { HomeHeroItem, HomePickView, HomeRailSpec } from './HomeView';
+import { useHomeShelves } from '../hooks/useHomeShelves';
+import { greeting } from '../lib/greeting';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { newestTitles } from '../lib/newestTitle';
 import { cardEpg, formatClockAt } from '../lib/epgTime';
@@ -107,6 +109,13 @@ function guideSubtitle(now: number): string {
 
 /** A stable empty list, so the banner's memos do not rebuild every render. */
 const NO_FEATURED: FeaturedTitle[] = [];
+
+/** The date beside Home's greeting: "Sunday, 15 November". */
+const HOME_DATE = new Intl.DateTimeFormat(undefined, {
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+});
 
 export default function MainScreen() {
   // Search & filters
@@ -381,6 +390,120 @@ export default function MainScreen() {
   const vodChannels = usePlayerStore((s) => s.vodChannels);
   const seriesChannels = usePlayerStore((s) => s.seriesChannels);
   const heroSafe = (c: Channel) => !isAdultContent(c.name, c.group_name);
+
+  // Home: a rotating banner, then rows. The rows depend on the lists alone;
+  // the banner also needs each title's TMDB card, so it is rebuilt as cards
+  // arrive without re-ranking the library.
+  const homeOn = homeAvailable && contentTypeFilter === 'home';
+  const homeShelves = useHomeShelves(currentPlaylist?.id ?? null, homeOn);
+  const allChannels = usePlayerStore((s) => s.channels);
+  const favoriteChannels = usePlayerStore((s) => s.favoriteChannels);
+  const homeRails = useMemo((): { rails: HomeRailSpec[]; featured: FeaturedTitle[] } => {
+    if (!homeOn) return { rails: [], featured: [] };
+    const byId = new Map(allChannels.map((c) => [c.id, c]));
+    const ok = (c: Channel | undefined): c is Channel =>
+      !!c && !isAdultContent(c.name, c.group_name) && !shouldBlockChannel(c, homeParental);
+    // Movies and series alternate, each list in its own rank order
+    const { vod, series } = homeShelves.featured;
+    const featured: FeaturedTitle[] = [];
+    for (let i = 0; i < Math.max(vod.length, series.length); i++) {
+      if (vod[i]) featured.push(vod[i]);
+      if (series[i]) featured.push(series[i]);
+    }
+    const trending = featured
+      .filter((f) => f.source === 'trending')
+      .map((f) => byId.get(f.channel_id))
+      .filter(ok);
+    const recent = newestTitles([...vodChannels, ...seriesChannels].filter(ok), 24);
+    const live = favoriteChannels.filter(
+      (c) => c.content_type === 'live' && !shouldBlockChannel(c, homeParental)
+    );
+    const favourites = favoriteChannels.filter((c) => c.content_type !== 'live' && ok(c));
+    const rails: HomeRailSpec[] = [
+      {
+        key: 'live',
+        title: 'On now',
+        subtitle: 'Your favourite channels',
+        kind: 'live',
+        items: live,
+      },
+      {
+        key: 'trending',
+        title: 'Trending in your library',
+        subtitle: 'On TMDB today',
+        kind: 'poster',
+        items: trending,
+      },
+      {
+        key: 'recent',
+        title: 'Recently added',
+        subtitle: 'New in your playlist',
+        kind: 'poster',
+        items: recent,
+      },
+      { key: 'favourites', title: 'Your favourites', kind: 'poster', items: favourites },
+      // The day's genre rows, grouped under one heading
+      ...homeVisibleRows.map((row): HomeRailSpec => ({
+        key: `genre-${row.content_type}-${row.genre}`,
+        title: `${row.genre} ${row.content_type === 'vod' ? 'movies' : 'series'}`,
+        kind: 'poster',
+        items: row.items.map((item) => item.channel),
+        group: { title: "Today's genres", subtitle: 'A new set every day' },
+      })),
+    ];
+    return { rails, featured };
+  }, [
+    homeOn,
+    allChannels,
+    homeParental,
+    homeShelves,
+    vodChannels,
+    seriesChannels,
+    favoriteChannels,
+    homeVisibleRows,
+  ]);
+  const homeHero = useMemo((): HomeHeroItem[] => {
+    if (!homeOn) return [];
+    const byId = new Map(allChannels.map((c) => [c.id, c]));
+    const hero: HomeHeroItem[] = [];
+    const seen = new Set<number>();
+    if (homePickView) {
+      hero.push({
+        channel: homePickView.channel,
+        card: homePickView.card,
+        eyebrow: 'Our pick of the day',
+        note: homePickView.note,
+      });
+      seen.add(homePickView.channel.id);
+    }
+    for (const f of homeRails.featured) {
+      if (hero.length >= 10) break;
+      const channel = byId.get(f.channel_id);
+      const card = tmdbCards.get(f.channel_id);
+      if (!channel || !card || seen.has(channel.id)) continue;
+      if (
+        isAdultContent(channel.name, channel.group_name) ||
+        shouldBlockChannel(channel, homeParental)
+      )
+        continue;
+      seen.add(channel.id);
+      hero.push({ channel, card, eyebrow: f.source === 'trending' ? 'Trending today' : 'Popular' });
+    }
+    return hero;
+  }, [homeOn, allChannels, homePickView, homeRails.featured, tmdbCards, homeParental]);
+  // Cards for Home's banner and posters; live channels need none
+  const homeCardIds = useMemo(() => {
+    if (!homeOn) return [];
+    const ids = homeRails.featured.map((f) => f.channel_id);
+    for (const rail of homeRails.rails) {
+      if (rail.kind === 'poster') for (const c of rail.items) ids.push(c.id);
+    }
+    return ids;
+  }, [homeOn, homeRails]);
+  const homeLiveChannels = useMemo(
+    () => homeRails.rails.find((r) => r.key === 'live')?.items ?? [],
+    [homeRails]
+  );
   // The banner's titles for the section: TMDB's trending today, then popular
   // recent releases, from the backend; refreshed every ten minutes (the
   // trending list itself changes once a day).
@@ -558,7 +681,8 @@ export default function MainScreen() {
   // Now/next for the live cards in view. The playing channel always rides
   // along so the dock stays fresh, also in sections without a grid; a card
   // and the dock of one channel read the same entry.
-  const nowNext = useNowNext(visibleChannels, currentChannel);
+  // Home's live row shows what's on now, so its channels take the grid's place
+  const nowNext = useNowNext(homeOn ? homeLiveChannels : visibleChannels, currentChannel);
   // Keys the guide has answered, so a card says "No guide data" only after a real miss.
   // nowNext already changes with every answer that has entries; this adds all-miss batches.
   const guideFetched = useEpgStore((s) => s.fetchedIn);
@@ -569,13 +693,13 @@ export default function MainScreen() {
   // both sections so the banner is warm before its section opens. Live rows
   // never do.
   const visibleCardIds = useMemo(() => {
-    const ids: number[] = [...heroWarmupIds];
+    const ids: number[] = [...heroWarmupIds, ...homeCardIds];
     for (const c of visibleChannels) {
       // Live rows (search results, Favorites) still hold movies and series.
       if (kind === 'poster' || c.content_type !== 'live') ids.push(c.id);
     }
     return ids;
-  }, [kind, heroWarmupIds, visibleChannels]);
+  }, [kind, heroWarmupIds, homeCardIds, visibleChannels]);
   useTmdbCards(visibleCardIds);
 
   const openDetail = useCallback((channel: Channel) => {
@@ -941,6 +1065,12 @@ export default function MainScreen() {
               filteredChannels.length,
               trimmedQuery ? RESULT_NOUNS : SECTION_COUNT_NOUNS[contentTypeFilter]
             );
+  // Home is greeted by the clock in the top bar, with the date beside it
+  if (contentTypeFilter === 'home') {
+    const date = new Date(now);
+    title = greeting(date);
+    subtitle = HOME_DATE.format(date);
+  }
   if (view === 'settings') {
     title = 'Settings';
     subtitle = 'Ctrl+1–7 switches sections';
@@ -1006,14 +1136,37 @@ export default function MainScreen() {
           />
         ) : contentTypeFilter === 'home' ? (
           <HomeView
-            pick={homePickView}
+            hero={homeHero}
+            rails={homeRails.rails}
+            renderPoster={(channel) => (
+              <PosterCard
+                channel={channel}
+                onOpen={handleOpenTitle}
+                onPlay={handlePlayChannel}
+                tmdb={tmdbCards.get(channel.id)}
+                onToggleFavorite={toggleChannelFavorite}
+                // Home leaves blocked titles out altogether
+                isBlocked={false}
+                parentalVisibility={parentalVisibility}
+              />
+            )}
+            renderLive={(channel) => (
+              <ChannelCard
+                channel={channel}
+                isPlaying={currentChannel?.id === channel.id && isPlaying}
+                onPlay={handlePlayChannel}
+                onToggleFavorite={toggleChannelFavorite}
+                {...cardEpg(nowNextFor(nowNext, channel), now)}
+                guideAnswered={guideAnswered(guideFetched, channel)}
+                isBlocked={false}
+                parentalVisibility={parentalVisibility}
+              />
+            )}
             onPlay={handlePlayChannel}
             onOpenTitle={handleOpenTitle}
-            isPlaying={isPlaying && currentChannel?.id === homePickView?.channel.id}
-            rows={homeVisibleRows}
+            playingId={isPlaying ? (currentChannel?.id ?? null) : null}
             loading={homeLoading}
             progress={homeProgress ?? tmdbStatus?.background_progress ?? null}
-            onOpen={handleOpenTitle}
             scrollTopRef={homeScrollTop}
           />
         ) : contentTypeFilter === 'guide' ? (

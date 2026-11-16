@@ -1,43 +1,66 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { HomeView } from '../../components/HomeView';
-import type { HomeRow } from '../../lib/tauri';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { HomeView, type HomeHeroItem, type HomeRailSpec } from '../../components/HomeView';
+import type { TmdbCard } from '../../lib/tauri';
 import type { Channel } from '../../types';
 
-function item(channel_id: number, title: string) {
+function title(id: number, name: string, content_type: Channel['content_type'] = 'vod'): Channel {
+  return { id, name, content_type, is_favorite: false };
+}
+
+function card(channel_id: number, name: string): TmdbCard {
   return {
     channel_id,
     tmdb_id: channel_id,
-    title,
+    title: name,
     year: 2020,
-    rating: 6.5,
+    rating: 7.5,
     poster_url: null,
     backdrop_url: null,
-    genres: ['Comedy'],
+    genres: ['Drama'],
     overview: null,
-    channel: {
-      id: channel_id,
-      name: title,
-      content_type: 'vod' as const,
-      is_favorite: false,
-    },
-  };
+  } as unknown as TmdbCard;
 }
 
-const pickChannel: Channel = {
-  id: 9,
-  name: 'Pick.Movie.2021.1080p',
-  group_name: 'Movies',
-  content_type: 'vod',
-  is_favorite: false,
-  created_at: '2026-09-01T00:00:00Z',
-};
-const pickCard = { ...item(9, 'Pick Movie'), genres: ['Drama'] };
-
-const rows: HomeRow[] = [
-  { genre: 'Comedy', content_type: 'vod', items: [item(1, 'A'), item(2, 'B'), item(3, 'C')] },
-  { genre: 'Drama', content_type: 'series', items: [item(4, 'D'), item(5, 'E'), item(6, 'F')] },
+const rails: HomeRailSpec[] = [
+  { key: 'live', title: 'On now', kind: 'live', items: [title(50, 'BBC One', 'live')] },
+  {
+    key: 'trending',
+    title: 'Trending in your library',
+    kind: 'poster',
+    items: [title(1, 'Dune'), title(2, 'Heat')],
+  },
+  { key: 'empty', title: 'Your favourites', kind: 'poster', items: [] },
+  {
+    key: 'genre-vod-Comedy',
+    title: 'Comedy',
+    subtitle: 'Movies',
+    kind: 'poster',
+    items: [title(3, 'Airplane')],
+  },
 ];
+
+const hero: HomeHeroItem[] = [
+  { channel: title(9, 'Pick Movie'), card: card(9, 'Pick Movie'), eyebrow: 'Our pick of the day' },
+  { channel: title(10, 'Second'), card: card(10, 'Second'), eyebrow: 'Trending today' },
+  { channel: title(11, 'Third'), card: card(11, 'Third'), eyebrow: 'Popular' },
+];
+
+function renderHome(props: Partial<React.ComponentProps<typeof HomeView>> = {}) {
+  return render(
+    <HomeView
+      hero={[]}
+      rails={rails}
+      renderPoster={(c) => <span>poster {c.name}</span>}
+      renderLive={(c) => <span>live {c.name}</span>}
+      onPlay={vi.fn()}
+      onOpenTitle={vi.fn()}
+      loading={false}
+      progress={null}
+      {...props}
+    />
+  );
+}
 
 describe('HomeView', () => {
   beforeEach(() => {
@@ -46,103 +69,55 @@ describe('HomeView', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('greets by the clock and lists one slideshow per row', () => {
-    render(
-      <HomeView
-        pick={null}
-        onPlay={vi.fn()}
-        onOpenTitle={vi.fn()}
-        rows={rows}
-        loading={false}
-        progress={null}
-        onOpen={vi.fn()}
-      />
-    );
-    expect(screen.getByRole('heading', { level: 2, name: 'Good morning' })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Comedy Movies' })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Drama Series' })).toBeInTheDocument();
+  it('shows one row per rail in order, skipping empty ones, with the right card kind', () => {
+    renderHome();
+    const regions = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'));
+    expect(regions).toEqual(['Home', 'On now', 'Trending in your library', 'Comedy']);
+    expect(screen.getByText('live BBC One')).toBeInTheDocument();
+    expect(screen.getByText('poster Dune')).toBeInTheDocument();
+    expect(screen.getByText('poster Airplane')).toBeInTheDocument();
+    expect(screen.getByText('Movies')).toBeInTheDocument();
+    // The old explanation is gone; the greeting lives in the top bar
+    expect(screen.queryByText(/daily pick and six genre slideshows/i)).toBeNull();
   });
 
   it('shows skeletons while loading', () => {
-    render(
-      <HomeView
-        pick={null}
-        onPlay={vi.fn()}
-        onOpenTitle={vi.fn()}
-        rows={[]}
-        loading
-        progress={null}
-        onOpen={vi.fn()}
-      />
-    );
+    renderHome({ rails: [], loading: true });
     expect(screen.getByTestId('home-skeleton')).toBeInTheDocument();
     expect(screen.queryByText(/Nothing to show yet/)).toBeNull();
   });
 
-  it('explains a running scan', () => {
-    render(
-      <HomeView
-        pick={null}
-        onPlay={vi.fn()}
-        onOpenTitle={vi.fn()}
-        rows={[]}
-        loading={false}
-        progress={{ done: 120, total: 900, running: true }}
-        onOpen={vi.fn()}
-      />
-    );
+  it('explains a running scan when there is nothing yet', () => {
+    renderHome({ rails: [], progress: { done: 120, total: 900, running: true } });
     expect(screen.getByText('Fetched 120 of 900 titles')).toBeInTheDocument();
     expect(screen.getByText('Home fills in as the scan completes.')).toBeInTheDocument();
   });
 
   it('explains an empty library', () => {
-    render(
-      <HomeView
-        pick={null}
-        onPlay={vi.fn()}
-        onOpenTitle={vi.fn()}
-        rows={[]}
-        loading={false}
-        progress={null}
-        onOpen={vi.fn()}
-      />
-    );
+    renderHome({ rails: [] });
     expect(screen.getByText(/Nothing to show yet/)).toBeInTheDocument();
   });
 
-  it('explains what Home is under the greeting', () => {
-    render(
-      <HomeView
-        pick={null}
-        onPlay={vi.fn()}
-        onOpenTitle={vi.fn()}
-        rows={rows}
-        loading={false}
-        progress={null}
-        onOpen={vi.fn()}
-      />
-    );
-    expect(screen.getByText(/daily pick and six genre slideshows/i)).toBeInTheDocument();
-  });
-
-  it('shows the pick of the day hero above the slideshows', () => {
+  it('rotates the banner every 6 s, jumps by its dots and holds still under the pointer', () => {
     const onPlay = vi.fn();
-    render(
-      <HomeView
-        pick={{ channel: pickChannel, card: pickCard, note: 'Trending on TMDB today' }}
-        onPlay={onPlay}
-        onOpenTitle={vi.fn()}
-        rows={rows}
-        loading={false}
-        progress={null}
-        onOpen={vi.fn()}
-      />
-    );
-    const hero = screen.getByRole('region', { name: 'Our pick of the day' });
-    expect(hero).toHaveTextContent('Pick Movie');
-    expect(hero).toHaveTextContent('Trending on TMDB today');
-    expect(
-      hero.compareDocumentPosition(screen.getByRole('region', { name: 'Comedy Movies' })) & 4
-    ).toBeTruthy();
+    renderHome({ hero, onPlay });
+    expect(screen.getByText('OUR PICK OF THE DAY')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Pick Movie' })).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(6_000));
+    expect(screen.getByRole('heading', { name: 'Second' })).toBeInTheDocument();
+    expect(screen.getByText('TRENDING TODAY')).toBeInTheDocument();
+
+    const dots = screen.getByRole('group', { name: 'Featured titles' });
+    fireEvent.click(within(dots).getByRole('button', { name: 'Show featured title 3 of 3' }));
+    expect(screen.getByRole('heading', { name: 'Third' })).toBeInTheDocument();
+
+    const banner = screen.getByRole('region', { name: 'Popular' }).parentElement!;
+    fireEvent.mouseEnter(banner);
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(screen.getByRole('heading', { name: 'Third' })).toBeInTheDocument();
+    fireEvent.mouseLeave(banner);
+    act(() => vi.advanceTimersByTime(6_000));
+    expect(screen.getByRole('heading', { name: 'Pick Movie' })).toBeInTheDocument();
   });
 });
