@@ -60,7 +60,7 @@ describe('ProfileManager, the Add profile overlay', () => {
   it('closes on Escape, also from a field, and hands the focus back', async () => {
     const add = await openAddProfile();
 
-    const name = screen.getByLabelText('Playlist Name');
+    const name = screen.getByLabelText('Playlist name');
     name.focus();
     fireEvent.keyDown(name, { key: 'Escape' });
 

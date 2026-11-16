@@ -67,7 +67,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
   });
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
-  // The profile whose Delete waits on "Delete Profile?"; null while no one asks.
+  // The profile whose Delete waits on "Delete profile?"; null while no one asks.
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
 
@@ -115,7 +115,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
       logger.info(`Profile ID ${id} renamed to: ${editName.trim()}`);
     } catch (err) {
       logger.error('Failed to rename profile:', err);
-      setErrorTitle('Failed to Rename Profile');
+      setErrorTitle('Failed to rename profile');
       setErrorMessage(errorText(err));
       setShowErrorModal(true);
     }
@@ -155,7 +155,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
       }
     } catch (err) {
       logger.error('Failed to delete profile:', err);
-      setErrorTitle('Failed to Delete Profile');
+      setErrorTitle('Failed to delete profile');
       setErrorMessage(errorText(err));
       setShowErrorModal(true);
     }
@@ -388,7 +388,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
         isOpen={deleteTarget !== null}
         onClose={() => setConfirmDeleteId(null)}
         onConfirm={handleConfirmDelete}
-        title={deletingLastProfile ? 'Delete Last Profile?' : 'Delete Profile?'}
+        title={deletingLastProfile ? 'Delete last profile?' : 'Delete profile?'}
         message={
           deletingLastProfile
             ? `"${deleteTarget?.name}" is your only profile. Deleting it removes its favorites, pinned categories and guide matches, and you will be asked to add a playlist again.`

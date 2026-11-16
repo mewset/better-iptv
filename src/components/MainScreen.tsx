@@ -1311,7 +1311,7 @@ export default function MainScreen() {
         }}
         title="Playlist update available"
         message="Your playlist hasn't been updated in over 7 days. Would you like to refresh it now?"
-        confirmText="Refresh Now"
+        confirmText="Refresh now"
         cancelText="Later"
       />
 

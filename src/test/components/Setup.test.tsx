@@ -162,7 +162,7 @@ describe('Setup', () => {
     });
 
     await renderSettled(<Setup />);
-    fireEvent.change(screen.getByLabelText('Playlist Name'), { target: { value: 'Home' } });
+    fireEvent.change(screen.getByLabelText('Playlist name'), { target: { value: 'Home' } });
     fireEvent.change(screen.getByLabelText('Address or file path'), {
       target: { value: 'http://x/list.m3u' },
     });
@@ -179,7 +179,7 @@ describe('Setup', () => {
     vi.mocked(checkMpvInstalled).mockResolvedValue(true);
 
     await renderSettled(<Setup />);
-    fireEvent.change(screen.getByLabelText('Playlist Name'), { target: { value: 'Home' } });
+    fireEvent.change(screen.getByLabelText('Playlist name'), { target: { value: 'Home' } });
     fireEvent.submit(screen.getByRole('button', { name: 'Import playlist' }).closest('form')!);
 
     expect(
@@ -193,7 +193,7 @@ describe('Setup', () => {
     const created = { id: 7, name: 'Home' } as Playlist;
 
     function fillAndSubmit() {
-      fireEvent.change(screen.getByLabelText('Playlist Name'), { target: { value: 'Home' } });
+      fireEvent.change(screen.getByLabelText('Playlist name'), { target: { value: 'Home' } });
       fireEvent.change(screen.getByLabelText('Address or file path'), {
         target: { value: '/home/me/list.m3u' },
       });

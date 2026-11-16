@@ -116,7 +116,7 @@ async function openParental() {
   fireEvent.click(screen.getByRole('button', { name: 'Enter PIN' }));
   fireEvent.change(await screen.findByPlaceholderText('Enter PIN'), { target: { value: '1234' } });
   fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
-  await screen.findByRole('checkbox', { name: 'Enable Parental Controls' });
+  await screen.findByRole('checkbox', { name: 'Enable parental controls' });
 }
 
 /** Settings next to the global shortcuts, as MainScreen mounts them. */
@@ -299,7 +299,7 @@ describe('Settings as a view', () => {
       })
     );
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
-    await screen.findByRole('heading', { name: 'Failed to Save Settings' });
+    await screen.findByRole('heading', { name: 'Failed to save settings' });
     expect(screen.getByText('Background fetching needs your own TMDB API key')).toBeInTheDocument();
   });
 
@@ -515,17 +515,17 @@ describe('Settings as a view', () => {
     const onClose = await renderSettings();
 
     fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
-    await screen.findByRole('heading', { name: 'Failed to Save Settings' });
+    await screen.findByRole('heading', { name: 'Failed to save settings' });
     // The dialog takes the focus in the same effect that starts its Escape
     // listener. The heading alone is in the page a moment earlier, and on a
     // busy machine the key then arrived before anything listened for it.
     await waitFor(() =>
-      expect(screen.getByRole('dialog', { name: 'Failed to Save Settings' })).toHaveFocus()
+      expect(screen.getByRole('dialog', { name: 'Failed to save settings' })).toHaveFocus()
     );
 
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.queryByRole('heading', { name: 'Failed to Save Settings' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Failed to save settings' })).toBeNull();
 
     // With the modal gone, the next Escape reaches Settings.
     fireEvent.keyDown(window, { key: 'Escape' });
@@ -623,29 +623,29 @@ describe('Settings as a view', () => {
     // Playback
     fireEvent.mouseDown(screen.getByRole('tab', { name: /^playback$/i }));
     await screen.findByRole('heading', { level: 1, name: 'Playback' });
-    const hardware = screen.getByRole('checkbox', { name: 'Hardware Acceleration' });
+    const hardware = screen.getByRole('checkbox', { name: 'Hardware acceleration' });
     expect(hardware).toBeChecked();
     expect(hardware).toHaveAccessibleDescription('Use GPU for video decoding (recommended)');
-    expect(screen.getByRole('checkbox', { name: 'Start in Fullscreen' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Start in fullscreen' })).not.toBeChecked();
     for (const name of [
-      'Video Output',
+      'Video output',
       'Deinterlacing',
-      'Default Audio Language',
-      'Default Subtitles Language',
-      'Cache Duration',
+      'Default audio language',
+      'Default subtitles language',
+      'Cache duration',
     ]) {
       expect(screen.getByLabelText(name).tagName).toBe('SELECT');
     }
-    expect(screen.getByRole('slider', { name: 'Start Volume: 100%' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Start volume: 100%' })).toBeInTheDocument();
     // The row is the label: a click on the text toggles the box.
-    fireEvent.click(screen.getByText('Hardware Acceleration'));
+    fireEvent.click(screen.getByText('Hardware acceleration'));
     expect(hardware).not.toBeChecked();
 
     // Parental
     await openParental();
-    expect(screen.getByRole('checkbox', { name: 'Enable Parental Controls' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'Auto-detect 18+ Content' })).not.toBeChecked();
-    expect(screen.getByLabelText('Visibility Mode')).toHaveValue('hide');
+    expect(screen.getByRole('checkbox', { name: 'Enable parental controls' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Auto-detect 18+ content' })).not.toBeChecked();
+    expect(screen.getByLabelText('Visibility mode')).toHaveValue('hide');
 
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() =>
@@ -666,8 +666,8 @@ describe('Settings as a view', () => {
     expect(
       screen.getByText('Parental controls are on. Enter the PIN to see or change them.')
     ).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Enable Parental Controls' })).toBeNull();
-    expect(screen.queryByRole('button', { name: /Select Channels/ })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: 'Enable parental controls' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Select channels/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Reset PIN' })).toBeNull();
 
     // A wrong PIN opens nothing.
@@ -679,14 +679,14 @@ describe('Settings as a view', () => {
     fireEvent.change(screen.getByPlaceholderText('Enter PIN'), { target: { value: '0000' } });
     fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
     expect(await screen.findByText('Incorrect PIN')).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: 'Enable Parental Controls' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: 'Enable parental controls' })).toBeNull();
 
     // The right one opens the section for the rest of the visit, and turning
     // the controls off then needs no second PIN.
     fireEvent.change(screen.getByPlaceholderText('Enter PIN'), { target: { value: '1234' } });
     fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
-    const enable = await screen.findByRole('checkbox', { name: 'Enable Parental Controls' });
-    expect(screen.getByRole('button', { name: 'Select Channels (1 blocked)' })).toBeInTheDocument();
+    const enable = await screen.findByRole('checkbox', { name: 'Enable parental controls' });
+    expect(screen.getByRole('button', { name: 'Select channels (1 blocked)' })).toBeInTheDocument();
     fireEvent.click(enable);
     expect(enable).not.toBeChecked();
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -702,7 +702,7 @@ describe('Settings as a view', () => {
     await goToParental();
 
     expect(screen.queryByRole('button', { name: 'Enter PIN' })).toBeNull();
-    const enable = screen.getByRole('checkbox', { name: 'Enable Parental Controls' });
+    const enable = screen.getByRole('checkbox', { name: 'Enable parental controls' });
     expect(enable).not.toBeChecked();
 
     fireEvent.click(enable);
@@ -730,7 +730,7 @@ describe('Settings as a view', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Set PIN' }));
 
     expect(await screen.findByRole('button', { name: 'Change PIN' })).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: 'Enable Parental Controls' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Enable parental controls' })).toBeChecked();
   });
 
   it('Refresh from General also updates the refresh date Profiles shows', async () => {
@@ -804,14 +804,14 @@ describe('Settings as a view', () => {
     const onClose = await renderSettings();
     await openParental();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Select Channels (1 blocked)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select channels (1 blocked)' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('1 of 3 channels blocked')).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Block All' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Block all' }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
 
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Select Channels (3 blocked)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select channels (3 blocked)' })).toBeInTheDocument();
     expect(setBlockedChannels).not.toHaveBeenCalled();
 
     // Unsaved for real now, so leaving asks.
@@ -854,7 +854,7 @@ describe('Settings as a view', () => {
     // Cabin is the second card and not the active profile.
     fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[1]);
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByRole('heading', { name: 'Delete Profile?' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('heading', { name: 'Delete profile?' })).toBeInTheDocument();
     expect(within(dialog).getByText(/"Cabin"/)).toBeInTheDocument();
     expect(deletePlaylist).not.toHaveBeenCalled();
 
@@ -921,13 +921,13 @@ describe('Settings as a view', () => {
 
     await goToProfiles();
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-    await screen.findByText('Delete Last Profile?');
+    await screen.findByText('Delete last profile?');
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
     // Escape is the dialog's Cancel: nothing is deleted and Settings stays.
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.queryByText('Delete Last Profile?')).toBeNull();
+    expect(screen.queryByText('Delete last profile?')).toBeNull();
     expect(deletePlaylist).not.toHaveBeenCalled();
     expect(screen.getByText('Home')).toBeInTheDocument();
   });

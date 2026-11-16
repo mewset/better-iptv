@@ -477,7 +477,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       logger.info('Parental PIN reset successfully');
     } catch (err) {
       logger.error('Failed to reset PIN:', err);
-      showError('Failed to Reset PIN', errorText(err));
+      showError('Failed to reset PIN', errorText(err));
     }
   };
 
@@ -579,7 +579,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       onClose();
     } catch (err) {
       logger.error('Failed to save settings:', err);
-      showError('Failed to Save Settings', errorText(err));
+      showError('Failed to save settings', errorText(err));
     } finally {
       setIsSaving(false);
     }

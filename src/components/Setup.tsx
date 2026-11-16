@@ -306,14 +306,14 @@ export default function Setup({ onComplete, onCancel, titleId }: SetupProps = {}
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         <div>
           <label htmlFor="name" className="mb-1.5 block text-[13px] font-semibold text-text-muted">
-            Playlist Name
+            Playlist name
           </label>
           <input
             id="name"
             type="text"
             value={playlistName}
             onChange={(e) => setPlaylistName(e.target.value)}
-            placeholder="My IPTV Playlist"
+            placeholder="My IPTV playlist"
             className="h-11 w-full rounded-xl border border-border-strong bg-text/5 px-3.5 text-text focus:border-transparent focus:outline-none focus:ring-2 focus:ring-accent"
           />
         </div>
