@@ -29,7 +29,7 @@ import { NowPlayingBar } from './NowPlayingBar';
 import { Toast } from './Toast';
 import { Rail } from './Rail';
 import { TopBar } from './TopBar';
-import { Search } from 'lucide-react';
+import { Search, Star } from 'lucide-react';
 import DetailView from './DetailView';
 import Settings, { type SettingsHandle } from './Settings';
 import PinEntryModal from './modals/PinEntryModal';
@@ -1104,7 +1104,10 @@ export default function MainScreen() {
                       )}
                     </>
                   ) : contentTypeFilter === 'favorites' ? (
-                    <p>No favorites yet. Use the star on a channel, movie or series.</p>
+                    <>
+                      <Star className="h-6 w-6" aria-hidden="true" />
+                      <p>No favorites yet. Use the star on a channel, movie or series.</p>
+                    </>
                   ) : (
                     <p>Nothing in this section yet</p>
                   )}
