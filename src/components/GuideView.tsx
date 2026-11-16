@@ -297,7 +297,7 @@ function DetailPanel({
       ref={panelRef}
       aria-label="Selected programme"
       className={cn(
-        'absolute left-1/2 z-20 flex w-[min(880px,calc(100%-80px))] -translate-x-1/2 items-center gap-4 rounded-[18px] border border-border-strong bg-surface/85 p-3 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-2xl supports-[not(backdrop-filter:blur(1px))]:bg-surface',
+        'absolute left-1/2 z-20 flex w-[min(880px,calc(100%-80px))] -translate-x-1/2 items-center gap-4 rounded-[18px] border border-border-strong bg-surface/85 p-3 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-2xl no-backdrop:bg-surface',
         dockVisible ? 'bottom-[112px]' : 'bottom-6'
       )}
     >

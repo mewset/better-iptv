@@ -167,7 +167,7 @@ export function TopBar({
   // it the containing block for fixed descendants, which would clip the modal.
   return (
     <>
-      <header className="relative z-10 flex h-16 shrink-0 items-center gap-6 border-b border-border bg-bg/70 px-10 backdrop-blur-xl supports-[not(backdrop-filter:blur(1px))]:bg-bg">
+      <header className="relative z-10 flex h-16 shrink-0 items-center gap-6 border-b border-border bg-bg/70 px-10 backdrop-blur-xl no-backdrop:bg-bg">
         <div className="flex min-w-0 flex-1 items-baseline gap-3">
           <h1 className="truncate font-display text-2xl font-semibold text-text">{title}</h1>
           <p className="truncate text-[13px] text-text-muted">{subtitle}</p>

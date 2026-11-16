@@ -224,10 +224,10 @@ export default function Setup({ onComplete, onCancel, titleId }: SetupProps = {}
   }
 
   const card = (
-    <div className="relative w-[560px] max-w-[calc(100%-32px)] rounded-3xl border border-border-strong bg-surface/80 p-10 backdrop-blur-2xl">
+    <div className="relative w-[560px] max-w-[calc(100%-32px)] rounded-3xl border border-border-strong bg-surface/80 p-10 backdrop-blur-2xl no-backdrop:bg-surface">
       {/* Modal mode loading overlay */}
       {isLoading && onCancel && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-3xl bg-surface/80 backdrop-blur-sm">
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-3xl bg-surface/80 backdrop-blur-sm no-backdrop:bg-surface">
           <div className="text-center">
             <div className="mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4 border-accent border-t-transparent"></div>
             <p className="font-medium text-text-muted">Importing playlist...</p>

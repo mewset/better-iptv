@@ -726,7 +726,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       {/* Footer */}
       <div
         ref={footerRef}
-        className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-border bg-bg/90 px-10 py-6 backdrop-blur"
+        className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-border bg-bg/90 px-10 py-6 backdrop-blur no-backdrop:bg-bg"
       >
         {loadFailed && (
           <p role="alert" className="mr-auto text-sm text-danger">

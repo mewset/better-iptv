@@ -46,6 +46,15 @@ impl r2d2::CustomizeConnection<rusqlite::Connection, rusqlite::Error> for Pragma
     }
 }
 
+/// Whether the web view draws `backdrop-filter`. WebKitGTK does not while its
+/// DMA-BUF renderer is off, which `run` makes the default on Linux: seen in
+/// screen captures on WebKitGTK 2.54 (sharp text behind a blurred scrim with
+/// `WEBKIT_DISABLE_DMABUF_RENDERER=1`, blurred with `0`). Anything but "1"
+/// leaves the renderer on.
+fn backdrop_filter_drawn(linux: bool, disable_dmabuf_renderer: Option<&str>) -> bool {
+    !(linux && disable_dmabuf_renderer == Some("1"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Workaround for WebKitGTK 2.50+ EGL display bug on Wayland
@@ -60,7 +69,21 @@ pub fn run() {
         }
     }
 
+    // Tell the page before it loads when the web view will draw no backdrop
+    // filter, so glass surfaces are opaque from the first paint (`lib/glass`).
+    let page_flags = if backdrop_filter_drawn(
+        cfg!(target_os = "linux"),
+        std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER")
+            .ok()
+            .as_deref(),
+    ) {
+        ""
+    } else {
+        "window.__BETTER_IPTV_NO_BACKDROP_FILTER__ = true;"
+    };
+
     tauri::Builder::default()
+        .append_invoke_initialization_script(page_flags)
         .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -343,5 +366,26 @@ mod desktop_entry_tests {
                 "bundle.linux.{bundle}.desktopTemplate no longer points at the tested template"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod backdrop_tests {
+    use super::backdrop_filter_drawn;
+
+    #[test]
+    fn no_backdrop_filter_on_linux_while_the_dmabuf_renderer_is_off() {
+        assert!(!backdrop_filter_drawn(true, Some("1")));
+    }
+
+    #[test]
+    fn the_filter_is_drawn_with_the_renderer_on_and_on_the_other_systems() {
+        // The user's opt-out, and a value that does not turn the renderer off
+        assert!(backdrop_filter_drawn(true, Some("0")));
+        assert!(backdrop_filter_drawn(true, Some("")));
+        assert!(backdrop_filter_drawn(true, None));
+        // Windows and macOS do not read the variable at all
+        assert!(backdrop_filter_drawn(false, Some("1")));
+        assert!(backdrop_filter_drawn(false, None));
     }
 }
