@@ -252,7 +252,7 @@ describe('TopBar', () => {
     fireEvent.focusOut(item, { relatedTarget: null });
     expect(screen.getByRole('menu')).toBeInTheDocument();
 
-    elsewhere.focus();
+    act(() => elsewhere.focus());
     fireEvent.focusOut(item, { relatedTarget: elsewhere });
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(elsewhere).toHaveFocus();

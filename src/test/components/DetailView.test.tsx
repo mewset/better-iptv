@@ -14,6 +14,7 @@ vi.mock('../../lib/tauri', async (importOriginal) => ({
 import { getTmdbDetails, getTmdbSeason } from '../../lib/tauri';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { invoke } from '@tauri-apps/api/core';
+import { renderSettled } from '../renderSettled';
 
 const movie: Channel = {
   id: 9,
@@ -311,7 +312,7 @@ describe('DetailView broken art', () => {
 
   it('a broken image falls back to ColorBars', async () => {
     vi.mocked(getTmdbDetails).mockResolvedValue(off);
-    const { container } = render(
+    const { container } = await renderSettled(
       <DetailView
         channel={movie}
         onBack={vi.fn()}

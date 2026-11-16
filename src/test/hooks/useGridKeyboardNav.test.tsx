@@ -382,7 +382,7 @@ describe('useGridKeyboardNav', () => {
 
   it('ignores the keys in an empty list', () => {
     render(<Grid list={[]} />);
-    grid().focus();
+    act(() => grid().focus());
     expect(key('ArrowDown')).toBe(true);
     expect(active()).toBeNull();
     expect(scrollToIndex).not.toHaveBeenCalled();

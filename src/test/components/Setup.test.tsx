@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import Setup from '../../components/Setup';
 import { usePlayerStore } from '../../stores/player-store';
 import { checkMpvInstalled, importPlaylist, getChannels } from '../../lib/tauri';
 import type { Playlist } from '../../types';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { renderSettled } from '../renderSettled';
 
 vi.mock('../../lib/tauri', () => ({
   checkMpvInstalled: vi.fn(),
@@ -30,7 +31,7 @@ describe('Setup', () => {
   it('shows "MPV found" when checkMpvInstalled resolves true', async () => {
     vi.mocked(checkMpvInstalled).mockResolvedValue(true);
 
-    render(<Setup />);
+    await renderSettled(<Setup />);
 
     expect(await screen.findByText('MPV found')).toBeInTheDocument();
     expect(screen.queryByText('MPV not found')).not.toBeInTheDocument();
@@ -39,7 +40,7 @@ describe('Setup', () => {
   it('shows "MPV not found" when checkMpvInstalled resolves false', async () => {
     vi.mocked(checkMpvInstalled).mockResolvedValue(false);
 
-    render(<Setup />);
+    await renderSettled(<Setup />);
 
     expect(await screen.findByText('MPV not found')).toBeInTheDocument();
     expect(screen.queryByText('MPV found')).not.toBeInTheDocument();
@@ -48,7 +49,7 @@ describe('Setup', () => {
   it('treats a rejected MPV check as "not found" instead of crashing', async () => {
     vi.mocked(checkMpvInstalled).mockRejectedValue(new Error('no backend'));
 
-    render(<Setup />);
+    await renderSettled(<Setup />);
 
     expect(await screen.findByText('MPV not found')).toBeInTheDocument();
   });
@@ -56,7 +57,7 @@ describe('Setup', () => {
   it('calls openUrl with the MPV install page when the install link is clicked', async () => {
     vi.mocked(checkMpvInstalled).mockResolvedValue(false);
 
-    render(<Setup />);
+    await renderSettled(<Setup />);
 
     const link = await screen.findByRole('button', { name: 'How to install MPV' });
     fireEvent.click(link);
@@ -67,7 +68,7 @@ describe('Setup', () => {
   it('switches to the Xtream fields when the segmented control is switched', async () => {
     vi.mocked(checkMpvInstalled).mockResolvedValue(true);
 
-    render(<Setup />);
+    await renderSettled(<Setup />);
 
     expect(screen.queryByLabelText('Server URL')).not.toBeInTheDocument();
 
@@ -81,7 +82,7 @@ describe('Setup', () => {
   it('fills in all three Xtream fields from a pasted provider link', async () => {
     vi.mocked(checkMpvInstalled).mockResolvedValue(true);
 
-    render(<Setup />);
+    await renderSettled(<Setup />);
     fireEvent.click(screen.getByRole('tab', { name: 'Xtream Codes' }));
 
     fireEvent.change(screen.getByLabelText('Server URL'), {
@@ -96,7 +97,7 @@ describe('Setup', () => {
   it('leaves a typed server URL without credentials as it is', async () => {
     vi.mocked(checkMpvInstalled).mockResolvedValue(true);
 
-    render(<Setup />);
+    await renderSettled(<Setup />);
     fireEvent.click(screen.getByRole('tab', { name: 'Xtream Codes' }));
 
     fireEvent.change(screen.getByLabelText('Server URL'), {
@@ -110,7 +111,7 @@ describe('Setup', () => {
   it('names the submit button "Import playlist"', async () => {
     vi.mocked(checkMpvInstalled).mockResolvedValue(true);
 
-    render(<Setup />);
+    await renderSettled(<Setup />);
 
     expect(await screen.findByRole('button', { name: 'Import playlist' })).toBeInTheDocument();
   });
@@ -118,7 +119,7 @@ describe('Setup', () => {
   it('shows a validation error without importing when the playlist name is missing', async () => {
     vi.mocked(checkMpvInstalled).mockResolvedValue(true);
 
-    render(<Setup />);
+    await renderSettled(<Setup />);
 
     fireEvent.submit(screen.getByRole('button', { name: 'Import playlist' }).closest('form')!);
 
@@ -128,7 +129,7 @@ describe('Setup', () => {
   it('shows profile-specific copy in the overlay (onCancel) mode, not the first-launch heading', async () => {
     vi.mocked(checkMpvInstalled).mockResolvedValue(true);
 
-    render(<Setup onCancel={vi.fn()} />);
+    await renderSettled(<Setup onCancel={vi.fn()} />);
 
     expect(await screen.findByText('Add a profile')).toBeInTheDocument();
     expect(screen.queryByText('Add your first playlist')).not.toBeInTheDocument();
@@ -137,7 +138,7 @@ describe('Setup', () => {
   it('switches to the Xtream tab with ArrowRight from the M3U tab', async () => {
     vi.mocked(checkMpvInstalled).mockResolvedValue(true);
 
-    render(<Setup />);
+    await renderSettled(<Setup />);
 
     const m3uTab = screen.getByRole('tab', { name: 'M3U' });
     const xtreamTab = screen.getByRole('tab', { name: 'Xtream Codes' });
@@ -160,7 +161,7 @@ describe('Setup', () => {
       details: 'The provider returned no channels. Check the address and your subscription.',
     });
 
-    render(<Setup />);
+    await renderSettled(<Setup />);
     fireEvent.change(screen.getByLabelText('Playlist Name'), { target: { value: 'Home' } });
     fireEvent.change(screen.getByLabelText('Address or file path'), {
       target: { value: 'http://x/list.m3u' },
@@ -177,7 +178,7 @@ describe('Setup', () => {
   it('asks for an address or file path, since both work', async () => {
     vi.mocked(checkMpvInstalled).mockResolvedValue(true);
 
-    render(<Setup />);
+    await renderSettled(<Setup />);
     fireEvent.change(screen.getByLabelText('Playlist Name'), { target: { value: 'Home' } });
     fireEvent.submit(screen.getByRole('button', { name: 'Import playlist' }).closest('form')!);
 
@@ -208,7 +209,7 @@ describe('Setup', () => {
         () => new Promise<Playlist>((resolve) => (finish = resolve))
       );
       const onComplete = vi.fn();
-      render(<Setup onComplete={onComplete} onCancel={vi.fn()} />);
+      await renderSettled(<Setup onComplete={onComplete} onCancel={vi.fn()} />);
 
       const form = fillAndSubmit();
       fireEvent.submit(form);
@@ -225,7 +226,7 @@ describe('Setup', () => {
       vi.mocked(checkMpvInstalled).mockResolvedValue(true);
       vi.mocked(importPlaylist).mockResolvedValue(created);
       const onComplete = vi.fn();
-      render(<Setup onComplete={onComplete} onCancel={vi.fn()} />);
+      await renderSettled(<Setup onComplete={onComplete} onCancel={vi.fn()} />);
 
       fillAndSubmit();
 

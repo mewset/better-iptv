@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import Setup from '../../components/Setup';
 import { usePlayerStore } from '../../stores/player-store';
 import {
@@ -10,6 +10,7 @@ import {
   setActiveProfileId as persistActiveProfileId,
 } from '../../lib/tauri';
 import type { Playlist } from '../../types';
+import { renderSettled } from '../renderSettled';
 
 vi.mock('../../lib/tauri', () => ({
   checkMpvInstalled: vi.fn(),
@@ -31,7 +32,7 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
 const created = { id: 7, name: 'Home TV' } as Playlist;
 
 async function submitFirstRun() {
-  render(<Setup />);
+  await renderSettled(<Setup />);
   fireEvent.change(screen.getByLabelText(/profile name|playlist name|name/i), {
     target: { value: 'Home TV' },
   });

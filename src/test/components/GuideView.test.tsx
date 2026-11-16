@@ -11,6 +11,7 @@ import type { Programme } from '../../lib/epgIpc';
 import { useEpgStore } from '../../stores/epg-store';
 import type { Channel } from '../../types';
 import { epgStatus } from '../epgFixtures';
+import { settle } from '../renderSettled';
 
 // jsdom has no layout, so the real virtualizer renders no rows. This stand-in
 // renders every row unless a test narrows `visible`, and records the offset
@@ -174,6 +175,8 @@ describe('GuideView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
     expect(chip).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByRole('row', { name: 'TV4' })).toBeInTheDocument();
+    // TV4 is back and its programmes are asked for; let them land before the test ends
+    await settle();
   });
 
   it('says so when Favorites is on and no channel is a favourite', async () => {
@@ -424,7 +427,9 @@ describe('GuideView', () => {
       bubbles: true,
       cancelable: true,
     });
-    document.body.dispatchEvent(event);
+    act(() => {
+      document.body.dispatchEvent(event);
+    });
     expect(event.defaultPrevented).toBe(true);
     await waitFor(() =>
       expect(screen.queryByRole('region', { name: 'Selected programme' })).toBeNull()
