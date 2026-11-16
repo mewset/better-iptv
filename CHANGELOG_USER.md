@@ -26,7 +26,6 @@ A simple overview of new features and improvements.
 
 ### Fixes
 
-- The banner on Movies and Series no longer shows faint vertical stripes
 - Fixed series that would not open, or showed no episodes, with some Xtream providers
 - Fixed the Space key not pressing buttons when you move around with the keyboard, e.g. Play or the favorite star
 - Fixed Escape in the search box stopping playback; it now clears the search first
@@ -44,6 +43,7 @@ A simple overview of new features and improvements.
 - Fixed the theme not going back when you pressed Cancel in Settings
 - Fixed Enter not working in the PIN box
 - Fixed the banner showing only a thin strip of its picture on very wide screens
+- Fixed faint vertical stripes in the banner in Movies and Series
 
 ### Thanks
 

@@ -36,6 +36,7 @@ This file is a developer-changelog, aimed towards development changes.
 ### Fixed
 
 - **Banner: no vertical bands** - The Movies and Series banner's scrim ran from the page colour (`bg`) to transparent over the panel (`surface-2`): across the empty left half that is a gradient between two shades about a dozen 8-bit steps apart, stretched over the banner's width, so each step showed as a band about 100 px wide. The scrim is now in the panel's own colour, so that half is flat; over the artwork the image's texture hides the steps
+  - Thanks to @RyanBeckett (#105)
 - **Xtream series that never opened** - some panels answer `get_series_info` in shapes the series view could not use, so the series showed an error or no episodes at all
   - Seasons without an `id`: `Season.id` was required, so one such season failed the whole response ("The provider sent series info that could not be read", log: ``missing field `id` ``). It is now `#[serde(default)]`, and `SeriesInfo::normalize_seasons` fills an empty id with the season number, the rule `series_domain::build_series_info` already uses for M3U series. The frontend keys the season list on it
   - `"seasons": []` next to a full `episodes` map: the response parsed, but with no season to select the view listed nothing. `normalize_seasons` now adds a `Season N` for every non-empty episode group that no listed season covers, in numeric order; a complete list from the panel keeps its own order
