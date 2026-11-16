@@ -373,13 +373,17 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
       {showSetupModal && (
         <div
           {...setupDialog.dialogProps}
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 p-4 outline-none backdrop-blur-sm"
+          className="fixed inset-0 z-[60] overflow-y-auto bg-bg/70 outline-none backdrop-blur-sm"
         >
-          <Setup
-            onComplete={handleProfileCreated}
-            onCancel={() => setShowSetupModal(false)}
-            titleId={setupDialog.titleId}
-          />
+          {/* Centred while it fits; a window lower than the card scrolls it
+              instead of cutting off its top. */}
+          <div className="flex min-h-full items-center justify-center p-4">
+            <Setup
+              onComplete={handleProfileCreated}
+              onCancel={() => setShowSetupModal(false)}
+              titleId={setupDialog.titleId}
+            />
+          </div>
         </div>
       )}
 
