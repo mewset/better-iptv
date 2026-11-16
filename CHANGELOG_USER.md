@@ -25,6 +25,8 @@ A simple overview of new features and improvements.
 - Play buttons and other controls on cards now appear instantly when you hover
 - Episode lists now show just the episode's name, without the series name and episode number in front
 - Escape now closes the Add profile dialog
+- Settings sections now open at the top, the section list stays in view, and fields keep a readable width on wide screens
+- Very wide screens now show more channels and posters per row
 
 ### Fixes
 
@@ -52,6 +54,11 @@ A simple overview of new features and improvements.
 - Fixed text showing through panels and dialogs on Linux
 - Fixed movies being matched to films that are not out yet
 - Fixed "Open logs folder" in Settings doing nothing
+- Fixed channel cards in the same row not lining up
+- Fixed the profile menu being partly hidden in the TV Guide
+- Fixed time labels overlapping in the TV Guide
+- Fixed hard-to-read titles when hovering a poster in the light theme
+- Fixed profile names being cut off in a narrow window
 
 ### Thanks
 
