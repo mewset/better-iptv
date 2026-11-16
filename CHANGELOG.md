@@ -113,6 +113,12 @@ This file is a developer-changelog, aimed towards development changes.
 
 - **Test timeouts for loaded machines** - component tests that mount `MainScreen` or `Settings` timed out at random on a busy machine without being broken (a different handful each run, all passing alone)
   - `testTimeout` 5 s -> 30 s in `vitest.config.ts`, Testing Library `asyncUtilTimeout` 1 s -> 5 s in `src/test/setup.ts`. A passing test is no slower; only a test that really hangs takes longer to fail
+- **Episode titles without their address** - providers often name an episode "Absentia - S01E01 - Comeback" while the series view already shows the series, the season and the number. `lib/episodeTitle` removes one address and nothing else: an episode code at the start (S01E01, S1 E1, S01E01-E02, S01E01-02, 1x01, Season 1 Episode 1, Episode 1, Ep. 1, E01), with the series name in front of it or not (ignoring case, a trailing year or a `UK:`-style prefix), and a season-and-episode code at the end ("Comeback (S01E01)")
+  - The series name only counts with a code after it, and a title without a code is returned as it is, so an episode named after its series or after a number keeps its name ("Chuck Versus the Intersect", "House's Head", "4 Days Out", "Step 2")
+  - With nothing left ("Absentia - S01E01", or only the series name) the row falls back to TMDB's episode title, then "Episode N", as before for an empty title
+  - Playback keeps the provider's full title, as the rest of the queue already did
+  - Tests: `src/test/lib/episodeTitle.test.ts`
+  - Thanks to @RyanBeckett (#100)
 
 ## [3.3.0] - 2026-11-11
 

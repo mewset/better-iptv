@@ -23,6 +23,7 @@ A simple overview of new features and improvements.
 - Xtream setup now accepts a server address without http://
 - Improved startup speed
 - Play buttons and other controls on cards now appear instantly when you hover
+- Episode lists now show just the episode's name, without the series name and episode number in front
 
 ### Fixes
 
@@ -48,7 +49,7 @@ A simple overview of new features and improvements.
 ### Thanks
 
 - **@h4r0n1** for finding and fixing series that would not open with some Xtream providers (#93)
-- **@RyanBeckett** for sorting and a rotating banner in Movies and Series, a Linux setting that can make scrolling smoother, and for removing a flicker that came with it (#94, #95, #96, #98)
+- **@RyanBeckett** for sorting and a rotating banner in Movies and Series, cleaner episode names, a Linux setting that can make scrolling smoother, and for removing a flicker that came with it (#94, #95, #96, #98, #100, #102, #105)
 
 ## Version 3.3.0 (November 11, 2026)
 
