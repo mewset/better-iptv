@@ -65,6 +65,10 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         [],
     );
 
+    // Migration: the provider's rating of a movie or series (0-10, TMDB scale),
+    // for sorting; NULL when the provider sends none
+    let _ = conn.execute("ALTER TABLE channels ADD COLUMN rating REAL", []);
+
     // Migration: fallback logo chosen for a live channel (see db::logo_fallbacks)
     let _ = conn.execute("ALTER TABLE channels ADD COLUMN logo_override TEXT", []);
 
@@ -1407,6 +1411,7 @@ mod epg_source_seed_tests {
             sort_order: 0,
             category_order: 0,
             created_at: None,
+            rating: None,
         }
     }
 

@@ -39,6 +39,9 @@ pub struct Channel {
     pub sort_order: i32,
     pub category_order: i32, // Order from provider's category list
     pub created_at: Option<String>,
+    /// The provider's rating, 0-10 (TMDB scale); None when it sends none.
+    #[serde(default)]
+    pub rating: Option<f64>,
 }
 
 /// What the Home rows and pick read of a vod or series channel: the id,
@@ -69,6 +72,8 @@ pub struct ChannelSummary {
     pub is_favorite: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rating: Option<f64>,
 }
 
 /// `epg_id` stays `None`: a summary's `epg_id` is the guide key the matcher
@@ -86,6 +91,7 @@ impl From<Channel> for ChannelSummary {
             content_type: c.content_type,
             is_favorite: c.is_favorite,
             created_at: c.created_at,
+            rating: c.rating,
         }
     }
 }
@@ -204,6 +210,7 @@ mod channel_summary_tests {
             sort_order: 4,
             category_order: 2,
             created_at: Some("2026-09-01 10:00:00".into()),
+            rating: None,
         }
     }
 
