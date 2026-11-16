@@ -24,6 +24,7 @@ A simple overview of new features and improvements.
 - Improved startup speed
 - Play buttons and other controls on cards now appear instantly when you hover
 - Episode lists now show just the episode's name, without the series name and episode number in front
+- Escape now closes the Add profile dialog
 
 ### Fixes
 
@@ -48,6 +49,8 @@ A simple overview of new features and improvements.
 - Fixed an empty strip under the banner picture in smaller windows
 - Fixed blocked channels showing their picture unblurred on Linux when "Show blurred" is chosen
 - Fixed the player window showing the first episode's name for every episode in a season
+- Fixed text showing through panels and dialogs on Linux
+- Fixed movies being matched to films that are not out yet
 
 ### Thanks
 
