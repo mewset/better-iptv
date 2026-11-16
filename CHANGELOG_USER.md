@@ -16,6 +16,7 @@ A simple overview of new features and improvements.
 
 ### Improvements
 
+- Series episodes show when they aired, and the season tabs match the genre tabs
 - Error messages now say what went wrong, e.g. when a playlist cannot be imported or a channel cannot start
 - Parental controls in Settings now open with your PIN while they are turned on
 - Deleting a profile now asks first

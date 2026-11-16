@@ -13,6 +13,7 @@ vi.mock('../../lib/tauri', async (importOriginal) => ({
 }));
 import { getTmdbDetails, getTmdbSeason } from '../../lib/tauri';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { airDateLabel } from '../../lib/airDate';
 import { invoke } from '@tauri-apps/api/core';
 
 const movie: Channel = {
@@ -295,7 +296,8 @@ describe('DetailView for a series', () => {
     ]);
     renderSeries(vi.fn().mockResolvedValue(info), { ...matched, title: 'Breaking Bad' });
     expect(await screen.findByText('Walter starts cooking.')).toBeInTheDocument();
-    expect(screen.getByText('58 min')).toBeInTheDocument();
+    // The air date leads the line, before the length
+    expect(screen.getByText(`${airDateLabel('2008-01-20')} · 58 min`)).toBeInTheDocument();
     await waitFor(() => expect(getTmdbSeason).toHaveBeenCalledWith(10, 1));
   });
 

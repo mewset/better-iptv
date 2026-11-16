@@ -81,6 +81,7 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Changed
 
+- **Series: when each episode aired, and quieter season tabs** - An episode shows when it aired (TMDB's `air_date`, else the provider's `releaseDate`; "Airs 3 Dec 2026" for one still to come; `lib/airDate.ts`): under a tile's title, and before the length in the list ("20 Jan 2008 · 58 min"), which helps place an episode in a show that ran for years. The season tabs are text over an amber underline on a hairline instead of amber pills in a grey bar, like the browse bar's genre tabs (#97), and the list/tiles switch beside them loses its box
 - **Opt-out of the DMA-BUF workaround on Linux** - `run()` always set `WEBKIT_DISABLE_DMABUF_RENDERER=1` (the WebKitGTK 2.50+ EGL workaround), overwriting any value in the environment, and the desktop file's `Exec` forced it again with `env`, so no install could use the DMA-BUF renderer even on GPUs the bug does not affect
   - `run()` now sets `1` only when the variable is unset, and the `env` prefix is gone from `templates/better-iptv.desktop`; the default is unchanged, `WEBKIT_DISABLE_DMABUF_RENDERER=0` opts in
   - Trade-off seen on Intel iGPU + Hyprland: scrolling a bit smoother, but the play button flickers when hovering channel cards. That is why the default stays and the README calls it an opt-in with that caveat

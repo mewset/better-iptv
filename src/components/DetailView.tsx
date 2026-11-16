@@ -16,6 +16,7 @@ import type { Channel, Episode, SeriesInfo } from '../types';
 import { ColorBars } from './ColorBars';
 import { logger } from '../lib/logger';
 import { errorText } from '../lib/errorText';
+import { airDateLabel } from '../lib/airDate';
 
 interface DetailViewProps {
   channel: Channel;
@@ -491,11 +492,13 @@ export default function DetailView({
             <p className="text-text-muted">Loading episodes…</p>
           ) : (
             <>
-              <div className="mb-4 flex items-start gap-3">
+              {/* Text over an amber underline on a hairline, like the genre tabs
+                  of the browse bar (#97), not pills */}
+              <div className="mb-5 flex h-[46px] items-stretch gap-4 border-b border-border">
                 <div
                   role="tablist"
                   aria-label="Seasons"
-                  className="flex min-w-0 flex-1 gap-1 overflow-x-auto rounded-xl bg-surface-2 p-1"
+                  className="flex min-w-0 flex-1 gap-[26px] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 >
                   {currentSeries?.seasons.map((season) => {
                     const active = selectedSeason === season.season_number;
@@ -506,8 +509,10 @@ export default function DetailView({
                         role="tab"
                         aria-selected={active}
                         onClick={() => setSelectedSeason(season.season_number)}
-                        className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
-                          active ? 'bg-accent text-on-accent' : 'text-text-muted hover:text-text'
+                        className={`flex shrink-0 items-center whitespace-nowrap border-y-2 border-t-transparent text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
+                          active
+                            ? 'border-b-accent font-semibold text-text'
+                            : 'border-b-transparent font-medium text-text-muted hover:text-text'
                         }`}
                       >
                         {season.name}
@@ -518,7 +523,7 @@ export default function DetailView({
                 <div
                   role="group"
                   aria-label="Episode layout"
-                  className="flex shrink-0 gap-1 rounded-xl bg-surface-2 p-1"
+                  className="flex shrink-0 items-center gap-0.5 self-center"
                 >
                   {(
                     [
@@ -535,7 +540,7 @@ export default function DetailView({
                       onClick={() => setEpisodeView(view)}
                       className={`flex h-9 w-9 items-center justify-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                         episodeView === view
-                          ? 'bg-accent text-on-accent'
+                          ? 'bg-surface-2 text-accent-text'
                           : 'text-text-muted hover:text-text'
                       }`}
                     >
@@ -564,6 +569,9 @@ export default function DetailView({
                     const duration =
                       episode.info.duration ??
                       (tmdbEp?.runtime_minutes ? `${tmdbEp.runtime_minutes} min` : null);
+                    // When it aired: helps place an episode in a show that ran for years
+                    const aired =
+                      airDateLabel(tmdbEp?.air_date) ?? airDateLabel(episode.info.releaseDate);
                     if (episodeView === 'tiles') {
                       // The whole thumbnail plays; the Play badge shows on hover
                       // or focus at once, without a fade (see ChannelCard).
@@ -599,10 +607,13 @@ export default function DetailView({
                               <Play className="h-5 w-5" aria-hidden="true" />
                             </span>
                           </button>
-                          <p className="line-clamp-2 text-[15px] font-semibold text-text">
-                            <span className="text-text-faint">{episode.episode_num}.</span>{' '}
-                            {epTitle}
-                          </p>
+                          <div className="flex flex-col gap-0.5">
+                            <p className="line-clamp-2 text-[15px] font-semibold text-text">
+                              <span className="text-text-faint">{episode.episode_num}.</span>{' '}
+                              {epTitle}
+                            </p>
+                            {aired && <p className="text-xs text-text-muted">{aired}</p>}
+                          </div>
                         </li>
                       );
                     }
@@ -630,7 +641,11 @@ export default function DetailView({
                             <span className="text-text-faint">{episode.episode_num}.</span>{' '}
                             {epTitle}
                           </p>
-                          {duration && <p className="text-xs text-text-muted">{duration}</p>}
+                          {(aired || duration) && (
+                            <p className="text-xs text-text-muted">
+                              {[aired, duration].filter(Boolean).join(' · ')}
+                            </p>
+                          )}
                           {plot && (
                             <p className="mt-1 line-clamp-2 text-sm text-text-muted">{plot}</p>
                           )}
