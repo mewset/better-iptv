@@ -9,7 +9,7 @@
 //! playlist refresh (`merge_channels`), and the rows go with their channel.
 
 use super::ipc::Snapshot;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use serde::Serialize;
 
 /// Played this far through, a title counts as watched (end credits).
@@ -175,24 +175,6 @@ pub fn list(conn: &Connection, playlist_id: i64) -> rusqlite::Result<Vec<WatchPr
     rows.collect()
 }
 
-/// Where to resume a title: its saved position, unless it was watched or
-/// barely started.
-pub fn resume_point(
-    conn: &Connection,
-    channel_id: i64,
-    episode_id: &str,
-) -> rusqlite::Result<Option<f64>> {
-    let row: Option<(f64, bool)> = conn
-        .query_row(
-            "SELECT position_secs, watched FROM watch_progress
-             WHERE channel_id = ?1 AND episode_id = ?2",
-            params![channel_id, episode_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()?;
-    Ok(row.and_then(|(pos, watched)| (!watched && pos >= MIN_POSITION_SECS).then_some(pos)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn progress_is_stored_listed_per_profile_and_resumed() {
+    fn progress_is_stored_listed_per_profile_and_marked_watched() {
         let conn = setup_test_db();
         let p1 = create_test_playlist(&conn, "One");
         let p2 = create_test_playlist(&conn, "Two");
@@ -289,11 +271,10 @@ mod tests {
         assert_eq!(rows[0].position_secs, 1200.0);
         assert!(!rows[0].watched);
         assert_eq!(rows[0].updated_at, 300);
-        assert_eq!(resume_point(&conn, a, "").unwrap(), Some(1200.0));
 
-        // Past 90 %: watched, and no resume; going back keeps the mark
+        // Past 90 %: watched; going back keeps the mark
         apply(&conn, &[progress(a, "", 5500.0)], 400).unwrap();
-        assert_eq!(resume_point(&conn, a, "").unwrap(), None);
+        assert!(list(&conn, p1).unwrap()[0].watched);
         apply(&conn, &[progress(a, "", 60.0)], 500).unwrap();
         assert!(list(&conn, p1).unwrap()[0].watched);
 
