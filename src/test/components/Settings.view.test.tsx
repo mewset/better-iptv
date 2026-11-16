@@ -388,6 +388,30 @@ describe('Settings as a view', () => {
     }
   });
 
+  it('opens a section at its top, with the section list staying in place', async () => {
+    await renderSettings();
+    const view = document.getElementById('settings-view')!;
+    view.scrollTop = 400;
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /^playback$/i }));
+    await screen.findByRole('heading', { level: 1, name: 'Playback' });
+
+    // The view kept the scroll position of the section before, which hid the
+    // new section's heading
+    expect(view.scrollTop).toBe(0);
+    expect(screen.getByRole('navigation', { name: 'Settings sections' })).toHaveClass('sticky');
+    // On a wide window the fields do not run the whole width
+    expect(screen.getByRole('heading', { level: 1, name: 'Playback' }).parentElement).toHaveClass(
+      'max-w-[880px]'
+    );
+
+    // The Ctrl+number shortcut goes through the same path
+    view.scrollTop = 250;
+    fireEvent.keyDown(window, { key: '3', ctrlKey: true });
+    await screen.findByRole('heading', { level: 1, name: 'EPG' });
+    expect(view.scrollTop).toBe(0);
+  });
+
   it('Escape calls onClose', async () => {
     const onClose = await renderSettings();
 
