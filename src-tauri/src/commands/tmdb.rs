@@ -1630,6 +1630,71 @@ mod tests {
     }
 
     #[test]
+    fn title_ratings_cover_every_copy_of_a_title_that_has_votes() {
+        use crate::db::test_helpers::{create_test_playlist, setup_test_db};
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        mutations::set_setting(&conn, "tmdb_enabled", "1").unwrap();
+        let add = |name: &str, content_type: &str| {
+            let mut c = channel(0, name, content_type);
+            c.id = None;
+            c.playlist_id = pid;
+            c.id = Some(mutations::create_channel(&conn, &c).unwrap());
+            c
+        };
+        let rated = add("Shutter Island (2010)", "vod");
+        let copy = add("Shutter Island (2010)", "vod");
+        let no_votes = add("My Old Man (2022)", "vod");
+        let unmatched = add("Home Video (2020)", "vod");
+        let series = add("Shutter Island (2010)", "series");
+        let store = |c: &Channel, tmdb_id: Option<i64>, rating: Option<f64>, votes: Option<i64>| {
+            let (key, _, _) = cache_key_for(c).unwrap();
+            mutations::upsert_tmdb_search(
+                &conn,
+                &TmdbRow {
+                    key,
+                    tmdb_id,
+                    manual: false,
+                    title: None,
+                    original_title: None,
+                    release_year: None,
+                    rating,
+                    vote_count: votes,
+                    poster_path: None,
+                    backdrop_path: None,
+                    overview: None,
+                    genre_ids: None,
+                    runtime_minutes: None,
+                    genres: None,
+                    cast_json: None,
+                    trailer_youtube_key: None,
+                    searched_at: Utc::now().to_rfc3339(),
+                    details_fetched_at: None,
+                },
+            )
+            .unwrap();
+        };
+        store(&rated, Some(11324), Some(8.2), Some(24000));
+        store(&no_votes, Some(2), Some(10.0), Some(0));
+        // Searched, nothing found
+        store(&unmatched, None, None, None);
+        store(&series, Some(3), Some(7.0), Some(50));
+
+        let movies = title_ratings(&conn, pid, "vod").unwrap();
+        let shutter = TitleRating {
+            rating: 8.2,
+            votes: 24000,
+        };
+        assert_eq!(movies.len(), 2, "only the title with votes: {movies:?}");
+        assert_eq!(movies[&rated.id.unwrap()], shutter);
+        assert_eq!(movies[&copy.id.unwrap()], shutter);
+
+        let shows = title_ratings(&conn, pid, "series").unwrap();
+        assert_eq!(shows.len(), 1);
+        assert_eq!(shows[&series.id.unwrap()].votes, 50);
+    }
+
+    #[test]
     fn title_ratings_are_empty_while_tmdb_is_off() {
         use crate::db::test_helpers::{create_test_playlist, setup_test_db};
         let conn = setup_test_db();
