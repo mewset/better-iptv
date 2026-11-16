@@ -8,6 +8,7 @@ A simple overview of new features and improvements.
 
 ### New Features
 
+- The banner in Movies and Series now rotates through trending and popular titles from your library
 - Added sorting for Movies and Series, e.g. by name, year, rating or recently added. Update your Xtream playlist once to get ratings and dates
 - Search results are split into Movies, Series and Live TV tabs, with posters for movies and series; a movie or series opens its page instead of playing
 - Added moving through channels, movies and series with the arrow keys; press Enter to play
@@ -23,6 +24,7 @@ A simple overview of new features and improvements.
 - Xtream setup now accepts a server address without http://
 - Improved startup speed
 - Play buttons and other controls on cards now appear instantly when you hover
+- Episode lists now show just the episode's name, without the series name and episode number in front
 
 ### Fixes
 
@@ -42,11 +44,13 @@ A simple overview of new features and improvements.
 - Fixed adding a profile twice when pressing Enter twice
 - Fixed the theme not going back when you pressed Cancel in Settings
 - Fixed Enter not working in the PIN box
+- Fixed the banner showing only a thin strip of its picture on very wide screens
+- Fixed faint vertical stripes in the banner in Movies and Series
 
 ### Thanks
 
 - **@h4r0n1** for finding and fixing series that would not open with some Xtream providers (#93)
-- **@RyanBeckett** for sorting in Movies and Series, a Linux setting that can make scrolling smoother, and for removing a flicker that came with it (#94, #95, #96)
+- **@RyanBeckett** for sorting and a rotating banner in Movies and Series, cleaner episode names, a Linux setting that can make scrolling smoother, and for removing a flicker that came with it (#94, #95, #96, #98, #100, #102, #105)
 
 ## Version 3.3.0 (November 11, 2026)
 
