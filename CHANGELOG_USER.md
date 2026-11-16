@@ -27,6 +27,7 @@ A simple overview of new features and improvements.
 - Escape now closes the Add profile dialog
 - Settings sections now open at the top, the section list stays in view, and fields keep a readable width on wide screens
 - Very wide screens now show more channels and posters per row
+- Tidied up labels and button texts in Settings
 
 ### Fixes
 
@@ -59,6 +60,11 @@ A simple overview of new features and improvements.
 - Fixed time labels overlapping in the TV Guide
 - Fixed hard-to-read titles when hovering a poster in the light theme
 - Fixed profile names being cut off in a narrow window
+- Fixed movies and series without a cover showing an empty frame
+- Fixed missing episode pictures and descriptions for series from some providers
+- Fixed the Add profile window being cut off on smaller screens
+- Fixed the playlist update window still saying it was updating after an update had failed
+- Fixed some language names missing their accents, e.g. Français
 
 ### Thanks
 
