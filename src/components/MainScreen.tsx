@@ -128,7 +128,8 @@ export default function MainScreen() {
 
   // Consolidated channel filtering (content type, category, parental, search)
   const filteredChannels = useChannelFilter(debouncedSearchQuery);
-  // "Highest rated" ranks by TMDB's vote-weighted rating and shows the votes
+  // "Highest rated" ranks by TMDB's vote-weighted rating and shows the votes;
+  // a title TMDB only knows the year of has none to show
   const titleRatings = usePlayerStore((s) => s.titleRatings);
 
   // Playback (hook handles MPV status polling)
@@ -1213,7 +1214,8 @@ export default function MainScreen() {
                                     parentalVisibility={parentalVisibility}
                                     votes={
                                       titleSort === 'rating' && !trimmedQuery
-                                        ? titleRatings[sortSection ?? 'vod']?.[channel.id]?.votes
+                                        ? titleRatings[sortSection ?? 'vod']?.[channel.id]?.votes ||
+                                          undefined
                                         : undefined
                                     }
                                   />
