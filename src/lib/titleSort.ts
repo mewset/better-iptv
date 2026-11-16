@@ -72,12 +72,70 @@ export function titleYear(name: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+/** TMDB's rating and vote count for one title, keyed by channel id. */
+export type TitleRatings = Record<number, { rating: number; votes: number }>;
+
+/**
+ * How many votes a TMDB rating needs before it counts at full weight: the
+ * "m" of the weighted rating IMDb's Top 250 uses. Below it a rating is pulled
+ * towards the average, so a 10.0 from one vote does not top the list.
+ */
+export const RATING_MIN_VOTES = 250;
+
+/**
+ * The "C" a low-vote rating is pulled towards: about TMDB's typical average.
+ * Fixed rather than the list's own average, which in a small or filtered
+ * list can itself be high enough to float a one-vote 10 to the top.
+ */
+export const RATING_PRIOR = 6.5;
+
+/**
+ * The vote-weighted rating: (v / (v + m)) * R + (m / (v + m)) * C, where R is
+ * the title's rating, v its votes, m `RATING_MIN_VOTES` and C `RATING_PRIOR`.
+ */
+export function weightedRating(rating: number, votes: number, prior = RATING_PRIOR): number {
+  const m = RATING_MIN_VOTES;
+  return (votes / (votes + m)) * rating + (m / (votes + m)) * prior;
+}
+
+/**
+ * A provider rating worth sorting on. Panels copy TMDB's average without the
+ * vote count, and an average of exactly 10 only happens with a handful of
+ * votes, so a perfect 10 counts as no rating, like 0 or a missing one.
+ */
+export function providerRating(rating: number | undefined): number | null {
+  return typeof rating === 'number' && rating > 0 && rating < 10 ? rating : null;
+}
+
+/**
+ * Highest rated: titles with TMDB votes first, by their vote-weighted rating;
+ * then the rest by the provider's rating (`providerRating`); then the unrated.
+ * Ties keep the list's own order.
+ */
+function byRating(channels: Channel[], ratings: TitleRatings | null | undefined): Channel[] {
+  const keyed = channels.map((channel, index) => {
+    const tmdb = ratings?.[channel.id];
+    if (tmdb) return { channel, index, tier: 0, score: weightedRating(tmdb.rating, tmdb.votes) };
+    const provider = providerRating(channel.rating);
+    return provider !== null
+      ? { channel, index, tier: 1, score: provider }
+      : { channel, index, tier: 2, score: 0 };
+  });
+  keyed.sort((a, b) => a.tier - b.tier || b.score - a.score || a.index - b.index);
+  return keyed.map((k) => k.channel);
+}
+
 /**
  * The list in the given order, as a new array (the input is left alone);
  * `provider` returns the list itself. Titles a key cannot place (no year, no
- * added date) go last; ties keep the list's own order.
+ * added date) go last; ties keep the list's own order. `ratings` (TMDB's,
+ * when known) only matters for `rating`.
  */
-export function sortTitles(channels: Channel[], sort: TitleSort): Channel[] {
+export function sortTitles(
+  channels: Channel[],
+  sort: TitleSort,
+  ratings?: TitleRatings | null
+): Channel[] {
   switch (sort) {
     case 'provider':
       return channels;
@@ -86,11 +144,7 @@ export function sortTitles(channels: Channel[], sort: TitleSort): Channel[] {
     case 'name-desc':
       return [...channels].sort((a, b) => collator.compare(b.name, a.name));
     case 'rating':
-      return sortByKey(
-        channels,
-        (c) => (typeof c.rating === 'number' && c.rating > 0 ? c.rating : null),
-        (a, b) => b - a
-      );
+      return byRating(channels, ratings);
     case 'year':
       return sortByKey(
         channels,
