@@ -7,6 +7,14 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Added
 
+- **Movies and Series banner rotates through featured titles** - the hero showed one title, the newest the provider added (often an old film the provider just uploaded). It now rotates through up to ten every 6 s, with dots to jump between them
+  - The titles come from a new `get_featured_titles` command: the section's library titles on TMDB's trending list today (the list Home already fetches once a day, `trending_for_today`), in its order, labelled "Trending today"; then the most-voted matched titles released in the last three years, labelled "Popular" (`build_featured`, `POPULAR_YEARS_BACK`). With TMDB off or nothing matched yet it falls back to the newest additions, labelled "Recently added" as before
+  - It holds still while the pointer or the focus is on it and while the window is hidden, and swaps at once with no cross-fade (see the DMA-BUF stale-frame note in #95). Changing section or filter starts again from the first title
+  - The artwork's left edge fades into the panel (a CSS mask on the image) instead of starting on a hard line
+  - The banner is taller, 340 px instead of 272 (`MoviesHero`, and the virtualiser's first-row estimate in `MainScreen`), on Home too
+  - The artwork's box is 55 % of the banner's width, now capped at 816 px (2.4:1 at 340 px). The image fills its box, so on a very wide window only a thin strip of it showed; that was so before the rotation too
+  - Tests: `featured_puts_trending_first_then_the_most_voted_recent_titles`, and "caps the width of the artwork" in `MoviesHero.test.tsx`
+  - Thanks to @RyanBeckett (#98)
 - **Movies and Series browse bar** - the category chip row in Movies and Series becomes one bar under the top bar: genre tabs on the left, then the provider category, a 4K switch (Movies) and the sort menu on the right. Live TV keeps its category chips
   - **Genre tabs** (`BrowseBar`): one line that scrolls sideways with no scrollbar; edge fades and ‹ › buttons show where there is more, and a mouse wheel over the strip scrolls it. Ordered by how many titles carry each genre; clicking the active one clears it. Genres combine with the category
   - Genres come from a new `get_title_genres` command: series use the provider's own `genre` from `get_series` (stored in a new `channels.genres` column, on import and on every refresh, like `rating`), movies use TMDB (`get_vod_streams` sends none), so movie genres grow as the background scan matches titles; the strip re-reads them every minute in Movies

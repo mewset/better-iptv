@@ -327,6 +327,20 @@ export async function getTitleGenres(
   return await invoke('get_title_genres', { playlistId, contentType });
 }
 
+export interface FeaturedTitle {
+  channel_id: number;
+  /** On TMDB's trending list today, or most voted among recent releases. */
+  source: 'trending' | 'popular';
+}
+
+/** The Movies / Series banner's titles; empty while TMDB is off or nothing is matched. */
+export async function getFeaturedTitles(
+  playlistId: number,
+  contentType: 'vod' | 'series'
+): Promise<FeaturedTitle[]> {
+  return await invoke('get_featured_titles', { playlistId, contentType });
+}
+
 export async function getTmdbStatus(): Promise<TmdbStatus> {
   return await invoke('get_tmdb_status');
 }
