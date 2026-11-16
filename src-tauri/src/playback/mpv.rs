@@ -168,6 +168,8 @@ pub struct MpvPlaybackOptions<'a> {
     /// User-Agent for the stream request, the same one the playlist and EPG
     /// downloads use, so providers that allow-list players see one identity.
     pub user_agent: Option<&'a str>,
+    /// Seconds into the first file to start at (resuming).
+    pub start_secs: Option<f64>,
 }
 
 impl MpvPlayer {
@@ -263,6 +265,28 @@ impl MpvPlayer {
                 cmd.arg(format!("--user-agent={}", ua));
             }
         }
+
+        // Where the app asks MPV how far playback is (watch progress)
+        cmd.arg(format!("--input-ipc-server={}", super::ipc::socket_path()));
+    }
+
+    /// The files to play, the first one starting at `start_secs` when set.
+    /// A per-file option group (`--{ ... --}`), so the rest of a queue still
+    /// starts at the beginning.
+    fn file_args(urls: &[String], start_secs: Option<f64>) -> Vec<String> {
+        let mut args = Vec::with_capacity(urls.len() + 3);
+        for (i, url) in urls.iter().enumerate() {
+            match start_secs.filter(|s| i == 0 && s.is_finite() && *s > 0.0) {
+                Some(start) => {
+                    args.push("--{".to_string());
+                    args.push(format!("--start={start:.0}"));
+                    args.push(url.clone());
+                    args.push("--}".to_string());
+                }
+                None => args.push(url.clone()),
+            }
+        }
+        args
     }
 
     /// Log MPV command with masked credentials
@@ -307,7 +331,7 @@ impl MpvPlayer {
         // Build MPV command
         let mut cmd = mpv_command();
         Self::apply_args(&mut cmd, options);
-        cmd.arg(url);
+        cmd.args(Self::file_args(&[url.to_string()], options.start_secs));
 
         // Log and spawn
         Self::log_command(&cmd, None);
@@ -334,9 +358,7 @@ impl MpvPlayer {
         Self::apply_args(&mut cmd, options);
 
         // Add all URLs as arguments (MPV will play them in sequence)
-        for url in urls {
-            cmd.arg(url);
-        }
+        cmd.args(Self::file_args(urls, options.start_secs));
 
         // Log and spawn
         Self::log_command(&cmd, Some(urls.len()));
@@ -656,6 +678,7 @@ mod tests {
             cache_secs: None,
             start_volume: None,
             user_agent: None,
+            start_secs: None,
         }
     }
 
@@ -666,6 +689,30 @@ mod tests {
             ..bare_options()
         };
         assert!(args_of(&options).contains(&"--user-agent=VLC/3.0.20 LibVLC/3.0.20".to_string()));
+    }
+
+    #[test]
+    fn only_the_first_file_starts_at_the_resume_point() {
+        let urls = vec!["http://a/1".to_string(), "http://a/2".to_string()];
+        assert_eq!(
+            MpvPlayer::file_args(&urls, Some(1234.4)),
+            ["--{", "--start=1234", "http://a/1", "--}", "http://a/2"]
+        );
+        assert_eq!(
+            MpvPlayer::file_args(&urls, None),
+            ["http://a/1", "http://a/2"]
+        );
+        assert_eq!(
+            MpvPlayer::file_args(&urls, Some(0.0)),
+            ["http://a/1", "http://a/2"]
+        );
+    }
+
+    #[test]
+    fn mpv_listens_for_the_app_on_its_ipc_socket() {
+        assert!(args_of(&bare_options())
+            .iter()
+            .any(|a| a.starts_with("--input-ipc-server=")));
     }
 
     #[test]

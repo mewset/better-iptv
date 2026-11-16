@@ -1,6 +1,6 @@
 use crate::commands::playback::build_playback_options;
 use crate::commands::playlist::get_playlist_user_agent;
-use crate::commands::with_db;
+use crate::commands::{progress, with_db};
 use crate::db::queries;
 use crate::error::AppError;
 use crate::playback;
@@ -59,6 +59,10 @@ pub async fn play_episode_with_season(
     username: String,
     password: String,
     episodes: Vec<PlaylistEpisode>,
+    // The series' channel, for watch progress (older callers leave it out)
+    series_channel_id: Option<i64>,
+    // Seconds into the first episode to start at (resuming)
+    start_secs: Option<f64>,
 ) -> Result<(), AppError> {
     series_domain::validate_episodes(&episodes)?;
     series_domain::validate_server_url(&server_url)?;
@@ -69,12 +73,18 @@ pub async fn play_episode_with_season(
     let first_url = urls[0].clone();
 
     let title_for_settings = first_title.clone();
-    let settings = with_db(&state.pool, move |conn| {
+    let mut settings = with_db(&state.pool, move |conn| {
         build_playback_options(conn, Some(&title_for_settings))
     })
     .await?;
+    settings.start_secs = start_secs;
+    let episode_ids: Vec<String> = episodes.iter().map(|e| e.id.clone()).collect();
 
+    progress::end_session(&state).await;
     playback::play_playlist(state.mpv_player.clone(), urls, settings).await?;
+    if let Some(series) = series_channel_id {
+        progress::begin_session(&state, series, episode_ids);
+    }
 
     *state.current_channel.write().await = Some(CurrentChannel {
         id: None,
@@ -115,13 +125,15 @@ pub async fn get_local_series_info(
 pub async fn play_series_episodes(
     state: State<'_, AppState>,
     episode_ids: Vec<i64>,
+    // Seconds into the first episode to start at (resuming)
+    start_secs: Option<f64>,
 ) -> Result<(), AppError> {
     if episode_ids.is_empty() {
         return Err(AppError::InvalidInput("No episodes provided".to_string()));
     }
 
     let ids = episode_ids.clone();
-    let (episodes, settings) = with_db(&state.pool, move |conn| {
+    let (episodes, mut settings) = with_db(&state.pool, move |conn| {
         let rows = queries::get_series_episodes_by_ids(conn, &ids)?;
         let ordered = series_domain::order_episodes_by_ids(rows, &ids)?;
         let settings = build_playback_options(conn, Some(&ordered[0].title))?;
@@ -131,8 +143,17 @@ pub async fn play_series_episodes(
 
     let urls: Vec<String> = episodes.iter().map(|e| e.url.clone()).collect();
     let first = &episodes[0];
+    settings.start_secs = start_secs;
 
+    progress::end_session(&state).await;
     playback::play_playlist(state.mpv_player.clone(), urls, settings).await?;
+    // Every queued episode belongs to the first one's series (the frontend
+    // queues one season), and progress keys them by their row id
+    progress::begin_session(
+        &state,
+        first.series_channel_id,
+        episodes.iter().map(|e| e.id.to_string()).collect(),
+    );
 
     *state.current_channel.write().await = Some(CurrentChannel {
         id: None,

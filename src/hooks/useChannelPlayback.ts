@@ -12,6 +12,8 @@ import { logger } from '../lib/logger';
 import { errorText } from '../lib/errorText';
 import { beginPlaybackStart, endPlaybackStart } from '../lib/playGuard';
 import type { Channel, Playlist } from '../types';
+import { useProgressStore } from '../stores/progress-store';
+import { progressKey, resumeSecs } from '../lib/watchProgress';
 
 /**
  * Hook result for channel playback
@@ -31,10 +33,12 @@ interface UseChannelPlaybackResult {
     extension: string,
     title: string,
     playlist: Playlist,
-    remainingEpisodes?: PlaylistEpisode[]
+    remainingEpisodes?: PlaylistEpisode[],
+    seriesChannelId?: number,
+    startSecs?: number
   ) => Promise<void>;
   /** Play stored M3U episodes by database id, in the order given */
-  playLocalEpisodes: (episodeIds: number[], title: string) => Promise<void>;
+  playLocalEpisodes: (episodeIds: number[], title: string, startSecs?: number) => Promise<void>;
 }
 
 /** Why mpv exited by itself, after "Couldn't play X." in the toast. */
@@ -96,6 +100,18 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
     return () => clearInterval(interval);
   }, [isPlaying, playbackEnded, showToast]);
 
+  // Watch progress: the backend saves it every few seconds while a film or
+  // episode plays; reload it then, when playback starts or stops, and on a
+  // profile switch.
+  const playlistId = usePlayerStore((s) => s.currentPlaylist?.id ?? null);
+  const loadProgress = useProgressStore((s) => s.load);
+  useEffect(() => {
+    void loadProgress(playlistId);
+    if (!isPlaying || playlistId === null) return;
+    const interval = setInterval(() => void loadProgress(playlistId), 15_000);
+    return () => clearInterval(interval);
+  }, [isPlaying, playlistId, loadProgress]);
+
   // Play a channel
   const play = useCallback(
     async (channel: Channel): Promise<{ type: 'series'; channel: Channel } | void> => {
@@ -112,7 +128,12 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
 
       if (!beginPlaybackStart()) return;
       try {
-        await tauriPlayChannel(channel.id);
+        // A film picks up where it was left ("Start over" forgets that first)
+        const start =
+          channel.content_type === 'vod'
+            ? resumeSecs(useProgressStore.getState().index.byKey.get(progressKey(channel.id)))
+            : undefined;
+        await tauriPlayChannel(channel.id, start);
         setCurrentChannel(channel);
         setIsPlaying(true);
       } catch (err) {
@@ -133,7 +154,9 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
       extension: string,
       title: string,
       playlist: Playlist,
-      remainingEpisodes?: PlaylistEpisode[]
+      remainingEpisodes?: PlaylistEpisode[],
+      seriesChannelId?: number,
+      startSecs?: number
     ) => {
       if (!playlist.url || !playlist.xtream_username || !playlist.xtream_password) {
         logger.error('Missing Xtream credentials');
@@ -149,7 +172,9 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
           playlist.url,
           playlist.xtream_username,
           playlist.xtream_password,
-          season ? remainingEpisodes : [{ id: episodeId, title, extension }]
+          season ? remainingEpisodes : [{ id: episodeId, title, extension }],
+          seriesChannelId,
+          startSecs
         );
         setCurrentChannel(episodeChannel(title));
         setIsPlaying(true);
@@ -166,10 +191,10 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
 
   // Play stored M3U episodes (grouped at import) by database id
   const playLocalEpisodes = useCallback(
-    async (episodeIds: number[], title: string) => {
+    async (episodeIds: number[], title: string, startSecs?: number) => {
       if (!beginPlaybackStart()) return;
       try {
-        await playSeriesEpisodes(episodeIds);
+        await playSeriesEpisodes(episodeIds, startSecs);
         setCurrentChannel(episodeChannel(title));
         setIsPlaying(true);
       } catch (err) {

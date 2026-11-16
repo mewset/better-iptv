@@ -262,6 +262,21 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // Where each film and episode was left (`playback::progress`). episode_id
+    // is '' for a film.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS watch_progress (
+            channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+            episode_id TEXT NOT NULL DEFAULT '',
+            position_secs REAL NOT NULL DEFAULT 0,
+            duration_secs REAL NOT NULL DEFAULT 0,
+            watched INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (channel_id, episode_id)
+        )",
+        [],
+    )?;
+
     if let Err(e) = migrate_m3u_series(conn) {
         log::error!("M3U series migration failed, will retry next start: {}", e);
     }

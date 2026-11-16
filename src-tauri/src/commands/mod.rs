@@ -5,6 +5,7 @@ pub mod logo_fallback;
 pub mod parental;
 pub mod playback;
 pub mod playlist;
+pub mod progress;
 pub mod series;
 pub mod settings;
 pub mod tmdb;
