@@ -90,8 +90,11 @@ export const ChannelCard = memo(function ChannelCard({
       }`}
     >
       {/* Logo/artwork area */}
+      {/* shrink-0: as a flex item the area gave way to the text block below
+          when its logo was a wide one, so cards in one row had their names
+          and progress lines at different heights */}
       <div
-        className={`relative flex h-[124px] items-center justify-center bg-surface-2 ${
+        className={`relative flex h-[124px] shrink-0 items-center justify-center bg-surface-2 ${
           blurMode ? 'overflow-hidden' : ''
         }`}
       >
@@ -176,8 +179,10 @@ export const ChannelCard = memo(function ChannelCard({
         )}
       </div>
 
-      {/* Info block */}
-      <div className="flex flex-col gap-[5px] px-3.5 pb-3.5 pt-3">
+      {/* Info block: 82 px under the 124 px logo area (the card's 208 px
+          less its border). Three lines of text (20 + 19.5 + 16) with their
+          two gaps and the padding come to 81.5. */}
+      <div className="flex flex-col gap-[5px] px-3.5 pb-1 pt-3">
         <div className="flex items-baseline justify-between gap-2">
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">
             {channel.name}

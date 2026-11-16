@@ -131,6 +131,24 @@ describe('live ChannelCard', () => {
     }
   );
 
+  it('keeps the logo area at its height whatever the logo, with the text block fitting under it', () => {
+    // jsdom has no layout, so check the rule: the card is 208 px, the logo
+    // area 124 px and never gives way (a wide logo let it shrink, which put
+    // the names in one row at different heights)
+    const { container } = render(
+      <ChannelCard
+        channel={{ ...ch, logo: 'https://l/wide.png' }}
+        isPlaying={false}
+        onPlay={vi.fn()}
+        epg={nowNext(programme('News', iso(-5), iso(25)), programme('Weather', iso(25), iso(40)))}
+      />
+    );
+    const article = container.querySelector('article')!;
+    expect(article).toHaveClass('h-[208px]');
+    expect(article.children[0]).toHaveClass('h-[124px]', 'shrink-0');
+    expect(article.children[1]).toHaveClass('pt-3', 'pb-1', 'gap-[5px]');
+  });
+
   it('in blur mode blurs the artwork itself, not only what lies behind the overlay', () => {
     // backdrop-filter is not drawn by WebKitGTK's default renderer on Linux,
     // so the picture of a blocked title needs a filter of its own
