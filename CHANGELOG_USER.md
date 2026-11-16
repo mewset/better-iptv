@@ -18,6 +18,7 @@ A simple overview of new features and improvements.
 
 ### Improvements
 
+- A clearer now-playing bar: poster, episode and series, progress and time left, play/pause, and a click to bring the player to the front
 - Error messages now say what went wrong, e.g. when a playlist cannot be imported or a channel cannot start
 - Parental controls in Settings now open with your PIN while they are turned on
 - Deleting a profile now asks first

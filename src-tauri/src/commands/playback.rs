@@ -137,6 +137,24 @@ pub async fn stop_playback(state: State<'_, AppState>) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Whether the player is paused (None without one), for the now-playing bar.
+#[tauri::command]
+pub async fn player_paused() -> Result<Option<bool>, AppError> {
+    playback::paused().await
+}
+
+/// Pause or resume the player from the now-playing bar.
+#[tauri::command]
+pub async fn player_set_paused(paused: bool) -> Result<bool, AppError> {
+    playback::set_paused(paused).await
+}
+
+/// Bring the player window to the front (a click on the now-playing bar).
+#[tauri::command]
+pub async fn show_player(state: State<'_, AppState>) -> Result<(), AppError> {
+    playback::show(state.mpv_player.clone()).await
+}
+
 /// Whether MPV is still playing, and if it stopped on a failure, whether the
 /// player or the stream was at fault.
 #[tauri::command]

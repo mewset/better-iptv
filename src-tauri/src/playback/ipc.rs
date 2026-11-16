@@ -109,6 +109,40 @@ pub fn snapshot(path: &str) -> Option<Snapshot> {
     })
 }
 
+/// Send one command and wait for MPV's answer: its data on success, None
+/// when no player answers or the command fails.
+fn request(path: &str, command: Value) -> Option<Option<Value>> {
+    let stream = connect(path)?;
+    let mut writer = stream.try_clone().ok()?;
+    let mut reader = BufReader::new(stream);
+    writeln!(writer, "{}", json!({ "command": command, "request_id": 1 })).ok()?;
+    writer.flush().ok()?;
+    let mut line = String::new();
+    for _ in 0..32 {
+        line.clear();
+        if reader.read_line(&mut line).ok()? == 0 {
+            return None;
+        }
+        let Ok(reply) = serde_json::from_str::<Reply>(&line) else {
+            continue;
+        };
+        if reply.request_id == Some(1) {
+            return (reply.error.as_deref() == Some("success")).then_some(reply.data);
+        }
+    }
+    None
+}
+
+/// One property's value; None when no player answers or it is unset.
+pub fn get_property(path: &str, property: &str) -> Option<Value> {
+    request(path, json!(["get_property", property])).flatten()
+}
+
+/// Set a property; whether MPV took it.
+pub fn set_property(path: &str, property: &str, value: Value) -> bool {
+    request(path, json!(["set_property", property, value])).is_some()
+}
+
 #[cfg(not(windows))]
 mod platform {
     use super::TIMEOUT;

@@ -20,6 +20,7 @@ vi.mock('../../lib/tauri', () => ({
   getPlaybackStatus: vi.fn().mockResolvedValue({ playing: false, failure: null }),
   playEpisodeWithSeason: vi.fn(),
   playSeriesEpisodes: vi.fn().mockResolvedValue(undefined),
+  playerPaused: vi.fn().mockResolvedValue(false),
 }));
 
 describe('useChannelPlayback.playLocalEpisodes', () => {

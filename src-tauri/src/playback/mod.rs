@@ -152,6 +152,59 @@ pub async fn stop(player: SharedPlayer) -> Result<(), AppError> {
 }
 
 /// Poll the MPV process: still playing, or exited, and if on a failure, whose.
+/// Whether the player is paused; None without a player.
+pub async fn paused() -> Result<Option<bool>, AppError> {
+    Ok(tokio::task::spawn_blocking(|| {
+        ipc::get_property(&ipc::socket_path(), "pause").and_then(|v| v.as_bool())
+    })
+    .await?)
+}
+
+/// Pause or resume the player; whether one answered.
+pub async fn set_paused(paused: bool) -> Result<bool, AppError> {
+    Ok(tokio::task::spawn_blocking(move || {
+        ipc::set_property(&ipc::socket_path(), "pause", serde_json::json!(paused))
+    })
+    .await?)
+}
+
+/// Bring the player's window to the front. Wayland lets no program raise
+/// another's window, so on Hyprland the compositor is asked (its Lua
+/// dispatcher, else the classic one); elsewhere the window goes on top for a
+/// moment, which raises it on most X11 window managers.
+pub async fn show(player: SharedPlayer) -> Result<(), AppError> {
+    tokio::task::spawn_blocking(move || {
+        let pid = lock_player(&player)?.pid();
+        let Some(pid) = pid else { return Ok(()) };
+        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+            let lua = format!(r#"hl.dsp.focus({{ window = "pid:{pid}" }})"#);
+            let ok = std::process::Command::new("hyprctl")
+                .args(["dispatch", &lua])
+                .output()
+                .map(|o| {
+                    o.status.success() && !String::from_utf8_lossy(&o.stdout).contains("error")
+                })
+                .unwrap_or(false);
+            if ok {
+                return Ok(());
+            }
+            let classic = std::process::Command::new("hyprctl")
+                .args(["dispatch", "focuswindow", &format!("pid:{pid}")])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if classic {
+                return Ok(());
+            }
+        }
+        let path = ipc::socket_path();
+        ipc::set_property(&path, "ontop", serde_json::json!(true));
+        ipc::set_property(&path, "ontop", serde_json::json!(false));
+        Ok(())
+    })
+    .await?
+}
+
 pub async fn status(player: SharedPlayer) -> Result<PlaybackStatus, AppError> {
     tokio::task::spawn_blocking(move || {
         let mut mpv = lock_player(&player)?;

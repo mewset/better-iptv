@@ -684,7 +684,13 @@ export default function MainScreen() {
               ? remainingEpisodes.map((ep) => ep.id)
               : [episodeId]
           ).map(Number);
-          await playLocalEpisodesAction(ids, title, startSecs);
+          await playLocalEpisodesAction(
+            ids,
+            title,
+            startSecs,
+            seriesChannelId,
+            remainingEpisodes?.map((e) => ({ id: e.id, title: e.title }))
+          );
         }
       } catch (err) {
         logger.error('Failed to play episode:', err);

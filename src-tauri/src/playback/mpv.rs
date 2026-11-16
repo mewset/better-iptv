@@ -413,6 +413,11 @@ impl MpvPlayer {
     /// Poll the process and report whether it is still playing and, if it has
     /// exited, whether it exited on a failure and whose. A failure is
     /// reported once: the next call after it reads `failure: None`.
+    /// The running player's process id, if one runs.
+    pub fn pid(&self) -> Option<u32> {
+        self.process.as_ref().map(|c| c.id())
+    }
+
     pub fn status(&mut self) -> PlaybackStatus {
         if let Some(child) = &mut self.process {
             match child.try_wait() {

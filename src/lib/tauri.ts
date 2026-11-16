@@ -188,6 +188,21 @@ export async function playSeriesEpisodes(episodeIds: number[], startSecs?: numbe
   );
 }
 
+/** Whether the player is paused; null without a player. */
+export async function playerPaused(): Promise<boolean | null> {
+  return await invoke('player_paused');
+}
+
+/** Pause or resume the player. */
+export async function playerSetPaused(paused: boolean): Promise<boolean> {
+  return await invoke('player_set_paused', { paused });
+}
+
+/** Bring the player window to the front. */
+export async function showPlayer(): Promise<void> {
+  await invoke('show_player');
+}
+
 // ========== Watch progress ==========
 
 /** Where a film or an episode was left. */
