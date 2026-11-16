@@ -51,6 +51,7 @@ A simple overview of new features and improvements.
 - Fixed the player window showing the first episode's name for every episode in a season
 - Fixed text showing through panels and dialogs on Linux
 - Fixed movies being matched to films that are not out yet
+- Fixed "Open logs folder" in Settings doing nothing
 
 ### Thanks
 
