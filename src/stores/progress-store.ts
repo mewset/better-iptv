@@ -41,6 +41,23 @@ function loadFinales(): Record<number, string> {
 
 const EMPTY = indexProgress([]);
 
+function sameEntries(a: WatchProgress[], b: WatchProgress[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.channel_id !== y.channel_id ||
+      x.episode_id !== y.episode_id ||
+      x.updated_at !== y.updated_at ||
+      x.watched !== y.watched ||
+      x.position_secs !== y.position_secs
+    )
+      return false;
+  }
+  return true;
+}
+
 export const useProgressStore = create<ProgressState>((set, get) => ({
   playlistId: null,
   entries: [],
@@ -68,6 +85,9 @@ export const useProgressStore = create<ProgressState>((set, get) => ({
       const list = Array.isArray(entries) ? entries : [];
       // A profile switch meanwhile wins
       if (get().playlistId !== playlistId) return;
+      // Unchanged (most reloads while nothing plays, or between saves): keep
+      // the same objects, so posters do not re-render for nothing
+      if (sameEntries(get().entries, list)) return;
       set({ entries: list, index: indexProgress(list) });
     } catch (err) {
       logger.warn('Could not load watch progress:', err);

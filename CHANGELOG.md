@@ -22,13 +22,15 @@ This file is a developer-changelog, aimed towards development changes.
   - Thanks to @RyanBeckett (#98)
 - **Sort Movies and Series** - a menu at the end of the category row: Provider order (the default, as before), Recently added, Highest rated, Name A–Z, Name Z–A, Year newest first
   - The menu is a chip that names the current order and opens a small panel of the options, built like the profile switcher (same panel and rows; Escape or a press outside closes it, arrows/Home/End move, it opens on the current option)
-  - **Highest rated** uses the provider's own `rating` (0-10, TMDB scale) from `get_vod_streams` / `get_series`, now stored in a new `channels.rating` column (migration in `schema.rs`, `provider_rating` in `xtream.rs`); `0`, empty or out-of-range values count as no rating and sort last
+  - **Highest rated** ranks in three steps (`lib/titleSort`): titles TMDB has matched and has votes for, by the vote-weighted rating IMDb's Top 250 uses, `(v / (v + m)) · R + (m / (v + m)) · C` with `m` = 250 votes and a fixed `C` = 6.5; then the rest by the provider's own `rating` (0-10, TMDB scale) from `get_vod_streams` / `get_series`, stored in a new `channels.rating` column (migration in `schema.rs`, `provider_rating` in `xtream.rs`); then the unrated. A provider rating of `0`, empty, out of range or exactly 10 counts as no rating: panels copy TMDB's average without its vote count, so a 10.0 from one or two votes topped the list (72 of them in a 22,800-movie library) while the posters showed TMDB's own, different rating. Without TMDB the provider's rating is the whole order
+  - TMDB's rating and vote count per channel come from a new `get_title_ratings` command, through the cards' title key (`group_jobs` → `get_tmdb_row`); empty while TMDB is off. They are loaded only for a section sorted by rating, kept per section so that switching between Movies and Series does not reorder the list, and re-read every minute while the background scan matches more (`useTitleRatings`). Measured at about 110 ms for Movies in a 26,000-row playlist, off the UI thread
+  - While sorted by rating a poster shows TMDB's vote count after its stars, "★ 8.7 · 32k votes" (`votesText`)
   - `lib/titleSort` sorts the filtered list in `useChannelFilter`, stable, never in place; names compare with `Intl.Collator` (numeric, base sensitivity, punctuation ignored), the year comes from a trailing `(YYYY)`, and titles a key cannot place go last in list order. A search spans every type, so its results keep the playlist order and the select is hidden
   - The choice is per section, kept in the store and in `localStorage` (`better-iptv:title-sort`), read defensively; changing it starts the list at the top like a new category
   - **Recently added** needs a real date: the Xtream import now stores the provider's `added` (VOD, live) or `last_modified` (series) Unix time as the channel's `created_at`, in `CURRENT_TIMESTAMP` form, instead of the insert time. Before, a row kept the time the app first stored it, so everything from the first import shared one date and `newestTitles` (the Movies/Series hero) was choosing among equal dates; it now gets the provider's order of arrival too. M3U imports keep the insert time
   - A refresh stores both as well (`merge_channels`): a matched row takes the provider's date when the fresh list has one and keeps its own otherwise, and always takes the fresh rating; a new row gets both. So an existing profile has dates and ratings after its next refresh
-  - Tests: `provider_rating_reads_numbers_and_strings_and_drops_no_rating`, `provider_added_at_reads_added_or_last_modified`, `create_channels_batch_keeps_the_provider_added_time_or_defaults_to_now`, `refresh_stores_the_provider_added_time_and_rating`, `refresh_keeps_the_stored_time_when_the_provider_sends_none`, `src/test/lib/titleSort.test.ts`
-  - Thanks to @RyanBeckett (#96)
+  - Tests: `provider_rating_reads_numbers_and_strings_and_drops_no_rating`, `provider_added_at_reads_added_or_last_modified`, `create_channels_batch_keeps_the_provider_added_time_or_defaults_to_now`, `refresh_stores_the_provider_added_time_and_rating`, `refresh_keeps_the_stored_time_when_the_provider_sends_none`, `title_ratings_cover_every_copy_of_a_title_that_has_votes`, `title_ratings_are_empty_while_tmdb_is_off`, `src/test/lib/titleSort.test.ts`
+  - Thanks to @RyanBeckett (#96, #102)
 - **Keyboard navigation in the channel grid** - arrow keys move one card, `Home`/`End` to the ends of the row (with `Ctrl` of the list), `Page Up`/`Page Down` one screen, `Enter` does what a click does; Arrow Down in the search box goes to the first result
   - WAI-ARIA grid with `aria-activedescendant` on the scroll container (`useGridKeyboardNav`, pure math in `lib/gridNav`), as in the 2026-09-10 design: the cards keep no `tabIndex` and are untouched, the cells around them carry the semantics and the ring
   - The ring shows only while the keyboard drives; a click makes a card active without one. The row scrolled into view stays above the dock
@@ -40,6 +42,8 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Fixed
 
+- **Banner: no vertical bands** - The Movies and Series banner's scrim ran from the page colour (`bg`) to transparent over the panel (`surface-2`): across the empty left half that is a gradient between two shades about a dozen 8-bit steps apart, stretched over the banner's width, so each step showed as a band about 100 px wide. The scrim is now in the panel's own colour, so that half is flat; over the artwork the image's texture hides the steps
+  - Thanks to @RyanBeckett (#105)
 - **Xtream series that never opened** - some panels answer `get_series_info` in shapes the series view could not use, so the series showed an error or no episodes at all
   - Seasons without an `id`: `Season.id` was required, so one such season failed the whole response ("The provider sent series info that could not be read", log: ``missing field `id` ``). It is now `#[serde(default)]`, and `SeriesInfo::normalize_seasons` fills an empty id with the season number, the rule `series_domain::build_series_info` already uses for M3U series. The frontend keys the season list on it
   - `"seasons": []` next to a full `episodes` map: the response parsed, but with no season to select the view listed nothing. `normalize_seasons` now adds a `Season N` for every non-empty episode group that no listed season covers, in numeric order; a complete list from the panel keeps its own order
@@ -114,6 +118,12 @@ This file is a developer-changelog, aimed towards development changes.
 
 - **Test timeouts for loaded machines** - component tests that mount `MainScreen` or `Settings` timed out at random on a busy machine without being broken (a different handful each run, all passing alone)
   - `testTimeout` 5 s -> 30 s in `vitest.config.ts`, Testing Library `asyncUtilTimeout` 1 s -> 5 s in `src/test/setup.ts`. A passing test is no slower; only a test that really hangs takes longer to fail
+- **Episode titles without their address** - providers often name an episode "Absentia - S01E01 - Comeback" while the series view already shows the series, the season and the number. `lib/episodeTitle` removes one address and nothing else: an episode code at the start (S01E01, S1 E1, S01E01-E02, S01E01-02, 1x01, Season 1 Episode 1, Episode 1, Ep. 1, E01), with the series name in front of it or not (ignoring case, a trailing year or a `UK:`-style prefix), and a season-and-episode code at the end ("Comeback (S01E01)")
+  - The series name only counts with a code after it, and a title without a code is returned as it is, so an episode named after its series or after a number keeps its name ("Chuck Versus the Intersect", "House's Head", "4 Days Out", "Step 2")
+  - With nothing left ("Absentia - S01E01", or only the series name) the row falls back to TMDB's episode title, then "Episode N", as before for an empty title
+  - Playback keeps the provider's full title, as the rest of the queue already did
+  - Tests: `src/test/lib/episodeTitle.test.ts`
+  - Thanks to @RyanBeckett (#100)
 
 ## [3.3.0] - 2026-11-11
 

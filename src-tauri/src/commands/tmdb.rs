@@ -645,6 +645,64 @@ pub fn cached_cards(
     Ok((pending, cards))
 }
 
+/// TMDB's rating and vote count for one title, for the "Highest rated" sort.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct TitleRating {
+    pub rating: f64,
+    pub votes: i64,
+}
+
+/// TMDB ratings for a section's matched titles: channel id -> rating and
+/// vote count. Empty while TMDB is off; titles TMDB has not matched, or
+/// matched without votes, are left out (the sort falls back to the
+/// provider's rating for them).
+#[tauri::command]
+pub async fn get_title_ratings(
+    state: State<'_, AppState>,
+    playlist_id: i64,
+    content_type: String,
+) -> Result<HashMap<i64, TitleRating>, AppError> {
+    if content_type != "vod" && content_type != "series" {
+        return Err(AppError::InvalidInput(format!(
+            "No ratings for content type {content_type}"
+        )));
+    }
+    with_db(&state.pool, move |conn| {
+        title_ratings(conn, playlist_id, &content_type)
+    })
+    .await
+}
+
+pub fn title_ratings(
+    conn: &Connection,
+    playlist_id: i64,
+    content_type: &str,
+) -> Result<HashMap<i64, TitleRating>, AppError> {
+    let mut out = HashMap::new();
+    if !read_key_settings(conn)?.enabled {
+        return Ok(out);
+    }
+    let channels: Vec<Channel> = queries::get_channels(conn, Some(playlist_id))?
+        .into_iter()
+        .filter(|c| c.content_type == content_type)
+        .collect();
+    for job in group_jobs(&channels) {
+        let Some(row) = queries::get_tmdb_row(conn, &job.key)? else {
+            continue;
+        };
+        let (Some(_), Some(rating), Some(votes)) = (row.tmdb_id, row.rating, row.vote_count) else {
+            continue;
+        };
+        if votes <= 0 || !rating.is_finite() {
+            continue;
+        }
+        for id in job.channel_ids {
+            out.insert(id, TitleRating { rating, votes });
+        }
+    }
+    Ok(out)
+}
+
 /// The `tmdb_enabled` setting. Off means every command answers as if no
 /// TMDB data existed, cached rows included.
 async fn feature_enabled(state: &State<'_, AppState>) -> Result<bool, AppError> {
@@ -1569,5 +1627,78 @@ mod tests {
             ]
         );
         assert!(build_featured(&trending, &channels, &candidates, "series", 2026).is_empty());
+    }
+
+    #[test]
+    fn title_ratings_cover_every_copy_of_a_title_that_has_votes() {
+        use crate::db::test_helpers::{create_test_playlist, setup_test_db};
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        mutations::set_setting(&conn, "tmdb_enabled", "1").unwrap();
+        let add = |name: &str, content_type: &str| {
+            let mut c = channel(0, name, content_type);
+            c.id = None;
+            c.playlist_id = pid;
+            c.id = Some(mutations::create_channel(&conn, &c).unwrap());
+            c
+        };
+        let rated = add("Shutter Island (2010)", "vod");
+        let copy = add("Shutter Island (2010)", "vod");
+        let no_votes = add("My Old Man (2022)", "vod");
+        let unmatched = add("Home Video (2020)", "vod");
+        let series = add("Shutter Island (2010)", "series");
+        let store = |c: &Channel, tmdb_id: Option<i64>, rating: Option<f64>, votes: Option<i64>| {
+            let (key, _, _) = cache_key_for(c).unwrap();
+            mutations::upsert_tmdb_search(
+                &conn,
+                &TmdbRow {
+                    key,
+                    tmdb_id,
+                    manual: false,
+                    title: None,
+                    original_title: None,
+                    release_year: None,
+                    rating,
+                    vote_count: votes,
+                    poster_path: None,
+                    backdrop_path: None,
+                    overview: None,
+                    genre_ids: None,
+                    runtime_minutes: None,
+                    genres: None,
+                    cast_json: None,
+                    trailer_youtube_key: None,
+                    searched_at: Utc::now().to_rfc3339(),
+                    details_fetched_at: None,
+                },
+            )
+            .unwrap();
+        };
+        store(&rated, Some(11324), Some(8.2), Some(24000));
+        store(&no_votes, Some(2), Some(10.0), Some(0));
+        // Searched, nothing found
+        store(&unmatched, None, None, None);
+        store(&series, Some(3), Some(7.0), Some(50));
+
+        let movies = title_ratings(&conn, pid, "vod").unwrap();
+        let shutter = TitleRating {
+            rating: 8.2,
+            votes: 24000,
+        };
+        assert_eq!(movies.len(), 2, "only the title with votes: {movies:?}");
+        assert_eq!(movies[&rated.id.unwrap()], shutter);
+        assert_eq!(movies[&copy.id.unwrap()], shutter);
+
+        let shows = title_ratings(&conn, pid, "series").unwrap();
+        assert_eq!(shows.len(), 1);
+        assert_eq!(shows[&series.id.unwrap()].votes, 50);
+    }
+
+    #[test]
+    fn title_ratings_are_empty_while_tmdb_is_off() {
+        use crate::db::test_helpers::{create_test_playlist, setup_test_db};
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        assert!(title_ratings(&conn, pid, "vod").unwrap().is_empty());
     }
 }

@@ -3,7 +3,7 @@ import { useChannelLogo } from '../hooks/useChannelLogo';
 import { Play, Clapperboard, Star, Lock, Check } from 'lucide-react';
 import type { Channel } from '../types';
 import { ColorBars } from './ColorBars';
-import { metaLine } from '../lib/tmdb';
+import { metaLine, votesText } from '../lib/tmdb';
 import type { TmdbCard } from '../lib/tauri';
 import { useProgressStore } from '../stores/progress-store';
 import { progressFraction, progressKey } from '../lib/watchProgress';
@@ -22,6 +22,8 @@ interface PosterCardProps {
   parentalVisibility?: 'hide' | 'lock' | 'blur';
   /** Callback when the favourite star is toggled */
   onToggleFavorite?: (channelId: number) => void;
+  /** TMDB's vote count, shown after the rating (the grid passes it while sorted by rating). */
+  votes?: number;
 }
 
 /** 2/3, the target poster ratio. */
@@ -41,6 +43,7 @@ export const PosterCard = memo(function PosterCard({
   isBlocked = false,
   parentalVisibility = 'hide',
   onToggleFavorite,
+  votes,
 }: PosterCardProps) {
   const [tmdbArtFailed, setTmdbArtFailed] = useState(false);
   // A re-match brings a new poster URL; give it a chance even if the old one failed.
@@ -218,7 +221,10 @@ export const PosterCard = memo(function PosterCard({
       </div>
 
       <div className="flex items-center justify-between gap-2 text-xs">
-        <span className="truncate text-text-faint">{metaLine(tmdb, channel.group_name ?? '')}</span>
+        <span className="truncate text-text-faint">
+          {metaLine(tmdb, channel.group_name ?? '')}
+          {votes !== undefined && tmdb?.rating != null && ` · ${votesText(votes)}`}
+        </span>
       </div>
     </article>
   );

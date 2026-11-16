@@ -31,6 +31,7 @@ import {
   progressKey,
   resumeSecs,
 } from '../lib/watchProgress';
+import { cleanEpisodeTitle } from '../lib/episodeTitle';
 
 interface DetailViewProps {
   channel: Channel;
@@ -305,10 +306,16 @@ export default function DetailView({
 
   // The title an episode's row shows, which is also what the dock shows while
   // it plays: the provider's own title is often empty.
+  // The episode's own name: providers often prefix it with the series and
+  // its code ("Absentia - S01E01 - Comeback"), which this view already shows.
+  const seriesNames = [channel.name, currentSeries?.info.name ?? '', title];
   const shownTitle = (episode: Episode): string =>
-    episode.title ||
+    cleanEpisodeTitle(episode.title, seriesNames) ||
     tmdbBySeasonEpisode.get(episode.episode_num)?.title ||
     `Episode ${episode.episode_num}`;
+  // Playback keeps the provider's full title (the player shows it without the
+  // series around it), as the rest of the queue does (`remainingFrom`).
+  const playTitle = (episode: Episode): string => episode.title || shownTitle(episode);
   // Watch progress: episodes keyed by the series' channel, films by their own
   const progress = useProgressStore((s) => s.index);
   const setWatched = useProgressStore((s) => s.setWatched);
@@ -322,7 +329,7 @@ export default function DetailView({
     onPlayEpisode(
       episode.id,
       episode.container_extension,
-      shownTitle(episode),
+      playTitle(episode),
       remainingFrom(episodes, index),
       resumeSecs(episodeProgress(episode))
     );
