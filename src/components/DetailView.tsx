@@ -8,6 +8,7 @@ import { ColorBars } from './ColorBars';
 import { logger } from '../lib/logger';
 import { errorText } from '../lib/errorText';
 import { pickVersion, versionLanguage, versionQuality, type Quality } from '../lib/versions';
+import { cleanEpisodeTitle } from '../lib/episodeTitle';
 
 interface DetailViewProps {
   channel: Channel;
@@ -306,17 +307,23 @@ export default function DetailView({
 
   // The title an episode's row shows, which is also what the dock shows while
   // it plays: the provider's own title is often empty.
+  // The episode's own name: providers often prefix it with the series and
+  // its code ("Absentia - S01E01 - Comeback"), which this view already shows.
+  const seriesNames = [channel.name, currentSeries?.info.name ?? '', title];
   const shownTitle = (episode: Episode): string =>
-    episode.title ||
+    cleanEpisodeTitle(episode.title, seriesNames) ||
     tmdbBySeasonEpisode.get(episode.episode_num)?.title ||
     `Episode ${episode.episode_num}`;
+  // Playback keeps the provider's full title (the player shows it without the
+  // series around it), as the rest of the queue does (`remainingFrom`).
+  const playTitle = (episode: Episode): string => episode.title || shownTitle(episode);
   const playFrom = (index: number) => {
     const episode = seasonEpisodes[index];
     if (!episode) return;
     onPlayEpisode(
       episode.id,
       episode.container_extension,
-      shownTitle(episode),
+      playTitle(episode),
       remainingFrom(seasonEpisodes, index)
     );
   };

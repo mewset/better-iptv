@@ -39,6 +39,7 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
   const parentalAutoDetect = usePlayerStore((s) => s.parentalAutoDetect);
   const parentalVisibility = usePlayerStore((s) => s.parentalVisibility);
   const titleSorts = usePlayerStore((s) => s.titleSorts);
+  const titleRatings = usePlayerStore((s) => s.titleRatings);
 
   // Step 1: Select base list by content type (O(1) - pre-computed).
   // A non-empty search spans every content type (design doc: "search stays
@@ -110,7 +111,7 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
       (contentTypeFilter === 'vod' || contentTypeFilter === 'series') &&
       debouncedSearchQuery.trim() === ''
     ) {
-      result = sortTitles(result, titleSorts[contentTypeFilter]);
+      result = sortTitles(result, titleSorts[contentTypeFilter], titleRatings[contentTypeFilter]);
     }
 
     // One card per film in Movies (unless a category is chosen, which lists
@@ -128,6 +129,7 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
     baseList,
     contentTypeFilter,
     titleSorts,
+    titleRatings,
     categoryFilter,
     debouncedSearchQuery,
     parentalEnabled,

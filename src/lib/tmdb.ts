@@ -24,6 +24,15 @@ export function backgroundProgressLine(progress: TmdbBackgroundProgress | null):
   return '';
 }
 
+/** "857 votes", "12k votes", "1.2M votes": a TMDB vote count, compact. */
+export function votesText(votes: number): string {
+  const compact = new Intl.NumberFormat('en', {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(votes);
+  return `${compact.toLowerCase()} ${votes === 1 ? 'vote' : 'votes'}`;
+}
+
 function ratingText(rating: number | null): string | null {
   return rating == null ? null : `★ ${rating.toFixed(1)}`;
 }

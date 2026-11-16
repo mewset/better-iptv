@@ -3,7 +3,7 @@ import { useChannelLogo } from '../hooks/useChannelLogo';
 import { Play, Clapperboard, Star, Lock } from 'lucide-react';
 import type { Channel } from '../types';
 import { ColorBars } from './ColorBars';
-import { metaLine } from '../lib/tmdb';
+import { metaLine, votesText } from '../lib/tmdb';
 import type { TmdbCard } from '../lib/tauri';
 
 interface PosterCardProps {
@@ -22,6 +22,8 @@ interface PosterCardProps {
   onToggleFavorite?: (channelId: number) => void;
   /** How many versions the film has (standard, 4K, dubs); noted when more than one. */
   versionCount?: number;
+  /** TMDB's vote count, shown after the rating (the grid passes it while sorted by rating). */
+  votes?: number;
 }
 
 /** 2/3, the target poster ratio. */
@@ -42,6 +44,7 @@ export const PosterCard = memo(function PosterCard({
   parentalVisibility = 'hide',
   onToggleFavorite,
   versionCount,
+  votes,
 }: PosterCardProps) {
   const [tmdbArtFailed, setTmdbArtFailed] = useState(false);
   // A re-match brings a new poster URL; give it a chance even if the old one failed.
@@ -195,6 +198,7 @@ export const PosterCard = memo(function PosterCard({
         <span className="truncate text-text-faint">
           {metaLine(tmdb, channel.group_name ?? '')}
           {versionCount !== undefined && versionCount > 1 && ` · ${versionCount} versions`}
+          {votes !== undefined && tmdb?.rating != null && ` · ${votesText(votes)}`}
         </span>
       </div>
     </article>

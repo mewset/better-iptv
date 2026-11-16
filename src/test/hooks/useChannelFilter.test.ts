@@ -219,4 +219,31 @@ describe('channel filtering logic', () => {
       expect(result.current.map((c) => c.id).sort()).toEqual([3, 9]);
     });
   });
+
+  it("keeps each section's TMDB ratings across a switch, so Highest rated never reorders", () => {
+    usePlayerStore
+      .getState()
+      .setChannels([
+        makeChannel({ id: 1, name: 'Low (2020)', content_type: 'vod', rating: 9.9 }),
+        makeChannel({ id: 2, name: 'High (2020)', content_type: 'vod', rating: 5 }),
+        makeChannel({ id: 3, name: 'Show A', content_type: 'series', rating: 9.9 }),
+        makeChannel({ id: 4, name: 'Show B', content_type: 'series', rating: 5 }),
+      ]);
+    usePlayerStore.setState({
+      contentTypeFilter: 'vod',
+      titleSorts: { vod: 'rating', series: 'rating' },
+      titleRatings: {
+        vod: { 2: { rating: 8.6, votes: 20000 } },
+        series: { 4: { rating: 8.8, votes: 9000 } },
+      },
+    });
+    const { result } = renderHook(() => useChannelFilter(''));
+    expect(result.current.map((c) => c.id)).toEqual([2, 1]);
+
+    act(() => usePlayerStore.getState().setContentTypeFilter('series'));
+    expect(result.current.map((c) => c.id)).toEqual([4, 3]);
+    act(() => usePlayerStore.getState().setContentTypeFilter('vod'));
+    expect(result.current.map((c) => c.id)).toEqual([2, 1]);
+    expect(usePlayerStore.getState().titleRatings.vod).toBeDefined();
+  });
 });
