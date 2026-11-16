@@ -43,6 +43,7 @@ A simple overview of new features and improvements.
 - Fixed the theme not going back when you pressed Cancel in Settings
 - Fixed Enter not working in the PIN box
 - Fixed the banner showing only a thin strip of its picture on very wide screens
+- Fixed faint vertical stripes in the banner in Movies and Series
 
 ### Thanks
 

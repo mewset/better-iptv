@@ -84,10 +84,14 @@ export function MoviesHero({
       )}
 
       {/* The one allowed gradient (see global constraints): a left-to-right
-          scrim so the text column reads over any artwork behind it. */}
+          scrim so the text column reads over any artwork behind it. In the
+          panel's own colour: from the page colour, the empty left half was a
+          gradient between two shades a dozen steps apart, which shows as
+          wide vertical bands. Now that half is flat, and over the artwork
+          the image's texture hides the steps. */}
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-gradient-to-r from-bg via-bg/60 to-transparent"
+        className="absolute inset-0 bg-gradient-to-r from-surface-2 via-surface-2/60 to-transparent"
       />
 
       <div className="relative flex h-full max-w-[640px] flex-col justify-center gap-3 px-10">
