@@ -35,6 +35,7 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
   const titleGenres = usePlayerStore((s) => s.titleGenres);
   const genreFilter = usePlayerStore((s) => s.genreFilter);
   const fourKOnly = usePlayerStore((s) => s.fourKOnly);
+  const titleRatings = usePlayerStore((s) => s.titleRatings);
 
   // Step 1: Select base list by content type (O(1) - pre-computed).
   // A non-empty search spans every content type (design doc: "search stays
@@ -118,7 +119,7 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
       (contentTypeFilter === 'vod' || contentTypeFilter === 'series') &&
       debouncedSearchQuery.trim() === ''
     ) {
-      result = sortTitles(result, titleSorts[contentTypeFilter]);
+      result = sortTitles(result, titleSorts[contentTypeFilter], titleRatings[contentTypeFilter]);
     }
     return result;
   }, [
@@ -128,6 +129,7 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
     titleGenres,
     genreFilter,
     fourKOnly,
+    titleRatings,
     categoryFilter,
     debouncedSearchQuery,
     parentalEnabled,

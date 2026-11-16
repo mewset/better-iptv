@@ -254,6 +254,7 @@ pub fn run() {
             // TMDB
             get_tmdb_cards,
             get_title_genres,
+            get_title_ratings,
             get_featured_titles,
             get_tmdb_status,
             check_tmdb_key,

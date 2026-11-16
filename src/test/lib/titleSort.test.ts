@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_TITLE_SORTS,
+  providerRating,
+  weightedRating,
   loadTitleSorts,
   saveTitleSorts,
   sortTitles,
@@ -65,6 +67,41 @@ describe('sortTitles', () => {
     expect(names(sortTitles(rated, 'rating'))).toEqual(['C', 'E', 'A', 'B', 'D']);
   });
 
+  it('ranks TMDB-rated titles by vote-weighted rating, then provider ratings, then unrated', () => {
+    const list = [
+      { ...title(1, 'One vote'), rating: 10 },
+      { ...title(2, 'Classic'), rating: 8.1 },
+      { ...title(3, 'Provider only'), rating: 9.2 },
+      { ...title(4, 'Perfect ten, no votes known'), rating: 10 },
+      { ...title(5, 'Popular'), rating: 7.0 },
+      title(6, 'Unrated'),
+    ];
+    const ratings = {
+      1: { rating: 10, votes: 1 },
+      2: { rating: 8.4, votes: 30000 },
+      5: { rating: 7.2, votes: 9000 },
+    };
+    expect(names(sortTitles(list, 'rating', ratings))).toEqual([
+      'Classic',
+      'Popular',
+      'One vote',
+      'Provider only',
+      'Perfect ten, no votes known',
+      'Unrated',
+    ]);
+  });
+
+  it('without TMDB ratings, sorts by the provider rating and sinks a perfect 10', () => {
+    const list = [
+      { ...title(1, 'Ten'), rating: 10 },
+      { ...title(2, 'Nine'), rating: 9.1 },
+      title(3, 'None'),
+      { ...title(4, 'Seven'), rating: 7 },
+    ];
+    expect(names(sortTitles(list, 'rating'))).toEqual(['Nine', 'Seven', 'Ten', 'None']);
+    expect(names(sortTitles(list, 'rating', {}))).toEqual(['Nine', 'Seven', 'Ten', 'None']);
+  });
+
   it('sorts by added date newest first; ties keep list order, undated goes last', () => {
     expect(names(sortTitles(list, 'added'))).toEqual([
       '#Alive (2020)',
@@ -80,6 +117,21 @@ describe('sortTitles', () => {
     sortTitles(list, 'name');
     sortTitles(list, 'added');
     expect(list).toEqual(copy);
+  });
+});
+
+describe('weightedRating / providerRating', () => {
+  it('pulls a rating from few votes towards the average', () => {
+    expect(weightedRating(10, 1, 6.5)).toBeCloseTo(6.51, 2);
+    expect(weightedRating(8.4, 30000, 6.5)).toBeCloseTo(8.38, 2);
+    expect(weightedRating(7, 250, 6)).toBeCloseTo(6.5, 5);
+  });
+
+  it('treats 0, a missing rating and a perfect 10 as no rating', () => {
+    expect(providerRating(9.9)).toBe(9.9);
+    expect(providerRating(10)).toBeNull();
+    expect(providerRating(0)).toBeNull();
+    expect(providerRating(undefined)).toBeNull();
   });
 });
 

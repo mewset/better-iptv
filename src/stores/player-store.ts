@@ -14,7 +14,7 @@ import type { CategoryGroups, TmdbCard, TmdbStatus } from '../lib/tauri';
 import { applyEpgKeys } from '../lib/epgKeys';
 import { logger } from '../lib/logger';
 import { loadTitleSorts, saveTitleSorts } from '../lib/titleSort';
-import type { SortableSection, TitleSort } from '../lib/titleSort';
+import type { SortableSection, TitleRatings, TitleSort } from '../lib/titleSort';
 
 /**
  * A section of the app the user is browsing: the destinations behind the
@@ -203,6 +203,13 @@ interface PlayerState {
   // Movies and Series order, per section; remembered between launches
   titleSorts: Record<SortableSection, TitleSort>;
   setTitleSort: (section: SortableSection, sort: TitleSort) => void;
+  /**
+   * TMDB ratings for "Highest rated", per section, kept across section
+   * switches (a switch that dropped them sorted on the provider's ratings
+   * until TMDB's came back, then reordered). Cleared with the profile.
+   */
+  titleRatings: Partial<Record<SortableSection, TitleRatings>>;
+  setTitleRatings: (section: SortableSection, ratings: TitleRatings) => void;
 
   // Category Filter (provider categories like "Sweden", "Norway", etc.)
   categoryFilter: string | null;
@@ -291,6 +298,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
             genreFilter: null,
             fourKOnly: false,
             titleGenres: null,
+            titleRatings: {},
           }
     ),
   setActiveProfileId: (id) => set({ activeProfileId: id }),
@@ -469,6 +477,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setFourKOnly: (fourKOnly) => set({ fourKOnly }),
 
   // Title sort
+  titleRatings: {},
+  setTitleRatings: (section, ratings) =>
+    set((state) => ({ titleRatings: { ...state.titleRatings, [section]: ratings } })),
   titleSorts: loadTitleSorts(),
   setTitleSort: (section, sort) => {
     const titleSorts = { ...get().titleSorts, [section]: sort };
