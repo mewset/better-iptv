@@ -70,6 +70,7 @@ pub fn build_playback_options(
         start_volume,
         user_agent: Some(user_agent),
         start_secs: None,
+        extra_args: Vec::new(),
     })
 }
 
@@ -90,7 +91,7 @@ pub async fn play_channel(
     channel_id: i64,
     start_secs: Option<f64>,
 ) -> Result<(), AppError> {
-    let (channel, settings) = with_db(&state.pool, move |conn| {
+    let (channel, mut settings) = with_db(&state.pool, move |conn| {
         let channel = queries::get_channel_by_id(conn, channel_id)?
             .ok_or(AppError::ChannelNotFound(channel_id))?;
         let mut settings = build_playback_options(conn, Some(&channel.name))?;
@@ -100,6 +101,13 @@ pub async fn play_channel(
         Ok((channel, settings))
     })
     .await?;
+    playback::add_controls(
+        &mut settings,
+        playback::player::PlayerKind {
+            series: None,
+            live: channel.content_type == "live",
+        },
+    );
 
     progress::end_session(&state).await;
     playback::play_stream(state.mpv_player.clone(), channel.url.clone(), settings).await?;

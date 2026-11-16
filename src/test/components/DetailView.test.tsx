@@ -290,7 +290,10 @@ describe('DetailView for a series', () => {
       '12',
       'mp4',
       "Cat's in the Bag",
-      [{ id: '12', title: "Cat's in the Bag", extension: 'mp4' }],
+      [
+        { id: '12', title: "S1 E2 · Cat's in the Bag", extension: 'mp4' },
+        { id: '21', title: 'S2 E1 · Seven Thirty-Seven', extension: 'mp4' },
+      ],
       300
     );
     setProgress([]);
@@ -325,8 +328,10 @@ describe('DetailView for a series', () => {
       'mp4',
       'Pilot',
       [
-        { id: '11', title: 'Pilot', extension: 'mp4' },
-        { id: '12', title: "Cat's in the Bag", extension: 'mp4' },
+        // The rest of the series, into season 2, titled for the player
+        { id: '11', title: 'S1 E1 · Pilot', extension: 'mp4' },
+        { id: '12', title: "S1 E2 · Cat's in the Bag", extension: 'mp4' },
+        { id: '21', title: 'S2 E1 · Seven Thirty-Seven', extension: 'mp4' },
       ],
       undefined
     );
@@ -335,7 +340,10 @@ describe('DetailView for a series', () => {
       '12',
       'mp4',
       "Cat's in the Bag",
-      [{ id: '12', title: "Cat's in the Bag", extension: 'mp4' }],
+      [
+        { id: '12', title: "S1 E2 · Cat's in the Bag", extension: 'mp4' },
+        { id: '21', title: 'S2 E1 · Seven Thirty-Seven', extension: 'mp4' },
+      ],
       undefined
     );
   });

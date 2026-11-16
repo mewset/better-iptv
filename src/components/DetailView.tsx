@@ -23,6 +23,7 @@ import { ColorBars } from './ColorBars';
 import { logger } from '../lib/logger';
 import { errorText } from '../lib/errorText';
 import { useProgressStore } from '../stores/progress-store';
+import { queueFrom as seriesQueueFrom } from '../lib/seriesQueue';
 import {
   finaleOf,
   formatPosition,
@@ -323,14 +324,20 @@ export default function DetailView({
   const episodeProgress = (episode: Episode) =>
     progress.byKey.get(progressKey(channel.id, episode.id));
   // An episode left part-way picks up there
+  // The player gets this episode, then the rest of the series in viewing
+  // order (into the next seasons), each titled "S2 E5 · Name" for its title
+  // and episode list (lib/seriesQueue.ts)
+  const queueFrom = (episode: Episode): RemainingEpisode[] =>
+    currentSeries ? seriesQueueFrom(currentSeries, episode.id, shownTitle) : [];
   const playEpisodeIn = (episodes: Episode[], index: number) => {
     const episode = episodes[index];
     if (!episode) return;
+    const queue = queueFrom(episode);
     onPlayEpisode(
       episode.id,
       episode.container_extension,
       playTitle(episode),
-      remainingFrom(episodes, index),
+      queue.length > 0 ? queue : remainingFrom(episodes, index),
       resumeSecs(episodeProgress(episode))
     );
   };

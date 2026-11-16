@@ -33,6 +33,11 @@ const MAX_URL_LENGTH: usize = 4096;
 ///
 /// Each error is a sentence the viewer is shown as it stands. None of them
 /// quotes the address: it carries the provider's username and password.
+/// Whether MPV may be handed this address (the same check as a start).
+pub fn is_playable_url(url: &str) -> bool {
+    validate_stream_url(url).is_ok()
+}
+
 fn validate_stream_url(url: &str) -> Result<()> {
     // Check URL length
     if url.len() > MAX_URL_LENGTH {
@@ -68,7 +73,7 @@ fn validate_stream_url(url: &str) -> Result<()> {
 ///
 /// On Windows, checks for bundled MPV first, then falls back to system PATH.
 /// On macOS/Linux, uses system MPV only.
-fn get_mpv_path() -> PathBuf {
+pub(crate) fn get_mpv_path() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
         // Try bundled MPV first (Windows only)
@@ -170,6 +175,8 @@ pub struct MpvPlaybackOptions<'a> {
     pub user_agent: Option<&'a str>,
     /// Seconds into the first file to start at (resuming).
     pub start_secs: Option<f64>,
+    /// More arguments (a series' playlist).
+    pub extra_args: &'a [String],
 }
 
 impl MpvPlayer {
@@ -266,6 +273,8 @@ impl MpvPlayer {
             }
         }
 
+        cmd.args(options.extra_args);
+
         // Where the app asks MPV how far playback is (watch progress)
         cmd.arg(format!("--input-ipc-server={}", super::ipc::socket_path()));
     }
@@ -334,6 +343,16 @@ impl MpvPlayer {
         cmd.args(Self::file_args(&[url.to_string()], options.start_secs));
 
         // Log and spawn
+        Self::log_command(&cmd, None);
+        self.spawn_mpv(&mut cmd)
+    }
+
+    /// Start MPV with only the configured arguments: what to play comes in
+    /// `extra_args` (a series' playlist file, `playback::episodes`).
+    pub fn play_prepared(&mut self, options: &MpvPlaybackOptions) -> Result<()> {
+        self.stop()?;
+        let mut cmd = mpv_command();
+        Self::apply_args(&mut cmd, options);
         Self::log_command(&cmd, None);
         self.spawn_mpv(&mut cmd)
     }
@@ -679,6 +698,7 @@ mod tests {
             start_volume: None,
             user_agent: None,
             start_secs: None,
+            extra_args: &[],
         }
     }
 
