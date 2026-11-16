@@ -88,6 +88,7 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Changed
 
+- **Favorites: grouped, with posters for movies and series** - Favorites drew every favourite with the live channel card, so a movie's or series' poster became a small thumbnail on a grey logo ground. `FavoritesView` shows them in groups (Channels, Movies, Series, each with its count; empty groups left out), with `ChannelCard` for live TV and `PosterCard` for movies and series, as in their own sections. Favourites are few, so the groups render whole instead of through the virtual grid; their live channels feed the guide (`useNowNext`) and every poster's TMDB card is fetched
 - **Opt-out of the DMA-BUF workaround on Linux** - `run()` always set `WEBKIT_DISABLE_DMABUF_RENDERER=1` (the WebKitGTK 2.50+ EGL workaround), overwriting any value in the environment, and the desktop file's `Exec` forced it again with `env`, so no install could use the DMA-BUF renderer even on GPUs the bug does not affect
   - `run()` now sets `1` only when the variable is unset, and the `env` prefix is gone from `templates/better-iptv.desktop`; the default is unchanged, `WEBKIT_DISABLE_DMABUF_RENDERER=0` opts in
   - Trade-off seen on Intel iGPU + Hyprland: scrolling a bit smoother, but the play button flickers when hovering channel cards. That is why the default stays and the README calls it an opt-in with that caveat

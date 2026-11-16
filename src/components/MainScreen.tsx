@@ -24,6 +24,7 @@ import { lookAheadChannels } from '../lib/gridLookahead';
 import { HomeView } from './HomeView';
 import { ChannelCard } from './ChannelCard';
 import { PosterCard } from './PosterCard';
+import { FavoritesView } from './FavoritesView';
 import { MoviesHero } from './MoviesHero';
 import { NowPlayingBar } from './NowPlayingBar';
 import { Toast } from './Toast';
@@ -558,7 +559,14 @@ export default function MainScreen() {
   // Now/next for the live cards in view. The playing channel always rides
   // along so the dock stays fresh, also in sections without a grid; a card
   // and the dock of one channel read the same entry.
-  const nowNext = useNowNext(visibleChannels, currentChannel);
+  // Favourites shows its groups whole (FavoritesView), not through the
+  // virtual grid; its live channels take the grid's place for the guide
+  const favoritesGrouped = contentTypeFilter === 'favorites';
+  const favoriteLive = useMemo(
+    () => (favoritesGrouped ? filteredChannels.filter((c) => c.content_type === 'live') : []),
+    [favoritesGrouped, filteredChannels]
+  );
+  const nowNext = useNowNext(favoritesGrouped ? favoriteLive : visibleChannels, currentChannel);
   // Keys the guide has answered, so a card says "No guide data" only after a real miss.
   // nowNext already changes with every answer that has entries; this adds all-miss batches.
   const guideFetched = useEpgStore((s) => s.fetchedIn);
@@ -570,12 +578,14 @@ export default function MainScreen() {
   // never do.
   const visibleCardIds = useMemo(() => {
     const ids: number[] = [...heroWarmupIds];
-    for (const c of visibleChannels) {
-      // Live rows (search results, Favorites) still hold movies and series.
+    // Favourites' posters all show at once (FavoritesView)
+    const cards = favoritesGrouped ? filteredChannels : visibleChannels;
+    for (const c of cards) {
+      // Live rows (search results) still hold movies and series.
       if (kind === 'poster' || c.content_type !== 'live') ids.push(c.id);
     }
     return ids;
-  }, [kind, heroWarmupIds, visibleChannels]);
+  }, [kind, heroWarmupIds, visibleChannels, favoritesGrouped, filteredChannels]);
   useTmdbCards(visibleCardIds);
 
   const openDetail = useCallback((channel: Channel) => {
@@ -1081,6 +1091,33 @@ export default function MainScreen() {
                     <p>Nothing in this section yet</p>
                   )}
                 </div>
+              ) : favoritesGrouped ? (
+                <FavoritesView
+                  channels={filteredChannels}
+                  renderPoster={(channel) => (
+                    <PosterCard
+                      channel={channel}
+                      onOpen={handleOpenTitle}
+                      onPlay={handlePlayChannel}
+                      tmdb={tmdbCards.get(channel.id)}
+                      onToggleFavorite={toggleChannelFavorite}
+                      isBlocked={blockedMap.get(channel.id) ?? false}
+                      parentalVisibility={parentalVisibility}
+                    />
+                  )}
+                  renderLive={(channel) => (
+                    <ChannelCard
+                      channel={channel}
+                      isPlaying={currentChannel?.id === channel.id && isPlaying}
+                      onPlay={handlePlayChannel}
+                      onToggleFavorite={toggleChannelFavorite}
+                      {...cardEpg(nowNextFor(nowNext, channel), now)}
+                      guideAnswered={guideAnswered(guideFetched, channel)}
+                      isBlocked={blockedMap.get(channel.id) ?? false}
+                      parentalVisibility={parentalVisibility}
+                    />
+                  )}
+                />
               ) : (
                 // The grid holds the keyboard focus and names its active card
                 // (`useGridKeyboardNav`); the ring is drawn on that card's cell,
