@@ -46,6 +46,17 @@ pub fn args(kind: &PlayerKind) -> Result<Vec<String>> {
         "--load-scripts=no".to_string(),
         "--osc=no".to_string(),
         "--osd-bar=no".to_string(),
+        // MPV's own debugging tools on hotkeys (console on `, stats on i,
+        // command palette, select menus) have no place in the app's player:
+        // a stray key opened the console over the film
+        "--load-console=no".to_string(),
+        "--load-stats-overlay=no".to_string(),
+        "--load-commands=no".to_string(),
+        "--load-select=no".to_string(),
+        // The previews cut slivers of the cache (`dump-cache`); the muxer
+        // complains about the packets after the first keyframe, which is
+        // the only frame used. Those lines are noise, not failures
+        "--msg-level=all=error,recorder=no,ffmpeg=fatal".to_string(),
         format!("--script={}", script.display()),
         format!(
             "--script-opts-append=biptv-player-mpv={}",
@@ -93,7 +104,11 @@ mod tests {
         })
         .unwrap();
         assert_eq!(args[0], "--load-scripts=no");
-        let script = args[3].strip_prefix("--script=").unwrap();
+        assert!(args.contains(&"--load-console=no".to_string()));
+        let script = args
+            .iter()
+            .find_map(|a| a.strip_prefix("--script="))
+            .unwrap();
         assert!(std::fs::read_to_string(script)
             .unwrap()
             .contains("biptv-player"));
