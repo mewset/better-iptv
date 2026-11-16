@@ -77,6 +77,18 @@
   }
 
   /*
+   * Checkboxes, radio buttons and sliders take the app's accent. Left to
+   * the web view they are its default blue, and the ones that set the accent
+   * themselves (`accent-accent`) sat next to ones that did not: amber in
+   * Metadata and EPG, blue in General and Playback.
+   */
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='range'] {
+    accent-color: rgb(var(--color-accent));
+  }
+
+  /*
    * Scrollbars. Without these WebView2 on Windows draws the stock grey
    * scrollbar with arrow buttons on every scroll area (#83). The
    * ::-webkit-scrollbar pseudo-elements are honoured by all three webviews:
