@@ -380,6 +380,30 @@ describe('GuideView', () => {
     expect(screen.queryByRole('region', { name: 'Selected programme' })).toBeNull();
   });
 
+  it('hides the half-hour label that the now label would cover', async () => {
+    // Seven minutes past a half hour: the now label sits on top of that
+    // half hour's own label, which showed as "15:0" beside "15:07"
+    const justPast = new Date();
+    justPast.setMinutes(justPast.getMinutes() >= 30 ? 37 : 7, 0, 0);
+    const halfHour = new Date(justPast);
+    halfHour.setMinutes(justPast.getMinutes() - 7);
+    const next = new Date(halfHour.getTime() + 30 * 60_000);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(justPast);
+    try {
+      guide = { 'svt1.se': [{ title: 'News', description: null, ...span(-5, 20) }], 'tv4.se': [] };
+      renderGuide();
+      await screen.findByRole('button', { name: /^News/ });
+
+      expect(screen.getByText(formatClock(justPast.toISOString()))).toBeInTheDocument();
+      expect(screen.queryByText(formatClock(halfHour.toISOString()))).toBeNull();
+      // The labels further off are all there
+      expect(screen.getByText(formatClock(next.toISOString()))).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('clicking a block opens the detail panel with Watch now', async () => {
     renderGuide();
     fireEvent.click(await screen.findByRole('button', { name: blockName(airing, 'SVT1') }));
