@@ -756,6 +756,29 @@ export default function MainScreen() {
     setView('browse');
   }, []);
 
+  // A detail view takes the focus, and its grid is unmounted meanwhile. When
+  // it closes the grid gets the focus back, or it would be left on the page,
+  // where Enter does nothing until an arrow key is pressed. The ring shows
+  // only if the keyboard closed the view (Escape, Enter on Back).
+  const lastInputRef = useRef<'keyboard' | 'pointer'>('pointer');
+  useEffect(() => {
+    const onKey = () => (lastInputRef.current = 'keyboard');
+    const onPointer = () => (lastInputRef.current = 'pointer');
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('pointerdown', onPointer, true);
+    };
+  }, []);
+  const focusGrid = gridNav.focus;
+  const detailWasOpenRef = useRef(false);
+  useEffect(() => {
+    const open = view === 'detail';
+    if (detailWasOpenRef.current && !open) focusGrid(lastInputRef.current === 'keyboard');
+    detailWasOpenRef.current = open;
+  }, [view, focusGrid]);
+
   const handleFixMatch = useCallback((channel: Channel, details: TmdbDetails) => {
     setMatchTarget({ channel, query: details.title ?? channel.name });
   }, []);

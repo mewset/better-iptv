@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useGridKeyboardNav } from '../../hooks/useGridKeyboardNav';
 
 interface Item {
@@ -34,22 +34,30 @@ function Grid({
     scrollToIndex,
   });
   return (
-    <div role="grid" aria-label="Cards" {...nav.gridProps}>
-      {list.map((item, index) => (
-        <div
-          key={item.id}
-          id={nav.cellId(item)}
-          role="gridcell"
-          aria-selected={nav.activeIndex === index}
-          data-grid-index={index}
-          data-ring={nav.activeIndex === index && nav.ringVisible}
-        >
-          <button type="button" onClick={onCardButton}>
-            {item.name}
-          </button>
-        </div>
-      ))}
-    </div>
+    <>
+      <button type="button" onClick={() => nav.focus(true)}>
+        back by keyboard
+      </button>
+      <button type="button" onClick={() => nav.focus(false)}>
+        back by mouse
+      </button>
+      <div role="grid" aria-label="Cards" {...nav.gridProps}>
+        {list.map((item, index) => (
+          <div
+            key={item.id}
+            id={nav.cellId(item)}
+            role="gridcell"
+            aria-selected={nav.activeIndex === index}
+            data-grid-index={index}
+            data-ring={nav.activeIndex === index && nav.ringVisible}
+          >
+            <button type="button" onClick={onCardButton}>
+              {item.name}
+            </button>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -175,6 +183,56 @@ describe('useGridKeyboardNav', () => {
     fireEvent.focus(grid());
     expect(active()).toBe('grid-cell-101');
     expect(ringed()).toHaveLength(1);
+  });
+
+  describe('taking the focus back, e.g. when a view over the grid closes', () => {
+    const leaveFromSecondCard = () => {
+      render(<Grid list={items(10)} />);
+      act(() => grid().focus());
+      key('ArrowRight');
+      act(() => grid().blur());
+      expect(grid()).not.toHaveFocus();
+    };
+
+    it('shows the ring on the card that was active when the keyboard closed the view', () => {
+      leaveFromSecondCard();
+
+      fireEvent.click(screen.getByRole('button', { name: 'back by keyboard' }));
+
+      expect(grid()).toHaveFocus();
+      expect(active()).toBe('grid-cell-101');
+      expect(ringed()).toHaveLength(1);
+      // Enter works at once, without an arrow key first
+      key('Enter');
+      expect(onActivate).toHaveBeenCalledWith({ id: 101, name: 'Card 1' });
+    });
+
+    it('takes the focus without a ring when the mouse closed it', () => {
+      leaveFromSecondCard();
+
+      fireEvent.click(screen.getByRole('button', { name: 'back by mouse' }));
+
+      expect(grid()).toHaveFocus();
+      expect(ringed()).toHaveLength(0);
+      // The next Tab into the grid shows the ring as usual
+      act(() => grid().blur());
+      act(() => grid().focus());
+      expect(ringed()).toHaveLength(1);
+    });
+
+    it('drops a ring left from before, when the grid was unmounted without a blur', () => {
+      // The keyboard opened the view: the grid goes away with its ring on
+      // and gets no blur event. The mouse then closes the view.
+      render(<Grid list={items(10)} />);
+      act(() => grid().focus());
+      key('ArrowRight');
+      expect(ringed()).toHaveLength(1);
+
+      fireEvent.click(screen.getByRole('button', { name: 'back by mouse' }));
+
+      expect(ringed()).toHaveLength(0);
+      expect(active()).toBe('grid-cell-101');
+    });
   });
 
   it('follows the active card when the list changes under it', () => {
