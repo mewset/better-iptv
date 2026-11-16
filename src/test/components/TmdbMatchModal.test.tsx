@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import TmdbMatchModal from '../../components/modals/TmdbMatchModal';
@@ -134,6 +135,35 @@ describe('TmdbMatchModal', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(await screen.findByText('TMDB is offline')).toBeInTheDocument();
+  });
+
+  it('closes on Escape and hands the focus back to where it was opened from', async () => {
+    function Host() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Wrong title?</button>
+          <TmdbMatchModal
+            isOpen={open}
+            channel={movie}
+            initialQuery="Shuter Island"
+            onClose={() => setOpen(false)}
+            onMatched={vi.fn()}
+          />
+        </>
+      );
+    }
+    render(<Host />);
+    const opener = screen.getByRole('button', { name: 'Wrong title?' });
+    opener.focus();
+    fireEvent.click(opener);
+    expect(await screen.findByRole('dialog', { name: 'Find the right title' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText('Search TMDB')).toHaveFocus());
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
   });
 
   it('renders nothing while closed', () => {
