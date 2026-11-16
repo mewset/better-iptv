@@ -296,6 +296,20 @@ describe('DetailView for a series', () => {
     setProgress([]);
   });
 
+  it('tags episodes added since the last visit and marks the list seen', async () => {
+    // Watching the series; on the last visit only season 1's first episode existed
+    setProgress([progress(10, '11', 2300, true)]);
+    useProgressStore.setState({ knownEpisodes: { 10: ['11'] }, newEpisodes: { 10: ['12', '21'] } });
+    renderSeries();
+    await screen.findByText('Pilot');
+    expect(screen.getAllByText('NEW')).toHaveLength(1); // S1 E2 on the season shown
+    const state = useProgressStore.getState();
+    expect(state.knownEpisodes[10]).toEqual(['11', '12', '21']);
+    expect(state.newEpisodes[10]).toBeUndefined();
+    useProgressStore.setState({ knownEpisodes: {}, newEpisodes: {} });
+    setProgress([]);
+  });
+
   it('marks a whole season watched', async () => {
     setProgress([]);
     renderSeries();

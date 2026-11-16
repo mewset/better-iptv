@@ -31,6 +31,7 @@ import {
   progressKey,
   resumeSecs,
 } from '../lib/watchProgress';
+import { allEpisodeIds, newEpisodeIds } from '../lib/newEpisodes';
 import { cleanEpisodeTitle } from '../lib/episodeTitle';
 
 interface DetailViewProps {
@@ -86,6 +87,15 @@ function metaRow(d: TmdbDetails | null, fallbackYear?: string): string {
  * keep the season/episode flow of the old series view, with TMDB filling gaps in
  * the episode rows.
  */
+/** An episode added since the viewer last opened the series. */
+function NewTag() {
+  return (
+    <span className="shrink-0 rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-on-accent">
+      NEW
+    </span>
+  );
+}
+
 /** A thin amber bar of how far through a title is. */
 function ProgressBar({ fraction, className = '' }: { fraction: number; className?: string }) {
   return (
@@ -208,6 +218,8 @@ export default function DetailView({
   const [failedPoster, setFailedPoster] = useState<string | null>(null);
   // Bumped by "Try again" after a failed load, like `attempt` for the details.
   const [seriesAttempt, setSeriesAttempt] = useState(0);
+  // Episodes new since the last visit (see the series load below)
+  const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
   useEffect(() => {
     if (!isSeries || !loadSeries) return;
     let cancelled = false;
@@ -218,7 +230,22 @@ export default function DetailView({
         const info = await loadSeries();
         if (cancelled) return;
         setCurrentSeries(info);
-        useProgressStore.getState().setFinale(channel.id, finaleOf(info));
+        const progressState = useProgressStore.getState();
+        progressState.setFinale(channel.id, finaleOf(info));
+        // Episodes added since the viewer last opened a series they watch get
+        // a "New" tag for this visit; opening it marks the list seen
+        const known = progressState.knownEpisodes[channel.id];
+        const watching = progressState.index.latestByChannel.has(channel.id);
+        setFreshIds(
+          new Set(
+            newEpisodeIds(
+              info,
+              known,
+              (id) => progressState.index.byKey.get(progressKey(channel.id, id))?.watched ?? false
+            )
+          )
+        );
+        if (known || watching) progressState.markSeen(channel.id, allEpisodeIds(info));
         // Open on the first season that has episodes: panels often list a
         // "Season 0" (specials) or upcoming seasons with nothing to play.
         const firstPlayable =
@@ -693,9 +720,12 @@ export default function DetailView({
                           <EpisodeProgress progress={episodeProgress(episode)} />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate font-semibold text-text">
-                            <span className="text-text-faint">{episode.episode_num}.</span>{' '}
-                            {epTitle}
+                          <p className="flex items-center gap-2 font-semibold text-text">
+                            <span className="truncate">
+                              <span className="text-text-faint">{episode.episode_num}.</span>{' '}
+                              {epTitle}
+                            </span>
+                            {freshIds.has(episode.id) && <NewTag />}
                           </p>
                           {duration && <p className="text-xs text-text-muted">{duration}</p>}
                           {plot && (

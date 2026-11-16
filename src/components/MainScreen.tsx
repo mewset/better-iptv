@@ -57,6 +57,7 @@ import { useHomeRows } from '../hooks/useHomeRows';
 import type { HomePickView } from './HomeView';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { newestTitles } from '../lib/newestTitle';
+import { useNewEpisodeCheck } from '../hooks/useNewEpisodeCheck';
 import { cardEpg, formatClockAt } from '../lib/epgTime';
 
 const SECTION_TITLES: Record<Section, string> = {
@@ -322,6 +323,8 @@ export default function MainScreen() {
     loading: homeLoading,
     progress: homeProgress,
   } = useHomeRows(currentPlaylist?.id ?? null, homeAvailable && contentTypeFilter === 'home');
+  // New episodes in the series being watched, checked every few hours
+  useNewEpisodeCheck();
   // Same rule as the hero: `isAdultContent` regardless of the parental
   // settings, plus the parental block. The backend sends twelve per row so
   // eight usually survive; a row under three is dropped.

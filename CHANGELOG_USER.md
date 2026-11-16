@@ -8,6 +8,7 @@ A simple overview of new features and improvements.
 
 ### New Features
 
+- Series you're watching show when new episodes have been added: a NEW badge on the poster and on the new episodes
 - Better IPTV remembers what you watch: films and episodes resume where you left off, watched ones get a mark (or mark them yourself, a whole season at once), and a series' Play button carries on with the next episode
 - The banner in Movies and Series now rotates through trending and popular titles from your library
 - Added sorting for Movies and Series, e.g. by name, year, rating or recently added. Update your Xtream playlist once to get ratings and dates

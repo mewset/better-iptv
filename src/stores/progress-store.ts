@@ -25,6 +25,35 @@ interface ProgressState {
    */
   finales: Record<number, string>;
   setFinale: (channelId: number, episodeId: string | undefined) => void;
+  /** Each watched series' episode list as the viewer last saw it (its page). */
+  knownEpisodes: Record<number, string[]>;
+  /** Episodes added since, per series (`useNewEpisodeCheck`); cleared by opening the series. */
+  newEpisodes: Record<number, string[]>;
+  /** The series' page opened: its list is seen, nothing on it is new any more. */
+  markSeen: (channelId: number, episodeIds: string[]) => void;
+  /** A check's result: a series never checked only gets its list remembered. */
+  recordCheck: (channelId: number, episodeIds: string[], newIds: string[]) => void;
+}
+
+const KNOWN_KEY = 'better-iptv.series-known';
+const NEW_KEY = 'better-iptv.series-new';
+
+function loadRecord(key: string): Record<number, string[]> {
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? (parsed as Record<number, string[]>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveRecord(key: string, value: Record<number, string[]>): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Private mode or blocked storage: only this session remembers
+  }
 }
 
 const FINALES_KEY = 'better-iptv.series-finales';
@@ -63,6 +92,29 @@ export const useProgressStore = create<ProgressState>((set, get) => ({
   entries: [],
   index: EMPTY,
   finales: loadFinales(),
+  knownEpisodes: loadRecord(KNOWN_KEY),
+  newEpisodes: loadRecord(NEW_KEY),
+  markSeen: (channelId, episodeIds) => {
+    const knownEpisodes = { ...get().knownEpisodes, [channelId]: episodeIds };
+    const newEpisodes = { ...get().newEpisodes };
+    delete newEpisodes[channelId];
+    set({ knownEpisodes, newEpisodes });
+    saveRecord(KNOWN_KEY, knownEpisodes);
+    saveRecord(NEW_KEY, newEpisodes);
+  },
+  recordCheck: (channelId, episodeIds, newIds) => {
+    if (!get().knownEpisodes[channelId]) {
+      const knownEpisodes = { ...get().knownEpisodes, [channelId]: episodeIds };
+      set({ knownEpisodes });
+      saveRecord(KNOWN_KEY, knownEpisodes);
+      return;
+    }
+    const newEpisodes = { ...get().newEpisodes };
+    if (newIds.length > 0) newEpisodes[channelId] = newIds;
+    else delete newEpisodes[channelId];
+    set({ newEpisodes });
+    saveRecord(NEW_KEY, newEpisodes);
+  },
   setFinale: (channelId, episodeId) => {
     if (episodeId === undefined || get().finales[channelId] === episodeId) return;
     const finales = { ...get().finales, [channelId]: episodeId };
@@ -86,7 +138,7 @@ export const useProgressStore = create<ProgressState>((set, get) => ({
       // A profile switch meanwhile wins
       if (get().playlistId !== playlistId) return;
       // Unchanged (most reloads while nothing plays, or between saves): keep
-      // the same objects, so posters do not re-render for nothing
+      // the same objects, so posters and Home do not re-render for nothing
       if (sameEntries(get().entries, list)) return;
       set({ entries: list, index: indexProgress(list) });
     } catch (err) {

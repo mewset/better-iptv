@@ -58,6 +58,10 @@ export const PosterCard = memo(function PosterCard({
     isSeries ? s.index.latestByChannel.get(channel.id) : s.index.byKey.get(progressKey(channel.id))
   );
   const watched = !isSeries && (progress?.watched ?? false);
+  // Episodes added to a series the viewer is watching
+  const newCount = useProgressStore((s) =>
+    isSeries ? (s.newEpisodes[channel.id]?.length ?? 0) : 0
+  );
   const fraction = progress && !progress.watched ? progressFraction(progress) : 0;
   const blocked = isBlocked && parentalVisibility !== 'hide';
   const lockMode = blocked && parentalVisibility === 'lock';
@@ -126,6 +130,11 @@ export const PosterCard = memo(function PosterCard({
           </span>
         )}
 
+        {!blocked && newCount > 0 && (
+          <span className="absolute left-2 top-2 rounded-md bg-accent px-2 py-0.5 text-[11px] font-bold tracking-wide text-on-accent">
+            {newCount} NEW
+          </span>
+        )}
         {!blocked && watched && (
           <span
             title="Watched"
