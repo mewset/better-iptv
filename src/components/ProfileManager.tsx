@@ -236,7 +236,9 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
               <article
                 key={playlist.id}
                 className={cn(
-                  'flex items-center gap-5 rounded-2xl border p-5 transition-colors',
+                  // Wraps: in a narrow window the four actions took the row
+                  // and left the profile's name one letter ("Q…")
+                  'flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl border p-5 transition-colors',
                   isActive ? 'border-accent bg-text/5' : 'border-border'
                 )}
               >
@@ -254,7 +256,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
                   )}
                 </div>
 
-                <div className="min-w-0 flex-1">
+                <div className="min-w-[12rem] flex-1">
                   {isEditing ? (
                     <input
                       type="text"
