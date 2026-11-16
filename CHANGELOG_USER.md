@@ -45,6 +45,9 @@ A simple overview of new features and improvements.
 - Fixed Enter not working in the PIN box
 - Fixed the banner showing only a thin strip of its picture on very wide screens
 - Fixed faint vertical stripes in the banner in Movies and Series
+- Fixed an empty strip under the banner picture in smaller windows
+- Fixed blocked channels showing their picture unblurred on Linux when "Show blurred" is chosen
+- Fixed the player window showing the first episode's name for every episode in a season
 
 ### Thanks
 
