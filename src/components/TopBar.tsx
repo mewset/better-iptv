@@ -165,9 +165,12 @@ export function TopBar({
 
   // The error modal sits outside <header>: the header's backdrop-filter makes
   // it the containing block for fixed descendants, which would clip the modal.
+  // z-30: the profile menu drops over the page, and with the header level
+  // with the page's own sticky rows (z-10) the guide's time axis, later in the
+  // document, was drawn across the menu and hid one of its rows.
   return (
     <>
-      <header className="relative z-10 flex h-16 shrink-0 items-center gap-6 border-b border-border bg-bg/70 px-10 backdrop-blur-xl no-backdrop:bg-bg">
+      <header className="relative z-30 flex h-16 shrink-0 items-center gap-6 border-b border-border bg-bg/70 px-10 backdrop-blur-xl no-backdrop:bg-bg">
         <div className="flex min-w-0 flex-1 items-baseline gap-3">
           <h1 className="truncate font-display text-2xl font-semibold text-text">{title}</h1>
           <p className="truncate text-[13px] text-text-muted">{subtitle}</p>
@@ -198,7 +201,9 @@ export function TopBar({
                 value={query}
                 onChange={(e) => onQuery(e.target.value)}
                 placeholder="Search channels, movies, series"
-                className="min-w-0 flex-1 appearance-none bg-transparent text-sm text-text placeholder:text-text-muted focus:outline-none [&::-webkit-search-cancel-button]:appearance-none"
+                // The web view's own clear button is hidden outright: with
+                // `appearance: none` WebKitGTK still drew it, next to ours
+                className="min-w-0 flex-1 appearance-none bg-transparent text-sm text-text placeholder:text-text-muted focus:outline-none [&::-webkit-search-cancel-button]:hidden"
               />
             </label>
             {/* The browser's own clear button is hidden above (it differs per
