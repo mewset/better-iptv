@@ -69,6 +69,7 @@ A simple overview of new features and improvements.
 ### Thanks
 
 - **@h4r0n1** for finding and fixing series that would not open with some Xtream providers (#93)
+- **@andrezinhovg** for the idea and groundwork behind moving through channels, movies and series with the arrow keys
 - **@RyanBeckett** for sorting and a rotating banner in Movies and Series, cleaner episode names, a Linux setting that can make scrolling smoother, and for removing a flicker that came with it (#94, #95, #96, #98, #100, #102, #105)
 
 ## Version 3.3.0 (November 11, 2026)
