@@ -43,7 +43,10 @@ interface UseChannelPlaybackResult {
 
 /** Why mpv exited by itself, after "Couldn't play X." in the toast. */
 const FAILURE_TEXT: Record<NonNullable<PlaybackStatus['failure']>, string> = {
-  stream: 'The provider refused the stream, maybe because your line is already in use.',
+  // mpv's exit code says only that the stream did not open: a dead address,
+  // no network and a refusal by the provider all look the same
+  stream:
+    'The stream could not be opened. Your connection may be down, or the provider refused it, e.g. because your line is already in use.',
   player: 'mpv could not start. Check the video settings in Settings → Playback, or update mpv.',
 };
 

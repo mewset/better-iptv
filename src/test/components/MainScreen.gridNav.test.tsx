@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
 import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
+import { renderSettled } from '../renderSettled';
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
@@ -101,7 +102,7 @@ describe('MainScreen: keyboard navigation in the grid', () => {
   });
 
   it('describes the list as a grid of rows and cells', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     const el = await grid('Live TV');
 
     expect(el).toHaveAttribute('aria-rowcount', '2');
@@ -113,7 +114,7 @@ describe('MainScreen: keyboard navigation in the grid', () => {
   });
 
   it('moves with the arrows and plays the active channel on Enter', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     const el = await grid('Live TV');
 
     fireEvent.focus(el);
@@ -134,7 +135,7 @@ describe('MainScreen: keyboard navigation in the grid', () => {
 
   it('opens the active title on Enter in the poster grid', async () => {
     usePlayerStore.setState({ contentTypeFilter: 'vod' });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     const el = await grid('Movies');
 
     fireEvent.focus(el);
@@ -147,7 +148,7 @@ describe('MainScreen: keyboard navigation in the grid', () => {
   });
 
   it('starts over at the top when the section changes', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     const el = await grid('Live TV');
     fireEvent.focus(el);
     press(el, 'ArrowRight');
@@ -162,11 +163,11 @@ describe('MainScreen: keyboard navigation in the grid', () => {
   });
 
   it('keeps the row it scrolls to clear of the dock while something plays', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     await grid('Live TV');
     expect(virtualiser.options.at(-1)?.scrollPaddingEnd).toBe(20);
 
-    usePlayerStore.setState({ isPlaying: true, currentChannel: live[0] });
+    act(() => usePlayerStore.setState({ isPlaying: true, currentChannel: live[0] }));
 
     await waitFor(() => expect(virtualiser.options.at(-1)?.scrollPaddingEnd).toBe(148));
   });

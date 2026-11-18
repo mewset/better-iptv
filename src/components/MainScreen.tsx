@@ -29,7 +29,7 @@ import { NowPlayingBar } from './NowPlayingBar';
 import { Toast } from './Toast';
 import { Rail } from './Rail';
 import { TopBar } from './TopBar';
-import { Search } from 'lucide-react';
+import { Search, Star } from 'lucide-react';
 import DetailView from './DetailView';
 import Settings, { type SettingsHandle } from './Settings';
 import PinEntryModal from './modals/PinEntryModal';
@@ -129,7 +129,8 @@ export default function MainScreen() {
 
   // Consolidated channel filtering (content type, category, parental, search)
   const filteredChannels = useChannelFilter(debouncedSearchQuery);
-  // "Highest rated" ranks by TMDB's vote-weighted rating and shows the votes
+  // "Highest rated" ranks by TMDB's vote-weighted rating and shows the votes;
+  // a title TMDB only knows the year of has none to show
   const titleRatings = usePlayerStore((s) => s.titleRatings);
 
   // Playback (hook handles MPV status polling)
@@ -769,6 +770,29 @@ export default function MainScreen() {
     setView('browse');
   }, []);
 
+  // A detail view takes the focus, and its grid is unmounted meanwhile. When
+  // it closes the grid gets the focus back, or it would be left on the page,
+  // where Enter does nothing until an arrow key is pressed. The ring shows
+  // only if the keyboard closed the view (Escape, Enter on Back).
+  const lastInputRef = useRef<'keyboard' | 'pointer'>('pointer');
+  useEffect(() => {
+    const onKey = () => (lastInputRef.current = 'keyboard');
+    const onPointer = () => (lastInputRef.current = 'pointer');
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('pointerdown', onPointer, true);
+    };
+  }, []);
+  const focusGrid = gridNav.focus;
+  const detailWasOpenRef = useRef(false);
+  useEffect(() => {
+    const open = view === 'detail';
+    if (detailWasOpenRef.current && !open) focusGrid(lastInputRef.current === 'keyboard');
+    detailWasOpenRef.current = open;
+  }, [view, focusGrid]);
+
   const handleFixMatch = useCallback((channel: Channel, details: TmdbDetails) => {
     setMatchTarget({ channel, query: details.title ?? channel.name });
   }, []);
@@ -1094,7 +1118,10 @@ export default function MainScreen() {
                       )}
                     </>
                   ) : contentTypeFilter === 'favorites' ? (
-                    <p>No favorites yet. Use the star on a channel, movie or series.</p>
+                    <>
+                      <Star className="h-6 w-6" aria-hidden="true" />
+                      <p>No favorites yet. Use the star on a channel, movie or series.</p>
+                    </>
                   ) : (
                     <p>Nothing in this section yet</p>
                   )}
@@ -1227,7 +1254,8 @@ export default function MainScreen() {
                                     parentalVisibility={parentalVisibility}
                                     votes={
                                       titleSort === 'rating' && !trimmedQuery
-                                        ? titleRatings[sortSection ?? 'vod']?.[channel.id]?.votes
+                                        ? titleRatings[sortSection ?? 'vod']?.[channel.id]?.votes ||
+                                          undefined
                                         : undefined
                                     }
                                   />
@@ -1300,7 +1328,7 @@ export default function MainScreen() {
         }}
         title="Playlist update available"
         message="Your playlist hasn't been updated in over 7 days. Would you like to refresh it now?"
-        confirmText="Refresh Now"
+        confirmText="Refresh now"
         cancelText="Later"
       />
 
