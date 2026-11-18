@@ -56,7 +56,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   return (
     <aside
       aria-label="Now playing"
-      className="absolute bottom-6 left-1/2 flex h-[76px] w-[min(880px,calc(100%-80px))] -translate-x-1/2 items-center gap-4 rounded-[18px] border border-border-strong bg-surface/85 px-3 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-2xl supports-[not(backdrop-filter:blur(1px))]:bg-surface"
+      className="absolute bottom-6 left-1/2 flex h-[76px] w-[min(880px,calc(100%-80px))] -translate-x-1/2 items-center gap-4 rounded-[18px] border border-border-strong bg-surface/85 px-3 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-2xl no-backdrop:bg-surface"
     >
       <div className="relative h-[52px] w-[52px] shrink-0 overflow-hidden rounded-xl bg-surface-2">
         {logoSrc ? (

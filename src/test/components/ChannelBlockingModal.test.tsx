@@ -67,7 +67,7 @@ describe('ChannelBlockingModal', () => {
 
   it('starts over from the saved blocks on every opening', () => {
     const { rerender } = render(modal(true, [1]));
-    fireEvent.click(screen.getByRole('button', { name: 'Block All' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Block all' }));
     expect(screen.getByText('3 of 3 channels blocked')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));

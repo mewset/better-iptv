@@ -689,17 +689,22 @@ pub fn title_tmdb_ids(
     Ok(out)
 }
 
-/// TMDB's rating and vote count for one title, for the "Highest rated" sort.
+/// What TMDB knows about one title that the Movies and Series sorts use:
+/// the rating with its vote count for "Highest rated", the release year for
+/// "Year, newest first".
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct TitleRating {
-    pub rating: f64,
+    /// None without votes: a rating nobody voted for says nothing.
+    pub rating: Option<f64>,
     pub votes: i64,
+    /// The year the cards show; most titles carry none in their name.
+    pub year: Option<i32>,
 }
 
-/// TMDB ratings for a section's matched titles: channel id -> rating and
-/// vote count. Empty while TMDB is off; titles TMDB has not matched, or
-/// matched without votes, are left out (the sort falls back to the
-/// provider's rating for them).
+/// TMDB's rating, vote count and release year for a section's matched
+/// titles, by channel id. Empty while TMDB is off; titles TMDB has not
+/// matched, or knows neither a voted rating nor a year for, are left out
+/// (the sorts fall back to the provider's rating and the year in the name).
 #[tauri::command]
 pub async fn get_title_ratings(
     state: State<'_, AppState>,
@@ -734,14 +739,21 @@ pub fn title_ratings(
         let Some(row) = queries::get_tmdb_row(conn, &job.key)? else {
             continue;
         };
-        let (Some(_), Some(rating), Some(votes)) = (row.tmdb_id, row.rating, row.vote_count) else {
+        if row.tmdb_id.is_none() {
             continue;
+        }
+        let votes = row.vote_count.unwrap_or(0).max(0);
+        let rating = row.rating.filter(|r| votes > 0 && r.is_finite());
+        let facts = TitleRating {
+            rating,
+            votes: if rating.is_some() { votes } else { 0 },
+            year: row.release_year,
         };
-        if votes <= 0 || !rating.is_finite() {
+        if facts.rating.is_none() && facts.year.is_none() {
             continue;
         }
         for id in job.channel_ids {
-            out.insert(id, TitleRating { rating, votes });
+            out.insert(id, facts);
         }
     }
     Ok(out)
@@ -1682,7 +1694,7 @@ mod tests {
     }
 
     #[test]
-    fn title_ratings_cover_every_copy_of_a_title_that_has_votes() {
+    fn title_ratings_cover_every_copy_of_a_matched_title() {
         use crate::db::test_helpers::{create_test_playlist, setup_test_db};
         let conn = setup_test_db();
         let pid = create_test_playlist(&conn, "P");
@@ -1699,7 +1711,11 @@ mod tests {
         let no_votes = add("My Old Man (2022)", "vod");
         let unmatched = add("Home Video (2020)", "vod");
         let series = add("Shutter Island (2010)", "series");
-        let store = |c: &Channel, tmdb_id: Option<i64>, rating: Option<f64>, votes: Option<i64>| {
+        let store = |c: &Channel,
+                     tmdb_id: Option<i64>,
+                     rating: Option<f64>,
+                     votes: Option<i64>,
+                     year: Option<i32>| {
             let (key, _, _) = cache_key_for(c).unwrap();
             mutations::upsert_tmdb_search(
                 &conn,
@@ -1709,7 +1725,7 @@ mod tests {
                     manual: false,
                     title: None,
                     original_title: None,
-                    release_year: None,
+                    release_year: year,
                     rating,
                     vote_count: votes,
                     poster_path: None,
@@ -1726,20 +1742,33 @@ mod tests {
             )
             .unwrap();
         };
-        store(&rated, Some(11324), Some(8.2), Some(24000));
-        store(&no_votes, Some(2), Some(10.0), Some(0));
+        let year_only = add("Unvoted Premiere", "vod");
+        store(&rated, Some(11324), Some(8.2), Some(24000), Some(2010));
+        // Matched, but nobody has voted and TMDB has no date: nothing to sort on
+        store(&no_votes, Some(2), Some(10.0), Some(0), None);
+        // A rating without votes is dropped, the year is kept
+        store(&year_only, Some(4), Some(10.0), Some(0), Some(2026));
         // Searched, nothing found
-        store(&unmatched, None, None, None);
-        store(&series, Some(3), Some(7.0), Some(50));
+        store(&unmatched, None, None, None, None);
+        store(&series, Some(3), Some(7.0), Some(50), None);
 
         let movies = title_ratings(&conn, pid, "vod").unwrap();
         let shutter = TitleRating {
-            rating: 8.2,
+            rating: Some(8.2),
             votes: 24000,
+            year: Some(2010),
         };
-        assert_eq!(movies.len(), 2, "only the title with votes: {movies:?}");
+        assert_eq!(movies.len(), 3, "{movies:?}");
         assert_eq!(movies[&rated.id.unwrap()], shutter);
         assert_eq!(movies[&copy.id.unwrap()], shutter);
+        assert_eq!(
+            movies[&year_only.id.unwrap()],
+            TitleRating {
+                rating: None,
+                votes: 0,
+                year: Some(2026),
+            }
+        );
 
         let shows = title_ratings(&conn, pid, "series").unwrap();
         assert_eq!(shows.len(), 1);

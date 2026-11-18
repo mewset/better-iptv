@@ -132,9 +132,15 @@ export const PosterCard = memo(function PosterCard({
             // decoration. Shown at once, without a fade or a zoom: with the
             // WebKitGTK DMA-BUF renderer every repaint of an animation is a
             // chance to flash a stale frame (see ChannelCard).
-            className="absolute inset-x-0 bottom-0 flex flex-col justify-end gap-2 bg-gradient-to-t from-bg/95 via-bg/40 to-transparent p-2.5 opacity-0 focus-within:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
+            //
+            // Dark with light text in both themes, like the label over the
+            // colour bars above: this sits on the poster, not on the page.
+            // From the page colour the light theme laid a pale haze over the
+            // artwork and put dark text on it (measured 3.0:1 on a dark
+            // poster, against 16:1 in the dark theme).
+            className="absolute inset-x-0 bottom-0 flex flex-col justify-end gap-2 bg-gradient-to-t from-[#0F1013]/95 via-[#0F1013]/40 to-transparent p-2.5 opacity-0 focus-within:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
           >
-            <span className="truncate font-display text-lg font-bold text-text">
+            <span className="truncate font-display text-lg font-bold text-[#F2F2F0]">
               {channel.name}
             </span>
             <div className="flex items-center gap-2">
@@ -161,10 +167,10 @@ export const PosterCard = memo(function PosterCard({
                   e.stopPropagation();
                   onToggleFavorite?.(channel.id);
                 }}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-text/10 focus-visible:ring-2 focus-visible:ring-accent"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#F2F2F0]/10 focus-visible:ring-2 focus-visible:ring-accent"
               >
                 <Star
-                  className={`h-4 w-4 ${channel.is_favorite ? 'fill-current text-accent-text' : 'text-text-muted'}`}
+                  className={`h-4 w-4 ${channel.is_favorite ? 'fill-current text-accent' : 'text-[#A9ADB6]'}`}
                   aria-hidden="true"
                 />
               </button>

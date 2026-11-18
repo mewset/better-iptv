@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
@@ -7,6 +7,7 @@ import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
 import type { NowNext } from '../../lib/epgIpc';
 import { nowNext, programme } from '../epgFixtures';
+import { renderSettled } from '../renderSettled';
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
@@ -129,7 +130,7 @@ describe('MainScreen: now/next', () => {
   });
 
   it('the card and the dock of the playing channel show one entry from one request', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     const dock = screen.getByRole('complementary', { name: 'Now playing' });
     await waitFor(() => expect(within(dock).getByText('Rapport')).toBeInTheDocument(), {
       timeout: 3000,
@@ -165,20 +166,20 @@ describe('MainScreen: now/next', () => {
     });
 
     it('is not shown while the guide has not answered', async () => {
-      render(<MainScreen />);
+      await renderSettled(<MainScreen />);
       await waitFor(() => expect(epgCalls()).toHaveLength(1), { timeout: 3000 });
       expect(within(card('TV4')).queryByText('No guide data')).toBeNull();
     });
 
     it('is shown once the guide answers without data for the channel', async () => {
-      render(<MainScreen />);
+      await renderSettled(<MainScreen />);
       await waitFor(() => expect(epgCalls()).toHaveLength(1), { timeout: 3000 });
       await act(async () => answer({}));
       expect(await within(card('TV4')).findByText('No guide data')).toBeInTheDocument();
     });
 
-    it('is shown at once for a channel without a guide id', () => {
-      render(<MainScreen />);
+    it('is shown at once for a channel without a guide id', async () => {
+      await renderSettled(<MainScreen />);
       expect(within(card('Local')).getByText('No guide data')).toBeInTheDocument();
       expect(within(card('TV4')).queryByText('No guide data')).toBeNull();
     });

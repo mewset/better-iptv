@@ -98,6 +98,13 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
 
   // UI state
   const [activeTab, setActiveTab] = useState(initialTab);
+  // A section opens at its top: the view kept the scroll position of the
+  // section before it, which hid the new one's heading and first settings
+  const viewRef = useRef<globalThis.HTMLDivElement>(null);
+  const selectTab = (tab: string) => {
+    setActiveTab(tab);
+    if (viewRef.current) viewRef.current.scrollTop = 0;
+  };
   const [isLoading, setIsLoading] = useState(true);
   // A failed load leaves the state at its defaults; saving then would overwrite real values.
   const [loadFailed, setLoadFailed] = useState(false);
@@ -390,7 +397,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
         };
         if (tabMap[e.key]) {
           e.preventDefault();
-          setActiveTab(tabMap[e.key]);
+          selectTab(tabMap[e.key]);
         }
       }
     };
@@ -427,6 +434,12 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
 
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      // Already taken by a dialog (useModalDialog marks it the same way).
+      // The dialog check below is not enough on its own: this listener is
+      // subscribed again whenever its dependencies change, which can put it
+      // behind an open dialog's listener, and by the time it runs then the
+      // dialog has cancelled and left the page.
+      if (e.defaultPrevented) return;
       e.preventDefault();
 
       if (isTextEntry(e.target)) return;
@@ -476,7 +489,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       logger.info('Parental PIN reset successfully');
     } catch (err) {
       logger.error('Failed to reset PIN:', err);
-      showError('Failed to Reset PIN', errorText(err));
+      showError('Failed to reset PIN', errorText(err));
     }
   };
 
@@ -584,7 +597,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       onClose();
     } catch (err) {
       logger.error('Failed to save settings:', err);
-      showError('Failed to Save Settings', errorText(err));
+      showError('Failed to save settings', errorText(err));
     } finally {
       setIsSaving(false);
     }
@@ -593,10 +606,15 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   const activeSection = SECTIONS.find((s) => s.value === activeTab) ?? SECTIONS[0];
 
   return (
-    <div id="settings-view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <Tabs value={activeTab} onValueChange={setActiveTab} orientation="vertical">
+    <div id="settings-view" ref={viewRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <Tabs value={activeTab} onValueChange={selectTab} orientation="vertical">
         <div className="flex gap-10 px-10 pt-7" style={{ paddingBottom: footerHeight }}>
-          <nav aria-label="Settings sections" className="w-[240px] shrink-0">
+          {/* Stays in place while a long section scrolls, so the other
+              sections are always one click away */}
+          <nav
+            aria-label="Settings sections"
+            className="sticky top-7 w-[240px] shrink-0 self-start"
+          >
             <TabsList className="flex h-auto w-full flex-col items-stretch justify-start gap-1 border-b-0">
               {SECTIONS.map(({ value, name, description }) => {
                 const active = activeTab === value;
@@ -626,7 +644,9 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
             </TabsList>
           </nav>
 
-          <div className="min-w-0 flex-1 pb-10">
+          {/* Capped: on a wide window the fields ran the whole width, with a
+              setting's switch a screen away from its label */}
+          <div className="min-w-0 max-w-[880px] flex-1 pb-10">
             <h1 className="mb-6 font-display text-3xl font-semibold text-text">
               {activeSection.name}
             </h1>
@@ -742,26 +762,30 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       {/* Footer */}
       <div
         ref={footerRef}
-        className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-border bg-bg/90 px-10 py-6 backdrop-blur"
+        className="sticky bottom-0 border-t border-border bg-bg/90 px-10 py-6 backdrop-blur no-backdrop:bg-bg"
       >
-        {loadFailed && (
-          <p role="alert" className="mr-auto text-sm text-danger">
-            Settings could not be loaded, so saving is off. Reopening Settings retries.
-          </p>
-        )}
-        <button
-          onClick={onClose}
-          className="rounded-lg px-4 py-2 text-text-muted transition-colors hover:bg-surface-hover"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={isSaving || isLoading || loadFailed}
-          className="rounded-lg bg-accent px-4 py-2 text-on-accent transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isSaving ? 'Saving...' : 'Save changes'}
-        </button>
+        {/* As wide as the section list and the capped content above, so the
+            buttons end where the settings do */}
+        <div className="flex max-w-[1160px] items-center justify-end gap-3">
+          {loadFailed && (
+            <p role="alert" className="mr-auto text-sm text-danger">
+              Settings could not be loaded, so saving is off. Reopening Settings retries.
+            </p>
+          )}
+          <button
+            onClick={onClose}
+            className="rounded-lg px-4 py-2 text-text-muted transition-colors hover:bg-surface-hover"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving || isLoading || loadFailed}
+            className="rounded-lg bg-accent px-4 py-2 text-on-accent transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSaving ? 'Saving...' : 'Save changes'}
+          </button>
+        </div>
       </div>
 
       {/* Modals */}

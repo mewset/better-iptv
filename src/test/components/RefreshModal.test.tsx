@@ -31,6 +31,23 @@ describe('RefreshModal', () => {
     expect(refreshPlaylist).toHaveBeenCalledTimes(1);
   });
 
+  it('names the outcome in its heading, and says it once', async () => {
+    render(<RefreshModal {...props} isOpen={true} />);
+    // The heading and the line under it both said "Refresh complete"
+    expect(await screen.findByRole('dialog', { name: 'Refresh complete' })).toBeInTheDocument();
+    expect(screen.getAllByText('Refresh complete')).toHaveLength(1);
+    expect(screen.getByText('"Home" is up to date')).toBeInTheDocument();
+  });
+
+  it('says "Refresh failed" in the heading when the refresh failed', async () => {
+    // It kept saying "Refreshing playlist" over the error
+    vi.mocked(refreshPlaylist).mockRejectedValue({ code: 'Http', details: 'no answer' } as never);
+    render(<RefreshModal {...props} isOpen={true} />);
+    expect(await screen.findByRole('dialog', { name: 'Refresh failed' })).toBeInTheDocument();
+    expect(screen.getByText(/Failed to refresh playlist: no answer/)).toBeInTheDocument();
+    expect(screen.queryByText('Refreshing playlist')).not.toBeInTheDocument();
+  });
+
   it('reopening refreshes again', async () => {
     const { rerender } = render(<RefreshModal {...props} isOpen={true} />);
     await screen.findByText('Refresh complete');

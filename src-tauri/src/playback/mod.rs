@@ -67,15 +67,16 @@ pub async fn play_stream(
     .await?
 }
 
-/// Spawn MPV with a queue of URLs (series episodes).
+/// Spawn MPV with a queue of URLs (series episodes) and the title of each.
 pub async fn play_playlist(
     player: SharedPlayer,
     urls: Vec<String>,
+    titles: Vec<String>,
     settings: PlaybackSettings,
 ) -> Result<(), AppError> {
     tokio::task::spawn_blocking(move || {
         let mut mpv = lock_player(&player)?;
-        mpv.play_playlist(&urls, &settings.as_options())
+        mpv.play_playlist(&urls, &titles, &settings.as_options())
             .map_err(mpv_failure)
     })
     .await?
@@ -157,7 +158,9 @@ mod tests {
             NOT_A_STREAM.to_string(),
         ];
 
-        let err = play_playlist(player(), urls, settings()).await.unwrap_err();
+        let err = play_playlist(player(), urls, Vec::new(), settings())
+            .await
+            .unwrap_err();
 
         assert_eq!(
             details(err),
