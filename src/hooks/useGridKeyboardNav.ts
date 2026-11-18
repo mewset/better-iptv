@@ -40,6 +40,12 @@ export interface GridKeyboardNav<T extends GridItem> {
   };
   /** DOM id of the cell of a card, for `aria-activedescendant`. */
   cellId: (item: T) => string;
+  /**
+   * Gives the grid the focus back, e.g. when a view that covered it closes.
+   * `showRing` says whether the keyboard is driving: without it the focus
+   * arrives the way a mouse press brings it, with no ring.
+   */
+  focus: (showRing: boolean) => void;
 }
 
 /** The attribute a cell carries its index in (`data-grid-index`), so a click can say which card it hit. */
@@ -207,6 +213,18 @@ export function useGridKeyboardNav<T extends GridItem>({
 
   const cellId = useCallback((item: T) => `grid-cell-${item.id}`, []);
 
+  const focus = useCallback((showRing: boolean) => {
+    const grid = gridRef.current;
+    if (!grid) return;
+    // The focus handler shows the ring unless a pointer brought the focus
+    pointerDown.current = !showRing;
+    grid.focus({ preventScroll: true });
+    pointerDown.current = false;
+    // A grid that was unmounted meanwhile never got a blur: the ring it had
+    // when the keyboard opened the view would still be on
+    if (!showRing) setKeyboard(false);
+  }, []);
+
   return {
     activeIndex,
     ringVisible: keyboard && activeIndex !== null,
@@ -221,5 +239,6 @@ export function useGridKeyboardNav<T extends GridItem>({
       onMouseUp,
     },
     cellId,
+    focus,
   };
 }

@@ -4,7 +4,7 @@ A simple overview of new features and improvements.
 
 ---
 
-## Unreleased
+## Version 3.4.0 (November 17, 2026)
 
 ### New Features
 
@@ -26,6 +26,10 @@ A simple overview of new features and improvements.
 - Improved startup speed
 - Play buttons and other controls on cards now appear instantly when you hover
 - Episode lists now show just the episode's name, without the series name and episode number in front
+- Escape now closes the Add profile dialog
+- Settings sections now open at the top, the section list stays in view, and fields keep a readable width on wide screens
+- Very wide screens now show more channels and posters per row
+- Tidied up labels and button texts in Settings
 
 ### Fixes
 
@@ -47,10 +51,27 @@ A simple overview of new features and improvements.
 - Fixed Enter not working in the PIN box
 - Fixed the banner showing only a thin strip of its picture on very wide screens
 - Fixed faint vertical stripes in the banner in Movies and Series
+- Fixed an empty strip under the banner picture in smaller windows
+- Fixed blocked channels showing their picture unblurred on Linux when "Show blurred" is chosen
+- Fixed the player window showing the first episode's name for every episode in a season
+- Fixed text showing through panels and dialogs on Linux
+- Fixed movies being matched to films that are not out yet
+- Fixed "Open logs folder" in Settings doing nothing
+- Fixed channel cards in the same row not lining up
+- Fixed the profile menu being partly hidden in the TV Guide
+- Fixed time labels overlapping in the TV Guide
+- Fixed hard-to-read titles when hovering a poster in the light theme
+- Fixed profile names being cut off in a narrow window
+- Fixed movies and series without a cover showing an empty frame
+- Fixed missing episode pictures and descriptions for series from some providers
+- Fixed the Add profile window being cut off on smaller screens
+- Fixed the playlist update window still saying it was updating after an update had failed
+- Fixed some language names missing their accents, e.g. Français
 
 ### Thanks
 
 - **@h4r0n1** for finding and fixing series that would not open with some Xtream providers (#93)
+- **@andrezinhovg** for the idea and groundwork behind moving through channels, movies and series with the arrow keys
 - **@RyanBeckett** for sorting and a rotating banner in Movies and Series, cleaner episode names, a Linux setting that can make scrolling smoother, and for removing a flicker that came with it (#94, #95, #96, #98, #100, #102, #105)
 
 ## Version 3.3.0 (November 11, 2026)

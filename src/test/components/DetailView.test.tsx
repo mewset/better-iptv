@@ -28,6 +28,7 @@ vi.mock('../../lib/tauri', async (importOriginal) => ({
 import { getTmdbDetails, getTmdbSeason } from '../../lib/tauri';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { invoke } from '@tauri-apps/api/core';
+import { renderSettled } from '../renderSettled';
 
 const movie: Channel = {
   id: 9,
@@ -72,6 +73,8 @@ const unmatched: TmdbDetails = {
   genres: [],
 };
 const off: TmdbDetails = { ...unmatched, available: false };
+/** No TMDB art either, so only the provider's pictures are in play. */
+const noArt: TmdbDetails = { ...unmatched, poster_url: null, backdrop_url: null };
 
 function episode(id: string, season: number, num: number, title: string): Episode {
   return { id, episode_num: num, title, container_extension: 'mp4', season, info: {} };
@@ -261,6 +264,21 @@ describe('DetailView for a series', () => {
     return { loadSeries, onPlayEpisode, onBack };
   }
 
+  function renderSeriesIn(seriesInfo: SeriesInfo, details: TmdbDetails, channel: Channel = series) {
+    vi.mocked(getTmdbDetails).mockResolvedValue(details);
+    return render(
+      <DetailView
+        channel={channel}
+        loadSeries={vi.fn().mockResolvedValue(seriesInfo)}
+        onBack={vi.fn()}
+        onPlay={vi.fn()}
+        onPlayEpisode={vi.fn()}
+        onToggleFavorite={vi.fn()}
+        isPlaying={false}
+      />
+    );
+  }
+
   it('loads the series with the first season selected and lists its episodes', async () => {
     const { loadSeries } = renderSeries();
     expect(await screen.findByText('Pilot')).toBeInTheDocument();
@@ -386,6 +404,57 @@ describe('DetailView for a series', () => {
     await waitFor(() => expect(getTmdbSeason).toHaveBeenCalledWith(10, 1));
   });
 
+  it('an empty value from the provider counts as missing, so TMDB fills it', async () => {
+    vi.mocked(getTmdbSeason).mockResolvedValue([
+      {
+        season: 1,
+        episode: 1,
+        title: 'Pilot',
+        overview: 'Walter starts cooking.',
+        still_url: 'https://image.tmdb.org/t/p/w342/s.jpg',
+        runtime_minutes: 58,
+        air_date: '2008-01-20',
+      },
+    ]);
+    const blank: SeriesInfo = {
+      ...info,
+      episodes: {
+        ...info.episodes,
+        '1': [
+          { ...episode('11', 1, 1, 'Pilot'), info: { movie_image: '', plot: '', duration: '' } },
+        ],
+      },
+    };
+    const { container } = renderSeriesIn(blank, { ...matched, title: 'Breaking Bad' });
+    expect(await screen.findByText('Walter starts cooking.')).toBeInTheDocument();
+    expect(screen.getByText('58 min')).toBeInTheDocument();
+    expect(
+      container.querySelector('img[src="https://image.tmdb.org/t/p/w342/s.jpg"]')
+    ).not.toBeNull();
+  });
+
+  it('an empty cover address shows the placeholder, not an empty picture frame', async () => {
+    const noCover: SeriesInfo = { ...info, info: { ...info.info, cover: '' } };
+    const { container } = renderSeriesIn(noCover, noArt, { ...series, logo: undefined });
+    expect(await screen.findByText('Pilot')).toBeInTheDocument();
+    expect(container.querySelector('img')).toBeNull();
+    // The band and the poster frame.
+    expect(container.querySelectorAll('[data-bars]')).toHaveLength(2);
+  });
+
+  it('an empty cover address falls back to the picture the list showed', async () => {
+    const noCover: SeriesInfo = { ...info, info: { ...info.info, cover: '' } };
+    const { container } = renderSeriesIn(noCover, noArt);
+    expect(await screen.findByText('Pilot')).toBeInTheDocument();
+    expect(container.querySelectorAll(`img[src="${series.logo}"]`)).toHaveLength(2);
+  });
+
+  it('a series without seasons shows no season strip', async () => {
+    renderSeriesIn({ ...info, seasons: [], episodes: {} }, unmatched);
+    expect(await screen.findByText('No episodes available')).toBeInTheDocument();
+    expect(screen.queryByRole('tablist', { name: 'Seasons' })).not.toBeInTheDocument();
+  });
+
   it('shows the loader error and offers a way back', async () => {
     const { onBack } = renderSeries(vi.fn().mockRejectedValue(new Error('Series not found')));
     expect(await screen.findByText('Series not found')).toBeInTheDocument();
@@ -422,7 +491,7 @@ describe('DetailView broken art', () => {
 
   it('a broken image falls back to ColorBars', async () => {
     vi.mocked(getTmdbDetails).mockResolvedValue(off);
-    const { container } = render(
+    const { container } = await renderSettled(
       <DetailView
         channel={movie}
         onBack={vi.fn()}
@@ -436,6 +505,22 @@ describe('DetailView broken art', () => {
     const imgs = Array.from(container.querySelectorAll('img'));
     expect(imgs).toHaveLength(2);
     imgs.forEach((img) => fireEvent.error(img));
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.querySelectorAll('[data-bars]')).toHaveLength(2);
+  });
+
+  it('a title saved with an empty picture address shows the placeholder', async () => {
+    vi.mocked(getTmdbDetails).mockResolvedValue(noArt);
+    const { container } = await renderSettled(
+      <DetailView
+        channel={{ ...movie, logo: '' }}
+        onBack={vi.fn()}
+        onPlay={vi.fn()}
+        onPlayEpisode={vi.fn()}
+        onToggleFavorite={vi.fn()}
+        isPlaying={false}
+      />
+    );
     expect(container.querySelector('img')).toBeNull();
     expect(container.querySelectorAll('[data-bars]')).toHaveLength(2);
   });

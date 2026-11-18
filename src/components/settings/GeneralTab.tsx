@@ -95,7 +95,7 @@ export default function GeneralTab({
 
       {/* Playlist Request Settings */}
       <section>
-        <h3 className="mb-4 text-lg font-semibold text-text">Playlist Requests</h3>
+        <h3 className="mb-4 text-lg font-semibold text-text">Playlist requests</h3>
         <div className="space-y-4">
           <div>
             <label
