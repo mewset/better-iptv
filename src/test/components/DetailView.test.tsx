@@ -342,7 +342,8 @@ describe('DetailView for a series', () => {
     };
     const { container } = renderSeriesIn(blank, { ...matched, title: 'Breaking Bad' });
     expect(await screen.findByText('Walter starts cooking.')).toBeInTheDocument();
-    expect(screen.getByText('58 min')).toBeInTheDocument();
+    // The air date leads the line, before the length
+    expect(screen.getByText(`${airDateLabel('2008-01-20')} · 58 min`)).toBeInTheDocument();
     expect(
       container.querySelector('img[src="https://image.tmdb.org/t/p/w342/s.jpg"]')
     ).not.toBeNull();
