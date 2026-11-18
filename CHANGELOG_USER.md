@@ -16,6 +16,7 @@ A simple overview of new features and improvements.
 
 ### Improvements
 
+- Favorites are grouped into Channels, Movies and Series, with full posters for movies and series
 - Error messages now say what went wrong, e.g. when a playlist cannot be imported or a channel cannot start
 - Parental controls in Settings now open with your PIN while they are turned on
 - Deleting a profile now asks first
