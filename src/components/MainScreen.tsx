@@ -658,29 +658,40 @@ export default function MainScreen() {
       episodeId: string,
       extension: string,
       title: string,
-      remainingEpisodes?: Array<{ id: string; title: string; extension: string }>
+      remainingEpisodes?: Array<{ id: string; title: string; extension: string }>,
+      startSecs?: number
     ) => {
       if (!currentPlaylist) return;
+      // The series the episodes belong to, for watch progress
+      const seriesChannelId = detailChannel?.id;
       try {
         if (
           currentPlaylist.url &&
           currentPlaylist.xtream_username &&
           currentPlaylist.xtream_password
         ) {
-          await playEpisodeAction(episodeId, extension, title, currentPlaylist, remainingEpisodes);
+          await playEpisodeAction(
+            episodeId,
+            extension,
+            title,
+            currentPlaylist,
+            remainingEpisodes,
+            seriesChannelId,
+            startSecs
+          );
         } else {
           const ids = (
             remainingEpisodes && remainingEpisodes.length > 0
               ? remainingEpisodes.map((ep) => ep.id)
               : [episodeId]
           ).map(Number);
-          await playLocalEpisodesAction(ids, title);
+          await playLocalEpisodesAction(ids, title, startSecs);
         }
       } catch (err) {
         logger.error('Failed to play episode:', err);
       }
     },
-    [currentPlaylist, playEpisodeAction, playLocalEpisodesAction]
+    [currentPlaylist, detailChannel, playEpisodeAction, playLocalEpisodesAction]
   );
 
   // Xtream profiles fetch the series from the provider; M3U profiles read
