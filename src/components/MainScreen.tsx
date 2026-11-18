@@ -37,7 +37,12 @@ import ConfirmationModal from './modals/ConfirmationModal';
 import RefreshModal from './modals/RefreshModal';
 import TmdbMatchModal from './modals/TmdbMatchModal';
 import { cardFromDetails, homeGateOpen } from '../lib/tmdb';
-import type { Channel, SeriesInfo } from '../types';
+import type { Channel, Episode, SeriesInfo } from '../types';
+import { fetchSeriesInfo } from '../lib/seriesInfo';
+import { queueFrom } from '../lib/seriesQueue';
+import { cleanEpisodeTitle } from '../lib/episodeTitle';
+import { finaleOf, nextUp } from '../lib/watchProgress';
+import { useProgressStore } from '../stores/progress-store';
 import { logger } from '../lib/logger';
 import { reloadAfterPlaylistRefresh } from '../lib/afterPlaylistRefresh';
 import { useResponsiveGrid, getGridClasses } from '../hooks/useResponsiveGrid';
@@ -614,12 +619,62 @@ export default function MainScreen() {
 
   // Start a channel once it is allowed: play it, or open the detail view
   // when it is a series (the hook answers that instead of playing).
+  // Play on a series carries on where the series' page would: the episode
+  // left part-way (from where it was), else the next unwatched one, else the
+  // first, with the rest of the series queued behind it. Without its episodes
+  // (the provider failed) the page opens instead.
+  const playSeries = useCallback(
+    async (channel: Channel) => {
+      if (!currentPlaylist) return;
+      try {
+        const info = await fetchSeriesInfo(channel.id, currentPlaylist);
+        const progress = useProgressStore.getState();
+        progress.setFinale(channel.id, finaleOf(info));
+        const up = nextUp(info, channel.id, progress.index);
+        if (!up) {
+          openDetail(channel);
+          return;
+        }
+        const names = [channel.name, info.info.name ?? ''];
+        const titleOf = (ep: Episode) =>
+          cleanEpisodeTitle(ep.title, names) || `Episode ${ep.episode_num}`;
+        const queue = queueFrom(info, up.episode.id, titleOf);
+        const title = up.episode.title || titleOf(up.episode);
+        if (
+          currentPlaylist.url &&
+          currentPlaylist.xtream_username &&
+          currentPlaylist.xtream_password
+        ) {
+          await playEpisodeAction(
+            up.episode.id,
+            up.episode.container_extension,
+            title,
+            currentPlaylist,
+            queue,
+            channel.id,
+            up.resumeSecs
+          );
+        } else {
+          await playLocalEpisodesAction(
+            queue.map((e) => Number(e.id)),
+            title,
+            up.resumeSecs
+          );
+        }
+      } catch (err) {
+        logger.error('Failed to play series:', err);
+        openDetail(channel);
+      }
+    },
+    [currentPlaylist, openDetail, playEpisodeAction, playLocalEpisodesAction]
+  );
+
   const startChannel = useCallback(
     async (channel: Channel) => {
       const result = await playChannelAction(channel);
-      if (result?.type === 'series') openDetail(result.channel);
+      if (result?.type === 'series') await playSeries(result.channel);
     },
-    [playChannelAction, openDetail]
+    [playChannelAction, playSeries]
   );
 
   const handlePlayChannel = useCallback(
@@ -658,29 +713,40 @@ export default function MainScreen() {
       episodeId: string,
       extension: string,
       title: string,
-      remainingEpisodes?: Array<{ id: string; title: string; extension: string }>
+      remainingEpisodes?: Array<{ id: string; title: string; extension: string }>,
+      startSecs?: number
     ) => {
       if (!currentPlaylist) return;
+      // The series the episodes belong to, for watch progress
+      const seriesChannelId = detailChannel?.id;
       try {
         if (
           currentPlaylist.url &&
           currentPlaylist.xtream_username &&
           currentPlaylist.xtream_password
         ) {
-          await playEpisodeAction(episodeId, extension, title, currentPlaylist, remainingEpisodes);
+          await playEpisodeAction(
+            episodeId,
+            extension,
+            title,
+            currentPlaylist,
+            remainingEpisodes,
+            seriesChannelId,
+            startSecs
+          );
         } else {
           const ids = (
             remainingEpisodes && remainingEpisodes.length > 0
               ? remainingEpisodes.map((ep) => ep.id)
               : [episodeId]
           ).map(Number);
-          await playLocalEpisodesAction(ids, title);
+          await playLocalEpisodesAction(ids, title, startSecs);
         }
       } catch (err) {
         logger.error('Failed to play episode:', err);
       }
     },
-    [currentPlaylist, playEpisodeAction, playLocalEpisodesAction]
+    [currentPlaylist, detailChannel, playEpisodeAction, playLocalEpisodesAction]
   );
 
   // Xtream profiles fetch the series from the provider; M3U profiles read

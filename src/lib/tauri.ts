@@ -8,8 +8,9 @@ export async function checkMpvInstalled(): Promise<boolean> {
 }
 
 /** Plays a channel by id; the backend looks up its stream URL. */
-export async function playChannel(channelId: number): Promise<void> {
-  await invoke('play_channel', { channelId });
+/** Play a channel; a film can start `startSecs` in (resuming). */
+export async function playChannel(channelId: number, startSecs?: number): Promise<void> {
+  await invoke('play_channel', startSecs === undefined ? { channelId } : { channelId, startSecs });
 }
 
 export async function stopPlayback(): Promise<void> {
@@ -159,13 +160,18 @@ export async function playEpisodeWithSeason(
   serverUrl: string,
   username: string,
   password: string,
-  episodes: PlaylistEpisode[]
+  episodes: PlaylistEpisode[],
+  seriesChannelId?: number,
+  startSecs?: number
 ): Promise<void> {
   return await invoke('play_episode_with_season', {
     serverUrl,
     username,
     password,
     episodes,
+    // Left out when unknown, so older payloads stay as they were
+    ...(seriesChannelId === undefined ? {} : { seriesChannelId }),
+    ...(startSecs === undefined ? {} : { startSecs }),
   });
 }
 
@@ -175,8 +181,40 @@ export async function getLocalSeriesInfo(channelId: number): Promise<SeriesInfo>
 }
 
 /** Queue stored M3U episodes in MPV, in the order given. */
-export async function playSeriesEpisodes(episodeIds: number[]): Promise<void> {
-  return await invoke('play_series_episodes', { episodeIds });
+export async function playSeriesEpisodes(episodeIds: number[], startSecs?: number): Promise<void> {
+  return await invoke(
+    'play_series_episodes',
+    startSecs === undefined ? { episodeIds } : { episodeIds, startSecs }
+  );
+}
+
+// ========== Watch progress ==========
+
+/** Where a film or an episode was left. */
+export interface WatchProgress {
+  /** The film, or the series. */
+  channel_id: number;
+  /** The episode's id; '' for a film. */
+  episode_id: string;
+  position_secs: number;
+  duration_secs: number;
+  watched: boolean;
+  /** Seconds since the epoch. */
+  updated_at: number;
+}
+
+/** Every title with progress in a profile, most recently watched first. */
+export async function getWatchProgress(playlistId: number): Promise<WatchProgress[]> {
+  return await invoke('get_watch_progress', { playlistId });
+}
+
+/** Mark a film (no episode) or an episode watched, or forget its progress. */
+export async function setWatched(
+  channelId: number,
+  episodeId: string | null,
+  watched: boolean
+): Promise<void> {
+  await invoke('set_watched', { channelId, episodeId, watched });
 }
 
 // ========== Settings Commands ==========

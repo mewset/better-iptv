@@ -321,17 +321,17 @@ describe('MainScreen: Series hero', () => {
     usePlayerStore.getState().setChannels([olderShow, newestShow]);
   });
 
-  it('shows the hero for the newest series with an Open button', async () => {
+  it('shows the hero for the newest series with Play and More info', async () => {
     await renderSettled(<MainScreen />);
     const hero = await screen.findByRole('region', { name: 'Recently added' });
     expect(within(hero).getByRole('heading', { name: 'Newest Show' })).toBeInTheDocument();
-    expect(within(hero).getByRole('button', { name: 'Open Newest Show' })).toBeInTheDocument();
+    expect(within(hero).getByRole('button', { name: 'Play Newest Show' })).toBeInTheDocument();
   });
 
-  it("the hero's Open button opens the detail view instead of playing", async () => {
+  it("the hero's More info opens the detail view instead of playing", async () => {
     await renderSettled(<MainScreen />);
     const hero = await screen.findByRole('region', { name: 'Recently added' });
-    fireEvent.click(within(hero).getByRole('button', { name: 'Open Newest Show' }));
+    fireEvent.click(within(hero).getByRole('button', { name: 'More info about Newest Show' }));
     expect(await screen.findByRole('button', { name: 'Back' })).toBeInTheDocument();
     expect(calls('play_channel')).toHaveLength(0);
   });

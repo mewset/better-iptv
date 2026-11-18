@@ -1,4 +1,6 @@
+pub mod ipc;
 pub mod mpv;
+pub mod progress;
 
 use crate::error::AppError;
 use mpv::{MpvPlaybackOptions, MpvPlayer, PlaybackStatus};
@@ -20,6 +22,8 @@ pub struct PlaybackSettings {
     pub cache_secs: Option<u32>,
     pub start_volume: Option<u32>,
     pub user_agent: Option<String>,
+    /// Seconds into the first file to start at (resuming).
+    pub start_secs: Option<f64>,
 }
 
 impl PlaybackSettings {
@@ -35,6 +39,7 @@ impl PlaybackSettings {
             cache_secs: self.cache_secs,
             start_volume: self.start_volume,
             user_agent: self.user_agent.as_deref(),
+            start_secs: self.start_secs,
         }
     }
 }
@@ -127,6 +132,7 @@ mod tests {
             cache_secs: None,
             start_volume: None,
             user_agent: None,
+            start_secs: None,
         }
     }
 

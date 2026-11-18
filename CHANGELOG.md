@@ -7,6 +7,11 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Added
 
+- **Watch progress: resume, watched marks and next up** - The app did not know what had been watched (`watch_history` exists but nothing writes it). Now:
+  - MPV is started with `--input-ipc-server` (a socket per app process; a named pipe on Windows). While a film or episodes play, a background task asks it every 5 s for `time-pos`, `duration` and `playlist-pos` (`playback::ipc`) and saves the position per film and episode in `watch_progress` (keyed by channel and episode id, '' for a film; rows go with their channel). Before MPV is replaced or stopped from the app the position is saved once more. Less than 30 s in is not kept; past 90 % counts as watched, and so does an episode MPV moves on from
+  - Resume: `play_channel`, `play_episode_with_season` (which also takes the series' channel id) and `play_series_episodes` take `start_secs`, passed to MPV as a per-file option (`--{ --start=N url --}`) so the rest of a queue still starts at the beginning. A film picks up where it was left; the detail page says "Resume from 42:10", with "Start over" and the time left
+  - Watched marks: a toggle on a film's page and on each episode row, "Mark season watched", progress bars on posters and episode thumbnails, a mark on watched films (`get_watch_progress`, `set_watched`)
+  - A series' Play carries on: the episode left part-way ("Resume S2 E4 · 12:30"), else the first unwatched one after the last watched ("Play S2 E5"), else the first; the page opens on that season (`lib/watchProgress.ts`)
 - **Movies and Series banner rotates through featured titles** - the hero showed one title, the newest the provider added (often an old film the provider just uploaded). It now rotates through up to ten every 6 s, with dots to jump between them
   - The titles come from a new `get_featured_titles` command: the section's library titles on TMDB's trending list today (the list Home already fetches once a day, `trending_for_today`), in its order, labelled "Trending today"; then the most-voted matched titles released in the last three years, labelled "Popular" (`build_featured`, `POPULAR_YEARS_BACK`). With TMDB off or nothing matched yet it falls back to the newest additions, labelled "Recently added" as before
   - It holds still while the pointer or the focus is on it and while the window is hidden, and swaps at once with no cross-fade (see the DMA-BUF stale-frame note in #95). Changing section or filter starts again from the first title
@@ -124,6 +129,7 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Changed
 
+- **Play on a series plays it** - A series' Play (posters, and the banner) opened its page. It now plays where the series' page would carry on (#107's `nextUp`): the episode left part-way, from its position; else the next unwatched; else the first, with the rest of the series queued behind it (`lib/seriesQueue.ts`: into the next seasons, specials only when starting in them, up to 60, each titled "S2 E5 · Name"). Clicking the poster itself still opens the page, and the banner gets **More info** beside Play for that. If the provider fails to answer, the page opens instead
 - **Opt-out of the DMA-BUF workaround on Linux** - `run()` always set `WEBKIT_DISABLE_DMABUF_RENDERER=1` (the WebKitGTK 2.50+ EGL workaround), overwriting any value in the environment, and the desktop file's `Exec` forced it again with `env`, so no install could use the DMA-BUF renderer even on GPUs the bug does not affect
   - `run()` now sets `1` only when the variable is unset, and the `env` prefix is gone from `templates/better-iptv.desktop`; the default is unchanged, `WEBKIT_DISABLE_DMABUF_RENDERER=0` opts in
   - Trade-off seen on Intel iGPU + Hyprland: scrolling a bit smoother, but the play button flickers when hovering channel cards. That is why the default stays and the README calls it an opt-in with that caveat
