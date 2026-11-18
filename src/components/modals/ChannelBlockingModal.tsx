@@ -100,7 +100,7 @@ function BlockList({ onClose, channels, initialBlockedIds, onUpdate }: ChannelBl
         <div className="flex items-center justify-between border-b border-border p-6">
           <div>
             <h3 id={titleId} className="text-xl font-bold text-text">
-              Block Channels
+              Block channels
             </h3>
             <p className="mt-1 text-sm text-text-faint">
               {blockedIds.size} of {channels.length} channels blocked
@@ -138,12 +138,12 @@ function BlockList({ onClose, channels, initialBlockedIds, onUpdate }: ChannelBl
               {allFilteredBlocked ? (
                 <>
                   <Unlock className="h-4 w-4" aria-hidden="true" />
-                  <span className="text-sm">Unblock All</span>
+                  <span className="text-sm">Unblock all</span>
                 </>
               ) : (
                 <>
                   <Lock className="h-4 w-4" aria-hidden="true" />
-                  <span className="text-sm">Block All</span>
+                  <span className="text-sm">Block all</span>
                 </>
               )}
             </button>

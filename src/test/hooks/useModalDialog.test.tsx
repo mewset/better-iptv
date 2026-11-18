@@ -58,7 +58,7 @@ describe('useModalDialog, through the dialogs that use it', () => {
             isOpen={isOpen}
             onClose={close}
             onConfirm={onConfirm}
-            title="Delete Profile?"
+            title="Delete profile?"
             message="This cannot be undone."
             confirmText="Delete"
           />
@@ -67,7 +67,7 @@ describe('useModalDialog, through the dialogs that use it', () => {
     );
     const opener = openDialog();
 
-    const dialog = screen.getByRole('dialog', { name: 'Delete Profile?' });
+    const dialog = screen.getByRole('dialog', { name: 'Delete profile?' });
     // On the dialog, not on a button: Enter must not confirm by accident.
     expect(document.activeElement).toBe(dialog);
 
@@ -158,7 +158,7 @@ describe('useModalDialog, through the dialogs that use it', () => {
     );
     const onClose = vi.fn();
     render(<RefreshModal isOpen onClose={onClose} playlistId={1} playlistName="Home" />);
-    const dialog = screen.getByRole('dialog', { name: 'Refreshing Playlist' });
+    const dialog = screen.getByRole('dialog', { name: 'Refreshing playlist' });
 
     expect(fireEvent.keyDown(dialog, { key: 'Escape' })).toBe(false);
     expect(onClose).not.toHaveBeenCalled();
@@ -206,7 +206,7 @@ describe('useModalDialog, through the dialogs that use it', () => {
       </Host>
     );
     const opener = openDialog();
-    const dialog = screen.getByRole('dialog', { name: 'Block Channels' });
+    const dialog = screen.getByRole('dialog', { name: 'Block channels' });
     expect(document.activeElement).toBe(dialog);
 
     fireEvent.keyDown(screen.getByPlaceholderText('Search channels...'), { key: 'Escape' });

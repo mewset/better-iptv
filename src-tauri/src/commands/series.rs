@@ -65,6 +65,7 @@ pub async fn play_episode_with_season(
     series_domain::validate_credentials(&username, &password)?;
 
     let urls = series_domain::build_episode_urls(&server_url, &username, &password, &episodes);
+    let titles: Vec<String> = episodes.iter().map(|e| e.title.clone()).collect();
     let first_title = episodes[0].title.clone();
     let first_url = urls[0].clone();
 
@@ -74,7 +75,7 @@ pub async fn play_episode_with_season(
     })
     .await?;
 
-    playback::play_playlist(state.mpv_player.clone(), urls, settings).await?;
+    playback::play_playlist(state.mpv_player.clone(), urls, titles, settings).await?;
 
     *state.current_channel.write().await = Some(CurrentChannel {
         id: None,
@@ -130,9 +131,10 @@ pub async fn play_series_episodes(
     .await?;
 
     let urls: Vec<String> = episodes.iter().map(|e| e.url.clone()).collect();
+    let titles: Vec<String> = episodes.iter().map(|e| e.title.clone()).collect();
     let first = &episodes[0];
 
-    playback::play_playlist(state.mpv_player.clone(), urls, settings).await?;
+    playback::play_playlist(state.mpv_player.clone(), urls, titles, settings).await?;
 
     *state.current_channel.write().await = Some(CurrentChannel {
         id: None,

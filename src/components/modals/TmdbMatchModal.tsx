@@ -4,6 +4,7 @@ import { searchTmdb, setTmdbMatch, type TmdbCandidate, type TmdbDetails } from '
 import type { Channel } from '../../types';
 import { logger } from '../../lib/logger';
 import { errorText } from '../../lib/errorText';
+import { useModalDialog } from '../../hooks/useModalDialog';
 
 interface TmdbMatchModalProps {
   isOpen: boolean;
@@ -61,17 +62,13 @@ export default function TmdbMatchModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, initialQuery, channel?.id]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [isOpen, onClose]);
+  // Escape is Cancel, Tab stays inside, and closing hands the focus back to
+  // "Wrong title?" (it used to land on the page, where Enter did nothing)
+  const { dialogProps, titleId } = useModalDialog({
+    isOpen: isOpen && channel !== null,
+    onCancel: onClose,
+    busy: saving,
+  });
 
   if (!isOpen || !channel) return null;
 
@@ -92,13 +89,13 @@ export default function TmdbMatchModal({
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 backdrop-blur-sm">
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Find the right title"
-        className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg bg-surface p-6 shadow-xl"
+        {...dialogProps}
+        className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg bg-surface p-6 shadow-xl outline-none"
       >
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-xl font-bold text-text">Find the right title</h3>
+          <h3 id={titleId} className="text-xl font-bold text-text">
+            Find the right title
+          </h3>
           <button
             onClick={onClose}
             aria-label="Close"

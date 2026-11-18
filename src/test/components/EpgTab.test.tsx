@@ -81,12 +81,13 @@ describe('EpgTab', () => {
     ).toBeInTheDocument();
   });
 
-  it('says which profile the sources are for', () => {
+  it('says which profile the sources are for', async () => {
     usePlayerStore.setState({
       currentPlaylist: { id: 1, name: 'Home', url: 'http://x', auto_refresh: false },
     });
     renderTab(statusWith([epgSource()]));
     expect(screen.getByText('Used by Home')).toBeInTheDocument();
+    await settle();
   });
 
   it('shows one status line per state: ok, partial, error, never, updating', () => {
@@ -468,7 +469,7 @@ describe('EpgTab time correction', () => {
     expect(screen.queryByRole('checkbox', { name: /local time/ })).toBeNull();
   });
 
-  it('sends the local-time reading from the Advanced checkbox', () => {
+  it('sends the local-time reading from the Advanced checkbox', async () => {
     vi.useFakeTimers();
     openCorrection();
     fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
@@ -480,6 +481,9 @@ describe('EpgTab time correction', () => {
         { sourceId: 9, policy: { interpret: 'local_zone', shift_minutes: 0 } },
       ],
     ]);
+    // The command's answer lands a tick later; real timers again for that
+    vi.useRealTimers();
+    await settle();
   });
 
   describe('channel matching', () => {
@@ -523,9 +527,10 @@ describe('EpgTab time correction', () => {
       expect(line.className).not.toContain('tabular-nums');
     });
 
-    it('is not shown before the status is known', () => {
+    it('is not shown before the status is known', async () => {
       renderTab(null);
       expect(screen.queryByRole('heading', { name: 'Channel matching' })).toBeNull();
+      await settle();
     });
   });
 });
