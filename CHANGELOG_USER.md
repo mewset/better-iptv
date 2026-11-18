@@ -16,6 +16,7 @@ A simple overview of new features and improvements.
 
 ### Improvements
 
+- Redesigned Home: a rotating banner of today's pick, trending and popular titles, then rows you can scroll sideways — what's on your favourite channels now, trending, recently added, your favourites and today's genres
 - Error messages now say what went wrong, e.g. when a playlist cannot be imported or a channel cannot start
 - Parental controls in Settings now open with your PIN while they are turned on
 - Deleting a profile now asks first
