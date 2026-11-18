@@ -10,12 +10,14 @@ A simple overview of new features and improvements.
 
 - The banner in Movies and Series now rotates through trending and popular titles from your library
 - Added sorting for Movies and Series, e.g. by name, year, rating or recently added. Update your Xtream playlist once to get ratings and dates
+- Added a tile view for a series' episodes, with big thumbnails; switch between List and Tiles next to the seasons
 - Added moving through channels, movies and series with the arrow keys; press Enter to play
 - Added search that finds names whatever their accents, e.g. "tele" finds "Télé"
 - Added a button that clears the search box
 
 ### Improvements
 
+- Series episodes show when they aired, and the season tabs match the genre tabs
 - Error messages now say what went wrong, e.g. when a playlist cannot be imported or a channel cannot start
 - Parental controls in Settings now open with your PIN while they are turned on
 - Deleting a profile now asks first
