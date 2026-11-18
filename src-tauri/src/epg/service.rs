@@ -1683,6 +1683,7 @@ mod tests {
             category_order: 0,
             created_at: None,
             rating: None,
+            genres: None,
         };
         let s = add_manual(&conn, "http://epg.example/epg.xml");
         drop(conn);

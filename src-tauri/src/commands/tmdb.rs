@@ -645,6 +645,77 @@ pub fn cached_cards(
     Ok((pending, cards))
 }
 
+/// Genres per title in one section, for the genre chips: channel id ->
+/// genre names. Series use the provider's own list and fall back to TMDB;
+/// movies use TMDB only (get_vod_streams sends no genre). Titles TMDB has not
+/// matched yet are left out, so the map grows as the background scan runs.
+#[tauri::command]
+pub async fn get_title_genres(
+    state: State<'_, AppState>,
+    playlist_id: i64,
+    content_type: String,
+) -> Result<HashMap<i64, Vec<String>>, AppError> {
+    if content_type != "vod" && content_type != "series" {
+        return Err(AppError::InvalidInput(format!(
+            "No genres for content type {content_type}"
+        )));
+    }
+    with_db(&state.pool, move |conn| {
+        title_genres(conn, playlist_id, &content_type)
+    })
+    .await
+}
+
+pub fn title_genres(
+    conn: &Connection,
+    playlist_id: i64,
+    content_type: &str,
+) -> Result<HashMap<i64, Vec<String>>, AppError> {
+    let channels: Vec<Channel> = queries::get_channels(conn, Some(playlist_id))?
+        .into_iter()
+        .filter(|c| c.content_type == content_type)
+        .collect();
+    let mut out: HashMap<i64, Vec<String>> = HashMap::new();
+    for channel in &channels {
+        let Some(id) = channel.id else { continue };
+        let names = split_genres(channel.genres.as_deref());
+        if !names.is_empty() {
+            out.insert(id, names);
+        }
+    }
+    if read_key_settings(conn)?.enabled {
+        let unmatched: Vec<Channel> = channels
+            .into_iter()
+            .filter(|c| c.id.is_some_and(|id| !out.contains_key(&id)))
+            .collect();
+        for job in group_jobs(&unmatched) {
+            let Some(row) = queries::get_tmdb_row(conn, &job.key)? else {
+                continue;
+            };
+            if row.tmdb_id.is_none() {
+                continue;
+            }
+            let names = genres_of(&row);
+            if names.is_empty() {
+                continue;
+            }
+            for id in job.channel_ids {
+                out.insert(id, names.clone());
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// "Drama, Crime" -> ["Drama", "Crime"]; blanks dropped.
+fn split_genres(raw: Option<&str>) -> Vec<String> {
+    raw.unwrap_or_default()
+        .split(',')
+        .map(|g| g.trim().to_string())
+        .filter(|g| !g.is_empty())
+        .collect()
+}
+
 /// What TMDB knows about one title that the Movies and Series sorts use:
 /// the rating with its vote count for "Highest rated", the release year for
 /// "Year, newest first".
@@ -1221,6 +1292,7 @@ mod tests {
             category_order: 0,
             created_at: None,
             rating: None,
+            genres: None,
         }
     }
 
@@ -1639,6 +1711,47 @@ mod tests {
             ]
         );
         assert!(build_featured(&trending, &channels, &candidates, "series", 2026).is_empty());
+    }
+
+    #[test]
+    fn title_genres_reads_the_provider_list_and_skips_blanks() {
+        use crate::db::test_helpers::{create_test_playlist, setup_test_db};
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        let series = |name: &str, genres: Option<&str>| Channel {
+            id: None,
+            playlist_id: pid,
+            name: name.into(),
+            url: format!("http://x/{name}"),
+            logo: None,
+            group_name: Some("Drama".into()),
+            epg_id: None,
+            tvg_name: None,
+            content_type: "series".into(),
+            is_favorite: false,
+            sort_order: 0,
+            category_order: 0,
+            created_at: None,
+            rating: None,
+            genres: genres.map(Into::into),
+        };
+        mutations::create_channels_batch(
+            &conn,
+            &[
+                series("Absentia", Some("Crime, Drama, Mystery")),
+                series("Blank", Some(" , ")),
+                series("None", None),
+            ],
+        )
+        .unwrap();
+
+        let map = title_genres(&conn, pid, "series").unwrap();
+        assert_eq!(map.len(), 1, "only the series with genres: {map:?}");
+        assert_eq!(
+            map.values().next().unwrap(),
+            &vec!["Crime", "Drama", "Mystery"]
+        );
+        assert!(title_genres(&conn, pid, "vod").unwrap().is_empty());
     }
 
     #[test]

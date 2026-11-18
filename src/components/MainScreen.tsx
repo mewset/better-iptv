@@ -15,7 +15,8 @@ import {
   type TmdbDetails,
 } from '../lib/tauri';
 import { CategoryBar } from './CategoryBar';
-import { TitleSortMenu } from './TitleSortMenu';
+import { BrowseBar } from './BrowseBar';
+import { CategoryPanel } from './CategoryPanel';
 import { GuideView } from './GuideView';
 import { ChannelGridPlaceholder } from './ChannelGridPlaceholder';
 import { ChannelLoadError } from './ChannelLoadError';
@@ -118,6 +119,8 @@ export default function MainScreen() {
   const sortSection =
     contentTypeFilter === 'vod' || contentTypeFilter === 'series' ? contentTypeFilter : null;
   const titleSort = usePlayerStore((s) => (sortSection ? s.titleSorts[sortSection] : null));
+  const genreFilter = usePlayerStore((s) => s.genreFilter);
+  const fourKOnly = usePlayerStore((s) => s.fourKOnly);
   useTitleRatings();
   const setSearchQuery = usePlayerStore((s) => s.setSearchQuery);
   const setContentTypeFilter = usePlayerStore((s) => s.setContentTypeFilter);
@@ -203,6 +206,8 @@ export default function MainScreen() {
   // The section G and Escape return to when leaving the guide.
   const guideReturnRef = useRef<Exclude<Section, 'guide'>>('live');
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  // Movies / Series keep their provider categories in a side panel
+  const [categoryPanelOpen, setCategoryPanelOpen] = useState(false);
   // Which control opened the profile menu, so focus returns there on close.
   const [profileMenuFromRail, setProfileMenuFromRail] = useState(false);
   const railProfileRef = useRef<globalThis.HTMLButtonElement>(null);
@@ -534,7 +539,7 @@ export default function MainScreen() {
   // rows below, so the first render of the new list already starts at the
   // top instead of mounting rows at the old list's depth. The DOM follows
   // before paint.
-  const listKey = `${contentTypeFilter}\u0000${categoryFilter ?? ''}\u0000${trimmedQuery}\u0000${titleSort ?? ''}`;
+  const listKey = `${contentTypeFilter}\u0000${categoryFilter ?? ''}\u0000${trimmedQuery}\u0000${titleSort ?? ''}\u0000${genreFilter ?? ''}\u0000${fourKOnly}`;
   const [renderedListKey, setRenderedListKey] = useState(listKey);
   if (renderedListKey !== listKey) {
     setRenderedListKey(listKey);
@@ -1058,15 +1063,21 @@ export default function MainScreen() {
           />
         ) : (
           <>
-            <div className="flex items-start gap-3 px-10 pt-6">
-              <div className="min-w-0 flex-1">
+            <div className={sortSection ? 'px-10' : 'px-10 pt-6'}>
+              {sortSection ? (
+                <>
+                  <BrowseBar
+                    section={sortSection}
+                    onOpenCategories={() => setCategoryPanelOpen(true)}
+                    searching={!!trimmedQuery}
+                  />
+                  <CategoryPanel
+                    open={categoryPanelOpen}
+                    onClose={() => setCategoryPanelOpen(false)}
+                  />
+                </>
+              ) : (
                 <CategoryBar />
-              </div>
-              {sortSection && !trimmedQuery && (
-                // pt-3 lines it up with the chips inside the category row
-                <div className="pt-3">
-                  <TitleSortMenu section={sortSection} />
-                </div>
               )}
             </div>
 
@@ -1238,6 +1249,7 @@ export default function MainScreen() {
                                     onToggleFavorite={toggleChannelFavorite}
                                     isBlocked={isChannelBlocked}
                                     parentalVisibility={parentalVisibility}
+                                    showTypeTag={contentTypeFilter !== 'series' || !!trimmedQuery}
                                     votes={
                                       titleSort === 'rating' && !trimmedQuery
                                         ? titleRatings[sortSection ?? 'vod']?.[channel.id]?.votes ||
