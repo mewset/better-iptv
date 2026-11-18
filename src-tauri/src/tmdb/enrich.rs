@@ -15,7 +15,7 @@ use crate::tmdb::keys::{
 use crate::tmdb::session::{generation_is_stale, is_stale_job, BackgroundProgress, TmdbSession};
 use crate::tmdb::{Kind, TmdbClient, TmdbError};
 use crate::tmdb_domain::{pick_match, search_is_stale, Normalized};
-use chrono::Utc;
+use chrono::{Datelike, Utc};
 use log::{debug, info, warn};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -85,7 +85,7 @@ pub async fn search_and_store(
         }
     };
     let candidates: Vec<_> = hits.iter().map(|h| h.to_candidate()).collect();
-    let chosen = pick_match(query, &candidates).map(|c| c.id);
+    let chosen = pick_match(query, &candidates, Utc::now().year()).map(|c| c.id);
     let hit = chosen.and_then(|id| hits.iter().find(|h| h.id == id));
     let row = TmdbRow {
         key: key.clone(),

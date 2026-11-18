@@ -80,6 +80,16 @@ describe('PosterCard with TMDB data', () => {
     render(<PosterCard channel={movie} onOpen={vi.fn()} />);
     expect(screen.getByText('Drama')).toBeInTheDocument();
   });
+  it('draws the hover overlay dark with light text in both themes', () => {
+    // It sits on the artwork, not on the page: from the page colour the
+    // light theme put dark text on a pale haze over a dark poster
+    render(<PosterCard channel={movie} onOpen={vi.fn()} />);
+    const title = screen.getByText(movie.name, { selector: 'span' });
+    expect(title).toHaveClass('text-[#F2F2F0]');
+    expect(title.parentElement).toHaveClass('from-[#0F1013]/95', 'via-[#0F1013]/40');
+    expect(title.parentElement?.className).not.toMatch(/\bfrom-bg\b|\btext-text\b/);
+  });
+
   it('plays a movie from the overlay button when onPlay is given, and opens otherwise', () => {
     const onOpen = vi.fn();
     const onPlay = vi.fn();

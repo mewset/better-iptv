@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
 import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
+import { renderSettled } from '../renderSettled';
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
@@ -116,7 +117,7 @@ describe('MainScreen: switching profile with a series open', () => {
   });
 
   it('returns to browse and never loads the old series against the new profile', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
 
     // Clicking the poster opens the series' page (its button plays it).
     const play = await screen.findByRole('button', { name: 'Play The Bear' });
@@ -142,7 +143,7 @@ describe('MainScreen: switching profile with a series open', () => {
 
   it("the new profile opens on All, not on the old profile's category", async () => {
     usePlayerStore.setState({ categoryFilter: 'Drama' });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Home' }));
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Cabin' }));
@@ -162,7 +163,7 @@ describe('MainScreen: switching profile with a series open', () => {
       if (asked === 1) return new Promise<number[]>((resolve) => (answerHome = resolve));
       return [];
     });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Home' }));
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Cabin' }));
@@ -173,8 +174,8 @@ describe('MainScreen: switching profile with a series open', () => {
     expect(screen.queryByText('Playlist update available')).not.toBeInTheDocument();
   });
 
-  it('returns focus to the rail avatar when the menu it opened closes with Escape', () => {
-    render(<MainScreen />);
+  it('returns focus to the rail avatar when the menu it opened closes with Escape', async () => {
+    await renderSettled(<MainScreen />);
     const avatar = screen.getByRole('button', { name: 'Switch profile' });
 
     fireEvent.click(avatar);

@@ -70,8 +70,11 @@ export function MoviesHero({
           onError={() => setFailedArt(artUrl ?? null)}
           // Never wider than 2.4:1 at the banner's 340 px. The image fills
           // its box, so on a very wide window 55% of the banner left only a
-          // thin strip of the artwork showing.
-          className="absolute inset-y-0 right-0 w-[55%] max-w-[816px] object-cover"
+          // thin strip of the artwork showing. The height is set, not left
+          // to top and bottom: an absolutely placed image without one takes
+          // its own proportions, and in a window under about 1260 px that
+          // ended the picture above the banner's bottom edge.
+          className="absolute right-0 top-0 h-full w-[55%] max-w-[816px] object-cover"
           // The artwork's left edge fades out instead of starting on a hard
           // line where a bright backdrop meets the panel. A mask, not a
           // second gradient: it only shapes the image's own alpha.

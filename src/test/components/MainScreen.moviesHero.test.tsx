@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, within, fireEvent, waitFor } from '@testing-library/react';
+import { act, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import { newestTitles } from '../../lib/newestTitle';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
 import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
+import { renderSettled } from '../renderSettled';
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
@@ -180,16 +181,16 @@ describe('MainScreen: Movies hero', () => {
   });
 
   it('shows the hero for the newest title on the Movies section', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     expect(await screen.findByRole('region', { name: 'Recently added' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Newest Movie' })).toBeInTheDocument();
   });
 
   it('hides the hero when a search query is active', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     await screen.findByRole('region', { name: 'Recently added' });
 
-    usePlayerStore.getState().setSearchQuery('Older');
+    act(() => usePlayerStore.getState().setSearchQuery('Older'));
 
     await waitFor(() =>
       expect(screen.queryByRole('region', { name: 'Recently added' })).not.toBeInTheDocument()
@@ -197,10 +198,10 @@ describe('MainScreen: Movies hero', () => {
   });
 
   it('hides the hero when a category filter is active', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     await screen.findByRole('region', { name: 'Recently added' });
 
-    usePlayerStore.getState().setCategoryFilter('Movies');
+    act(() => usePlayerStore.getState().setCategoryFilter('Movies'));
 
     await waitFor(() =>
       expect(screen.queryByRole('region', { name: 'Recently added' })).not.toBeInTheDocument()
@@ -208,7 +209,7 @@ describe('MainScreen: Movies hero', () => {
   });
 
   it("hero's Play button plays the newest title", async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     const hero = await screen.findByRole('region', { name: 'Recently added' });
 
     fireEvent.click(within(hero).getByRole('button', { name: 'Play Newest Movie' }));
@@ -233,7 +234,7 @@ describe('MainScreen: Movies hero', () => {
     });
     usePlayerStore.getState().setChannels([older, newest, blockedNewest]);
 
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
 
     await waitFor(() => expect(usePlayerStore.getState().parentalEnabled).toBe(true));
     await waitFor(() =>
@@ -245,7 +246,7 @@ describe('MainScreen: Movies hero', () => {
   it('does not re-rank the whole section when a TMDB card arrives', async () => {
     // Every card used to re-sort the section to find the hero; the background
     // scan sends up to five a second, ~9 ms each on a 7,677-title library.
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     await screen.findByRole('region', { name: 'Recently added' });
     const ranked = vi.mocked(newestTitles).mock.calls.length;
 
@@ -258,14 +259,14 @@ describe('MainScreen: Movies hero', () => {
 
   it('shows no hero until the newest title has a TMDB match', async () => {
     setupInvoke(defaultParentalSettings(), []);
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     await waitFor(() => expect(calls('get_tmdb_cards').length).toBeGreaterThan(0));
     expect(screen.queryByRole('region', { name: 'Recently added' })).not.toBeInTheDocument();
   });
 
   it('falls back to the newest matched title when the newest has no match', async () => {
     setupInvoke(defaultParentalSettings(), [1]);
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     const hero = await screen.findByRole('region', { name: 'Recently added' });
     expect(within(hero).getByRole('heading', { name: 'Older Movie' })).toBeInTheDocument();
   });
@@ -274,7 +275,7 @@ describe('MainScreen: Movies hero', () => {
     const adult = movie(3, 'Hot Night', '2026-09-01T00:00:00Z', { group_name: 'Adult XXX' });
     setupInvoke(defaultParentalSettings(), [1, 2, 3]);
     usePlayerStore.getState().setChannels([older, newest, adult]);
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     const hero = await screen.findByRole('region', { name: 'Recently added' });
     expect(within(hero).getByRole('heading', { name: 'Newest Movie' })).toBeInTheDocument();
   });
@@ -282,7 +283,7 @@ describe('MainScreen: Movies hero', () => {
   it('asks for the newest titles right away so the hero is warm before the section opens', async () => {
     setupInvoke(defaultParentalSettings(), [1, 2]);
     usePlayerStore.setState({ contentTypeFilter: 'live' });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     await waitFor(() => expect(calls('get_tmdb_cards').length).toBeGreaterThan(0));
     const requested = calls('get_tmdb_cards').flatMap(
       (c) => (c[1] as { channelIds: number[] }).channelIds
@@ -321,14 +322,14 @@ describe('MainScreen: Series hero', () => {
   });
 
   it('shows the hero for the newest series with Play and More info', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     const hero = await screen.findByRole('region', { name: 'Recently added' });
     expect(within(hero).getByRole('heading', { name: 'Newest Show' })).toBeInTheDocument();
     expect(within(hero).getByRole('button', { name: 'Play Newest Show' })).toBeInTheDocument();
   });
 
   it("the hero's More info opens the detail view instead of playing", async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     const hero = await screen.findByRole('region', { name: 'Recently added' });
     fireEvent.click(within(hero).getByRole('button', { name: 'More info about Newest Show' }));
     expect(await screen.findByRole('button', { name: 'Back' })).toBeInTheDocument();
@@ -336,9 +337,9 @@ describe('MainScreen: Series hero', () => {
   });
 
   it('hides the hero when a search query is active', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     await screen.findByRole('region', { name: 'Recently added' });
-    usePlayerStore.getState().setSearchQuery('Older');
+    act(() => usePlayerStore.getState().setSearchQuery('Older'));
     await waitFor(() =>
       expect(screen.queryByRole('region', { name: 'Recently added' })).not.toBeInTheDocument()
     );
@@ -350,7 +351,7 @@ describe('MainScreen: Series hero', () => {
     usePlayerStore
       .getState()
       .setChannels([olderShow, newestShow, movie(2, 'Newest Movie', '2026-06-01T00:00:00Z')]);
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     expect(await screen.findByText('Movie · 2024 · ★ 7.5')).toBeInTheDocument();
     expect(screen.getByText('Series · 2024 · ★ 7.5')).toBeInTheDocument();
     expect(screen.queryByText('No guide data')).not.toBeInTheDocument();

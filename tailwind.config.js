@@ -1,3 +1,5 @@
+import plugin from 'tailwindcss/plugin';
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -51,5 +53,17 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    // Glass needs the blur behind it. Where no backdrop filter is drawn the
+    // surface turns opaque: a web view that does not know the property, and
+    // WebKitGTK with its DMA-BUF renderer off (the app's default on Linux),
+    // which knows it but draws nothing. The second cannot be asked in CSS,
+    // so the backend says it and `lib/glass` sets data-backdrop="none".
+    plugin(({ addVariant }) => {
+      addVariant('no-backdrop', [
+        '@supports not (backdrop-filter: blur(1px))',
+        ':root[data-backdrop="none"] &',
+      ]);
+    }),
+  ],
 }

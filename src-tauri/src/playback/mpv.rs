@@ -147,6 +147,9 @@ fn env_without_appdir(
     .collect()
 }
 
+/// The window title of a queue: mpv fills in the playing file's own title.
+const QUEUE_WINDOW_TITLE: &str = "${media-title}";
+
 /// MPV player controller using external process approach
 pub struct MpvPlayer {
     process: Option<Child>,
@@ -155,6 +158,7 @@ pub struct MpvPlayer {
 }
 
 /// MPV playback options
+#[derive(Clone, Copy)]
 pub struct MpvPlaybackOptions<'a> {
     pub title: Option<&'a str>,
     pub audio_lang: Option<&'a str>,
@@ -270,25 +274,6 @@ impl MpvPlayer {
         cmd.arg(format!("--input-ipc-server={}", super::ipc::socket_path()));
     }
 
-    /// The files to play, the first one starting at `start_secs` when set.
-    /// A per-file option group (`--{ ... --}`), so the rest of a queue still
-    /// starts at the beginning.
-    fn file_args(urls: &[String], start_secs: Option<f64>) -> Vec<String> {
-        let mut args = Vec::with_capacity(urls.len() + 3);
-        for (i, url) in urls.iter().enumerate() {
-            match start_secs.filter(|s| i == 0 && s.is_finite() && *s > 0.0) {
-                Some(start) => {
-                    args.push("--{".to_string());
-                    args.push(format!("--start={start:.0}"));
-                    args.push(url.clone());
-                    args.push("--}".to_string());
-                }
-                None => args.push(url.clone()),
-            }
-        }
-        args
-    }
-
     /// Log MPV command with masked credentials
     fn log_command(cmd: &Command, episode_count: Option<usize>) {
         let args: Vec<String> = cmd
@@ -331,15 +316,55 @@ impl MpvPlayer {
         // Build MPV command
         let mut cmd = mpv_command();
         Self::apply_args(&mut cmd, options);
-        cmd.args(Self::file_args(&[url.to_string()], options.start_secs));
+        cmd.args(Self::queue_args(
+            &[url.to_string()],
+            &[],
+            options.start_secs,
+        ));
 
         // Log and spawn
         Self::log_command(&cmd, None);
         self.spawn_mpv(&mut cmd)
     }
 
-    /// Play a playlist of URLs (for series episodes)
-    pub fn play_playlist(&mut self, urls: &[String], options: &MpvPlaybackOptions) -> Result<()> {
+    /// The files to play, each in a per-file option group (`--{ ... --}`)
+    /// when it has options of its own: its title (the window shows the
+    /// playing file's) and, for the first file only, where to start
+    /// (resuming), so the rest of a queue still starts at the beginning. A
+    /// file without either is the plain address, under its file name.
+    fn queue_args(urls: &[String], titles: &[String], start_secs: Option<f64>) -> Vec<String> {
+        let start = start_secs.filter(|s| s.is_finite() && *s > 0.0);
+        let mut args = Vec::with_capacity(urls.len() * 5);
+        for (i, url) in urls.iter().enumerate() {
+            let title = titles.get(i).map(|t| t.trim()).filter(|t| !t.is_empty());
+            let start = start.filter(|_| i == 0);
+            if title.is_none() && start.is_none() {
+                args.push(url.clone());
+                continue;
+            }
+            args.push("--{".to_string());
+            if let Some(title) = title {
+                args.push(format!("--force-media-title={title}"));
+            }
+            if let Some(start) = start {
+                args.push(format!("--start={start:.0}"));
+            }
+            args.push(url.clone());
+            args.push("--}".to_string());
+        }
+        args
+    }
+
+    /// Play a playlist of URLs (for series episodes). `titles` are the
+    /// episodes' names, in the order of `urls`: the window shows the one that
+    /// is playing. One `--title` for the whole queue kept the first episode's
+    /// name on the window while the later ones played.
+    pub fn play_playlist(
+        &mut self,
+        urls: &[String],
+        titles: &[String],
+        options: &MpvPlaybackOptions,
+    ) -> Result<()> {
         if urls.is_empty() {
             return Err(anyhow::anyhow!("There are no episodes to play"));
         }
@@ -353,12 +378,17 @@ impl MpvPlayer {
         // Stop any existing playback
         self.stop()?;
 
-        // Build MPV command
+        // Build MPV command. The window follows the title of the file that
+        // is playing, which `queue_args` sets for each one.
         let mut cmd = mpv_command();
-        Self::apply_args(&mut cmd, options);
+        let queue_options = MpvPlaybackOptions {
+            title: Some(QUEUE_WINDOW_TITLE),
+            ..*options
+        };
+        Self::apply_args(&mut cmd, &queue_options);
 
         // Add all URLs as arguments (MPV will play them in sequence)
-        cmd.args(Self::file_args(urls, options.start_secs));
+        cmd.args(Self::queue_args(urls, titles, options.start_secs));
 
         // Log and spawn
         Self::log_command(&cmd, Some(urls.len()));
@@ -694,17 +724,28 @@ mod tests {
     #[test]
     fn only_the_first_file_starts_at_the_resume_point() {
         let urls = vec!["http://a/1".to_string(), "http://a/2".to_string()];
+        let titles = vec!["One".to_string(), "Two".to_string()];
         assert_eq!(
-            MpvPlayer::file_args(&urls, Some(1234.4)),
-            ["--{", "--start=1234", "http://a/1", "--}", "http://a/2"]
+            MpvPlayer::queue_args(&urls, &titles, Some(1234.4)),
+            [
+                "--{",
+                "--force-media-title=One",
+                "--start=1234",
+                "http://a/1",
+                "--}",
+                "--{",
+                "--force-media-title=Two",
+                "http://a/2",
+                "--}",
+            ]
         );
         assert_eq!(
-            MpvPlayer::file_args(&urls, None),
+            MpvPlayer::queue_args(&urls, &[], Some(0.0)),
             ["http://a/1", "http://a/2"]
         );
         assert_eq!(
-            MpvPlayer::file_args(&urls, Some(0.0)),
-            ["http://a/1", "http://a/2"]
+            MpvPlayer::queue_args(&urls[..1], &[], Some(90.0)),
+            ["--{", "--start=90", "http://a/1", "--}"]
         );
     }
 
@@ -713,6 +754,37 @@ mod tests {
         assert!(args_of(&bare_options())
             .iter()
             .any(|a| a.starts_with("--input-ipc-server=")));
+    }
+
+    #[test]
+    fn every_queued_episode_carries_its_own_title() {
+        let urls = vec![
+            "http://a/1.mp4".to_string(),
+            "http://a/2.mp4".to_string(),
+            "http://a/3.mp4".to_string(),
+        ];
+        let titles = vec!["Pilot".to_string(), "  ".to_string()];
+        assert_eq!(
+            MpvPlayer::queue_args(&urls, &titles, None),
+            [
+                "--{",
+                "--force-media-title=Pilot",
+                "http://a/1.mp4",
+                "--}",
+                // No title of its own: the plain address, under its file name
+                "http://a/2.mp4",
+                "http://a/3.mp4",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_queue_shows_the_title_of_the_file_that_is_playing() {
+        let queue = MpvPlaybackOptions {
+            title: Some(QUEUE_WINDOW_TITLE),
+            ..bare_options()
+        };
+        assert!(args_of(&queue).contains(&"--title=${media-title}".to_string()));
     }
 
     #[test]
