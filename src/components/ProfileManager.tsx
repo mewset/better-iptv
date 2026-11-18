@@ -5,6 +5,7 @@ import { deletePlaylist, getPlaylistChannelCounts, renamePlaylist } from '../lib
 import { reloadAfterPlaylistRefresh } from '../lib/afterPlaylistRefresh';
 import { logger } from '../lib/logger';
 import { errorText } from '../lib/errorText';
+import { useModalDialog } from '../hooks/useModalDialog';
 import { useSubscriptionExpiries } from '../hooks/useSubscriptionExpiries';
 import { useProfileSwitch } from '../hooks/useProfileSwitch';
 import { formatSubscriptionExpiry } from '../lib/subscriptionExpiry';
@@ -56,9 +57,17 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
   }, [playlistIdsKey]);
 
   const [showSetupModal, setShowSetupModal] = useState(false);
+  // The Add-profile overlay follows the dialogs' one rule (useModalDialog):
+  // Escape is its Cancel, except while a playlist is being imported
+  const importing = usePlayerStore((s) => s.isLoading);
+  const setupDialog = useModalDialog({
+    isOpen: showSetupModal,
+    onCancel: () => setShowSetupModal(false),
+    busy: importing,
+  });
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
-  // The profile whose Delete waits on "Delete Profile?"; null while no one asks.
+  // The profile whose Delete waits on "Delete profile?"; null while no one asks.
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
 
@@ -106,7 +115,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
       logger.info(`Profile ID ${id} renamed to: ${editName.trim()}`);
     } catch (err) {
       logger.error('Failed to rename profile:', err);
-      setErrorTitle('Failed to Rename Profile');
+      setErrorTitle('Failed to rename profile');
       setErrorMessage(errorText(err));
       setShowErrorModal(true);
     }
@@ -146,7 +155,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
       }
     } catch (err) {
       logger.error('Failed to delete profile:', err);
-      setErrorTitle('Failed to Delete Profile');
+      setErrorTitle('Failed to delete profile');
       setErrorMessage(errorText(err));
       setShowErrorModal(true);
     }
@@ -227,7 +236,9 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
               <article
                 key={playlist.id}
                 className={cn(
-                  'flex items-center gap-5 rounded-2xl border p-5 transition-colors',
+                  // Wraps: in a narrow window the four actions took the row
+                  // and left the profile's name one letter ("Q…")
+                  'flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl border p-5 transition-colors',
                   isActive ? 'border-accent bg-text/5' : 'border-border'
                 )}
               >
@@ -245,7 +256,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
                   )}
                 </div>
 
-                <div className="min-w-0 flex-1">
+                <div className="min-w-[12rem] flex-1">
                   {isEditing ? (
                     <input
                       type="text"
@@ -361,11 +372,18 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
       {/* Setup Modal for Creating New Profile */}
       {showSetupModal && (
         <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm"
+          {...setupDialog.dialogProps}
+          className="fixed inset-0 z-[60] overflow-y-auto bg-bg/70 outline-none backdrop-blur-sm"
         >
-          <Setup onComplete={handleProfileCreated} onCancel={() => setShowSetupModal(false)} />
+          {/* Centred while it fits; a window lower than the card scrolls it
+              instead of cutting off its top. */}
+          <div className="flex min-h-full items-center justify-center p-4">
+            <Setup
+              onComplete={handleProfileCreated}
+              onCancel={() => setShowSetupModal(false)}
+              titleId={setupDialog.titleId}
+            />
+          </div>
         </div>
       )}
 
@@ -374,7 +392,7 @@ export default function ProfileManager({ onClose }: ProfileManagerProps) {
         isOpen={deleteTarget !== null}
         onClose={() => setConfirmDeleteId(null)}
         onConfirm={handleConfirmDelete}
-        title={deletingLastProfile ? 'Delete Last Profile?' : 'Delete Profile?'}
+        title={deletingLastProfile ? 'Delete last profile?' : 'Delete profile?'}
         message={
           deletingLastProfile
             ? `"${deleteTarget?.name}" is your only profile. Deleting it removes its favorites, pinned categories and guide matches, and you will be asked to add a playlist again.`

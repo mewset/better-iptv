@@ -22,6 +22,14 @@ import { ColorBars } from './ColorBars';
 import { ChannelLoadError } from './ChannelLoadError';
 
 const HALF_HOUR = 30 * 60_000;
+/**
+ * How near the present a half-hour label is hidden: the now label is about
+ * 44 px wide and centred, a half-hour label about 30 px and left-aligned.
+ * At the narrowest guide (some 6 px a minute) the two touch from about nine
+ * minutes after a half hour to four minutes before the next.
+ */
+const NOW_LABEL_COVERS_BEFORE = 9 * 60_000;
+const NOW_LABEL_COVERS_AFTER = 4 * 60_000;
 const ROW_HEIGHT = 64; // h-16
 /**
  * The strip at the track's right end that a row with a `+N` chip keeps free
@@ -297,7 +305,7 @@ function DetailPanel({
       ref={panelRef}
       aria-label="Selected programme"
       className={cn(
-        'absolute left-1/2 z-20 flex w-[min(880px,calc(100%-80px))] -translate-x-1/2 items-center gap-4 rounded-[18px] border border-border-strong bg-surface/85 p-3 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-2xl supports-[not(backdrop-filter:blur(1px))]:bg-surface',
+        'absolute left-1/2 z-20 flex w-[min(880px,calc(100%-80px))] -translate-x-1/2 items-center gap-4 rounded-[18px] border border-border-strong bg-surface/85 p-3 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-2xl no-backdrop:bg-surface',
         dockVisible ? 'bottom-[112px]' : 'bottom-6'
       )}
     >
@@ -521,6 +529,11 @@ export function GuideView({
   const nowPct =
     dayOffset === 0 && now >= win.from && now <= win.to ? ((now - win.from) / span) * 100 : null;
   const nowLabel = formatClockAt(now);
+  // A half-hour label gives way to the now label when the two would touch:
+  // the now label sits centred on its minute and covered the label of a
+  // half hour just passed, leaving "15:0" beside "15:07".
+  const underNowLabel = (at: number) =>
+    nowPct !== null && at > now - NOW_LABEL_COVERS_BEFORE && at < now + NOW_LABEL_COVERS_AFTER;
 
   if (hasNoEnabledSource(status)) {
     return (
@@ -605,15 +618,18 @@ export function GuideView({
           <>
             <div className="sticky top-0 z-10 bg-bg pb-2">
               <div className="relative ml-[200px] h-6">
-                {ticks.map((tick) => (
-                  <span
-                    key={tick.at}
-                    className="absolute top-1 text-xs text-text-faint"
-                    style={{ left: `${tick.pct}%` }}
-                  >
-                    {tick.label}
-                  </span>
-                ))}
+                {ticks.map(
+                  (tick) =>
+                    !underNowLabel(tick.at) && (
+                      <span
+                        key={tick.at}
+                        className="absolute top-1 text-xs text-text-faint"
+                        style={{ left: `${tick.pct}%` }}
+                      >
+                        {tick.label}
+                      </span>
+                    )
+                )}
                 {nowPct !== null && (
                   <span
                     className="absolute top-0 -translate-x-1/2 rounded-md bg-accent px-1.5 py-0.5 text-[11px] font-bold text-on-accent"

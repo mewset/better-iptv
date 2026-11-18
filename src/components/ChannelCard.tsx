@@ -64,6 +64,11 @@ export const ChannelCard = memo(function ChannelCard({
   const kindLabel =
     channel.content_type === 'vod' ? 'Movie' : channel.content_type === 'series' ? 'Series' : null;
   const blocked = isBlocked && parentalVisibility !== 'hide';
+  // "Show blurred": the artwork itself is blurred. The overlay's
+  // backdrop-filter alone is not enough: WebKitGTK does not draw it with the
+  // DMA-BUF renderer off, which is how the app runs on Linux by default, and
+  // the picture of a blocked title then showed through, only dimmed.
+  const blurMode = blocked && parentalVisibility === 'blur';
 
   const current = epg?.now ?? null;
   const next = epg?.next ?? null;
@@ -85,7 +90,14 @@ export const ChannelCard = memo(function ChannelCard({
       }`}
     >
       {/* Logo/artwork area */}
-      <div className="relative flex h-[124px] items-center justify-center bg-surface-2">
+      {/* shrink-0: as a flex item the area gave way to the text block below
+          when its logo was a wide one, so cards in one row had their names
+          and progress lines at different heights */}
+      <div
+        className={`relative flex h-[124px] shrink-0 items-center justify-center bg-surface-2 ${
+          blurMode ? 'overflow-hidden' : ''
+        }`}
+      >
         {showLogo ? (
           <img
             src={artSrc!}
@@ -97,10 +109,10 @@ export const ChannelCard = memo(function ChannelCard({
             // click - on the logo, the largest target on the card.
             draggable={false}
             onError={() => (tmdbArt ? setTmdbArtFailed(true) : onLogoError())}
-            className="max-h-full max-w-full object-contain p-3"
+            className={`max-h-full max-w-full object-contain p-3 ${blurMode ? 'blur-xl' : ''}`}
           />
         ) : (
-          <ColorBars label={channel.name} />
+          <ColorBars label={channel.name} className={blurMode ? 'blur-xl' : ''} />
         )}
 
         {isPlaying && (
@@ -167,8 +179,10 @@ export const ChannelCard = memo(function ChannelCard({
         )}
       </div>
 
-      {/* Info block */}
-      <div className="flex flex-col gap-[5px] px-3.5 pb-3.5 pt-3">
+      {/* Info block: 82 px under the 124 px logo area (the card's 208 px
+          less its border). Three lines of text (20 + 19.5 + 16) with their
+          two gaps and the padding come to 81.5. */}
+      <div className="flex flex-col gap-[5px] px-3.5 pb-1 pt-3">
         <div className="flex items-baseline justify-between gap-2">
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">
             {channel.name}
@@ -219,7 +233,8 @@ export const ChannelCard = memo(function ChannelCard({
         // backdrop-blur on a list item is otherwise off-limits (see global
         // constraints), but the parental "blur" visibility mode is this
         // exception by definition: it is the opt-in feature this button
-        // renders, not incidental glass styling, so the blur stays.
+        // renders, not incidental glass styling, so the blur stays. It adds
+        // to the blur on the artwork above where the web view draws it.
         <button
           type="button"
           aria-label={`Unlock ${channel.name} with PIN`}
@@ -228,7 +243,7 @@ export const ChannelCard = memo(function ChannelCard({
             onPlay(channel);
           }}
           className={`absolute inset-0 flex flex-col items-center justify-center gap-2 text-text focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
-            parentalVisibility === 'blur' ? 'bg-bg/55 backdrop-blur-md' : 'bg-bg/80'
+            blurMode ? 'bg-bg/55 backdrop-blur-md' : 'bg-bg/80'
           }`}
         >
           <span aria-hidden="true" className="icon icon-lock h-7 w-7" />

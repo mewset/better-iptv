@@ -59,7 +59,7 @@ export default function ParentalTab({
     return (
       <div className="space-y-6">
         <section>
-          <h3 className="mb-4 text-lg font-semibold text-text">Parental Controls</h3>
+          <h3 className="mb-4 text-lg font-semibold text-text">Parental controls</h3>
           <p className="mb-4 text-sm text-text-muted">
             Parental controls are on. Enter the PIN to see or change them.
           </p>
@@ -78,11 +78,11 @@ export default function ParentalTab({
   return (
     <div className="space-y-6">
       <section>
-        <h3 className="mb-4 text-lg font-semibold text-text">Parental Controls</h3>
+        <h3 className="mb-4 text-lg font-semibold text-text">Parental controls</h3>
         <div className="space-y-4">
           {/* Enable toggle */}
           <ToggleRow
-            title="Enable Parental Controls"
+            title="Enable parental controls"
             description="Restrict access to channels with PIN protection"
             checked={enabled}
             onChange={onEnabledChange}
@@ -92,7 +92,7 @@ export default function ParentalTab({
             <>
               {/* PIN Setup */}
               <div>
-                <label className="mb-2 block text-sm font-medium text-text-muted">PIN Code</label>
+                <label className="mb-2 block text-sm font-medium text-text-muted">PIN code</label>
                 {hasPin ? (
                   <div className="flex gap-2">
                     <button
@@ -126,20 +126,20 @@ export default function ParentalTab({
                   {/* Manual Channel Blocking */}
                   <div>
                     <label className="mb-2 block text-sm font-medium text-text-muted">
-                      Blocked Channels
+                      Blocked channels
                     </label>
                     <button
                       onClick={onOpenChannelBlocking}
                       className="flex items-center gap-2 rounded-lg border border-border-strong px-4 py-2 hover:bg-surface-hover"
                     >
                       <Lock className="h-4 w-4" aria-hidden="true" />
-                      <span>Select Channels ({blockedCount} blocked)</span>
+                      <span>Select channels ({blockedCount} blocked)</span>
                     </button>
                   </div>
 
                   {/* Auto-detection toggle */}
                   <ToggleRow
-                    title="Auto-detect 18+ Content"
+                    title="Auto-detect 18+ content"
                     description="Automatically blocks channels with +18, XXX, Adult in name"
                     checked={autoDetect}
                     onChange={onAutoDetectChange}
@@ -151,7 +151,7 @@ export default function ParentalTab({
                       htmlFor={visibilityId}
                       className="mb-2 block text-sm font-medium text-text-muted"
                     >
-                      Visibility Mode
+                      Visibility mode
                     </label>
                     <select
                       id={visibilityId}

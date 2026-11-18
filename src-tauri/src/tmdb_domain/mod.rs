@@ -267,9 +267,20 @@ fn years_close(a: i32, b: i32) -> bool {
 /// Order: exact title (or original title) with the same year; exact title
 /// with the year off by one; exact title when the query has no year; then the
 /// first candidate above `MATCH_THRESHOLD` whose year is compatible.
-pub fn pick_match<'a>(query: &Normalized, candidates: &'a [Candidate]) -> Option<&'a Candidate> {
+///
+/// A title without a year never matches a candidate dated later than next
+/// year, the bound a year in the name has to meet too (`plausible_year`):
+/// what is in the library has been released, and TMDB lists announced films
+/// under the plain title years ahead ("Lilo & Stitch 2" was matched to a
+/// 2028 film instead of the 2005 one).
+pub fn pick_match<'a>(
+    query: &Normalized,
+    candidates: &'a [Candidate],
+    this_year: i32,
+) -> Option<&'a Candidate> {
     let q = fold(&query.title);
     let exact = |c: &Candidate| fold(&c.title) == q || fold(&c.original_title) == q;
+    let released = |c: &Candidate| c.year.is_none_or(|y| y <= this_year + 1);
 
     match query.year {
         Some(y) => {
@@ -284,7 +295,7 @@ pub fn pick_match<'a>(query: &Normalized, candidates: &'a [Candidate]) -> Option
             }
         }
         None => {
-            if let Some(c) = candidates.iter().find(|c| exact(c)) {
+            if let Some(c) = candidates.iter().find(|c| exact(c) && released(c)) {
                 return Some(c);
             }
         }
@@ -294,7 +305,7 @@ pub fn pick_match<'a>(query: &Normalized, candidates: &'a [Candidate]) -> Option
         let year_ok = match (query.year, c.year) {
             (Some(a), Some(b)) => years_close(a, b),
             (Some(_), None) => false,
-            (None, _) => true,
+            (None, _) => released(c),
         };
         year_ok
             && (similarity(&query.title, &c.title) >= MATCH_THRESHOLD
@@ -788,43 +799,69 @@ mod matching_tests {
     }
 
     #[test]
+    fn a_title_without_a_year_is_not_matched_to_a_film_that_is_not_out_yet() {
+        // TMDB lists the announced sequel under the plain title
+        let cands = vec![
+            cand(1, "Lilo & Stitch 2", "Lilo & Stitch 2", Some(2028)),
+            cand(2, "Lilo & Stitch", "Lilo & Stitch", Some(2002)),
+        ];
+        let q = normalize_title("Lilo & Stitch 2", 2026);
+        assert!(pick_match(&q, &cands, 2026).is_none());
+        // The year before it comes out it is the match, like a year in a name
+        assert_eq!(pick_match(&q, &cands, 2027).map(|c| c.id), Some(1));
+        // A candidate without a date is not held back
+        let undated = vec![cand(3, "Lilo & Stitch 2", "Lilo & Stitch 2", None)];
+        assert_eq!(pick_match(&q, &undated, 2026).map(|c| c.id), Some(3));
+    }
+
+    #[test]
+    fn a_close_title_without_a_year_skips_the_unreleased_one_too() {
+        let cands = vec![
+            cand(1, "Shutter Islands", "Shutter Islands", Some(2031)),
+            cand(2, "Shutter Island", "Shutter Island", Some(2010)),
+        ];
+        let q = normalize_title("Shuter Island", 2026);
+        assert_eq!(pick_match(&q, &cands, 2026).map(|c| c.id), Some(2));
+    }
+
+    #[test]
     fn exact_title_and_year_wins_over_an_earlier_candidate() {
         let q = normalize_title("Fullt Hus (2020)", 2026);
         let cands = [
             cand(4313, "Huset fullt", "Full House", Some(1987)),
             cand(120487, "Fullt Hus", "Fullt Hus", Some(2020)),
         ];
-        assert_eq!(pick_match(&q, &cands).map(|c| c.id), Some(120487));
+        assert_eq!(pick_match(&q, &cands, 2026).map(|c| c.id), Some(120487));
     }
 
     #[test]
     fn original_title_counts_as_exact() {
         let q = normalize_title("Full House", 2026);
         let cands = [cand(4313, "Huset fullt", "Full House", Some(1987))];
-        assert_eq!(pick_match(&q, &cands).map(|c| c.id), Some(4313));
+        assert_eq!(pick_match(&q, &cands, 2026).map(|c| c.id), Some(4313));
     }
 
     #[test]
     fn year_off_by_one_still_matches_an_exact_title() {
         let q = normalize_title("Shutter Island (2009)", 2026);
         let cands = [cand(11324, "Shutter Island", "Shutter Island", Some(2010))];
-        assert_eq!(pick_match(&q, &cands).map(|c| c.id), Some(11324));
+        assert_eq!(pick_match(&q, &cands, 2026).map(|c| c.id), Some(11324));
     }
 
     #[test]
     fn a_year_that_is_far_off_blocks_a_fuzzy_match() {
         let q = normalize_title("Shutter Island (1999)", 2026);
         let cands = [cand(11324, "Shutter Island", "Shutter Island", Some(2010))];
-        assert!(pick_match(&q, &cands).is_none());
+        assert!(pick_match(&q, &cands, 2026).is_none());
     }
 
     #[test]
     fn close_spelling_matches_and_a_different_title_does_not() {
         let q = normalize_title("Shuter Island", 2026);
         let cands = [cand(11324, "Shutter Island", "Shutter Island", Some(2010))];
-        assert_eq!(pick_match(&q, &cands).map(|c| c.id), Some(11324));
+        assert_eq!(pick_match(&q, &cands, 2026).map(|c| c.id), Some(11324));
         let q2 = normalize_title("Treasure Island", 2026);
-        assert!(pick_match(&q2, &cands).is_none());
+        assert!(pick_match(&q2, &cands, 2026).is_none());
     }
 
     #[test]

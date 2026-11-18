@@ -26,9 +26,11 @@ type ImportType = 'm3u' | 'xtream';
 interface SetupProps {
   onComplete?: (playlist: Playlist) => void; // Callback when profile created (modal mode)
   onCancel?: () => void; // Callback to cancel modal
+  /** The `id` its heading takes when it is a dialog, which is named by it. */
+  titleId?: string;
 }
 
-export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
+export default function Setup({ onComplete, onCancel, titleId }: SetupProps = {}) {
   const [importType, setImportType] = useState<ImportType>('m3u');
   const [playlistName, setPlaylistName] = useState('');
 
@@ -222,10 +224,10 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
   }
 
   const card = (
-    <div className="relative w-[560px] max-w-[calc(100%-32px)] rounded-3xl border border-border-strong bg-surface/80 p-10 backdrop-blur-2xl">
+    <div className="relative w-[560px] max-w-[calc(100%-32px)] rounded-3xl border border-border-strong bg-surface/80 p-10 backdrop-blur-2xl no-backdrop:bg-surface">
       {/* Modal mode loading overlay */}
       {isLoading && onCancel && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-3xl bg-surface/80 backdrop-blur-sm">
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-3xl bg-surface/80 backdrop-blur-sm no-backdrop:bg-surface">
           <div className="text-center">
             <div className="mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4 border-accent border-t-transparent"></div>
             <p className="font-medium text-text-muted">Importing playlist...</p>
@@ -256,7 +258,7 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
         className="mb-4 h-[52px] w-[52px] rounded-[14px]"
       />
 
-      <h1 className="font-display text-[34px] font-bold text-text">
+      <h1 id={titleId} className="font-display text-[34px] font-bold text-text">
         {onCancel ? 'Add a profile' : 'Add your first playlist'}
       </h1>
       <p className="mt-2 text-sm text-text-muted">
@@ -304,14 +306,14 @@ export default function Setup({ onComplete, onCancel }: SetupProps = {}) {
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         <div>
           <label htmlFor="name" className="mb-1.5 block text-[13px] font-semibold text-text-muted">
-            Playlist Name
+            Playlist name
           </label>
           <input
             id="name"
             type="text"
             value={playlistName}
             onChange={(e) => setPlaylistName(e.target.value)}
-            placeholder="My IPTV Playlist"
+            placeholder="My IPTV playlist"
             className="h-11 w-full rounded-xl border border-border-strong bg-text/5 px-3.5 text-text focus:border-transparent focus:outline-none focus:ring-2 focus:ring-accent"
           />
         </div>

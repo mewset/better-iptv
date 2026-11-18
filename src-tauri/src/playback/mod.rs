@@ -103,12 +103,14 @@ pub async fn play_episodes(
         Ok(args) => {
             settings.extra_args.extend(args);
             settings.start_secs = None;
+            // The window follows the playing entry's title, as a plain queue does
+            settings.title = Some(mpv::QUEUE_WINDOW_TITLE.to_string());
             play_prepared(player, settings).await
         }
         Err(e) => {
-            log::warn!("Episode titles are off for this start: {e:#}");
-            let urls = entries.into_iter().map(|(_, url)| url).collect();
-            play_playlist(player, urls, settings).await
+            log::warn!("The episode playlist could not be written, a plain queue plays: {e:#}");
+            let (titles, urls) = entries.into_iter().unzip();
+            play_playlist(player, urls, titles, settings).await
         }
     }
 }
@@ -128,15 +130,16 @@ pub async fn play_stream(
     .await?
 }
 
-/// Spawn MPV with a queue of URLs (series episodes).
+/// Spawn MPV with a queue of URLs (series episodes) and the title of each.
 pub async fn play_playlist(
     player: SharedPlayer,
     urls: Vec<String>,
+    titles: Vec<String>,
     settings: PlaybackSettings,
 ) -> Result<(), AppError> {
     tokio::task::spawn_blocking(move || {
         let mut mpv = lock_player(&player)?;
-        mpv.play_playlist(&urls, &settings.as_options())
+        mpv.play_playlist(&urls, &titles, &settings.as_options())
             .map_err(mpv_failure)
     })
     .await?
@@ -273,7 +276,9 @@ mod tests {
             NOT_A_STREAM.to_string(),
         ];
 
-        let err = play_playlist(player(), urls, settings()).await.unwrap_err();
+        let err = play_playlist(player(), urls, Vec::new(), settings())
+            .await
+            .unwrap_err();
 
         assert_eq!(
             details(err),
