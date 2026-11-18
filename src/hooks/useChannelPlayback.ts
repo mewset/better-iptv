@@ -5,6 +5,7 @@ import {
   getPlaybackStatus,
   playEpisodeWithSeason,
   playSeriesEpisodes,
+  playerPaused,
   type PlaybackStatus,
   type PlaylistEpisode,
 } from '../lib/tauri';
@@ -12,6 +13,9 @@ import { logger } from '../lib/logger';
 import { errorText } from '../lib/errorText';
 import { beginPlaybackStart, endPlaybackStart } from '../lib/playGuard';
 import type { Channel, Playlist } from '../types';
+import { useProgressStore } from '../stores/progress-store';
+import { useNowPlayingStore, type QueuedTitle } from '../stores/now-playing-store';
+import { progressKey, resumeSecs } from '../lib/watchProgress';
 
 /**
  * Hook result for channel playback
@@ -31,10 +35,18 @@ interface UseChannelPlaybackResult {
     extension: string,
     title: string,
     playlist: Playlist,
-    remainingEpisodes?: PlaylistEpisode[]
+    remainingEpisodes?: PlaylistEpisode[],
+    seriesChannelId?: number,
+    startSecs?: number
   ) => Promise<void>;
   /** Play stored M3U episodes by database id, in the order given */
-  playLocalEpisodes: (episodeIds: number[], title: string) => Promise<void>;
+  playLocalEpisodes: (
+    episodeIds: number[],
+    title: string,
+    startSecs?: number,
+    seriesChannelId?: number,
+    queue?: QueuedTitle[]
+  ) => Promise<void>;
 }
 
 /** Why mpv exited by itself, after "Couldn't play X." in the toast. */
@@ -51,6 +63,17 @@ const FAILURE_TEXT: Record<NonNullable<PlaybackStatus['failure']>, string> = {
  * is playing, and an episode has no row in `channels` (its id belongs to the
  * provider or to series_episodes), so it gets a virtual channel.
  */
+/** The bar's record of episodes playing: their series and the queue. */
+function recordEpisodes(seriesChannelId: number | undefined, queue: QueuedTitle[] | undefined) {
+  const series =
+    seriesChannelId === undefined
+      ? undefined
+      : usePlayerStore.getState().channels.find((c) => c.id === seriesChannelId);
+  useNowPlayingStore
+    .getState()
+    .setInfo(series ? { kind: 'episode', channel: series, queue: queue ?? [] } : null);
+}
+
 function episodeChannel(title: string): Channel {
   return { id: -1, name: title, content_type: 'series', is_favorite: false };
 }
@@ -90,6 +113,13 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
             showToast(`Couldn't play ${name}. ${FAILURE_TEXT[status.failure]}`);
           }
           playbackEnded();
+          useNowPlayingStore.getState().setInfo(null);
+        } else {
+          // The bar shows play or pause as the player has it (also paused in MPV itself)
+          const paused = await playerPaused().catch(() => null);
+          if (paused !== null && paused !== useNowPlayingStore.getState().paused) {
+            useNowPlayingStore.getState().setPaused(paused);
+          }
         }
       } catch (err) {
         logger.error('Failed to check playback status:', err);
@@ -98,6 +128,18 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
 
     return () => clearInterval(interval);
   }, [isPlaying, playbackEnded, showToast]);
+
+  // Watch progress: the backend saves it every few seconds while a film or
+  // episode plays; reload it then, when playback starts or stops, and on a
+  // profile switch.
+  const playlistId = usePlayerStore((s) => s.currentPlaylist?.id ?? null);
+  const loadProgress = useProgressStore((s) => s.load);
+  useEffect(() => {
+    void loadProgress(playlistId);
+    if (!isPlaying || playlistId === null) return;
+    const interval = setInterval(() => void loadProgress(playlistId), 15_000);
+    return () => clearInterval(interval);
+  }, [isPlaying, playlistId, loadProgress]);
 
   // Play a channel
   const play = useCallback(
@@ -115,8 +157,16 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
 
       if (!beginPlaybackStart()) return;
       try {
-        await tauriPlayChannel(channel.id);
+        // A film picks up where it was left ("Start over" forgets that first)
+        const start =
+          channel.content_type === 'vod'
+            ? resumeSecs(useProgressStore.getState().index.byKey.get(progressKey(channel.id)))
+            : undefined;
+        await tauriPlayChannel(channel.id, start);
         setCurrentChannel(channel);
+        useNowPlayingStore
+          .getState()
+          .setInfo({ kind: channel.content_type === 'live' ? 'live' : 'film', channel });
         setIsPlaying(true);
       } catch (err) {
         logger.error('Failed to play channel:', err);
@@ -136,7 +186,9 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
       extension: string,
       title: string,
       playlist: Playlist,
-      remainingEpisodes?: PlaylistEpisode[]
+      remainingEpisodes?: PlaylistEpisode[],
+      seriesChannelId?: number,
+      startSecs?: number
     ) => {
       if (!playlist.url || !playlist.xtream_username || !playlist.xtream_password) {
         logger.error('Missing Xtream credentials');
@@ -152,9 +204,12 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
           playlist.url,
           playlist.xtream_username,
           playlist.xtream_password,
-          season ? remainingEpisodes : [{ id: episodeId, title, extension }]
+          season ? remainingEpisodes : [{ id: episodeId, title, extension }],
+          seriesChannelId,
+          startSecs
         );
         setCurrentChannel(episodeChannel(title));
+        recordEpisodes(seriesChannelId, season ? remainingEpisodes : [{ id: episodeId, title }]);
         setIsPlaying(true);
       } catch (err) {
         logger.error('Failed to play episode:', err);
@@ -169,11 +224,18 @@ export function useChannelPlayback(): UseChannelPlaybackResult {
 
   // Play stored M3U episodes (grouped at import) by database id
   const playLocalEpisodes = useCallback(
-    async (episodeIds: number[], title: string) => {
+    async (
+      episodeIds: number[],
+      title: string,
+      startSecs?: number,
+      seriesChannelId?: number,
+      queue?: QueuedTitle[]
+    ) => {
       if (!beginPlaybackStart()) return;
       try {
-        await playSeriesEpisodes(episodeIds);
+        await playSeriesEpisodes(episodeIds, startSecs);
         setCurrentChannel(episodeChannel(title));
+        recordEpisodes(seriesChannelId, queue);
         setIsPlaying(true);
       } catch (err) {
         logger.error('Failed to play local episodes:', err);

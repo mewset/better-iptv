@@ -1,29 +1,48 @@
-import { memo } from 'react';
-import { Square } from 'lucide-react';
+import { memo, useState } from 'react';
+import { Pause, Play, X } from 'lucide-react';
 import { useChannelLogo } from '../hooks/useChannelLogo';
 import type { Channel } from '../types';
 import type { NowNext } from '../lib/epgIpc';
 import { formatClock, progressPercent, minutesLeft, shownNowNext } from '../lib/epgTime';
 import { ColorBars } from './ColorBars';
+import { usePlayerStore } from '../stores/player-store';
+import { useProgressStore } from '../stores/progress-store';
+import { useNowPlayingStore } from '../stores/now-playing-store';
+import { progressFraction, progressKey } from '../lib/watchProgress';
+import { playerSetPaused, showPlayer } from '../lib/tauri';
+import { logger } from '../lib/logger';
 
 interface NowPlayingBarProps {
-  /** Currently playing channel */
+  /** What the player plays (for episodes, a stand-in with the episode's title) */
   channel: Channel;
-  /** Now and next on this channel, the same entry its card shows */
+  /** Now and next on a live channel, the same entry its card shows */
   epg?: NowNext;
   /** The current time (epoch ms); `useNow` */
   now: number;
-  /** Callback when stop button is clicked */
+  /** Ends playback and closes the player (the ✕) */
   onStop: () => void;
 }
 
+/** "S1 E2 · Name" (how episodes are queued) → ["S1 E2", "Name"] */
+function splitEpisode(title: string): [string | null, string] {
+  const m = /^(S\d+ E\d+) · (.*)$/.exec(title);
+  return m ? [m[1], m[2]] : [null, title];
+}
+
 /**
- * Floating now-playing dock.
+ * The now-playing dock: artwork, what plays, a progress bar and play/pause.
+ * The same structure for every kind, so play/pause and the bar never move:
  *
- * A pill fixed to the bottom of the viewport: a 52px logo tile, a middle
- * column with the channel name, the current programme, a time range with
- * minutes-left and a progress bar (only for the parts EPG data actually
- * supplies), and a stop button on the right.
+ *   [poster]  The Chosen · S1 E1                              [⏯]  ✕
+ *             I Have Called You by Name
+ *             ━━━━━━━━━━━━━━━━━━━━━━━──────────── 46 min left
+ *
+ * A live channel has a wider logo tile, "LIVE · Channel", the programme on
+ * now with "Next · 19:30 Title" at the line's end, and its progress through
+ * the programme; without guide data, a quiet line instead of the bar. The
+ * whole dock brings the player window to the front; the ✕ ends playback.
+ * No transitions (see ChannelCard), and no backdrop blur: blurring the
+ * scrolling grid behind it on every frame is costly in WebKitGTK.
  */
 export const NowPlayingBar = memo(function NowPlayingBar({
   channel,
@@ -31,91 +50,198 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   now,
   onStop,
 }: NowPlayingBarProps) {
-  // The dock stays mounted while any channel plays; the hook resets its
-  // failure state when the channel or its logo changes.
-  const { src: logoSrc, onError: onLogoError } = useChannelLogo(channel);
+  const info = useNowPlayingStore((s) => s.info);
+  const paused = useNowPlayingStore((s) => s.paused);
+  const setPaused = useNowPlayingStore((s) => s.setPaused);
+  const progress = useProgressStore((s) => s.index);
+  const tmdbCards = usePlayerStore((s) => s.tmdbCards);
 
-  // An entry that no longer describes the present (its programme ended, or
-  // an off-air entry's next programme began) is not shown while the
-  // refetch, asked for just after that boundary, is on its way.
-  const epg = shownNowNext(cachedEpg, now);
+  const kind = info?.kind ?? (channel.content_type === 'live' ? 'live' : 'film');
+  const owner = info?.channel ?? channel;
+  const live = kind === 'live';
+  const card = tmdbCards.get(owner.id);
+  const { src: logoSrc, onError: onLogoError } = useChannelLogo(owner);
+  const [posterFailed, setPosterFailed] = useState<string | null>(null);
+  const poster = card?.poster_url && card.poster_url !== posterFailed ? card.poster_url : null;
+  const art = live ? logoSrc : (poster ?? logoSrc);
 
-  const current = epg?.now ?? null;
-  const programme = current?.title ?? null;
-  // Between broadcasts: nothing on now, but the guide knows what comes next.
-  const offAir = !current && Boolean(epg?.next);
-  const next = epg?.next?.title ?? null;
+  // What the lines say, and how far it is
+  let eyebrow: string;
+  let title: string;
+  let detail: string | null = null;
+  let fraction: number | null = null;
+  let left: string | null = null;
+  let next: { time: string; title: string } | null = null;
+  let noGuide = false;
 
-  const startTime = current ? formatClock(current.start) : '';
-  const endTime = current ? formatClock(current.stop) : '';
-  const hasRange = Boolean(startTime && endTime);
-  const pct = current ? progressPercent(current.start, current.stop, now) : null;
-  const minsLeft = current ? minutesLeft(current.stop, now) : null;
-  const nextTime = epg?.next ? formatClock(epg.next.start) : '';
+  if (live) {
+    const epg = shownNowNext(cachedEpg, now);
+    const current = epg?.now ?? null;
+    eyebrow = owner.name;
+    title = current?.title ?? (epg?.next ? 'Off air' : owner.name);
+    if (current) {
+      const pct = progressPercent(current.start, current.stop, now);
+      fraction = pct === null ? null : pct / 100;
+      const mins = minutesLeft(current.stop, now);
+      left = mins === null ? null : `${mins} min left`;
+    }
+    if (epg?.next) next = { time: formatClock(epg.next.start), title: epg.next.title };
+    noGuide = !current && !epg?.next;
+  } else if (kind === 'episode' && info?.queue) {
+    // The episode playing is the series' latest progress entry, once the
+    // player has saved one; before that, the first in the queue
+    const latest = progress.latestByChannel.get(owner.id);
+    const playing = info.queue.find((q) => q.id === latest?.episode_id) ?? info.queue[0] ?? null;
+    const [se, name] = splitEpisode(playing?.title ?? channel.name);
+    eyebrow = se ? `${owner.name} · ${se}` : owner.name;
+    title = name;
+    const entry = playing ? progress.byKey.get(progressKey(owner.id, playing.id)) : undefined;
+    if (entry && entry.duration_secs > 0) {
+      fraction = progressFraction(entry);
+      left = `${Math.max(1, Math.round((entry.duration_secs - entry.position_secs) / 60))} min left`;
+    }
+  } else {
+    eyebrow = 'Film';
+    title = card?.title || owner.name;
+    detail = [card?.year, card?.genres?.[0]].filter(Boolean).join(' · ') || null;
+    const entry = progress.byKey.get(progressKey(owner.id));
+    if (entry && entry.duration_secs > 0) {
+      fraction = progressFraction(entry);
+      left = `${Math.max(1, Math.round((entry.duration_secs - entry.position_secs) / 60))} min left`;
+    }
+  }
+
+  const togglePause = () => {
+    const want = !paused;
+    setPaused(want);
+    playerSetPaused(want).catch((err) => {
+      logger.warn('Could not pause the player:', err);
+      setPaused(!want);
+    });
+  };
+  const bringPlayer = () => {
+    showPlayer().catch((err) => logger.warn('Could not show the player:', err));
+  };
 
   return (
     <aside
       aria-label="Now playing"
-      className="absolute bottom-6 left-1/2 flex h-[76px] w-[min(880px,calc(100%-80px))] -translate-x-1/2 items-center gap-4 rounded-[18px] border border-border-strong bg-surface/85 px-3 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-2xl no-backdrop:bg-surface"
+      className="absolute bottom-6 left-1/2 w-[min(820px,calc(100%-80px))] -translate-x-1/2"
     >
-      <div className="relative h-[52px] w-[52px] shrink-0 overflow-hidden rounded-xl bg-surface-2">
-        {logoSrc ? (
-          <img
-            src={logoSrc}
-            alt={channel.name}
-            loading="lazy"
-            decoding="async"
-            draggable={false}
-            onError={onLogoError}
-            className="h-full w-full object-contain p-1"
-          />
-        ) : (
-          <ColorBars label={channel.name} />
-        )}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-1.5">
-          <span className="max-w-[40%] shrink-0 truncate text-sm font-semibold text-text">
-            {channel.name}
-          </span>
-          {offAir && (
-            <span className="min-w-0 flex-1 truncate text-sm text-text-muted">Off air</span>
-          )}
-          {programme && (
-            <span className="min-w-0 flex-1 truncate text-sm text-text-muted">{programme}</span>
-          )}
-          {(hasRange || minsLeft !== null) && (
-            <span data-time-range className="shrink-0 whitespace-nowrap text-xs text-text-muted">
-              {hasRange && `${startTime}–${endTime}`}
-              {minsLeft !== null && ` · ${minsLeft} min left`}
-            </span>
+      <div
+        role="button"
+        tabIndex={0}
+        title="Show player"
+        aria-label={`Show player: ${title}`}
+        onClick={bringPlayer}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            bringPlayer();
+          }
+        }}
+        className="relative flex h-[92px] cursor-pointer items-center gap-4 rounded-[18px] border border-border-strong bg-surface py-0 pl-3 pr-11 shadow-[0_20px_50px_rgba(0,0,0,.5)] hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        {/* Artwork: a 2:3 poster, or a wider tile for a channel's logo */}
+        <div
+          className={`relative shrink-0 overflow-hidden rounded-md bg-surface-2 ${
+            live ? 'h-[66px] w-[100px] border border-border-strong' : 'h-[66px] w-[44px]'
+          }`}
+        >
+          {art ? (
+            <img
+              src={art}
+              alt=""
+              draggable={false}
+              onError={() => (art === poster ? setPosterFailed(poster) : onLogoError())}
+              className={`h-full w-full ${live ? 'object-contain p-2' : 'object-cover'}`}
+            />
+          ) : (
+            <ColorBars label={owner.name} />
           )}
         </div>
-        {(pct !== null || next) && (
-          <div className="mt-1.5 flex items-center gap-3">
-            {pct !== null && (
-              <div data-progress className="h-1 w-[360px] max-w-full rounded-full bg-text/10">
-                <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
-              </div>
-            )}
+
+        <div className="grid min-w-0 flex-1 gap-0.5">
+          <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[12.5px] text-text-muted">
+            {paused && <Tag>PAUSED</Tag>}
+            {live && <Tag>LIVE</Tag>}
+            <span className="min-w-0 truncate">{eyebrow}</span>
+            {detail && <span className="min-w-0 truncate text-text-faint">· {detail}</span>}
+          </div>
+          {/* The title; for live, what is next at the line's end, over the bar's end */}
+          <div className="flex min-w-0 items-baseline gap-4 pr-[100px]">
+            <span className="min-w-0 truncate font-display text-[17px] font-semibold leading-snug text-text">
+              {title}
+            </span>
             {next && (
-              <p className="truncate text-xs text-text-muted">
-                Next{nextTime && ` · ${nextTime}`} {next}
-              </p>
+              <span className="ml-auto min-w-0 shrink truncate text-[12.5px] text-text-muted">
+                Next · <b className="font-semibold text-text">{next.time}</b> {next.title}
+              </span>
             )}
           </div>
-        )}
-      </div>
+          {noGuide ? (
+            <p className="mt-0.5 min-h-[18px] text-[12.5px] text-text-faint">
+              No guide for this channel
+            </p>
+          ) : (
+            <div className="mt-1 flex items-center gap-3">
+              <div
+                role="progressbar"
+                aria-label="Progress"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={fraction === null ? undefined : Math.round(fraction * 100)}
+                className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-text/10"
+              >
+                {fraction !== null && (
+                  <div
+                    className="h-full rounded-full bg-accent"
+                    style={{ width: `${fraction * 100}%` }}
+                  />
+                )}
+              </div>
+              <span className="w-[88px] shrink-0 text-xs text-text-muted">{left ?? ''}</span>
+            </div>
+          )}
+        </div>
 
-      <button
-        type="button"
-        aria-label="Stop playback"
-        onClick={onStop}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent text-on-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      >
-        <Square className="h-4 w-4 fill-current" aria-hidden="true" />
-      </button>
+        <button
+          type="button"
+          aria-label={paused ? 'Play' : 'Pause'}
+          onClick={(e) => {
+            e.stopPropagation();
+            togglePause();
+          }}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent text-on-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+        >
+          {paused ? (
+            <Play className="h-[19px] w-[19px] fill-current" aria-hidden="true" />
+          ) : (
+            <Pause className="h-[19px] w-[19px] fill-current" aria-hidden="true" />
+          )}
+        </button>
+
+        <button
+          type="button"
+          aria-label="Stop playback"
+          title="Close the player"
+          onClick={(e) => {
+            e.stopPropagation();
+            onStop();
+          }}
+          className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md text-text-faint hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
     </aside>
   );
 });
+
+function Tag({ children }: { children: string }) {
+  return (
+    <span className="shrink-0 rounded border border-border-strong bg-text/5 px-1.5 text-[10px] font-bold leading-4 tracking-[0.08em] text-text">
+      {children}
+    </span>
+  );
+}
