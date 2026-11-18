@@ -70,8 +70,11 @@ export function MoviesHero({
           onError={() => setFailedArt(artUrl ?? null)}
           // Never wider than 2.4:1 at the banner's 340 px. The image fills
           // its box, so on a very wide window 55% of the banner left only a
-          // thin strip of the artwork showing.
-          className="absolute inset-y-0 right-0 w-[55%] max-w-[816px] object-cover"
+          // thin strip of the artwork showing. The height is set, not left
+          // to top and bottom: an absolutely placed image without one takes
+          // its own proportions, and in a window under about 1260 px that
+          // ended the picture above the banner's bottom edge.
+          className="absolute right-0 top-0 h-full w-[55%] max-w-[816px] object-cover"
           // The artwork's left edge fades out instead of starting on a hard
           // line where a bright backdrop meets the panel. A mask, not a
           // second gradient: it only shapes the image's own alpha.
@@ -84,10 +87,14 @@ export function MoviesHero({
       )}
 
       {/* The one allowed gradient (see global constraints): a left-to-right
-          scrim so the text column reads over any artwork behind it. */}
+          scrim so the text column reads over any artwork behind it. In the
+          panel's own colour: from the page colour, the empty left half was a
+          gradient between two shades a dozen steps apart, which shows as
+          wide vertical bands. Now that half is flat, and over the artwork
+          the image's texture hides the steps. */}
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-gradient-to-r from-bg via-bg/60 to-transparent"
+        className="absolute inset-0 bg-gradient-to-r from-surface-2 via-surface-2/60 to-transparent"
       />
 
       <div className="relative flex h-full max-w-[640px] flex-col justify-center gap-3 px-10">

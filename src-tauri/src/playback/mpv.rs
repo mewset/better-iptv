@@ -147,6 +147,9 @@ fn env_without_appdir(
     .collect()
 }
 
+/// The window title of a queue: mpv fills in the playing file's own title.
+const QUEUE_WINDOW_TITLE: &str = "${media-title}";
+
 /// MPV player controller using external process approach
 pub struct MpvPlayer {
     process: Option<Child>,
@@ -155,6 +158,7 @@ pub struct MpvPlayer {
 }
 
 /// MPV playback options
+#[derive(Clone, Copy)]
 pub struct MpvPlaybackOptions<'a> {
     pub title: Option<&'a str>,
     pub audio_lang: Option<&'a str>,
@@ -314,8 +318,35 @@ impl MpvPlayer {
         self.spawn_mpv(&mut cmd)
     }
 
-    /// Play a playlist of URLs (for series episodes)
-    pub fn play_playlist(&mut self, urls: &[String], options: &MpvPlaybackOptions) -> Result<()> {
+    /// The files of a queue, each with its own title. A per-file option
+    /// group (`--{ ... --}`), so a title applies to its episode alone; an
+    /// episode without one is shown under its file name.
+    fn queue_args(urls: &[String], titles: &[String]) -> Vec<String> {
+        let mut args = Vec::with_capacity(urls.len() * 4);
+        for (i, url) in urls.iter().enumerate() {
+            match titles.get(i).map(|t| t.trim()).filter(|t| !t.is_empty()) {
+                Some(title) => {
+                    args.push("--{".to_string());
+                    args.push(format!("--force-media-title={title}"));
+                    args.push(url.clone());
+                    args.push("--}".to_string());
+                }
+                None => args.push(url.clone()),
+            }
+        }
+        args
+    }
+
+    /// Play a playlist of URLs (for series episodes). `titles` are the
+    /// episodes' names, in the order of `urls`: the window shows the one that
+    /// is playing. One `--title` for the whole queue kept the first episode's
+    /// name on the window while the later ones played.
+    pub fn play_playlist(
+        &mut self,
+        urls: &[String],
+        titles: &[String],
+        options: &MpvPlaybackOptions,
+    ) -> Result<()> {
         if urls.is_empty() {
             return Err(anyhow::anyhow!("There are no episodes to play"));
         }
@@ -329,14 +360,17 @@ impl MpvPlayer {
         // Stop any existing playback
         self.stop()?;
 
-        // Build MPV command
+        // Build MPV command. The window follows the title of the file that
+        // is playing, which `queue_args` sets for each one.
         let mut cmd = mpv_command();
-        Self::apply_args(&mut cmd, options);
+        let queue_options = MpvPlaybackOptions {
+            title: Some(QUEUE_WINDOW_TITLE),
+            ..*options
+        };
+        Self::apply_args(&mut cmd, &queue_options);
 
         // Add all URLs as arguments (MPV will play them in sequence)
-        for url in urls {
-            cmd.arg(url);
-        }
+        cmd.args(Self::queue_args(urls, titles));
 
         // Log and spawn
         Self::log_command(&cmd, Some(urls.len()));
@@ -666,6 +700,37 @@ mod tests {
             ..bare_options()
         };
         assert!(args_of(&options).contains(&"--user-agent=VLC/3.0.20 LibVLC/3.0.20".to_string()));
+    }
+
+    #[test]
+    fn every_queued_episode_carries_its_own_title() {
+        let urls = vec![
+            "http://a/1.mp4".to_string(),
+            "http://a/2.mp4".to_string(),
+            "http://a/3.mp4".to_string(),
+        ];
+        let titles = vec!["Pilot".to_string(), "  ".to_string()];
+        assert_eq!(
+            MpvPlayer::queue_args(&urls, &titles),
+            [
+                "--{",
+                "--force-media-title=Pilot",
+                "http://a/1.mp4",
+                "--}",
+                // No title of its own: the plain address, under its file name
+                "http://a/2.mp4",
+                "http://a/3.mp4",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_queue_shows_the_title_of_the_file_that_is_playing() {
+        let queue = MpvPlaybackOptions {
+            title: Some(QUEUE_WINDOW_TITLE),
+            ..bare_options()
+        };
+        assert!(args_of(&queue).contains(&"--title=${media-title}".to_string()));
     }
 
     #[test]

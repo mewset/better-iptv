@@ -330,6 +330,17 @@ export async function getFeaturedTitles(
   return await invoke('get_featured_titles', { playlistId, contentType });
 }
 
+/**
+ * TMDB's rating, vote count and release year per title in a Movies or Series
+ * section, for the "Highest rated" and "Year" sorts; empty while TMDB is off.
+ */
+export async function getTitleRatings(
+  playlistId: number,
+  contentType: 'vod' | 'series'
+): Promise<Record<number, { rating: number | null; votes: number; year: number | null }>> {
+  return await invoke('get_title_ratings', { playlistId, contentType });
+}
+
 export async function getTmdbStatus(): Promise<TmdbStatus> {
   return await invoke('get_tmdb_status');
 }

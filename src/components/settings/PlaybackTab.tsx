@@ -62,21 +62,21 @@ export default function PlaybackTab({
       <section>
         <h3 className="mb-4 text-lg font-semibold text-text">Video</h3>
         <div className="space-y-4">
-          {/* Hardware Acceleration */}
+          {/* Hardware acceleration */}
           <ToggleRow
-            title="Hardware Acceleration"
+            title="Hardware acceleration"
             description="Use GPU for video decoding (recommended)"
             checked={hardwareAcceleration}
             onChange={onHardwareAccelerationChange}
           />
 
-          {/* Video Output */}
+          {/* Video output */}
           <div>
             <label
               htmlFor={`${id}-video-output`}
               className="mb-2 block text-sm font-medium text-text-muted"
             >
-              Video Output
+              Video output
             </label>
             <select
               id={`${id}-video-output`}
@@ -122,7 +122,7 @@ export default function PlaybackTab({
 
           {/* Start Fullscreen */}
           <ToggleRow
-            title="Start in Fullscreen"
+            title="Start in fullscreen"
             description="Open video player in fullscreen mode"
             checked={startFullscreen}
             onChange={onStartFullscreenChange}
@@ -130,16 +130,16 @@ export default function PlaybackTab({
         </div>
       </section>
 
-      {/* Audio & Subtitles */}
+      {/* Audio & subtitles */}
       <section>
-        <h3 className="mb-4 text-lg font-semibold text-text">Audio & Subtitles</h3>
+        <h3 className="mb-4 text-lg font-semibold text-text">Audio & subtitles</h3>
         <div className="space-y-4">
           <div>
             <label
               htmlFor={`${id}-audio`}
               className="mb-2 block text-sm font-medium text-text-muted"
             >
-              Default Audio Language
+              Default audio language
             </label>
             <select
               id={`${id}-audio`}
@@ -163,7 +163,7 @@ export default function PlaybackTab({
               htmlFor={`${id}-subtitles`}
               className="mb-2 block text-sm font-medium text-text-muted"
             >
-              Default Subtitles Language
+              Default subtitles language
             </label>
             <select
               id={`${id}-subtitles`}
@@ -182,13 +182,13 @@ export default function PlaybackTab({
             </p>
           </div>
 
-          {/* Start Volume */}
+          {/* Start volume */}
           <div>
             <label
               htmlFor={`${id}-volume`}
               className="mb-2 block text-sm font-medium text-text-muted"
             >
-              Start Volume: {startVolume}%
+              Start volume: {startVolume}%
             </label>
             <input
               id={`${id}-volume`}
@@ -216,7 +216,7 @@ export default function PlaybackTab({
               htmlFor={`${id}-cache`}
               className="mb-2 block text-sm font-medium text-text-muted"
             >
-              Cache Duration
+              Cache duration
             </label>
             <select
               id={`${id}-cache`}

@@ -5,6 +5,7 @@ import { openPath, openUrl } from '@tauri-apps/plugin-opener';
 import { Copy, Check, FolderOpen } from 'lucide-react';
 import { truncateAddress } from '../../lib/truncateAddress';
 import { logger } from '../../lib/logger';
+import { usePlayerStore } from '../../stores/player-store';
 import logoImage from '../../assets/logo/logo-256.webp';
 import { TmdbAttribution } from './MetadataTab';
 
@@ -45,6 +46,8 @@ export default function AboutTab() {
       await openPath(dir);
     } catch (err) {
       logger.error('Failed to open logs folder:', err);
+      // Said, not only logged: the button otherwise looks dead
+      usePlayerStore.getState().showToast("Couldn't open the logs folder.");
     }
   };
 
