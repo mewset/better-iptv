@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
 import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
+import { renderSettled, settle } from '../renderSettled';
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
@@ -116,39 +117,39 @@ describe('MainScreen: scroll position resets when the list changes', () => {
   });
 
   it('scrolls to the top when the section changes', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     const list = await scrolledList();
 
-    usePlayerStore.getState().setContentTypeFilter('vod');
+    act(() => usePlayerStore.getState().setContentTypeFilter('vod'));
 
     await waitFor(() => expect(list.scrollTop).toBe(0));
   });
 
   it('scrolls to the top when a category chip is chosen', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     const list = await scrolledList();
 
-    usePlayerStore.getState().setCategoryFilter('G');
+    act(() => usePlayerStore.getState().setCategoryFilter('G'));
 
     await waitFor(() => expect(list.scrollTop).toBe(0));
   });
 
   it('scrolls to the top when a search starts and again when it is cleared', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     let list = await scrolledList();
 
-    usePlayerStore.getState().setSearchQuery('TV');
+    act(() => usePlayerStore.getState().setSearchQuery('TV'));
     await waitFor(() => expect(list.scrollTop).toBe(0));
 
     list = await scrolledList();
-    usePlayerStore.getState().setSearchQuery('');
+    act(() => usePlayerStore.getState().setSearchQuery(''));
     await waitFor(() => expect(list.scrollTop).toBe(0));
   });
 
   it('lays out a new list from the top in its very first render', async () => {
     // Resetting only the DOM, after commit, rendered the new list once at the
     // old list's offset: rows deep in the new list mounted for nothing.
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     await scrolledList();
     virtualiser.scrollOffset = 4800;
     virtualiser.offsetsAsked = [];
@@ -157,5 +158,7 @@ describe('MainScreen: scroll position resets when the list changes', () => {
 
     expect(virtualiser.offsetsAsked.length).toBeGreaterThan(0);
     expect(virtualiser.offsetsAsked[0]).toBe(0);
+    // Movies asks for its categories; let the answer land before the test ends
+    await settle();
   });
 });

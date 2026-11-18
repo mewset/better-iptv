@@ -8,6 +8,7 @@ import {
   Search,
   LayoutGrid,
   List,
+  TriangleAlert,
 } from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { usePlayerStore } from '../stores/player-store';
@@ -242,12 +243,14 @@ export default function DetailView({
   }, [tmdbEpisodes, selectedSeason]);
 
   const providerPlot = isSeries ? currentSeries?.info.plot : undefined;
-  const providerCover = isSeries ? (currentSeries?.info.cover ?? channel.logo) : channel.logo;
+  // `||` throughout: a provider that has no value often sends an empty one,
+  // which must not hide the next source (or leave a picture frame empty).
+  const providerCover = isSeries ? currentSeries?.info.cover || channel.logo : channel.logo;
   // `matched && !title` means a manual pick whose detail fetch failed: keep
   // the provider title but leave the TMDB affordances in place.
   const title = details?.matched && details.title ? details.title : channel.name;
-  const overview = details?.overview ?? providerPlot ?? '';
-  const poster = details?.poster_url ?? providerCover ?? null;
+  const overview = details?.overview || providerPlot || '';
+  const poster = details?.poster_url || providerCover || null;
   const backdrop = details?.backdrop_url ?? null;
   const backdropOk = backdrop !== null && backdrop !== failedBackdrop;
   const posterOk = poster !== null && poster !== failedPoster;
@@ -257,6 +260,7 @@ export default function DetailView({
     isSeries ? currentSeries?.info.releaseDate?.slice(0, 4) : undefined
   );
   const tmdbOn = details?.available ?? false;
+  const seasons = currentSeries?.seasons ?? [];
   const firstEpisode = seasonEpisodes[0];
 
   // The title an episode's row shows, which is also what the dock shows while
@@ -287,22 +291,27 @@ export default function DetailView({
       <div
         ref={viewRef}
         tabIndex={-1}
-        className="flex h-full min-h-0 flex-1 items-center justify-center bg-bg outline-none"
+        className="flex h-full min-h-0 flex-1 items-center justify-center bg-bg px-10 pb-32 outline-none"
       >
-        <div className="text-center">
-          <p className="mb-4 font-medium text-danger">{seriesError}</p>
+        {/* The same shape as a channel list that failed to load. */}
+        <div
+          role="alert"
+          className="flex max-w-[560px] flex-col items-center gap-4 text-center text-text-muted"
+        >
+          <TriangleAlert className="h-6 w-6" aria-hidden="true" />
+          <p>{seriesError}</p>
           <div className="flex justify-center gap-2">
             <button
               type="button"
               onClick={() => setSeriesAttempt((n) => n + 1)}
-              className="rounded-md bg-accent px-4 py-2 text-on-accent hover:bg-accent-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              className="h-10 rounded-xl bg-accent px-4 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             >
               Try again
             </button>
             <button
               type="button"
               onClick={onBack}
-              className="rounded-md border border-border-strong px-4 py-2 text-text hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-accent"
+              className="h-10 rounded-xl border border-border-strong px-4 text-sm font-semibold text-text transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Go back
             </button>
@@ -502,31 +511,33 @@ export default function DetailView({
               {/* Text over an amber underline on a hairline, like the genre tabs
                   of the browse bar (#97), not pills */}
               <div className="mb-5 flex h-[46px] items-stretch gap-4 border-b border-border">
-                <div
-                  role="tablist"
-                  aria-label="Seasons"
-                  className="flex min-w-0 flex-1 gap-[26px] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                >
-                  {currentSeries?.seasons.map((season) => {
-                    const active = selectedSeason === season.season_number;
-                    return (
-                      <button
-                        key={season.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        onClick={() => setSelectedSeason(season.season_number)}
-                        className={`flex shrink-0 items-center whitespace-nowrap border-y-2 border-t-transparent text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
-                          active
-                            ? 'border-b-accent font-semibold text-text'
-                            : 'border-b-transparent font-medium text-text-muted hover:text-text'
-                        }`}
-                      >
-                        {season.name}
-                      </button>
-                    );
-                  })}
-                </div>
+                {seasons.length > 0 && (
+                  <div
+                    role="tablist"
+                    aria-label="Seasons"
+                    className="flex min-w-0 flex-1 gap-[26px] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  >
+                    {seasons.map((season) => {
+                      const active = selectedSeason === season.season_number;
+                      return (
+                        <button
+                          key={season.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={active}
+                          onClick={() => setSelectedSeason(season.season_number)}
+                          className={`flex shrink-0 items-center whitespace-nowrap border-y-2 border-t-transparent text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
+                            active
+                              ? 'border-b-accent font-semibold text-text'
+                              : 'border-b-transparent font-medium text-text-muted hover:text-text'
+                          }`}
+                        >
+                          {season.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 <div
                   role="group"
                   aria-label="Episode layout"
@@ -558,7 +569,9 @@ export default function DetailView({
               </div>
               {seasonEpisodes.length === 0 ? (
                 <p className="py-8 text-center text-text-muted">
-                  No episodes available for this season
+                  {seasons.length > 0
+                    ? 'No episodes available for this season'
+                    : 'No episodes available'}
                 </p>
               ) : (
                 <ul
@@ -570,11 +583,11 @@ export default function DetailView({
                 >
                   {seasonEpisodes.map((episode, index) => {
                     const tmdbEp = tmdbBySeasonEpisode.get(episode.episode_num);
-                    const thumb = episode.info.movie_image ?? tmdbEp?.still_url ?? null;
+                    const thumb = episode.info.movie_image || tmdbEp?.still_url || null;
                     const epTitle = shownTitle(episode);
-                    const plot = episode.info.plot ?? tmdbEp?.overview ?? null;
+                    const plot = episode.info.plot || tmdbEp?.overview || null;
                     const duration =
-                      episode.info.duration ??
+                      episode.info.duration ||
                       (tmdbEp?.runtime_minutes ? `${tmdbEp.runtime_minutes} min` : null);
                     // When it aired: helps place an episode in a show that ran for years
                     const aired =

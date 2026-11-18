@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
 import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
 import { epgStatus } from '../epgFixtures';
+import { renderSettled } from '../renderSettled';
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
@@ -84,9 +85,12 @@ function setupInvoke() {
 }
 
 function press(key: string, target: globalThis.EventTarget = document.body) {
-  target.dispatchEvent(
-    new globalThis.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
-  );
+  // In act, like fireEvent: the key changes what the screen shows
+  act(() => {
+    target.dispatchEvent(
+      new globalThis.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    );
+  });
 }
 
 const section = () => usePlayerStore.getState().contentTypeFilter;
@@ -117,7 +121,7 @@ describe('MainScreen: TV guide and shortcuts', () => {
   });
 
   it('the Rail opens the guide view', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     fireEvent.click(
       within(screen.getByRole('navigation', { name: 'Sections' })).getByRole('button', {
         name: 'TV Guide',
@@ -128,7 +132,7 @@ describe('MainScreen: TV guide and shortcuts', () => {
   });
 
   it('G opens the guide and G again returns to the previous section', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     press('g');
     await waitFor(() => expect(section()).toBe('guide'));
     expect(await screen.findByRole('table', { name: 'TV guide' })).toBeInTheDocument();
@@ -138,7 +142,7 @@ describe('MainScreen: TV guide and shortcuts', () => {
   });
 
   it('g typed in the search box types instead of switching view', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     const search = screen.getByRole('searchbox');
     search.focus();
     press('g', search);
@@ -147,7 +151,7 @@ describe('MainScreen: TV guide and shortcuts', () => {
 
   it('Escape leaves the guide for the previous section without stopping playback', async () => {
     usePlayerStore.setState({ isPlaying: true, currentChannel: svt1 });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     press('g');
     await screen.findByRole('table', { name: 'TV guide' });
     press('Escape');
@@ -161,7 +165,7 @@ describe('MainScreen: TV guide and shortcuts', () => {
   });
 
   it('G does nothing while Settings is open', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     fireEvent.click(screen.getByRole('button', { name: /settings/i }));
     await screen.findByRole('heading', { level: 1, name: 'General' });
     press('g');
@@ -171,7 +175,7 @@ describe('MainScreen: TV guide and shortcuts', () => {
 
   it('Open EPG settings opens Settings on the EPG section', async () => {
     hasUrl = false;
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     press('g');
     fireEvent.click(await screen.findByRole('button', { name: 'Open EPG settings' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'EPG' })).toBeInTheDocument();

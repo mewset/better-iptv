@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Plus, Search, X } from 'lucide-react';
 import { usePlayerStore } from '../stores/player-store';
 import { useProfileSwitch } from '../hooks/useProfileSwitch';
+import { useModalDialog } from '../hooks/useModalDialog';
 import ErrorModal from './modals/ErrorModal';
 import Setup from './Setup';
 import type { Playlist, UpdateInfo } from '../types';
@@ -135,6 +136,14 @@ export function TopBar({
     setShowSetup(false);
     returnFocus();
   };
+  // The overlay follows the dialogs' one rule (useModalDialog): Escape is its
+  // Cancel, except while a playlist is being imported
+  const importing = usePlayerStore((s) => s.isLoading);
+  const setupDialog = useModalDialog({
+    isOpen: showSetup,
+    onCancel: cancelSetup,
+    busy: importing,
+  });
 
   // Same steps as ProfileManager.handleProfileCreated: the new profile joins
   // the list and becomes the active one (switchTo reloads its channels).
@@ -156,9 +165,12 @@ export function TopBar({
 
   // The error modal sits outside <header>: the header's backdrop-filter makes
   // it the containing block for fixed descendants, which would clip the modal.
+  // z-30: the profile menu drops over the page, and with the header level
+  // with the page's own sticky rows (z-10) the guide's time axis, later in the
+  // document, was drawn across the menu and hid one of its rows.
   return (
     <>
-      <header className="relative z-10 flex h-16 shrink-0 items-center gap-6 border-b border-border bg-bg/70 px-10 backdrop-blur-xl supports-[not(backdrop-filter:blur(1px))]:bg-bg">
+      <header className="relative z-30 flex h-16 shrink-0 items-center gap-6 border-b border-border bg-bg/70 px-10 backdrop-blur-xl no-backdrop:bg-bg">
         <div className="flex min-w-0 flex-1 items-baseline gap-3">
           <h1 className="truncate font-display text-2xl font-semibold text-text">{title}</h1>
           <p className="truncate text-[13px] text-text-muted">{subtitle}</p>
@@ -189,7 +201,9 @@ export function TopBar({
                 value={query}
                 onChange={(e) => onQuery(e.target.value)}
                 placeholder="Search channels, movies, series"
-                className="min-w-0 flex-1 appearance-none bg-transparent text-sm text-text placeholder:text-text-muted focus:outline-none [&::-webkit-search-cancel-button]:appearance-none"
+                // The web view's own clear button is hidden outright: with
+                // `appearance: none` WebKitGTK still drew it, next to ours
+                className="min-w-0 flex-1 appearance-none bg-transparent text-sm text-text placeholder:text-text-muted focus:outline-none [&::-webkit-search-cancel-button]:hidden"
               />
             </label>
             {/* The browser's own clear button is hidden above (it differs per
@@ -287,12 +301,18 @@ export function TopBar({
           modal: a fixed overlay inside it would be clipped to the bar. */}
       {showSetup && (
         <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Add a profile"
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm"
+          {...setupDialog.dialogProps}
+          className="fixed inset-0 z-[60] overflow-y-auto bg-bg/70 outline-none backdrop-blur-sm"
         >
-          <Setup onComplete={profileCreated} onCancel={cancelSetup} />
+          {/* Centred while it fits; a window lower than the card scrolls it
+              instead of cutting off its top. */}
+          <div className="flex min-h-full items-center justify-center p-4">
+            <Setup
+              onComplete={profileCreated}
+              onCancel={cancelSetup}
+              titleId={setupDialog.titleId}
+            />
+          </div>
         </div>
       )}
 

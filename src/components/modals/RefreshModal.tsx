@@ -102,7 +102,7 @@ export default function RefreshModal({
         {/* Header */}
         <div className="mb-4 flex items-center justify-between">
           <h3 id={titleId} className="text-xl font-bold text-text">
-            {result ? 'Refresh Complete' : 'Refreshing Playlist'}
+            {result ? 'Refresh complete' : error ? 'Refresh failed' : 'Refreshing playlist'}
           </h3>
           {(result || error) && (
             <button
@@ -137,7 +137,8 @@ export default function RefreshModal({
             <>
               <div className="flex items-center gap-3">
                 <CheckCircle className="h-5 w-5 text-success" aria-hidden="true" />
-                <span className="text-text-muted">Refresh complete</span>
+                {/* Not the heading over again */}
+                <span className="text-text-muted">"{playlistName}" is up to date</span>
               </div>
               <div className="rounded-lg border border-border bg-surface-2/50 p-4">
                 <div className="grid grid-cols-3 gap-4 text-center">

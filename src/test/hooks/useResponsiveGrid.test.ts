@@ -2,6 +2,7 @@ import { afterEach, describe, it, expect } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import {
   calculateGridConfig,
+  getGridClasses,
   useResponsiveGrid,
   type GridKind,
 } from '../../hooks/useResponsiveGrid';
@@ -11,6 +12,37 @@ describe('calculateGridConfig', () => {
     expect(calculateGridConfig(500, 900, 'live').columns).toBe(1);
     expect(calculateGridConfig(500, 900, 'poster').columns).toBe(1);
   });
+  it('adds columns on an ultrawide window instead of growing the cards', () => {
+    // At 3840 px the grids kept the columns of 1920 and 2560: posters 447 px
+    // wide with one row in view, live cards over 500 px
+    const posterWidth = (w: number) => {
+      const c = calculateGridConfig(w, 1600, 'poster');
+      return (c.cardHeight - 28) / 1.5;
+    };
+    expect(calculateGridConfig(2560, 1440, 'poster').columns).toBe(8);
+    expect(calculateGridConfig(3440, 1440, 'poster').columns).toBe(10);
+    expect(calculateGridConfig(3840, 1600, 'poster').columns).toBe(12);
+    for (const width of [3200, 3440, 3840]) {
+      expect(posterWidth(width)).toBeGreaterThan(250);
+      expect(posterWidth(width)).toBeLessThan(320);
+    }
+
+    expect(calculateGridConfig(2560, 1440, 'live').columns).toBe(7);
+    expect(calculateGridConfig(3440, 1440, 'live').columns).toBe(9);
+    expect(calculateGridConfig(3840, 1600, 'live').columns).toBe(11);
+  });
+
+  it('has a grid class for the columns of every window width', () => {
+    // The math and the class map are two lists: a column count the map does
+    // not know falls back to four columns
+    for (const kind of ['live', 'poster'] as const) {
+      for (let width = 320; width <= 5200; width += 40) {
+        const { columns } = calculateGridConfig(width, 1000, kind);
+        expect(getGridClasses(columns), `${kind} at ${width} px`).toBe(`grid-cols-${columns}`);
+      }
+    }
+  });
+
   it('uses seven poster columns at 1440 px', () => {
     expect(calculateGridConfig(1440, 900, 'poster').columns).toBe(7);
   });

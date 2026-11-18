@@ -75,6 +75,15 @@ describe('MoviesHero with TMDB data', () => {
     expect(container.querySelector('img')).toHaveClass('w-[55%]', 'max-w-[816px]');
   });
 
+  it('gives the artwork the height of the banner, so a narrow banner is filled too', () => {
+    // Without a height the image keeps its own proportions: 55% of a narrow
+    // banner at 16:9 is lower than 340 px, which left a strip under it
+    const { container } = render(
+      <MoviesHero channel={{ ...movie, logo: 'x.jpg' }} onPlay={vi.fn()} />
+    );
+    expect(container.querySelector('img')).toHaveClass('h-full', 'object-cover');
+  });
+
   it('offers "Open" instead of "Play" for a series and calls onOpen', () => {
     const onPlay = vi.fn();
     const onOpen = vi.fn();
