@@ -58,6 +58,16 @@ const base: Handler = (cmd) => {
       return [];
     case 'get_channel_groups':
       return { pinned: [], others: [] };
+    // Answered like the backend does: with null the boot logged "Failed to
+    // load parental settings" in every test here
+    case 'get_parental_settings':
+      return {
+        enabled: false,
+        has_pin: false,
+        blocked_categories: [],
+        visibility: 'hide',
+        auto_detect: false,
+      };
     default:
       return null;
   }

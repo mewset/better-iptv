@@ -182,8 +182,8 @@ describe('channel filtering logic', () => {
       contentTypeFilter: 'vod',
       titleSorts: { vod: 'rating', series: 'rating' },
       titleRatings: {
-        vod: { 2: { rating: 8.6, votes: 20000 } },
-        series: { 4: { rating: 8.8, votes: 9000 } },
+        vod: { 2: { rating: 8.6, votes: 20000, year: null } },
+        series: { 4: { rating: 8.8, votes: 9000, year: null } },
       },
     });
     const { result } = renderHook(() => useChannelFilter(''));

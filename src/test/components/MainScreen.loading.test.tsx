@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, screen, fireEvent, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
 import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
 import type { CategoryGroups } from '../../lib/tauri';
+import { renderSettled } from '../renderSettled';
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
@@ -104,21 +105,21 @@ describe('MainScreen: channel load placeholders', () => {
     });
   });
 
-  it('shows placeholders, not the empty state, while live channels load', () => {
-    render(<MainScreen />);
+  it('shows placeholders, not the empty state, while live channels load', async () => {
+    await renderSettled(<MainScreen />);
     expect(screen.getByTestId('channel-grid-placeholder')).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryByText('Nothing in this section yet')).toBeNull();
     expect(screen.queryByTestId('channel-load-error')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
   });
 
-  it('shows the Live list while the library is still loading', () => {
+  it('shows the Live list while the library is still loading', async () => {
     usePlayerStore.setState({
       channels: [svt1],
       liveChannels: [svt1],
       channelLoad: { live: 'loaded', library: 'loading' },
     });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     expect(screen.getByText('SVT1')).toBeInTheDocument();
     expect(screen.queryByTestId('channel-grid-placeholder')).toBeNull();
   });
@@ -129,24 +130,24 @@ describe('MainScreen: channel load placeholders', () => {
       liveChannels: [svt1],
       channelLoad: { live: 'loaded', library: 'loading' },
     });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'zzz' } });
     expect(await screen.findByTestId('channel-grid-placeholder')).toBeInTheDocument();
     expect(screen.queryByText(/No matches/)).toBeNull();
 
-    usePlayerStore.setState({ channelLoad: { live: 'loaded', library: 'loaded' } });
+    act(() => usePlayerStore.setState({ channelLoad: { live: 'loaded', library: 'loaded' } }));
     expect(await screen.findByText(/No matches for/)).toBeInTheDocument();
     expect(screen.queryByTestId('channel-grid-placeholder')).toBeNull();
   });
 
-  it('an empty Favorites says how to fill it', () => {
+  it('an empty Favorites says how to fill it', async () => {
     usePlayerStore.setState({
       contentTypeFilter: 'favorites',
       channels: [svt1],
       liveChannels: [svt1],
       channelLoad: { live: 'loaded', library: 'loaded' },
     });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     expect(
       screen.getByText('No favorites yet. Use the star on a channel, movie or series.')
     ).toBeInTheDocument();
@@ -162,7 +163,7 @@ describe('MainScreen: channel load placeholders', () => {
       categoryFilter: 'Sweden',
       searchQuery: 'nrk',
     });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
 
     expect(await screen.findByText('No matches for \u201cnrk\u201d in Sweden')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Search everything' }));
@@ -179,7 +180,7 @@ describe('MainScreen: channel load placeholders', () => {
       channelLoad: { live: 'loaded', library: 'loaded' },
       searchQuery: 'zzz',
     });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     expect(await screen.findByText('No matches for \u201czzz\u201d')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Search everything' })).toBeNull();
   });
@@ -194,15 +195,17 @@ describe('MainScreen: channel load placeholders', () => {
       channelLoad: { live: 'loaded', library: 'loading' },
       searchQuery: 'SVT',
     });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     expect(await screen.findByTestId('channel-grid-placeholder')).toBeInTheDocument();
     // Longer than the hook's 500 ms debounce
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+    });
     const epgCalls = () => mockedInvoke.mock.calls.filter((c) => c[0] === 'get_epg_now_next');
     expect(epgCalls()).toHaveLength(0);
 
     // Once the card is on screen the lookup runs
-    usePlayerStore.setState({ channelLoad: { live: 'loaded', library: 'loaded' } });
+    act(() => usePlayerStore.setState({ channelLoad: { live: 'loaded', library: 'loaded' } }));
     await waitFor(() => expect(epgCalls().length).toBeGreaterThan(0), { timeout: 3000 });
   });
 
@@ -215,7 +218,7 @@ describe('MainScreen: channel load placeholders', () => {
       channelLoad: { live: 'loaded', library: 'error' },
       retryChannels,
     });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     expect(screen.getByTestId('channel-load-error')).toBeInTheDocument();
     expect(screen.getByText("Couldn't load your channels.")).toBeInTheDocument();
     expect(screen.queryByText('Nothing in this section yet')).toBeNull();
@@ -223,41 +226,41 @@ describe('MainScreen: channel load placeholders', () => {
     await waitFor(() => expect(retryChannels).toHaveBeenCalledTimes(1));
   });
 
-  it('keeps Live working when only the library failed', () => {
+  it('keeps Live working when only the library failed', async () => {
     usePlayerStore.setState({
       channels: [svt1],
       liveChannels: [svt1],
       channelLoad: { live: 'loaded', library: 'error' },
     });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     expect(screen.getByText('SVT1')).toBeInTheDocument();
     expect(screen.queryByTestId('channel-load-error')).toBeNull();
   });
 
-  it('shows no channel count in the header while live channels load', () => {
-    render(<MainScreen />);
+  it('shows no channel count in the header while live channels load', async () => {
+    await renderSettled(<MainScreen />);
     expect(screen.queryByText(/\d+ channels?/)).toBeNull();
   });
 
-  it('shows no count above the error state on Movies', () => {
+  it('shows no count above the error state on Movies', async () => {
     usePlayerStore.setState({
       contentTypeFilter: 'vod',
       channels: [svt1],
       liveChannels: [svt1],
       channelLoad: { live: 'loaded', library: 'error' },
     });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     expect(screen.getByTestId('channel-load-error')).toBeInTheDocument();
     expect(screen.queryByText(/\d+ titles?/)).toBeNull();
   });
 
-  it('shows the count once loaded', () => {
+  it('shows the count once loaded', async () => {
     usePlayerStore.setState({
       channels: [svt1],
       liveChannels: [svt1],
       channelLoad: { live: 'loaded', library: 'loaded' },
     });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     expect(screen.getByText('1 channel')).toBeInTheDocument();
   });
 
@@ -275,7 +278,7 @@ describe('MainScreen: channel load placeholders', () => {
       liveChannels: [svt1],
       channelLoad: { live: 'loaded', library: 'loaded' },
     });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     expect(await screen.findByRole('button', { name: 'Sweden' })).toBeInTheDocument();
 
     act(() => usePlayerStore.setState({ contentTypeFilter: 'vod' }));
@@ -301,7 +304,7 @@ describe('MainScreen: channel load placeholders', () => {
       liveChannels: [svt1],
       channelLoad: { live: 'loaded', library: 'loaded' },
     });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
 
     act(() => usePlayerStore.setState({ contentTypeFilter: 'vod' }));
     await waitFor(() => expect(usePlayerStore.getState().categories).toEqual(['Action']));

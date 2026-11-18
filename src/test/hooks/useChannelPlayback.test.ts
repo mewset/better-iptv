@@ -168,7 +168,7 @@ describe('useChannelPlayback start guard and failure toast', () => {
       });
       const toast = usePlayerStore.getState().toast;
       expect(toast?.message).toBe(
-        "Couldn't play SVT1. The provider refused the stream, maybe because your line is already in use."
+        "Couldn't play SVT1. The stream could not be opened. Your connection may be down, or the provider refused it, e.g. because your line is already in use."
       );
       expect(usePlayerStore.getState().isPlaying).toBe(false);
     } finally {
