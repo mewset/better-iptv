@@ -72,8 +72,15 @@ export function titleYear(name: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
-/** TMDB's rating and vote count for one title, keyed by channel id. */
-export type TitleRatings = Record<number, { rating: number; votes: number }>;
+/**
+ * What TMDB knows about each matched title that the sorts use, keyed by
+ * channel id: the rating (null without votes) with its vote count, and the
+ * release year the cards show.
+ */
+export type TitleRatings = Record<
+  number,
+  { rating: number | null; votes: number; year: number | null }
+>;
 
 /**
  * How many votes a TMDB rating needs before it counts at full weight: the
@@ -115,7 +122,9 @@ export function providerRating(rating: number | undefined): number | null {
 function byRating(channels: Channel[], ratings: TitleRatings | null | undefined): Channel[] {
   const keyed = channels.map((channel, index) => {
     const tmdb = ratings?.[channel.id];
-    if (tmdb) return { channel, index, tier: 0, score: weightedRating(tmdb.rating, tmdb.votes) };
+    if (tmdb && tmdb.rating !== null && tmdb.votes > 0) {
+      return { channel, index, tier: 0, score: weightedRating(tmdb.rating, tmdb.votes) };
+    }
     const provider = providerRating(channel.rating);
     return provider !== null
       ? { channel, index, tier: 1, score: provider }
@@ -129,7 +138,7 @@ function byRating(channels: Channel[], ratings: TitleRatings | null | undefined)
  * The list in the given order, as a new array (the input is left alone);
  * `provider` returns the list itself. Titles a key cannot place (no year, no
  * added date) go last; ties keep the list's own order. `ratings` (TMDB's,
- * when known) only matters for `rating`.
+ * when known) matters for `rating` and `year`.
  */
 export function sortTitles(
   channels: Channel[],
@@ -146,9 +155,11 @@ export function sortTitles(
     case 'rating':
       return byRating(channels, ratings);
     case 'year':
+      // TMDB's year, the one the card shows, or else the year in the name:
+      // few providers put one there (12 of 3,100 series in one library)
       return sortByKey(
         channels,
-        (c) => titleYear(c.name),
+        (c) => ratings?.[c.id]?.year ?? titleYear(c.name),
         (a, b) => b - a
       );
     case 'added':

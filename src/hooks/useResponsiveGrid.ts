@@ -36,6 +36,10 @@ const LIVE_BREAKPOINTS: Breakpoint[] = [
   { minWidth: 1440, columns: 5 },
   { minWidth: 1920, columns: 6 },
   { minWidth: 2560, columns: 7 },
+  // Ultrawide: without these a 3840 px window kept seven columns of cards
+  // over 500 px wide. The card stays about as wide as it is at 2560 (330 px).
+  { minWidth: 3200, columns: 9 },
+  { minWidth: 3840, columns: 11 },
 ];
 
 const POSTER_BREAKPOINTS: Breakpoint[] = [
@@ -46,6 +50,11 @@ const POSTER_BREAKPOINTS: Breakpoint[] = [
   { minWidth: 1280, columns: 6 },
   { minWidth: 1440, columns: 7 },
   { minWidth: 1920, columns: 8 },
+  // Ultrawide: eight columns at 3840 px made each poster 447 px wide, with
+  // one row and a bit in view. The poster stays about as wide as it is at
+  // 2560 (287 px).
+  { minWidth: 3200, columns: 10 },
+  { minWidth: 3840, columns: 12 },
 ];
 
 function getColumns(breakpoints: Breakpoint[], width: number): number {
@@ -123,7 +132,9 @@ export function useResponsiveGrid(kind: GridKind = 'live'): GridConfig {
   return useMemo(() => calculateGridConfig(size.width, size.height, kind), [size, kind]);
 }
 
-// Utility to generate Tailwind grid classes based on columns
+// Utility to generate Tailwind grid classes based on columns. Spelled out so
+// Tailwind finds each class; a column count missing here falls back to four
+// columns, which is how a new breakpoint can lay out wrong without a test.
 export function getGridClasses(columns: number): string {
   const gridColsMap: Record<number, string> = {
     1: 'grid-cols-1',
@@ -134,6 +145,10 @@ export function getGridClasses(columns: number): string {
     6: 'grid-cols-6',
     7: 'grid-cols-7',
     8: 'grid-cols-8',
+    9: 'grid-cols-9',
+    10: 'grid-cols-10',
+    11: 'grid-cols-11',
+    12: 'grid-cols-12',
   };
   return gridColsMap[columns] || 'grid-cols-4';
 }
