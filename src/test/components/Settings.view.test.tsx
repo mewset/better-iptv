@@ -180,7 +180,7 @@ describe('Settings as a view', () => {
     render(<Settings onClose={vi.fn()} />);
 
     // Sequential loading would show exactly one pending call here.
-    await waitFor(() => expect(release).toHaveLength(17));
+    await waitFor(() => expect(release).toHaveLength(19));
     release.forEach((r) => r());
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled());
   });

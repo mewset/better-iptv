@@ -330,6 +330,14 @@ export async function getFeaturedTitles(
   return await invoke('get_featured_titles', { playlistId, contentType });
 }
 
+/** Channel id -> TMDB id for a section's matched titles; empty while TMDB is off. */
+export async function getTitleTmdbIds(
+  playlistId: number,
+  contentType: 'vod' | 'series'
+): Promise<Record<number, number>> {
+  return await invoke('get_title_tmdb_ids', { playlistId, contentType });
+}
+
 /**
  * TMDB's rating, vote count and release year per title in a Movies or Series
  * section, for the "Highest rated" and "Year" sorts; empty while TMDB is off.

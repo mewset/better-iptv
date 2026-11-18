@@ -8,6 +8,7 @@ A simple overview of new features and improvements.
 
 ### New Features
 
+- Films that come in several versions (standard, 4K, German or French dubs…) now show as one card; pick the quality and audio language on the film's page, and set your default under Settings › Playback › Preferred version
 - The banner in Movies and Series now rotates through trending and popular titles from your library
 - Added sorting for Movies and Series, e.g. by name, year, rating or recently added. Update your Xtream playlist once to get ratings and dates
 - Added moving through channels, movies and series with the arrow keys; press Enter to play
