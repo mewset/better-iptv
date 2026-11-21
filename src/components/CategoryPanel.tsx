@@ -107,7 +107,7 @@ export function CategoryPanel({ open, onClose }: CategoryPanelProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Filter categories"
-            className="min-w-0 flex-1 appearance-none bg-transparent text-sm text-text placeholder:text-text-muted focus:outline-none [&::-webkit-search-cancel-button]:appearance-none"
+            className="min-w-0 flex-1 appearance-none bg-transparent text-sm text-text placeholder:text-text-muted focus:outline-none [&::-webkit-search-cancel-button]:hidden"
           />
         </label>
 
