@@ -4,6 +4,12 @@ A simple overview of new features and improvements.
 
 ---
 
+## Unreleased
+
+### Fixes
+
+- Films and series named in another language (a French or German copy, say) now get their artwork and details, and are grouped with the film's other copies
+
 ## Version 3.4.0 (November 17, 2026)
 
 ### New Features
