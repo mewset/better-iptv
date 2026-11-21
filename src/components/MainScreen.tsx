@@ -840,24 +840,9 @@ export default function MainScreen() {
     if (contentTypeFilter !== 'home') homeScrollTop.current = 0;
   }, [contentTypeFilter]);
 
-  // The search box is part of browsing a section; Home has none.
-  const searchShown = view === 'browse' && contentTypeFilter !== 'home';
-
-  // "/" on Home, where there is no search box: go to Live TV, then focus.
-  const focusSearchPending = useRef(false);
-  // Only while browsing: Settings and the detail view have no search box
-  // either, and leaving them here would skip Settings' discard check.
-  const handleSearchUnavailable = useCallback(() => {
-    if (view !== 'browse' || contentTypeFilter !== 'home') return;
-    focusSearchPending.current = true;
-    handleSection('live');
-  }, [view, contentTypeFilter, handleSection]);
-  useEffect(() => {
-    if (focusSearchPending.current && contentTypeFilter !== 'home') {
-      focusSearchPending.current = false;
-      searchInputRef.current?.focus();
-    }
-  }, [contentTypeFilter]);
+  // The search box is part of browsing, Home included: a search there shows
+  // its results in Home's place, and emptying it brings Home back.
+  const searchShown = view === 'browse';
 
   // Navigating away from Settings asks it first: unsaved edits get a
   // "Discard changes?" dialog, and `go` runs only on Discard.
@@ -943,7 +928,6 @@ export default function MainScreen() {
   useKeyboardShortcuts(searchInputRef, {
     onToggleGuide: handleToggleGuide,
     onEscapeView: handleEscapeView,
-    onSearchUnavailable: handleSearchUnavailable,
   });
 
   const handleOpenUpdate = useCallback(() => {
@@ -960,14 +944,16 @@ export default function MainScreen() {
   let subtitle =
     contentTypeFilter === 'guide'
       ? guideSubtitle(now)
-      : contentTypeFilter === 'home'
+      : contentTypeFilter === 'home' && trimmedQuery === ''
         ? ''
         : loadStatus !== 'loaded'
           ? // No count until the list is whole; the nbsp keeps the line's height
             '\u00A0'
           : countLabel(
               filteredChannels.length,
-              trimmedQuery ? RESULT_NOUNS : SECTION_COUNT_NOUNS[contentTypeFilter]
+              trimmedQuery || contentTypeFilter === 'home'
+                ? RESULT_NOUNS
+                : SECTION_COUNT_NOUNS[contentTypeFilter]
             );
   if (view === 'settings') {
     title = 'Settings';
@@ -1032,7 +1018,7 @@ export default function MainScreen() {
             onDetails={handleDetails}
             detailsOverride={matchOverride}
           />
-        ) : contentTypeFilter === 'home' ? (
+        ) : contentTypeFilter === 'home' && trimmedQuery === '' ? (
           <HomeView
             pick={homePickView}
             onPlay={handlePlayChannel}

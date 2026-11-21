@@ -4,6 +4,12 @@ A simple overview of new features and improvements.
 
 ---
 
+## Unreleased
+
+### Improvements
+
+- You can search from Home: the results show in its place, and clearing the search brings Home back
+
 ## Version 3.4.0 (November 17, 2026)
 
 ### New Features

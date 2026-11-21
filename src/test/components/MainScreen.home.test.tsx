@@ -179,7 +179,7 @@ describe('MainScreen: Home', () => {
     expect(
       screen.getByRole('heading', { level: 2, name: /^Good (morning|afternoon|evening)$/ })
     ).toBeInTheDocument();
-    expect(screen.queryByRole('searchbox')).toBeNull();
+    expect(screen.getByRole('searchbox')).toBeInTheDocument();
   });
 
   it('stays on Live TV and hides Home with the gate closed', async () => {
@@ -325,18 +325,24 @@ describe('MainScreen: Home', () => {
     await waitFor(() => expect(rail().queryByRole('button', { name: 'Home' })).toBeNull());
   });
 
-  it('"/" on Home switches to Live TV and focuses search', async () => {
+  it('"/" on Home focuses its search, the results take its place, and emptying it brings Home back', async () => {
     setupInvoke(true);
     await renderSettled(<MainScreen />);
     await screen.findByRole('region', { name: 'Action Movies' });
     fireEvent.keyDown(document, { key: '/' });
-    await waitFor(() =>
-      expect(rail().getByRole('button', { name: 'Live TV' })).toHaveAttribute(
-        'aria-current',
-        'page'
-      )
-    );
-    await waitFor(() => expect(screen.getByRole('searchbox')).toHaveFocus());
+    const box = screen.getByRole('searchbox');
+    expect(box).toHaveFocus();
+    // Still Home: the search does not switch section
+    expect(rail().getByRole('button', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
+
+    fireEvent.change(box, { target: { value: 'Title 3' } });
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Action Movies' })).toBeNull());
+    expect(await screen.findByText('1 result')).toBeInTheDocument();
+
+    // Escape empties the search: Home is back
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(await screen.findByRole('region', { name: 'Action Movies' })).toBeInTheDocument();
+    expect(rail().getByRole('button', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('"/" inside Settings opened from Home leaves Settings alone', async () => {

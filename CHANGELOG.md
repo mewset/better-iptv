@@ -3,6 +3,12 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## Unreleased
+
+### Changed
+
+- **Search on Home** - Home had no search box (`searchShown` excluded it, and "/" there switched to Live TV before focusing the box). The box now shows on Home too: a search lists its results in Home's place, under the same "N results" count as elsewhere, and emptying it (the ✕, or Escape) brings Home back where it was, without changing section. `handleSearchUnavailable` and its pending-focus effect are gone; `useKeyboardShortcuts` keeps the optional `onSearchUnavailable` for any view without a box
+
 ## [3.4.0] - 2026-11-17
 
 ### Added
