@@ -13,6 +13,7 @@ A simple overview of new features and improvements.
 
 ### Improvements
 
+- The TV guide's programme card and the now-playing bar look the same, so pressing Watch now just turns play into pause; the bar shows the programme's description
 - A clearer now-playing bar: poster, episode and series, progress and time left, play/pause, and a click to bring the player to the front
 
 ## Version 3.4.0 (November 17, 2026)
