@@ -3,12 +3,6 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
-## Unreleased
-
-### Added
-
-- **Search results by type** - a search spans every content type, so its results used the channel card for everything: movie and series posters shrank into the logo slot, a click played a movie instead of opening it, and the header kept the name of the section the search started in. While searching, `SearchTypeTabs` now splits the results into Movies / Series / Live TV (types without a result are left out, each with its count) and the grid shows one type at a time with its own card: posters for Movies and Series (a click opens the detail view), channel cards for Live TV. It opens on the section's own type when that has results, else the type with the most; the choice resets when the search is cleared. The header reads "Search" and "N results for “query”" (the total across types). The guide keeps its own live-only search
-
 ## [3.4.0] - 2026-11-17
 
 ### Added

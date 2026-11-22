@@ -19,7 +19,7 @@ interface SearchTypeTabsProps {
 /**
  * While searching, the results are split by type so each gets its own card:
  * posters for Movies and Series, channel cards for Live TV. Types without a
- * result are left out. Styled like the genre tabs in BrowseBar, no animation.
+ * result are left out. No animation.
  */
 export const SearchTypeTabs = memo(function SearchTypeTabs({
   counts,
