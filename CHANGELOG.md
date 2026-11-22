@@ -3,6 +3,37 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## Unreleased
+
+### Added
+
+- **Search results by type** - a search spans every content type, but its results used the channel card for everything: movie and series posters shrank into the logo slot, a click played a movie instead of opening it, and the header kept the name of the section the search started in
+  - While searching, `SearchTypeTabs` splits the results into Movies / Series / Live TV (types without a result left out, each with its count) and the grid shows one type at a time with its own card: posters for Movies and Series (a click opens the detail view), channel cards for Live TV. One card kind per list keeps `useGridKeyboardNav`, the virtualiser and the ARIA grid unchanged
+  - It opens on the section's own type when that has results, else the type with the most; the choice resets when the search is cleared
+  - The header reads "Search" and "N results for “query”" (the total across types); on Home it keeps "Home" with the count. The guide keeps its own live-only search
+  - Thanks to @RyanBeckett (#101)
+- **Search on Home** - Home had no search box (`searchShown` excluded it, and "/" there switched to Live TV before focusing the box). The box now shows on Home too: a search lists its results in Home's place, and emptying it (the ✕, or Escape) brings Home back without changing section
+  - `handleSearchUnavailable` and its pending-focus effect are gone; `useKeyboardShortcuts` keeps the optional `onSearchUnavailable` for any view without a box
+  - Thanks to @RyanBeckett (#117)
+- **Episodes as a list or as tiles** - a series' detail view gets a List / Tiles switch beside the season tabs. Tiles are a grid of 16:9 thumbnails (five a row on a wide window, down to two), with an episode badge and the running time on the image and the title below; a tile plays the episode and continues through the season as a row does
+  - The choice is kept per viewer in `localStorage` (`better-iptv:episode-view`), read defensively; List is the default. Nothing fades (#95)
+  - Thanks to @RyanBeckett (#99)
+- **Settings: hide the cast on detail pages** - Settings › Metadata › Detail page › "Show the cast" (`detail_show_cast`, on by default) turns off the row of TMDB cast photos at the bottom of a movie's or series' page
+  - Thanks to @RyanBeckett (#108)
+
+### Changed
+
+- **Series: when each episode aired, and quieter season tabs** - an episode shows when it aired (TMDB's `air_date`, else the provider's `releaseDate`; "Airs 3 Dec 2026" for one still to come; `lib/airDate.ts`): under a tile's title, and before the length in the list ("20 Jan 2008 · 58 min")
+  - The season tabs are text over an amber underline on a hairline instead of amber pills in a grey bar, and the list/tiles switch beside them has no box
+  - Thanks to @RyanBeckett (#99)
+
+### Fixed
+
+- **TMDB: titles named in another language than the search's** - a provider's "Harry Potter à l'école des sorciers (2001)" searched in English brings back the right film under its English title, which the matcher could not recognise, so the copy was stored as no match (no artwork, rating or year)
+  - When no candidate's title resembles the name, the first two candidates with a compatible year (only the first, and not one dated past next year, when the name has no year) are checked against their translated titles (`/movie/{id}/translations`, `/tv/{id}/translations`; one request each, only on this path) via `translation_candidates` and `matches_a_translation`
+  - On a library with French and German copies, all 16 Harry Potter titles that had no match now match their film. Rows stored as no match are searched again after a week, as before
+  - Thanks to @RyanBeckett (#116)
+
 ## [3.4.0] - 2026-11-17
 
 ### Added
