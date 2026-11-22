@@ -3,12 +3,6 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
-## Unreleased
-
-### Fixed
-
-- **TMDB: titles named in another language than the search's** - A provider's "Harry Potter à l'école des sorciers (2001)" searched in English brings back the right film under its English title, which the matcher could not recognise, so the copy was stored as no match (no artwork, rating or year, and not grouped with the film's other copies). When no candidate's title resembles the name, the first two with a compatible year (one without a year in the name, not dated past next year) are checked against their translated titles (`/movie/{id}/translations`, `/tv/{id}/translations`; one request each, only then). On a library with French and German copies, all 16 Harry Potter titles that had no match now match their film. Rows stored as no match are searched again after a week, as before
-
 ## [3.4.0] - 2026-11-17
 
 ### Added
