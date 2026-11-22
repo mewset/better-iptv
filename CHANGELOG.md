@@ -3,7 +3,7 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
-## [3.4.0] - 2026-11-17
+## Unreleased
 
 ### Added
 
@@ -11,6 +11,11 @@ This file is a developer-changelog, aimed towards development changes.
   - Movies without a category, and search results, show one card per film, the preferred copy, with "· 3 versions" in its meta line; a chosen category still lists exactly its own entries. Series and channels are left as they are
   - Copies are one film when their titles match ignoring case, accents, punctuation and quality/language tags (so a French "Top Gun : Maverick (2022)" joins "Top Gun: Maverick (2022)"), or when TMDB matched them to the same title (a new `get_title_tmdb_ids`), which catches translated titles such as "Die Truman Show (1998)". One matched copy is enough to bring its unmatched copies along; the ids are re-read every minute while the background scan runs
   - The detail view offers Quality and Audio pickers when there is a choice, starting on the preference; Play plays the chosen copy, and a language without the chosen quality plays the copy it has
+
+## [3.4.0] - 2026-11-17
+
+### Added
+
 - **Movies and Series banner rotates through featured titles** - the hero showed one title, the newest the provider added (often an old film the provider just uploaded). It now rotates through up to ten every 6 s, with dots to jump between them
   - The titles come from a new `get_featured_titles` command: the section's library titles on TMDB's trending list today (the list Home already fetches once a day, `trending_for_today`), in its order, labelled "Trending today"; then the most-voted matched titles released in the last three years, labelled "Popular" (`build_featured`, `POPULAR_YEARS_BACK`). With TMDB off or nothing matched yet it falls back to the newest additions, labelled "Recently added" as before
   - It holds still while the pointer or the focus is on it and while the window is hidden, and swaps at once with no cross-fade (see the DMA-BUF stale-frame note in #95). Changing section or filter starts again from the first title
