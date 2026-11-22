@@ -3,6 +3,18 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## Unreleased
+
+### Added
+
+- **Movies and Series browse bar** - the category chip row in Movies and Series becomes one bar under the top bar: genre tabs on the left, then the provider category, a 4K switch (Movies) and the sort menu on the right. Live TV keeps its category chips
+  - **Genre tabs** (`BrowseBar`): one line that scrolls sideways with no scrollbar; edge fades and ‹ › buttons show where there is more, and a mouse wheel over the strip scrolls it. Ordered by how many titles carry each genre; clicking the active one clears it. Genres combine with the category
+  - Genres come from a new `get_title_genres` command: series use the provider's own `genre` from `get_series` (stored in a new `channels.genres` column, on import and on every refresh, like `rating`), movies use TMDB (`get_vod_streams` sends none), so movie genres grow as the background scan matches titles; the strip re-reads them every minute in Movies
+  - **Categories** move into a side panel (`CategoryPanel`) that opens from the right beside its button: All, pinned, then the rest, with a filter box and the same pins; built on `useModalDialog`
+  - **4K**: a switch in Movies and a 4K badge on posters, from `lib/fourK` (4K, UHD or 2160p as a word in the title or category, so "24K Magic" is not 4K). A series in the Series section no longer wears the "Series" tag (it still does in Favorites and search, where types mix)
+  - Nothing in the bar animates (no transitions, instant scroll jumps): see the DMA-BUF stale-frame note in #95
+  - The test setup's `ResizeObserver` mock is now a class, since components construct it with `new`
+
 ## [3.4.0] - 2026-11-17
 
 ### Added
@@ -15,13 +27,6 @@ This file is a developer-changelog, aimed towards development changes.
   - The artwork's box is 55 % of the banner's width, now capped at 816 px (2.4:1 at 340 px). The image fills its box, so on a very wide window only a thin strip of it showed; that was so before the rotation too
   - Tests: `featured_puts_trending_first_then_the_most_voted_recent_titles`, and "caps the width of the artwork" in `MoviesHero.test.tsx`
   - Thanks to @RyanBeckett (#98)
-- **Movies and Series browse bar** - the category chip row in Movies and Series becomes one bar under the top bar: genre tabs on the left, then the provider category, a 4K switch (Movies) and the sort menu on the right. Live TV keeps its category chips
-  - **Genre tabs** (`BrowseBar`): one line that scrolls sideways with no scrollbar; edge fades and ‹ › buttons show where there is more, and a mouse wheel over the strip scrolls it. Ordered by how many titles carry each genre; clicking the active one clears it. Genres combine with the category
-  - Genres come from a new `get_title_genres` command: series use the provider's own `genre` from `get_series` (stored in a new `channels.genres` column, on import and on every refresh, like `rating`), movies use TMDB (`get_vod_streams` sends none), so movie genres grow as the background scan matches titles; the strip re-reads them every minute in Movies
-  - **Categories** move into a side panel (`CategoryPanel`) that opens from the right beside its button: All, pinned, then the rest, with a filter box and the same pins; built on `useModalDialog`
-  - **4K**: a switch in Movies and a 4K badge on posters, from `lib/fourK` (4K, UHD or 2160p as a word in the title or category, so "24K Magic" is not 4K). A series in the Series section no longer wears the "Series" tag (it still does in Favorites and search, where types mix)
-  - Nothing in the bar animates (no transitions, instant scroll jumps): see the DMA-BUF stale-frame note in #95
-  - The test setup's `ResizeObserver` mock is now a class, since components construct it with `new`
 - **Sort Movies and Series** - a menu at the end of the category row: Provider order (the default, as before), Recently added, Highest rated, Name A–Z, Name Z–A, Year newest first
   - The menu is a chip that names the current order and opens a small panel of the options, built like the profile switcher (same panel and rows; Escape or a press outside closes it, arrows/Home/End move, it opens on the current option)
   - **Highest rated** ranks in three steps (`lib/titleSort`): titles TMDB has matched and has votes for, by the vote-weighted rating IMDb's Top 250 uses, `(v / (v + m)) · R + (m / (v + m)) · C` with `m` = 250 votes and a fixed `C` = 6.5; then the rest by the provider's own `rating` (0-10, TMDB scale) from `get_vod_streams` / `get_series`, stored in a new `channels.rating` column (migration in `schema.rs`, `provider_rating` in `xtream.rs`); then the unrated. A provider rating of `0`, empty, out of range or exactly 10 counts as no rating: panels copy TMDB's average without its vote count, so a 10.0 from one or two votes topped the list (72 of them in a 22,800-movie library) while the posters showed TMDB's own, different rating. Without TMDB the provider's rating is the whole order
