@@ -3,7 +3,7 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
-## [3.4.0] - 2026-11-17
+## Unreleased
 
 ### Added
 
@@ -12,6 +12,11 @@ This file is a developer-changelog, aimed towards development changes.
   - Resume: `play_channel`, `play_episode_with_season` (which also takes the series' channel id) and `play_series_episodes` take `start_secs`, passed to MPV as a per-file option (`--{ --start=N url --}`) so the rest of a queue still starts at the beginning. A film picks up where it was left; the detail page says "Resume from 42:10", with "Start over" and the time left
   - Watched marks: a toggle on a film's page and on each episode row, "Mark season watched", progress bars on posters and episode thumbnails, a mark on watched films (`get_watch_progress`, `set_watched`)
   - A series' Play carries on: the episode left part-way ("Resume S2 E4 · 12:30"), else the first unwatched one after the last watched ("Play S2 E5"), else the first; the page opens on that season (`lib/watchProgress.ts`)
+
+## [3.4.0] - 2026-11-17
+
+### Added
+
 - **Movies and Series banner rotates through featured titles** - the hero showed one title, the newest the provider added (often an old film the provider just uploaded). It now rotates through up to ten every 6 s, with dots to jump between them
   - The titles come from a new `get_featured_titles` command: the section's library titles on TMDB's trending list today (the list Home already fetches once a day, `trending_for_today`), in its order, labelled "Trending today"; then the most-voted matched titles released in the last three years, labelled "Popular" (`build_featured`, `POPULAR_YEARS_BACK`). With TMDB off or nothing matched yet it falls back to the newest additions, labelled "Recently added" as before
   - It holds still while the pointer or the focus is on it and while the window is hidden, and swaps at once with no cross-fade (see the DMA-BUF stale-frame note in #95). Changing section or filter starts again from the first title
