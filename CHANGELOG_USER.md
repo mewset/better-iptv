@@ -4,11 +4,20 @@ A simple overview of new features and improvements.
 
 ---
 
-## Version 3.4.0 (November 17, 2026)
+## Unreleased
 
 ### New Features
 
 - Better IPTV remembers what you watch: films and episodes resume where you left off, watched ones get a mark (or mark them yourself, a whole season at once), and a series' Play button carries on with the next episode
+
+### Improvements
+
+- Play on a series plays its next episode (or resumes the one you left part-way); click the poster or More info to open the series
+
+## Version 3.4.0 (November 17, 2026)
+
+### New Features
+
 - The banner in Movies and Series now rotates through trending and popular titles from your library
 - Added sorting for Movies and Series, e.g. by name, year, rating or recently added. Update your Xtream playlist once to get ratings and dates
 - Added moving through channels, movies and series with the arrow keys; press Enter to play
@@ -17,7 +26,6 @@ A simple overview of new features and improvements.
 
 ### Improvements
 
-- Play on a series plays its next episode (or resumes the one you left part-way); click the poster or More info to open the series
 - Error messages now say what went wrong, e.g. when a playlist cannot be imported or a channel cannot start
 - Parental controls in Settings now open with your PIN while they are turned on
 - Deleting a profile now asks first
