@@ -3,6 +3,16 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## Unreleased
+
+### Added
+
+- **Episodes as a list or as tiles** - a series' detail view gets a List / Tiles switch beside the season tabs. Tiles are a grid of 16:9 thumbnails (five a row on a wide window, down to two), each with an episode badge and the running time on the image and the title below; the whole tile plays the episode, continuing through the season as a row does. The choice is kept per viewer in `localStorage` (`better-iptv:episode-view`), read defensively. Nothing fades (#95)
+
+### Changed
+
+- **Series: when each episode aired, and quieter season tabs** - An episode shows when it aired (TMDB's `air_date`, else the provider's `releaseDate`; "Airs 3 Dec 2026" for one still to come; `lib/airDate.ts`): under a tile's title, and before the length in the list ("20 Jan 2008 · 58 min"), which helps place an episode in a show that ran for years. The season tabs are text over an amber underline on a hairline instead of amber pills in a grey bar, like the browse bar's genre tabs (#97), and the list/tiles switch beside them loses its box
+
 ## [3.4.0] - 2026-11-17
 
 ### Added
@@ -27,7 +37,6 @@ This file is a developer-changelog, aimed towards development changes.
   - A refresh stores both as well (`merge_channels`): a matched row takes the provider's date when the fresh list has one and keeps its own otherwise, and always takes the fresh rating; a new row gets both. So an existing profile has dates and ratings after its next refresh
   - Tests: `provider_rating_reads_numbers_and_strings_and_drops_no_rating`, `provider_added_at_reads_added_or_last_modified`, `create_channels_batch_keeps_the_provider_added_time_or_defaults_to_now`, `refresh_stores_the_provider_added_time_and_rating`, `refresh_keeps_the_stored_time_when_the_provider_sends_none`, `title_ratings_cover_every_copy_of_a_matched_title`, `title_ratings_are_empty_while_tmdb_is_off`, `src/test/lib/titleSort.test.ts`
   - Thanks to @RyanBeckett (#96, #102)
-- **Episodes as a list or as tiles** - a series' detail view gets a List / Tiles switch beside the season tabs. Tiles are a grid of 16:9 thumbnails (five a row on a wide window, down to two), each with an episode badge and the running time on the image and the title below; the whole tile plays the episode, continuing through the season as a row does. The choice is kept per viewer in `localStorage` (`better-iptv:episode-view`), read defensively. Nothing fades (#95)
 - **Keyboard navigation in the channel grid** - arrow keys move one card, `Home`/`End` to the ends of the row (with `Ctrl` of the list), `Page Up`/`Page Down` one screen, `Enter` does what a click does; Arrow Down in the search box goes to the first result
   - WAI-ARIA grid with `aria-activedescendant` on the scroll container (`useGridKeyboardNav`, pure math in `lib/gridNav`), as in the 2026-09-10 design: the cards keep no `tabIndex` and are untouched, the cells around them carry the semantics and the ring
   - The ring shows only while the keyboard drives; a click makes a card active without one. The row scrolled into view stays above the dock
@@ -125,7 +134,6 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Changed
 
-- **Series: when each episode aired, and quieter season tabs** - An episode shows when it aired (TMDB's `air_date`, else the provider's `releaseDate`; "Airs 3 Dec 2026" for one still to come; `lib/airDate.ts`): under a tile's title, and before the length in the list ("20 Jan 2008 · 58 min"), which helps place an episode in a show that ran for years. The season tabs are text over an amber underline on a hairline instead of amber pills in a grey bar, like the browse bar's genre tabs (#97), and the list/tiles switch beside them loses its box
 - **Opt-out of the DMA-BUF workaround on Linux** - `run()` always set `WEBKIT_DISABLE_DMABUF_RENDERER=1` (the WebKitGTK 2.50+ EGL workaround), overwriting any value in the environment, and the desktop file's `Exec` forced it again with `env`, so no install could use the DMA-BUF renderer even on GPUs the bug does not affect
   - `run()` now sets `1` only when the variable is unset, and the `env` prefix is gone from `templates/better-iptv.desktop`; the default is unchanged, `WEBKIT_DISABLE_DMABUF_RENDERER=0` opts in
   - Trade-off seen on Intel iGPU + Hyprland: scrolling a bit smoother, but the play button flickers when hovering channel cards. That is why the default stays and the README calls it an opt-in with that caveat
