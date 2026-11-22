@@ -3,6 +3,12 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
+## Unreleased
+
+### Added
+
+- **Search results by type** - a search spans every content type, so its results used the channel card for everything: movie and series posters shrank into the logo slot, a click played a movie instead of opening it, and the header kept the name of the section the search started in. While searching, `SearchTypeTabs` now splits the results into Movies / Series / Live TV (types without a result are left out, each with its count) and the grid shows one type at a time with its own card: posters for Movies and Series (a click opens the detail view), channel cards for Live TV. It opens on the section's own type when that has results, else the type with the most; the choice resets when the search is cleared. The header reads "Search" and "N results for “query”" (the total across types). The guide keeps its own live-only search
+
 ## [3.4.0] - 2026-11-17
 
 ### Added
@@ -27,7 +33,6 @@ This file is a developer-changelog, aimed towards development changes.
   - A refresh stores both as well (`merge_channels`): a matched row takes the provider's date when the fresh list has one and keeps its own otherwise, and always takes the fresh rating; a new row gets both. So an existing profile has dates and ratings after its next refresh
   - Tests: `provider_rating_reads_numbers_and_strings_and_drops_no_rating`, `provider_added_at_reads_added_or_last_modified`, `create_channels_batch_keeps_the_provider_added_time_or_defaults_to_now`, `refresh_stores_the_provider_added_time_and_rating`, `refresh_keeps_the_stored_time_when_the_provider_sends_none`, `title_ratings_cover_every_copy_of_a_matched_title`, `title_ratings_are_empty_while_tmdb_is_off`, `src/test/lib/titleSort.test.ts`
   - Thanks to @RyanBeckett (#96, #102)
-- **Search results by type** - a search spans every content type, so its results used the channel card for everything: movie and series posters shrank into the logo slot, a click played a movie instead of opening it, and the header kept the name of the section the search started in. While searching, `SearchTypeTabs` now splits the results into Movies / Series / Live TV (types without a result are left out, each with its count) and the grid shows one type at a time with its own card: posters for Movies and Series (a click opens the detail view), channel cards for Live TV. It opens on the section's own type when that has results, else the type with the most; the choice resets when the search is cleared. The header reads "Search" and "N results for “query”" (the total across types). The guide keeps its own live-only search
 - **Keyboard navigation in the channel grid** - arrow keys move one card, `Home`/`End` to the ends of the row (with `Ctrl` of the list), `Page Up`/`Page Down` one screen, `Enter` does what a click does; Arrow Down in the search box goes to the first result
   - WAI-ARIA grid with `aria-activedescendant` on the scroll container (`useGridKeyboardNav`, pure math in `lib/gridNav`), as in the 2026-09-10 design: the cards keep no `tabIndex` and are untouched, the cells around them carry the semantics and the ring
   - The ring shows only while the keyboard drives; a click makes a card active without one. The row scrolled into view stays above the dock

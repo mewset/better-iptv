@@ -4,13 +4,18 @@ A simple overview of new features and improvements.
 
 ---
 
+## Unreleased
+
+### New Features
+
+- Search results are split into Movies, Series and Live TV tabs, with posters for movies and series; a movie or series opens its page instead of playing
+
 ## Version 3.4.0 (November 17, 2026)
 
 ### New Features
 
 - The banner in Movies and Series now rotates through trending and popular titles from your library
 - Added sorting for Movies and Series, e.g. by name, year, rating or recently added. Update your Xtream playlist once to get ratings and dates
-- Search results are split into Movies, Series and Live TV tabs, with posters for movies and series; a movie or series opens its page instead of playing
 - Added moving through channels, movies and series with the arrow keys; press Enter to play
 - Added search that finds names whatever their accents, e.g. "tele" finds "Télé"
 - Added a button that clears the search box
