@@ -16,7 +16,6 @@ A simple overview of new features and improvements.
 
 ### Improvements
 
-- You can hide the cast row on movie and series pages (Settings › Metadata)
 - Error messages now say what went wrong, e.g. when a playlist cannot be imported or a channel cannot start
 - Parental controls in Settings now open with your PIN while they are turned on
 - Deleting a profile now asks first
