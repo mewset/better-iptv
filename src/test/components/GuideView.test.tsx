@@ -156,33 +156,45 @@ describe('GuideView', () => {
     expect(props.onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it('a Favorites chip narrows the rows to favourites and All restores every channel', async () => {
+  it('the Favorites switch narrows the rows to favourites and back', async () => {
     const favSvt1 = { ...svt1, is_favorite: true };
     usePlayerStore.setState({ categories: ['Sweden'], categoryFilter: null });
     renderGuide({ channels: [favSvt1, tv4] });
     expect(await screen.findByRole('row', { name: 'SVT1' })).toBeInTheDocument();
     expect(screen.getByRole('row', { name: 'TV4' })).toBeInTheDocument();
 
-    const chip = screen.getByRole('button', { name: 'Favorites' });
-    expect(chip).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(chip);
-
-    expect(chip).toHaveAttribute('aria-pressed', 'true');
+    const favorites = screen.getByRole('switch', { name: 'Favorites' });
+    expect(favorites).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(favorites);
+    expect(favorites).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('row', { name: 'SVT1' })).toBeInTheDocument();
     expect(screen.queryByRole('row', { name: 'TV4' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'false');
 
-    fireEvent.click(screen.getByRole('button', { name: 'All' }));
-    expect(chip).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(favorites);
+    expect(favorites).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByRole('row', { name: 'TV4' })).toBeInTheDocument();
     // TV4 is back and its programmes are asked for; let them land before the test ends
     await settle();
   });
 
+  it('the category button opens the category panel, as in Movies and Series', async () => {
+    usePlayerStore.setState({ categories: ['Sweden', 'Norway'], categoryFilter: null });
+    renderGuide();
+    await screen.findByRole('row', { name: 'SVT1' });
+    // No sideways chip row: the categories are in the panel
+    expect(screen.queryByRole('button', { name: 'Sweden' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Category: All categories' }));
+    const panel = screen.getByRole('dialog');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Norway' }));
+    expect(usePlayerStore.getState().categoryFilter).toBe('Norway');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Category: Norway' })).toBeInTheDocument();
+  });
+
   it('says so when Favorites is on and no channel is a favourite', async () => {
     renderGuide();
     await screen.findByRole('row', { name: 'SVT1' });
-    fireEvent.click(screen.getByRole('button', { name: 'Favorites' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Favorites' }));
     expect(screen.getByText('No favorite channels yet')).toBeInTheDocument();
   });
 
@@ -709,7 +721,7 @@ describe('GuideView', () => {
     expect(virtualiser.offsetsAsked.every((o) => o === 640)).toBe(true);
 
     virtualiser.offsetsAsked = [];
-    fireEvent.click(screen.getByRole('button', { name: 'Favorites' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Favorites' }));
     expect(virtualiser.offsetsAsked[0]).toBe(0);
   });
 

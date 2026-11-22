@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { CalendarRange, Lock, Play, X } from 'lucide-react';
+import { CalendarRange, ChevronDown, ListFilter, Lock, Play, X } from 'lucide-react';
 import { usePlayerStore, type ChannelLoadStatus } from '../stores/player-store';
 import type { Channel } from '../types';
 import type { Programme } from '../lib/epgIpc';
@@ -17,7 +17,8 @@ import { useChannelLogo } from '../hooks/useChannelLogo';
 import { useGuide } from '../hooks/useGuide';
 import { hasNoEnabledSource, useEpgStatus } from '../hooks/useEpgStatus';
 import { useNow } from '../hooks/useNow';
-import { CategoryBar } from './CategoryBar';
+import { CategoryPanel } from './CategoryPanel';
+import { BAR_CONTROL } from './barControl';
 import { ColorBars } from './ColorBars';
 import { ChannelLoadError } from './ChannelLoadError';
 
@@ -50,11 +51,6 @@ function isAiring(p: Programme, now: number): boolean {
   const end = Date.parse(p.stop);
   return start <= now && now < end;
 }
-
-const CHIP =
-  'inline-flex h-[34px] shrink-0 items-center justify-center whitespace-nowrap rounded-full border px-3.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg';
-const CHIP_ACTIVE = 'border-text bg-text font-semibold text-bg';
-const CHIP_IDLE = 'border-border bg-text/5 font-medium text-text-muted hover:bg-text/10';
 
 function LogoTile({
   channel,
@@ -411,6 +407,7 @@ export function GuideView({
   const { status, failed: statusFailed } = useEpgStatus();
   // Session-only: the view remembers it while mounted, a fresh guide starts on all.
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
   const categoryFilter = usePlayerStore((s) => s.categoryFilter);
 
   const listed = useMemo(
@@ -553,41 +550,73 @@ export function GuideView({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-4 px-10 pt-6">
-        <div role="tablist" aria-label="Day" className="flex shrink-0 gap-2 py-3 pb-6">
-          {days.map((label, i) => (
-            <button
-              key={i}
-              type="button"
-              role="tab"
-              aria-selected={dayOffset === i}
-              onClick={() => handleDay(i)}
-              className={cn(CHIP, dayOffset === i ? CHIP_ACTIVE : CHIP_IDLE)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="flex min-w-0 flex-1 items-center">
-          <div className="shrink-0 py-3 pb-6 pl-4">
-            <button
-              type="button"
-              aria-pressed={favoritesOnly}
-              onClick={() => {
-                setFavoritesOnly((on) => !on);
-                setSelection(null);
-              }}
-              className={cn(CHIP, favoritesOnly ? CHIP_ACTIVE : CHIP_IDLE)}
-            >
-              Favorites
-            </button>
+      {/* The bar Movies and Series have (BrowseBar): day tabs, then the
+          Favorites switch and the category button with its panel */}
+      <div className="px-10 pt-2">
+        <div className="flex h-[54px] items-center gap-3 border-b border-border">
+          <div
+            role="tablist"
+            aria-label="Day"
+            className="flex min-w-0 flex-1 gap-[26px] self-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {days.map((label, i) => (
+              <button
+                key={i}
+                type="button"
+                role="tab"
+                aria-selected={dayOffset === i}
+                onClick={() => handleDay(i)}
+                className={cn(
+                  'flex shrink-0 items-center whitespace-nowrap border-y-2 border-t-transparent text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
+                  dayOffset === i
+                    ? 'border-b-accent font-semibold text-text'
+                    : 'border-b-transparent font-medium text-text-muted hover:text-text'
+                )}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-          <div className="min-w-0 flex-1">
-            <CategoryBar
-              allSelected={!favoritesOnly && categoryFilter === null}
-              onAll={() => setFavoritesOnly(false)}
-            />
-          </div>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={favoritesOnly}
+            onClick={() => {
+              setFavoritesOnly((on) => !on);
+              setSelection(null);
+            }}
+            className={cn(BAR_CONTROL, 'font-semibold')}
+          >
+            Favorites
+            <span
+              aria-hidden="true"
+              className={cn(
+                'relative block h-[18px] w-[30px] rounded-full',
+                favoritesOnly ? 'bg-accent' : 'bg-border-strong'
+              )}
+            >
+              <span
+                className={cn(
+                  'absolute top-[2px] h-[14px] w-[14px] rounded-full',
+                  favoritesOnly ? 'right-[2px] bg-on-accent' : 'left-[2px] bg-text-muted'
+                )}
+              />
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setCategoriesOpen(true)}
+            aria-haspopup="dialog"
+            aria-label={`Category: ${categoryFilter ?? 'All categories'}`}
+            className={cn(BAR_CONTROL, 'max-w-[220px]', categoryFilter && 'border-accent')}
+          >
+            <ListFilter className="h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden="true" />
+            <span className="truncate">{categoryFilter ?? 'All categories'}</span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden="true" />
+          </button>
+          <CategoryPanel open={categoriesOpen} onClose={() => setCategoriesOpen(false)} />
         </div>
       </div>
 
