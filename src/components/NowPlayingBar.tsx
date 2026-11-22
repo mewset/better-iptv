@@ -1,5 +1,6 @@
 import { memo, useState } from 'react';
-import { Pause, Play, X } from 'lucide-react';
+import { Pause, Play } from 'lucide-react';
+import { DockCard, DOCK_ACTION } from './DockCard';
 import { useChannelLogo } from '../hooks/useChannelLogo';
 import type { Channel } from '../types';
 import type { NowNext } from '../lib/epgIpc';
@@ -131,27 +132,10 @@ export const NowPlayingBar = memo(function NowPlayingBar({
       aria-label="Now playing"
       className="absolute bottom-6 left-1/2 w-[min(880px,calc(100%-80px))] -translate-x-1/2"
     >
-      <div
-        role="button"
-        tabIndex={0}
-        title="Show player"
-        aria-label={`Show player: ${title}`}
-        onClick={bringPlayer}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            bringPlayer();
-          }
-        }}
-        className={`relative flex ${description ? 'h-[112px]' : 'h-[92px]'} cursor-pointer items-center gap-4 rounded-[18px] border border-border-strong bg-surface py-0 pl-3 pr-11 shadow-[0_20px_50px_rgba(0,0,0,.5)] hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent`}
-      >
-        {/* Artwork: a 2:3 poster, or a wider tile for a channel's logo */}
-        <div
-          className={`relative shrink-0 overflow-hidden rounded-md bg-surface-2 ${
-            live ? 'h-[66px] w-[100px] border border-border-strong' : 'h-[66px] w-[44px]'
-          }`}
-        >
-          {art ? (
+      <DockCard
+        wide={live}
+        art={
+          art ? (
             <img
               src={art}
               alt=""
@@ -161,93 +145,39 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             />
           ) : (
             <ColorBars label={owner.name} />
-          )}
-        </div>
-
-        <div className="grid min-w-0 flex-1 gap-0.5">
-          <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[12.5px] text-text-muted">
-            {paused && <Tag>PAUSED</Tag>}
-            {live && <Tag>LIVE</Tag>}
-            <span className="min-w-0 truncate">{eyebrow}</span>
-            {detail && <span className="min-w-0 truncate text-text-faint">· {detail}</span>}
-          </div>
-          {/* The title; for live, what is next at the line's end, over the bar's end */}
-          <div className="flex min-w-0 items-baseline gap-4 pr-[100px]">
-            <span className="min-w-0 truncate font-display text-[17px] font-semibold leading-snug text-text">
-              {title}
-            </span>
-            {next && (
-              <span className="ml-auto min-w-0 shrink truncate text-[12.5px] text-text-muted">
-                Next · <b className="font-semibold text-text">{next.time}</b> {next.title}
-              </span>
+          )
+        }
+        tags={[...(paused ? ['PAUSED'] : []), ...(live ? ['LIVE'] : [])]}
+        eyebrow={eyebrow}
+        detail={detail}
+        title={title}
+        next={next}
+        description={description}
+        fraction={fraction}
+        left={left}
+        quiet={noGuide ? 'No guide for this channel' : null}
+        surface={{ label: `Show player: ${title}`, title: 'Show player', onActivate: bringPlayer }}
+        action={
+          <button
+            type="button"
+            aria-label={paused ? 'Play' : 'Pause'}
+            onClick={(e) => {
+              e.stopPropagation();
+              togglePause();
+            }}
+            className={DOCK_ACTION}
+          >
+            {paused ? (
+              <Play className="h-[19px] w-[19px] fill-current" aria-hidden="true" />
+            ) : (
+              <Pause className="h-[19px] w-[19px] fill-current" aria-hidden="true" />
             )}
-          </div>
-          {description && (
-            <p className="min-w-0 truncate text-[12.5px] text-text-muted">{description}</p>
-          )}
-          {noGuide ? (
-            <p className="mt-0.5 min-h-[18px] text-[12.5px] text-text-faint">
-              No guide for this channel
-            </p>
-          ) : (
-            <div className="mt-1 flex items-center gap-3">
-              <div
-                role="progressbar"
-                aria-label="Progress"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={fraction === null ? undefined : Math.round(fraction * 100)}
-                className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-text/10"
-              >
-                {fraction !== null && (
-                  <div
-                    className="h-full rounded-full bg-accent"
-                    style={{ width: `${fraction * 100}%` }}
-                  />
-                )}
-              </div>
-              <span className="w-[88px] shrink-0 text-xs text-text-muted">{left ?? ''}</span>
-            </div>
-          )}
-        </div>
-
-        <button
-          type="button"
-          aria-label={paused ? 'Play' : 'Pause'}
-          onClick={(e) => {
-            e.stopPropagation();
-            togglePause();
-          }}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent text-on-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-        >
-          {paused ? (
-            <Play className="h-[19px] w-[19px] fill-current" aria-hidden="true" />
-          ) : (
-            <Pause className="h-[19px] w-[19px] fill-current" aria-hidden="true" />
-          )}
-        </button>
-
-        <button
-          type="button"
-          aria-label="Stop playback"
-          title="Close the player"
-          onClick={(e) => {
-            e.stopPropagation();
-            onStop();
-          }}
-          className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md text-text-faint hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </button>
-      </div>
+          </button>
+        }
+        closeLabel="Stop playback"
+        closeTitle="Close the player"
+        onClose={onStop}
+      />
     </aside>
   );
 });
-
-function Tag({ children }: { children: string }) {
-  return (
-    <span className="shrink-0 rounded border border-border-strong bg-text/5 px-1.5 text-[10px] font-bold leading-4 tracking-[0.08em] text-text">
-      {children}
-    </span>
-  );
-}

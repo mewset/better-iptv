@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { CalendarRange, Lock, Play, X } from 'lucide-react';
+import { CalendarRange, Lock, Play } from 'lucide-react';
 import { usePlayerStore, type ChannelLoadStatus } from '../stores/player-store';
 import type { Channel } from '../types';
 import type { Programme } from '../lib/epgIpc';
@@ -18,6 +18,7 @@ import { useGuide } from '../hooks/useGuide';
 import { hasNoEnabledSource, useEpgStatus } from '../hooks/useEpgStatus';
 import { useNow } from '../hooks/useNow';
 import { CategoryBar } from './CategoryBar';
+import { DockCard, DOCK_ACTION } from './DockCard';
 import { ColorBars } from './ColorBars';
 import { ChannelLoadError } from './ChannelLoadError';
 
@@ -272,16 +273,18 @@ interface DetailPanelProps {
   panelRef: React.RefObject<globalThis.HTMLElement | null>;
 }
 
+/**
+ * The selected programme, drawn as the now-playing dock is (DockCard): what
+ * Watch now starts looks the same once it plays, the amber button turning
+ * from play to pause in place.
+ */
 function DetailPanel({ selection, now, playing, onWatch, onClose, panelRef }: DetailPanelProps) {
   const { channel, programme } = selection;
   const logo = useChannelLogo(channel);
   const airing = isAiring(programme, now);
-  const range = timeRange(programme);
   const mins = airing ? minutesLeft(programme.stop, now) : null;
   const pct = airing ? progressPercent(programme.start, programme.stop, now) : null;
-  const meta = [channel.name, range, mins !== null ? `${mins} min left` : '']
-    .filter(Boolean)
-    .join(' · ');
+  const ended = !airing && Date.parse(programme.stop) <= now;
 
   // A selected programme takes the focus to the panel's first button that can
   // be pressed: Watch now, or Close when that channel already plays. The panel
@@ -295,59 +298,52 @@ function DetailPanel({ selection, now, playing, onWatch, onClose, panelRef }: De
     <section
       ref={panelRef}
       aria-label="Selected programme"
-      className={cn(
-        'absolute bottom-6 left-1/2 z-20 flex w-[min(880px,calc(100%-80px))] -translate-x-1/2 items-center gap-4 rounded-[18px] border border-border-strong bg-surface/85 p-3 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-2xl no-backdrop:bg-surface'
-      )}
+      className="absolute bottom-6 left-1/2 z-20 w-[min(880px,calc(100%-80px))] -translate-x-1/2"
     >
-      <div className="relative h-[52px] w-[52px] shrink-0 overflow-hidden rounded-xl bg-surface-2">
-        {logo.src ? (
-          <img
-            src={logo.src}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            draggable={false}
-            onError={logo.onError}
-            className="h-full w-full object-contain p-1"
-          />
-        ) : (
-          <ColorBars label={channel.name} />
-        )}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <h2 className="truncate font-display text-xl font-semibold text-text">{programme.title}</h2>
-        <p className="truncate text-sm text-text-muted">{meta}</p>
-        {programme.description && (
-          <p className="truncate text-sm text-text-muted">{programme.description}</p>
-        )}
-        {pct !== null && (
-          <div data-progress className="mt-2 h-1 w-[360px] max-w-full rounded-full bg-text/10">
-            <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
-          </div>
-        )}
-      </div>
-
-      <button
-        type="button"
-        disabled={playing}
-        aria-disabled={playing}
-        onClick={() => {
-          if (!playing) onWatch(channel);
-        }}
-        className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-default disabled:hover:bg-accent"
-      >
-        {!playing && <Play className="h-4 w-4 fill-current" aria-hidden="true" />}
-        {playing ? 'Playing' : 'Watch now'}
-      </button>
-      <button
-        type="button"
-        aria-label="Close programme details"
-        onClick={onClose}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-text/10 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      >
-        <X className="h-4 w-4" aria-hidden="true" />
-      </button>
+      <DockCard
+        wide
+        art={
+          logo.src ? (
+            <img
+              src={logo.src}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              draggable={false}
+              onError={logo.onError}
+              className="h-full w-full object-contain p-2"
+            />
+          ) : (
+            <ColorBars label={channel.name} />
+          )
+        }
+        tags={airing ? ['LIVE'] : []}
+        eyebrow={channel.name}
+        detail={timeRange(programme) || null}
+        title={programme.title}
+        titleHeading
+        description={programme.description}
+        fraction={pct === null ? null : pct / 100}
+        left={mins === null ? null : `${mins} min left`}
+        quiet={airing ? null : ended ? 'Ended' : `Starts at ${formatClock(programme.start)}`}
+        action={
+          <button
+            type="button"
+            aria-label={playing ? 'Playing' : 'Watch now'}
+            title={playing ? 'Playing' : 'Watch now'}
+            disabled={playing}
+            aria-disabled={playing}
+            onClick={() => {
+              if (!playing) onWatch(channel);
+            }}
+            className={DOCK_ACTION}
+          >
+            <Play className="h-[19px] w-[19px] fill-current" aria-hidden="true" />
+          </button>
+        }
+        closeLabel="Close programme details"
+        onClose={onClose}
+      />
     </section>
   );
 }

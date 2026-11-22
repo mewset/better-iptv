@@ -409,7 +409,10 @@ describe('GuideView', () => {
     const panel = screen.getByRole('region', { name: 'Selected programme' });
     expect(within(panel).getByText('Rapport')).toBeInTheDocument();
     expect(within(panel).getByText('The evening news.')).toBeInTheDocument();
-    expect(within(panel).getByText(/SVT1 · .* · \d+ min left/)).toBeInTheDocument();
+    // Drawn as the now-playing dock: LIVE, channel and times, minutes left
+    expect(within(panel).getByText('LIVE')).toBeInTheDocument();
+    expect(within(panel).getByText('SVT1')).toBeInTheDocument();
+    expect(within(panel).getByText(/\d+ min left/)).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Watch now' })).toBeInTheDocument();
     expect(panel.querySelector('[data-progress]')).not.toBeNull();
   });
