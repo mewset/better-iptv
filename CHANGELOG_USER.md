@@ -8,6 +8,8 @@ A simple overview of new features and improvements.
 
 ### New Features
 
+- The TV guide and Live TV have a category sidebar: your pinned categories, then the rest grouped (by country, year and kind) with channel counts; hide it with [ and the active category stays shown in the bar
+- The TV guide greys out days your guide has no listings for yet
 - Movies and Series have a new bar: genres along the top, a categories panel, a 4K switch and 4K badges on posters
 
 ## Version 3.4.0 (November 17, 2026)

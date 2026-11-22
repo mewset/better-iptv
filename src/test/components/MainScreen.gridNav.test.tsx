@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
@@ -77,7 +77,15 @@ const grid = (name: string) => screen.findByRole('grid', { name });
 const press = (el: HTMLElement, key: string) => fireEvent.keyDown(el, { key });
 
 describe('MainScreen: keyboard navigation in the grid', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   beforeEach(() => {
+    // The grid's own width: Live TV's category sidebar hidden (the test
+    // environment has no storage of its own)
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => (key === 'biptv.live.categories' ? 'hidden' : null),
+      setItem: () => {},
+    });
     virtualiser.scrollToIndex.mockClear();
     virtualiser.options = [];
     useEpgStore.setState(useEpgStore.getInitialState(), true);

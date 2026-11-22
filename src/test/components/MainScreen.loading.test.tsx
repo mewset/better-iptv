@@ -279,11 +279,12 @@ describe('MainScreen: channel load placeholders', () => {
       channelLoad: { live: 'loaded', library: 'loaded' },
     });
     await renderSettled(<MainScreen />);
-    expect(await screen.findByRole('button', { name: 'Sweden' })).toBeInTheDocument();
+    // Live TV lists its categories in the sidebar
+    expect(await screen.findByRole('button', { name: /^Sweden/ })).toBeInTheDocument();
 
     act(() => usePlayerStore.setState({ contentTypeFilter: 'vod' }));
     await waitFor(() => expect(usePlayerStore.getState().categories).toBeNull());
-    expect(screen.queryByRole('button', { name: 'Sweden' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Sweden/ })).toBeNull();
 
     await act(async () => answerMovies({ pinned: [], others: ['Action'] }));
     // Movies keeps its categories in the side panel, not as chips

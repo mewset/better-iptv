@@ -177,18 +177,86 @@ describe('GuideView', () => {
     await settle();
   });
 
-  it('the category button opens the category panel, as in Movies and Series', async () => {
-    usePlayerStore.setState({ categories: ['Sweden', 'Norway'], categoryFilter: null });
+  it('the category sidebar groups the categories; picking one in a folder filters', async () => {
+    usePlayerStore.setState({
+      categories: ['UK Sports', 'UK News', 'Norway'],
+      pinnedCategories: [],
+      categoryFilter: null,
+      liveChannels: [svt1, tv4],
+    });
     renderGuide();
     await screen.findByRole('row', { name: 'SVT1' });
-    // No sideways chip row: the categories are in the panel
-    expect(screen.queryByRole('button', { name: 'Sweden' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Category: All categories' }));
-    const panel = screen.getByRole('dialog');
-    fireEvent.click(within(panel).getByRole('button', { name: 'Norway' }));
-    expect(usePlayerStore.getState().categoryFilter).toBe('Norway');
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Category: Norway' })).toBeInTheDocument();
+    const side = within(screen.getByRole('navigation', { name: 'Categories' }));
+    expect(side.getByRole('button', { name: /All channels/ })).toHaveAttribute(
+      'aria-current',
+      'true'
+    );
+    // "UK Sports" and "UK News" fold into United Kingdom, shown without the prefix
+    const uk = side.getByRole('button', { name: /United Kingdom/ });
+    expect(uk).toHaveAttribute('aria-expanded', 'false');
+    expect(side.queryByRole('button', { name: /^Sports/ })).toBeNull();
+    fireEvent.click(uk);
+    fireEvent.click(side.getByRole('button', { name: /^Sports/ }));
+    expect(usePlayerStore.getState().categoryFilter).toBe('UK Sports');
+    expect(side.getByRole('button', { name: /^Sports/ })).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('the sidebar filter lists matches by full name, and Escape empties it without leaving', async () => {
+    usePlayerStore.setState({
+      categories: ['UK Sports', 'UK News', 'Norway'],
+      pinnedCategories: [],
+      categoryFilter: null,
+      liveChannels: [svt1, tv4],
+    });
+    const escape = vi.fn();
+    document.addEventListener('keydown', escape);
+    try {
+      renderGuide();
+      await screen.findByRole('row', { name: 'SVT1' });
+      const side = within(screen.getByRole('navigation', { name: 'Categories' }));
+      const box = side.getByRole('textbox', { name: 'Filter categories' });
+      fireEvent.change(box, { target: { value: 'news' } });
+      expect(side.getByRole('button', { name: /^UK News/ })).toBeInTheDocument();
+      expect(side.queryByRole('button', { name: /Norway/ })).toBeNull();
+      fireEvent.keyDown(box, { key: 'Escape' });
+      expect(box).toHaveValue('');
+      expect(escape).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', escape);
+    }
+  });
+
+  it('with the sidebar hidden, an active category stays plain: a dot, a pill, and × clears it', async () => {
+    usePlayerStore.setState({
+      categories: ['Norway'],
+      categoryFilter: 'Norway',
+      liveChannels: [svt1, tv4],
+    });
+    renderGuide();
+    await screen.findByRole('navigation', { name: 'Categories' });
+    // Shown: the sidebar marks it, no pill
+    expect(screen.queryByRole('button', { name: 'Clear the category Norway' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Hide categories' }));
+    expect(screen.getByText('Category:')).toBeInTheDocument();
+    // The pill opens the sidebar
+    fireEvent.click(screen.getByText('Norway'));
+    expect(screen.getByRole('navigation', { name: 'Categories' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Hide categories' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear the category Norway' }));
+    expect(usePlayerStore.getState().categoryFilter).toBeNull();
+    expect(screen.queryByText('Category:')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show categories' }));
+  });
+
+  it('"[" and the bar button hide and show the sidebar', async () => {
+    usePlayerStore.setState({ categories: ['Norway'], liveChannels: [svt1, tv4] });
+    renderGuide();
+    await screen.findByRole('row', { name: 'SVT1' });
+    expect(screen.getByRole('navigation', { name: 'Categories' })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: '[' });
+    expect(screen.queryByRole('navigation', { name: 'Categories' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show categories' }));
+    expect(screen.getByRole('navigation', { name: 'Categories' })).toBeInTheDocument();
   });
 
   it('says so when Favorites is on and no channel is a favourite', async () => {
@@ -384,6 +452,24 @@ describe('GuideView', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('greys out the days past the guide data, and keeps Today', async () => {
+    mockedInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_epg_guide') return guide;
+      if (cmd === 'get_epg_guide_keys') return guideIds;
+      // The guide ends in an hour: no later day has anything to show
+      if (cmd === 'get_epg_status') return epgStatus(true, { guide_until: at(60) });
+      return null;
+    });
+    renderGuide();
+    await screen.findByRole('row', { name: 'SVT1' });
+    const tabs = screen.getAllByRole('tab');
+    await waitFor(() => expect(tabs[1]).toBeDisabled());
+    expect(tabs[0]).not.toBeDisabled();
+    expect(tabs[1]).toHaveAttribute('title', 'No guide data for this day yet');
+    fireEvent.click(tabs[1]);
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
   });
 
   it('shows no detail panel until a block is selected', async () => {
@@ -765,9 +851,10 @@ describe('GuideView', () => {
     expect(screen.getByRole('region', { name: 'Selected programme' })).toBeInTheDocument();
 
     // Only TV4's row is rendered now; SVT1 has scrolled away. Any store change
-    // GuideView reads re-renders it with the narrower range.
+    // GuideView reads (here the live list, for the sidebar's counts)
+    // re-renders it with the narrower range.
     virtualiser.visible = [1, 1];
-    act(() => usePlayerStore.setState({ categoryFilter: 'Sweden' }));
+    act(() => usePlayerStore.setState({ liveChannels: [svt1, tv4] }));
     await waitFor(() => expect(screen.queryByRole('row', { name: 'SVT1' })).toBeNull());
     expect(screen.getByRole('region', { name: 'Selected programme' })).toBeInTheDocument();
 

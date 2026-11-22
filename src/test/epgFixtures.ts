@@ -40,6 +40,7 @@ export function epgStatus(hasSource = true, overrides: Partial<EpgStatus> = {}):
     guide_downloaded: hasSource,
     next_auto_refresh: null,
     matches: null,
+    guide_until: null,
     ...overrides,
   };
 }

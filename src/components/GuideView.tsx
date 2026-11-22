@@ -1,12 +1,13 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { CalendarRange, ChevronDown, ListFilter, Lock, Play, X } from 'lucide-react';
+import { CalendarRange, Lock, Play, X } from 'lucide-react';
 import { usePlayerStore, type ChannelLoadStatus } from '../stores/player-store';
 import type { Channel } from '../types';
 import type { Programme } from '../lib/epgIpc';
 import {
   blockGeometry,
   guideDayLabels,
+  guideWindow,
   layoutLanes,
   type Lane,
   type LaneLayout,
@@ -17,7 +18,9 @@ import { useChannelLogo } from '../hooks/useChannelLogo';
 import { useGuide } from '../hooks/useGuide';
 import { hasNoEnabledSource, useEpgStatus } from '../hooks/useEpgStatus';
 import { useNow } from '../hooks/useNow';
-import { CategoryPanel } from './CategoryPanel';
+import { CategorySidebar } from './CategorySidebar';
+import { CategorySidebarToggle } from './CategorySidebarToggle';
+import { useCategorySidebar } from '../hooks/useCategorySidebar';
 import { BAR_CONTROL } from './barControl';
 import { ColorBars } from './ColorBars';
 import { ChannelLoadError } from './ChannelLoadError';
@@ -407,8 +410,9 @@ export function GuideView({
   const { status, failed: statusFailed } = useEpgStatus();
   // Session-only: the view remembers it while mounted, a fresh guide starts on all.
   const [favoritesOnly, setFavoritesOnly] = useState(false);
-  const [categoriesOpen, setCategoriesOpen] = useState(false);
-  const categoryFilter = usePlayerStore((s) => s.categoryFilter);
+  // The category sidebar beside the guide, remembered on this device; "[" toggles it
+  const liveChannels = usePlayerStore((s) => s.liveChannels);
+  const [sidebarOpen, toggleSidebar] = useCategorySidebar('biptv.guide.categories', true);
 
   const listed = useMemo(
     () => (favoritesOnly ? channels.filter((c) => c.is_favorite) : channels),
@@ -501,6 +505,11 @@ export function GuideView({
   const nowDate = new Date(now);
   const dayStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
   const days = useMemo(() => guideDayLabels(dayStart), [dayStart]);
+  // A day whose shown window starts after the guide's last programme has
+  // nothing to show: its tab is greyed out (Today always has the tab)
+  const guideUntil = status?.guide_until ? Date.parse(status.guide_until) : null;
+  const dayHasGuide = (offset: number) =>
+    offset === 0 || guideUntil === null || guideWindow(now, offset).from < guideUntil;
 
   // At midnight every day chip, and so the window, moves on a day: a
   // programme selected on the old one is closed, as a day change closes it.
@@ -549,195 +558,195 @@ export function GuideView({
   }
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
-      {/* The bar Movies and Series have (BrowseBar): day tabs, then the
-          Favorites switch and the category button with its panel */}
-      <div className="px-10 pt-2">
-        <div className="flex h-[54px] items-center gap-3 border-b border-border">
-          <div
-            role="tablist"
-            aria-label="Day"
-            className="flex min-w-0 flex-1 gap-[26px] self-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            {days.map((label, i) => (
-              <button
-                key={i}
-                type="button"
-                role="tab"
-                aria-selected={dayOffset === i}
-                onClick={() => handleDay(i)}
+    <div className="flex min-h-0 flex-1">
+      {sidebarOpen && <CategorySidebar channels={liveChannels} allLabel="All channels" />}
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* The guide's bar, in the browse bar's style: the categories toggle,
+          day tabs, the Favorites switch */}
+        <div className={cn('pr-10 pt-2', sidebarOpen ? 'pl-6' : 'pl-10')}>
+          <div className="flex h-[54px] items-center gap-3 border-b border-border">
+            <CategorySidebarToggle open={sidebarOpen} onToggle={toggleSidebar} />
+            <div
+              role="tablist"
+              aria-label="Day"
+              className="flex min-w-0 flex-1 gap-[26px] self-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {days.map((label, i) => {
+                const empty = !dayHasGuide(i);
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    role="tab"
+                    aria-selected={dayOffset === i}
+                    aria-disabled={empty && dayOffset !== i}
+                    disabled={empty && dayOffset !== i}
+                    title={empty ? 'No guide data for this day yet' : undefined}
+                    onClick={() => handleDay(i)}
+                    className={cn(
+                      'flex shrink-0 items-center whitespace-nowrap border-y-2 border-t-transparent text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
+                      dayOffset === i
+                        ? 'border-b-accent font-semibold text-text'
+                        : empty
+                          ? 'cursor-default border-b-transparent font-medium text-text-faint/60'
+                          : 'border-b-transparent font-medium text-text-muted hover:text-text'
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={favoritesOnly}
+              onClick={() => {
+                setFavoritesOnly((on) => !on);
+                setSelection(null);
+              }}
+              className={cn(BAR_CONTROL, 'font-semibold')}
+            >
+              Favorites
+              <span
+                aria-hidden="true"
                 className={cn(
-                  'flex shrink-0 items-center whitespace-nowrap border-y-2 border-t-transparent text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
-                  dayOffset === i
-                    ? 'border-b-accent font-semibold text-text'
-                    : 'border-b-transparent font-medium text-text-muted hover:text-text'
+                  'relative block h-[18px] w-[30px] rounded-full',
+                  favoritesOnly ? 'bg-accent' : 'bg-border-strong'
                 )}
               >
-                {label}
-              </button>
-            ))}
+                <span
+                  className={cn(
+                    'absolute top-[2px] h-[14px] w-[14px] rounded-full',
+                    favoritesOnly ? 'right-[2px] bg-on-accent' : 'left-[2px] bg-text-muted'
+                  )}
+                />
+              </span>
+            </button>
           </div>
-
-          <button
-            type="button"
-            role="switch"
-            aria-checked={favoritesOnly}
-            onClick={() => {
-              setFavoritesOnly((on) => !on);
-              setSelection(null);
-            }}
-            className={cn(BAR_CONTROL, 'font-semibold')}
-          >
-            Favorites
-            <span
-              aria-hidden="true"
-              className={cn(
-                'relative block h-[18px] w-[30px] rounded-full',
-                favoritesOnly ? 'bg-accent' : 'bg-border-strong'
-              )}
-            >
-              <span
-                className={cn(
-                  'absolute top-[2px] h-[14px] w-[14px] rounded-full',
-                  favoritesOnly ? 'right-[2px] bg-on-accent' : 'left-[2px] bg-text-muted'
-                )}
-              />
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setCategoriesOpen(true)}
-            aria-haspopup="dialog"
-            aria-label={`Category: ${categoryFilter ?? 'All categories'}`}
-            className={cn(BAR_CONTROL, 'max-w-[220px]', categoryFilter && 'border-accent')}
-          >
-            <ListFilter className="h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden="true" />
-            <span className="truncate">{categoryFilter ?? 'All categories'}</span>
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden="true" />
-          </button>
-          <CategoryPanel open={categoriesOpen} onClose={() => setCategoriesOpen(false)} />
         </div>
-      </div>
 
-      <div
-        ref={scrollRef}
-        className={cn(
-          // relative: the table's offsetTop (the virtualizer's scrollMargin) is
-          // then measured from this scroll container, not from the chip row above.
-          'relative flex-1 overflow-y-auto px-10',
-          selection && dockVisible ? 'pb-56' : 'pb-32'
-        )}
-      >
-        {loadStatus === 'error' ? (
-          <ChannelLoadError onRetry={onRetry} />
-        ) : loadStatus === 'loading' || rowsLoading || (status === null && !statusFailed) ? (
-          <p className="py-16 text-center text-text-muted">Loading guide…</p>
-        ) : rows.length === 0 ? (
-          <p className="py-16 text-center text-text-muted">
-            {listed.length > 0
-              ? 'None of these channels has guide data'
-              : query
-                ? `No matches for \u201c${query}\u201d`
-                : favoritesOnly
-                  ? 'No favorite channels yet'
-                  : 'No channels in this list'}
-          </p>
-        ) : (
-          <>
-            <div className="sticky top-0 z-10 bg-bg pb-2">
-              <div className="relative ml-[200px] h-6">
-                {ticks.map(
-                  (tick) =>
-                    !underNowLabel(tick.at) && (
-                      <span
-                        key={tick.at}
-                        className="absolute top-1 text-xs text-text-faint"
-                        style={{ left: `${tick.pct}%` }}
-                      >
-                        {tick.label}
-                      </span>
-                    )
-                )}
-                {nowPct !== null && (
-                  <span
-                    className="absolute top-0 -translate-x-1/2 rounded-md bg-accent px-1.5 py-0.5 text-[11px] font-bold text-on-accent"
-                    style={{ left: `${nowPct}%` }}
-                  >
-                    {nowLabel}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div
-              ref={tableRef}
-              role="table"
-              aria-label="TV guide"
-              aria-rowcount={rows.length}
-              className="relative"
-              style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-            >
-              {/* Before the rows so blocks paint over it: the line shows through
-                  translucent blocks and never cuts through a title. */}
-              {nowPct !== null && (
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-y-0 left-[200px] right-0"
-                >
-                  <div
-                    data-testid="guide-now-line"
-                    className="absolute inset-y-0 w-0.5 -translate-x-1/2 bg-accent"
-                    style={{ left: `${nowPct}%` }}
-                  />
-                </div>
-              )}
-              <div role="rowgroup">
-                {virtualRows.map((virtualRow) => {
-                  const channel = rows[virtualRow.index];
-                  return (
-                    <div
-                      key={channel.id}
-                      className="absolute inset-x-0 top-0"
-                      style={{ transform: `translateY(${virtualRow.start - scrollMargin}px)` }}
+        <div
+          ref={scrollRef}
+          className={cn(
+            // relative: the table's offsetTop (the virtualizer's scrollMargin) is
+            // then measured from this scroll container, not from the chip row above.
+            'relative flex-1 overflow-y-auto pr-10',
+            sidebarOpen ? 'pl-6' : 'pl-10',
+            selection && dockVisible ? 'pb-56' : 'pb-32'
+          )}
+        >
+          {loadStatus === 'error' ? (
+            <ChannelLoadError onRetry={onRetry} />
+          ) : loadStatus === 'loading' || rowsLoading || (status === null && !statusFailed) ? (
+            <p className="py-16 text-center text-text-muted">Loading guide…</p>
+          ) : rows.length === 0 ? (
+            <p className="py-16 text-center text-text-muted">
+              {listed.length > 0
+                ? 'None of these channels has guide data'
+                : query
+                  ? `No matches for \u201c${query}\u201d`
+                  : favoritesOnly
+                    ? 'No favorite channels yet'
+                    : 'No channels in this list'}
+            </p>
+          ) : (
+            <>
+              <div className="sticky top-0 z-10 bg-bg pb-2">
+                <div className="relative ml-[200px] h-6">
+                  {ticks.map(
+                    (tick) =>
+                      !underNowLabel(tick.at) && (
+                        <span
+                          key={tick.at}
+                          className="absolute top-1 text-xs text-text-faint"
+                          style={{ left: `${tick.pct}%` }}
+                        >
+                          {tick.label}
+                        </span>
+                      )
+                  )}
+                  {nowPct !== null && (
+                    <span
+                      className="absolute top-0 -translate-x-1/2 rounded-md bg-accent px-1.5 py-0.5 text-[11px] font-bold text-on-accent"
+                      style={{ left: `${nowPct}%` }}
                     >
-                      <GuideRow
-                        channel={channel}
-                        rowIndex={virtualRow.index + 1}
-                        layout={lanes.get(channel.epg_id!)}
-                        from={win.from}
-                        to={win.to}
-                        now={now}
-                        loading={loading}
-                        playing={playingChannelId === channel.id}
-                        blocked={blockedMap?.get(channel.id) ?? false}
-                        selectedKey={
-                          selection?.channel.id === channel.id
-                            ? blockKey(selection.programme.start, selection.lane)
-                            : null
-                        }
-                        onSelect={handleSelect}
-                      />
-                    </div>
-                  );
-                })}
+                      {nowLabel}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          </>
+
+              <div
+                ref={tableRef}
+                role="table"
+                aria-label="TV guide"
+                aria-rowcount={rows.length}
+                className="relative"
+                style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+              >
+                {/* Before the rows so blocks paint over it: the line shows through
+                  translucent blocks and never cuts through a title. */}
+                {nowPct !== null && (
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 left-[200px] right-0"
+                  >
+                    <div
+                      data-testid="guide-now-line"
+                      className="absolute inset-y-0 w-0.5 -translate-x-1/2 bg-accent"
+                      style={{ left: `${nowPct}%` }}
+                    />
+                  </div>
+                )}
+                <div role="rowgroup">
+                  {virtualRows.map((virtualRow) => {
+                    const channel = rows[virtualRow.index];
+                    return (
+                      <div
+                        key={channel.id}
+                        className="absolute inset-x-0 top-0"
+                        style={{ transform: `translateY(${virtualRow.start - scrollMargin}px)` }}
+                      >
+                        <GuideRow
+                          channel={channel}
+                          rowIndex={virtualRow.index + 1}
+                          layout={lanes.get(channel.epg_id!)}
+                          from={win.from}
+                          to={win.to}
+                          now={now}
+                          loading={loading}
+                          playing={playingChannelId === channel.id}
+                          blocked={blockedMap?.get(channel.id) ?? false}
+                          selectedKey={
+                            selection?.channel.id === channel.id
+                              ? blockKey(selection.programme.start, selection.lane)
+                              : null
+                          }
+                          onSelect={handleSelect}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {selection && (
+          <DetailPanel
+            selection={selection}
+            now={now}
+            dockVisible={dockVisible}
+            playing={playingChannelId === selection.channel.id}
+            onWatch={onPlay}
+            onClose={closeSelection}
+            panelRef={panelRef}
+          />
         )}
       </div>
-
-      {selection && (
-        <DetailPanel
-          selection={selection}
-          now={now}
-          dockVisible={dockVisible}
-          playing={playingChannelId === selection.channel.id}
-          onWatch={onPlay}
-          onClose={closeSelection}
-          panelRef={panelRef}
-        />
-      )}
     </div>
   );
 }
