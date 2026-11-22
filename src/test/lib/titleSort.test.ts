@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_TITLE_SORTS,
+  providerRating,
+  weightedRating,
   loadTitleSorts,
   saveTitleSorts,
   sortTitles,
@@ -65,6 +67,85 @@ describe('sortTitles', () => {
     expect(names(sortTitles(rated, 'rating'))).toEqual(['C', 'E', 'A', 'B', 'D']);
   });
 
+  it('ranks TMDB-rated titles by vote-weighted rating, then provider ratings, then unrated', () => {
+    const list = [
+      { ...title(1, 'One vote'), rating: 10 },
+      { ...title(2, 'Classic'), rating: 8.1 },
+      { ...title(3, 'Provider only'), rating: 9.2 },
+      { ...title(4, 'Perfect ten, no votes known'), rating: 10 },
+      { ...title(5, 'Popular'), rating: 7.0 },
+      title(6, 'Unrated'),
+    ];
+    const ratings = {
+      1: { rating: 10, votes: 1, year: null },
+      2: { rating: 8.4, votes: 30000, year: null },
+      5: { rating: 7.2, votes: 9000, year: null },
+    };
+    expect(names(sortTitles(list, 'rating', ratings))).toEqual([
+      'Classic',
+      'Popular',
+      'One vote',
+      'Provider only',
+      'Perfect ten, no votes known',
+      'Unrated',
+    ]);
+  });
+
+  it('leaves a title TMDB has no votes for to the provider rating', () => {
+    const list: Channel[] = [
+      { ...title(1, 'Year only on TMDB'), rating: 6.1 },
+      { ...title(2, 'Voted on TMDB'), rating: 2 },
+    ];
+    const ratings = {
+      1: { rating: null, votes: 0, year: 2026 },
+      2: { rating: 7, votes: 400, year: 2020 },
+    };
+    expect(names(sortTitles(list, 'rating', ratings))).toEqual([
+      'Voted on TMDB',
+      'Year only on TMDB',
+    ]);
+  });
+
+  it("sorts by TMDB's year, the one the card shows, and by the year in the name without it", () => {
+    const list: Channel[] = [
+      title(1, 'Named Old (1999)'),
+      title(2, 'No year anywhere'),
+      title(3, 'Matched Series'),
+      title(4, 'Matched Newer'),
+      title(5, 'Named New (2024)'),
+    ];
+    const ratings = {
+      3: { rating: 8, votes: 900, year: 2021 },
+      4: { rating: null, votes: 0, year: 2026 },
+    };
+    expect(names(sortTitles(list, 'year', ratings))).toEqual([
+      'Matched Newer',
+      'Named New (2024)',
+      'Matched Series',
+      'Named Old (1999)',
+      'No year anywhere',
+    ]);
+    // Without TMDB only the names say a year, and the rest keep their order
+    expect(names(sortTitles(list, 'year'))).toEqual([
+      'Named New (2024)',
+      'Named Old (1999)',
+      'No year anywhere',
+      'Matched Series',
+      'Matched Newer',
+    ]);
+  });
+
+  it('without TMDB ratings, sorts by the provider rating and sinks a perfect 10', () => {
+    const list = [
+      { ...title(1, 'Ten'), rating: 10 },
+      { ...title(2, 'Nine'), rating: 9.1 },
+      title(3, 'None'),
+      { ...title(4, 'Seven'), rating: 7 },
+    ];
+    expect(names(sortTitles(list, 'rating'))).toEqual(['Nine', 'Seven', 'Ten', 'None']);
+    expect(names(sortTitles(list, 'rating', {}))).toEqual(['Nine', 'Seven', 'Ten', 'None']);
+  });
+
   it('sorts by added date newest first; ties keep list order, undated goes last', () => {
     expect(names(sortTitles(list, 'added'))).toEqual([
       '#Alive (2020)',
@@ -80,6 +161,21 @@ describe('sortTitles', () => {
     sortTitles(list, 'name');
     sortTitles(list, 'added');
     expect(list).toEqual(copy);
+  });
+});
+
+describe('weightedRating / providerRating', () => {
+  it('pulls a rating from few votes towards the average', () => {
+    expect(weightedRating(10, 1, 6.5)).toBeCloseTo(6.51, 2);
+    expect(weightedRating(8.4, 30000, 6.5)).toBeCloseTo(8.38, 2);
+    expect(weightedRating(7, 250, 6)).toBeCloseTo(6.5, 5);
+  });
+
+  it('treats 0, a missing rating and a perfect 10 as no rating', () => {
+    expect(providerRating(9.9)).toBe(9.9);
+    expect(providerRating(10)).toBeNull();
+    expect(providerRating(0)).toBeNull();
+    expect(providerRating(undefined)).toBeNull();
   });
 });
 

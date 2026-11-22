@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import MainScreen from '../../components/MainScreen';
 import { usePlayerStore } from '../../stores/player-store';
 import { useEpgStore } from '../../stores/epg-store';
 import type { Channel, Playlist } from '../../types';
 import { epgStatus } from '../epgFixtures';
+import { renderSettled, settle } from '../renderSettled';
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
@@ -110,7 +111,7 @@ describe('MainScreen: Settings view and navigation', () => {
 
   it('hides the dock while Settings is open and brings it back on leaving', async () => {
     usePlayerStore.setState({ isPlaying: true, currentChannel: svt1 });
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     expect(dock()).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /settings/i }));
@@ -134,7 +135,7 @@ describe('MainScreen: Settings view and navigation', () => {
   const discardDialog = () => screen.queryByRole('dialog');
 
   it('leaves clean Settings straight away from the rail', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     await openSettings();
     fireEvent.click(railButton('Movies'));
     await waitFor(() => expect(settingsOpen()).toBeNull());
@@ -143,7 +144,7 @@ describe('MainScreen: Settings view and navigation', () => {
   });
 
   it('asks before leaving Settings with unsaved edits; Keep editing stays', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     await openSettings();
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.click(railButton('Movies'));
@@ -162,7 +163,7 @@ describe('MainScreen: Settings view and navigation', () => {
   });
 
   it('Discard leaves Settings for the chosen section', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     await openSettings();
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.click(railButton('Movies'));
@@ -175,18 +176,20 @@ describe('MainScreen: Settings view and navigation', () => {
   });
 
   it('Escape with unsaved edits asks too instead of closing', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     await openSettings();
     fireEvent.click(screen.getByRole('checkbox'));
-    document.body.dispatchEvent(
-      new globalThis.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
-    );
+    act(() => {
+      document.body.dispatchEvent(
+        new globalThis.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      );
+    });
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
     expect(settingsOpen()).not.toBeNull();
   });
 
   it('changing section from the rail clears the search', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'svt' } });
     expect(usePlayerStore.getState().searchQuery).toBe('svt');
 
@@ -194,14 +197,18 @@ describe('MainScreen: Settings view and navigation', () => {
 
     expect(usePlayerStore.getState().searchQuery).toBe('');
     expect(screen.getByRole('searchbox')).toHaveValue('');
+    // Movies asks for its categories; let the answer land before the test ends
+    await settle();
   });
 
   it('G clears the search as it switches to the guide', async () => {
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'svt' } });
-    document.body.dispatchEvent(
-      new globalThis.KeyboardEvent('keydown', { key: 'g', bubbles: true, cancelable: true })
-    );
+    act(() => {
+      document.body.dispatchEvent(
+        new globalThis.KeyboardEvent('keydown', { key: 'g', bubbles: true, cancelable: true })
+      );
+    });
     await waitFor(() => expect(usePlayerStore.getState().contentTypeFilter).toBe('guide'));
     expect(usePlayerStore.getState().searchQuery).toBe('');
   });
@@ -211,7 +218,7 @@ describe('MainScreen: Settings view and navigation', () => {
     mockedInvoke.mockImplementation(async (cmd: string, args?: unknown) =>
       cmd === 'get_stale_playlist_ids' ? [1] : base(cmd, args as never)
     );
-    render(<MainScreen />);
+    await renderSettled(<MainScreen />);
     expect(await screen.findByText('Playlist update available')).toBeInTheDocument();
   });
 });

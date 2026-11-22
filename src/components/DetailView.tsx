@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Play, Star, Clapperboard, RefreshCw, Search } from 'lucide-react';
+import {
+  ChevronLeft,
+  Play,
+  Star,
+  Clapperboard,
+  RefreshCw,
+  Search,
+  TriangleAlert,
+} from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { usePlayerStore } from '../stores/player-store';
 import {
@@ -13,6 +21,7 @@ import type { Channel, Episode, SeriesInfo } from '../types';
 import { ColorBars } from './ColorBars';
 import { logger } from '../lib/logger';
 import { errorText } from '../lib/errorText';
+import { cleanEpisodeTitle } from '../lib/episodeTitle';
 
 interface DetailViewProps {
   channel: Channel;
@@ -224,12 +233,14 @@ export default function DetailView({
   }, [tmdbEpisodes, selectedSeason]);
 
   const providerPlot = isSeries ? currentSeries?.info.plot : undefined;
-  const providerCover = isSeries ? (currentSeries?.info.cover ?? channel.logo) : channel.logo;
+  // `||` throughout: a provider that has no value often sends an empty one,
+  // which must not hide the next source (or leave a picture frame empty).
+  const providerCover = isSeries ? currentSeries?.info.cover || channel.logo : channel.logo;
   // `matched && !title` means a manual pick whose detail fetch failed: keep
   // the provider title but leave the TMDB affordances in place.
   const title = details?.matched && details.title ? details.title : channel.name;
-  const overview = details?.overview ?? providerPlot ?? '';
-  const poster = details?.poster_url ?? providerCover ?? null;
+  const overview = details?.overview || providerPlot || '';
+  const poster = details?.poster_url || providerCover || null;
   const backdrop = details?.backdrop_url ?? null;
   const backdropOk = backdrop !== null && backdrop !== failedBackdrop;
   const posterOk = poster !== null && poster !== failedPoster;
@@ -239,21 +250,28 @@ export default function DetailView({
     isSeries ? currentSeries?.info.releaseDate?.slice(0, 4) : undefined
   );
   const tmdbOn = details?.available ?? false;
+  const seasons = currentSeries?.seasons ?? [];
   const firstEpisode = seasonEpisodes[0];
 
   // The title an episode's row shows, which is also what the dock shows while
   // it plays: the provider's own title is often empty.
+  // The episode's own name: providers often prefix it with the series and
+  // its code ("Absentia - S01E01 - Comeback"), which this view already shows.
+  const seriesNames = [channel.name, currentSeries?.info.name ?? '', title];
   const shownTitle = (episode: Episode): string =>
-    episode.title ||
+    cleanEpisodeTitle(episode.title, seriesNames) ||
     tmdbBySeasonEpisode.get(episode.episode_num)?.title ||
     `Episode ${episode.episode_num}`;
+  // Playback keeps the provider's full title (the player shows it without the
+  // series around it), as the rest of the queue does (`remainingFrom`).
+  const playTitle = (episode: Episode): string => episode.title || shownTitle(episode);
   const playFrom = (index: number) => {
     const episode = seasonEpisodes[index];
     if (!episode) return;
     onPlayEpisode(
       episode.id,
       episode.container_extension,
-      shownTitle(episode),
+      playTitle(episode),
       remainingFrom(seasonEpisodes, index)
     );
   };
@@ -263,22 +281,27 @@ export default function DetailView({
       <div
         ref={viewRef}
         tabIndex={-1}
-        className="flex h-full min-h-0 flex-1 items-center justify-center bg-bg outline-none"
+        className="flex h-full min-h-0 flex-1 items-center justify-center bg-bg px-10 pb-32 outline-none"
       >
-        <div className="text-center">
-          <p className="mb-4 font-medium text-danger">{seriesError}</p>
+        {/* The same shape as a channel list that failed to load. */}
+        <div
+          role="alert"
+          className="flex max-w-[560px] flex-col items-center gap-4 text-center text-text-muted"
+        >
+          <TriangleAlert className="h-6 w-6" aria-hidden="true" />
+          <p>{seriesError}</p>
           <div className="flex justify-center gap-2">
             <button
               type="button"
               onClick={() => setSeriesAttempt((n) => n + 1)}
-              className="rounded-md bg-accent px-4 py-2 text-on-accent hover:bg-accent-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              className="h-10 rounded-xl bg-accent px-4 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             >
               Try again
             </button>
             <button
               type="button"
               onClick={onBack}
-              className="rounded-md border border-border-strong px-4 py-2 text-text hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-accent"
+              className="h-10 rounded-xl border border-border-strong px-4 text-sm font-semibold text-text transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Go back
             </button>
@@ -475,42 +498,46 @@ export default function DetailView({
             <p className="text-text-muted">Loading episodes…</p>
           ) : (
             <>
-              <div
-                role="tablist"
-                aria-label="Seasons"
-                className="mb-4 flex gap-1 overflow-x-auto rounded-xl bg-surface-2 p-1"
-              >
-                {currentSeries?.seasons.map((season) => {
-                  const active = selectedSeason === season.season_number;
-                  return (
-                    <button
-                      key={season.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => setSelectedSeason(season.season_number)}
-                      className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
-                        active ? 'bg-accent text-on-accent' : 'text-text-muted hover:text-text'
-                      }`}
-                    >
-                      {season.name}
-                    </button>
-                  );
-                })}
-              </div>
+              {seasons.length > 0 && (
+                <div
+                  role="tablist"
+                  aria-label="Seasons"
+                  className="mb-4 flex gap-1 overflow-x-auto rounded-xl bg-surface-2 p-1"
+                >
+                  {seasons.map((season) => {
+                    const active = selectedSeason === season.season_number;
+                    return (
+                      <button
+                        key={season.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => setSelectedSeason(season.season_number)}
+                        className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+                          active ? 'bg-accent text-on-accent' : 'text-text-muted hover:text-text'
+                        }`}
+                      >
+                        {season.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               {seasonEpisodes.length === 0 ? (
                 <p className="py-8 text-center text-text-muted">
-                  No episodes available for this season
+                  {seasons.length > 0
+                    ? 'No episodes available for this season'
+                    : 'No episodes available'}
                 </p>
               ) : (
                 <ul className="flex flex-col gap-2">
                   {seasonEpisodes.map((episode, index) => {
                     const tmdbEp = tmdbBySeasonEpisode.get(episode.episode_num);
-                    const thumb = episode.info.movie_image ?? tmdbEp?.still_url ?? null;
+                    const thumb = episode.info.movie_image || tmdbEp?.still_url || null;
                     const epTitle = shownTitle(episode);
-                    const plot = episode.info.plot ?? tmdbEp?.overview ?? null;
+                    const plot = episode.info.plot || tmdbEp?.overview || null;
                     const duration =
-                      episode.info.duration ??
+                      episode.info.duration ||
                       (tmdbEp?.runtime_minutes ? `${tmdbEp.runtime_minutes} min` : null);
                     return (
                       <li

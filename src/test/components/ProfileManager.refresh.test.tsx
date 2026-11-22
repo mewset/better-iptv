@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import ProfileManager from '../../components/ProfileManager';
 import { usePlayerStore } from '../../stores/player-store';
 import type { Channel, Playlist } from '../../types';
@@ -120,11 +120,15 @@ describe('ProfileManager refresh of the active profile', () => {
 
     // The user switches to profile 2 while A's channel fetch is in flight
     const other: Playlist = { id: 2, name: 'Other', auto_refresh: false };
-    usePlayerStore.setState({ currentPlaylist: other, activeProfileId: 2 });
-    usePlayerStore.getState().setChannels([channel(20, 'Other1')]);
+    act(() => {
+      usePlayerStore.setState({ currentPlaylist: other, activeProfileId: 2 });
+      usePlayerStore.getState().setChannels([channel(20, 'Other1')]);
+    });
 
-    refetch.resolve([channel(1, 'SVT1'), channel(2, 'SVT2')]);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await act(async () => {
+      refetch.resolve([channel(1, 'SVT1'), channel(2, 'SVT2')]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
 
     expect(usePlayerStore.getState().channels.map((c) => c.name)).toEqual(['Other1']);
   });
