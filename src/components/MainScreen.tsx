@@ -15,6 +15,7 @@ import {
   type TmdbDetails,
 } from '../lib/tauri';
 import { CategoryBar } from './CategoryBar';
+import { SearchTypeTabs, SEARCH_TYPES, type SearchType } from './SearchTypeTabs';
 import { TitleSortMenu } from './TitleSortMenu';
 import { GuideView } from './GuideView';
 import { ChannelGridPlaceholder } from './ChannelGridPlaceholder';
@@ -127,7 +128,35 @@ export default function MainScreen() {
   const trimmedQuery = debouncedSearchQuery.trim();
 
   // Consolidated channel filtering (content type, category, parental, search)
-  const filteredChannels = useChannelFilter(debouncedSearchQuery);
+  const searchResults = useChannelFilter(debouncedSearchQuery);
+  // A search spans every content type. The results are shown one type at a
+  // time (SearchTypeTabs) so each gets its own card: posters for Movies and
+  // Series, channel cards for Live TV. The guide keeps its own live search.
+  const searching = trimmedQuery !== '' && contentTypeFilter !== 'guide';
+  const searchCounts = useMemo(() => {
+    const counts: Record<SearchType, number> = { vod: 0, series: 0, live: 0 };
+    if (!searching) return counts;
+    for (const c of searchResults) counts[c.content_type] += 1;
+    return counts;
+  }, [searching, searchResults]);
+  const [chosenSearchType, setChosenSearchType] = useState<SearchType | null>(null);
+  useEffect(() => {
+    if (!searching) setChosenSearchType(null);
+  }, [searching]);
+  // The chosen tab while it has results; else the section's own type; else
+  // the type with the most results.
+  const searchType = useMemo((): SearchType => {
+    if (chosenSearchType && searchCounts[chosenSearchType] > 0) return chosenSearchType;
+    const own = SEARCH_TYPES.find((t) => t.type === contentTypeFilter)?.type;
+    if (own && searchCounts[own] > 0) return own;
+    return SEARCH_TYPES.reduce((best, t) =>
+      searchCounts[t.type] > searchCounts[best.type] ? t : best
+    ).type;
+  }, [chosenSearchType, searchCounts, contentTypeFilter]);
+  const filteredChannels = useMemo(
+    () => (searching ? searchResults.filter((c) => c.content_type === searchType) : searchResults),
+    [searching, searchResults, searchType]
+  );
   // "Highest rated" ranks by TMDB's vote-weighted rating and shows the votes;
   // a title TMDB only knows the year of has none to show
   const titleRatings = usePlayerStore((s) => s.titleRatings);
@@ -225,9 +254,11 @@ export default function MainScreen() {
   // content type (design doc: "search stays cross-type"), so a cross-type
   // result list keeps the live-shaped grid, same as Favorites.
   const update = useUpdateCheck();
-  const kind =
-    (contentTypeFilter === 'vod' || contentTypeFilter === 'series') &&
-    debouncedSearchQuery.trim() === ''
+  const kind = searching
+    ? searchType === 'live'
+      ? 'live'
+      : 'poster'
+    : contentTypeFilter === 'vod' || contentTypeFilter === 'series'
       ? 'poster'
       : 'live';
   const { columns, estimatedRowHeight, windowRows } = useResponsiveGrid(kind);
@@ -534,7 +565,7 @@ export default function MainScreen() {
   // rows below, so the first render of the new list already starts at the
   // top instead of mounting rows at the old list's depth. The DOM follows
   // before paint.
-  const listKey = `${contentTypeFilter}\u0000${categoryFilter ?? ''}\u0000${trimmedQuery}\u0000${titleSort ?? ''}`;
+  const listKey = `${contentTypeFilter}\u0000${categoryFilter ?? ''}\u0000${trimmedQuery}\u0000${titleSort ?? ''}\u0000${searching ? searchType : ''}`;
   const [renderedListKey, setRenderedListKey] = useState(listKey);
   if (renderedListKey !== listKey) {
     setRenderedListKey(listKey);
@@ -966,9 +997,15 @@ export default function MainScreen() {
           ? // No count until the list is whole; the nbsp keeps the line's height
             '\u00A0'
           : countLabel(
-              filteredChannels.length,
+              searching ? searchResults.length : filteredChannels.length,
               trimmedQuery ? RESULT_NOUNS : SECTION_COUNT_NOUNS[contentTypeFilter]
             );
+  // A search spans every section, so it is titled as one, not after the
+  // section it was started from; the tabs below split it by type.
+  if (searching && contentTypeFilter !== 'home') {
+    title = 'Search';
+    if (loadStatus === 'loaded') subtitle = `${subtitle} for “${trimmedQuery}”`;
+  }
   if (view === 'settings') {
     title = 'Settings';
     subtitle = 'Ctrl+1–7 switches sections';
@@ -1058,15 +1095,25 @@ export default function MainScreen() {
           />
         ) : (
           <>
-            <div className="flex items-start gap-3 px-10 pt-6">
-              <div className="min-w-0 flex-1">
-                <CategoryBar />
-              </div>
-              {sortSection && !trimmedQuery && (
-                // pt-3 lines it up with the chips inside the category row
-                <div className="pt-3">
-                  <TitleSortMenu section={sortSection} />
-                </div>
+            <div className={searching ? 'px-10' : 'flex items-start gap-3 px-10 pt-6'}>
+              {searching ? (
+                <SearchTypeTabs
+                  counts={searchCounts}
+                  active={searchType}
+                  onSelect={setChosenSearchType}
+                />
+              ) : (
+                <>
+                  <div className="min-w-0 flex-1">
+                    <CategoryBar />
+                  </div>
+                  {sortSection && (
+                    // pt-3 lines it up with the chips inside the category row
+                    <div className="pt-3">
+                      <TitleSortMenu section={sortSection} />
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
