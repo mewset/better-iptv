@@ -876,6 +876,14 @@ export default function MainScreen() {
     }
   }, [contentTypeFilter]);
 
+  // The now-playing dock: not over Settings, where it would cover Save and
+  // Cancel, nor while the guide's programme panel holds its place.
+  const [guidePanelOpen, setGuidePanelOpen] = useState(false);
+  const dockShown =
+    currentChannel !== null &&
+    view !== 'settings' &&
+    !(contentTypeFilter === 'guide' && guidePanelOpen);
+
   // Navigating away from Settings asks it first: unsaved edits get a
   // "Discard changes?" dialog, and `go` runs only on Discard.
   const leaveSettingsThen = useCallback(
@@ -1068,7 +1076,7 @@ export default function MainScreen() {
             playingChannelId={isPlaying ? (currentChannel?.id ?? null) : null}
             onPlay={handlePlayChannel}
             onOpenEpgSettings={() => openSettings('epg')}
-            dockVisible={Boolean(currentChannel)}
+            onPanelChange={setGuidePanelOpen}
             blockedMap={blockedMap}
             loadStatus={loadStatus}
             onRetry={retryChannels}
@@ -1288,9 +1296,9 @@ export default function MainScreen() {
           </>
         )}
 
-        {/* Now Playing Bar. Not over Settings, where it would cover Save and
-            Cancel; playback carries on and the dock returns on leaving. */}
-        {currentChannel && view !== 'settings' && (
+        {/* Now Playing Bar (see dockShown); playback carries on while it is
+            hidden, and it returns on leaving Settings or closing the panel. */}
+        {dockShown && currentChannel && (
           <NowPlayingBar
             channel={currentChannel}
             epg={nowNextFor(nowNext, currentChannel)}
@@ -1298,7 +1306,7 @@ export default function MainScreen() {
             onStop={stopPlaybackAction}
           />
         )}
-        <Toast aboveDock={Boolean(currentChannel) && view !== 'settings'} />
+        <Toast aboveDock={dockShown} />
       </main>
 
       {/* PIN Entry Modal for blocked channels */}

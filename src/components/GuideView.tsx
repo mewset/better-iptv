@@ -264,7 +264,6 @@ const GuideRow = memo(function GuideRow({
 interface DetailPanelProps {
   selection: Selection;
   now: number;
-  dockVisible: boolean;
   /** The selected channel is the one playing: Watch now would toggle it off. */
   playing: boolean;
   onWatch: (channel: Channel) => void;
@@ -273,15 +272,7 @@ interface DetailPanelProps {
   panelRef: React.RefObject<globalThis.HTMLElement | null>;
 }
 
-function DetailPanel({
-  selection,
-  now,
-  dockVisible,
-  playing,
-  onWatch,
-  onClose,
-  panelRef,
-}: DetailPanelProps) {
+function DetailPanel({ selection, now, playing, onWatch, onClose, panelRef }: DetailPanelProps) {
   const { channel, programme } = selection;
   const logo = useChannelLogo(channel);
   const airing = isAiring(programme, now);
@@ -305,8 +296,7 @@ function DetailPanel({
       ref={panelRef}
       aria-label="Selected programme"
       className={cn(
-        'absolute left-1/2 z-20 flex w-[min(880px,calc(100%-80px))] -translate-x-1/2 items-center gap-4 rounded-[18px] border border-border-strong bg-surface/85 p-3 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-2xl no-backdrop:bg-surface',
-        dockVisible ? 'bottom-[112px]' : 'bottom-6'
+        'absolute bottom-6 left-1/2 z-20 flex w-[min(880px,calc(100%-80px))] -translate-x-1/2 items-center gap-4 rounded-[18px] border border-border-strong bg-surface/85 p-3 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-2xl no-backdrop:bg-surface'
       )}
     >
       <div className="relative h-[52px] w-[52px] shrink-0 overflow-hidden rounded-xl bg-surface-2">
@@ -376,8 +366,12 @@ export interface GuideViewProps {
   /** MainScreen's play path, so parental checks apply. */
   onPlay: (channel: Channel) => void;
   onOpenEpgSettings: () => void;
-  /** The now-playing dock is on screen; the detail panel sits above it. */
-  dockVisible: boolean;
+  /**
+   * The detail panel opened or closed. It takes the now-playing dock's
+   * place, so the dock steps aside meanwhile. What is on now on the playing
+   * channel opens no panel: the dock already shows it.
+   */
+  onPanelChange?: (open: boolean) => void;
   /** Parental blocking per channel id (lock/blur modes); hide mode already filtered. */
   blockedMap?: Map<number, boolean>;
   /** Live part of the channel list; the empty states wait for 'loaded'. */
@@ -397,7 +391,7 @@ export function GuideView({
   playingChannelId,
   onPlay,
   onOpenEpgSettings,
-  dockVisible,
+  onPanelChange,
   blockedMap,
   loadStatus,
   onRetry,
@@ -405,6 +399,18 @@ export function GuideView({
   const [dayOffset, setDayOffset] = useState(0);
   const [selection, setSelection] = useState<Selection | null>(null);
   const now = useNow();
+  // What plays now on the playing channel is the dock's to show
+  const selectionIsDock =
+    selection !== null &&
+    selection.channel.id === playingChannelId &&
+    Date.parse(selection.programme.start) <= now &&
+    now < Date.parse(selection.programme.stop);
+  const panelOpen = selection !== null && !selectionIsDock;
+  useEffect(() => {
+    onPanelChange?.(panelOpen);
+  }, [panelOpen, onPanelChange]);
+  // Leaving the guide with the panel open brings the dock back
+  useEffect(() => () => onPanelChange?.(false), [onPanelChange]);
   // Until the status is known the guide shows its loading line: neither
   // the table nor the empty state, so neither flashes. A failed status
   // request shows the guide rather than a wrong empty state.
@@ -597,7 +603,7 @@ export function GuideView({
           // relative: the table's offsetTop (the virtualizer's scrollMargin) is
           // then measured from this scroll container, not from the chip row above.
           'relative flex-1 overflow-y-auto px-10',
-          selection && dockVisible ? 'pb-56' : 'pb-32'
+          panelOpen ? 'pb-56' : 'pb-32'
         )}
       >
         {loadStatus === 'error' ? (
@@ -698,11 +704,10 @@ export function GuideView({
         )}
       </div>
 
-      {selection && (
+      {selection && panelOpen && (
         <DetailPanel
           selection={selection}
           now={now}
-          dockVisible={dockVisible}
           playing={playingChannelId === selection.channel.id}
           onWatch={onPlay}
           onClose={closeSelection}

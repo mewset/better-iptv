@@ -38,7 +38,8 @@ function splitEpisode(title: string): [string | null, string] {
  *             ━━━━━━━━━━━━━━━━━━━━━━━──────────── 46 min left
  *
  * A live channel has a wider logo tile, "LIVE · Channel", the programme on
- * now with "Next · 19:30 Title" at the line's end, and its progress through
+ * now with "Next · 19:30 Title" at the line's end, its description on one
+ * line when the guide has one (the dock is 20 px taller then), and its progress through
  * the programme; without guide data, a quiet line instead of the bar. The
  * whole dock brings the player window to the front; the ✕ ends playback.
  * No transitions (see ChannelCard), and no backdrop blur: blurring the
@@ -69,6 +70,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   let eyebrow: string;
   let title: string;
   let detail: string | null = null;
+  let description: string | null = null;
   let fraction: number | null = null;
   let left: string | null = null;
   let next: { time: string; title: string } | null = null;
@@ -79,6 +81,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
     const current = epg?.now ?? null;
     eyebrow = owner.name;
     title = current?.title ?? (epg?.next ? 'Off air' : owner.name);
+    description = current?.description?.trim() || null;
     if (current) {
       const pct = progressPercent(current.start, current.stop, now);
       fraction = pct === null ? null : pct / 100;
@@ -126,7 +129,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   return (
     <aside
       aria-label="Now playing"
-      className="absolute bottom-6 left-1/2 w-[min(820px,calc(100%-80px))] -translate-x-1/2"
+      className="absolute bottom-6 left-1/2 w-[min(880px,calc(100%-80px))] -translate-x-1/2"
     >
       <div
         role="button"
@@ -140,7 +143,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             bringPlayer();
           }
         }}
-        className="relative flex h-[92px] cursor-pointer items-center gap-4 rounded-[18px] border border-border-strong bg-surface py-0 pl-3 pr-11 shadow-[0_20px_50px_rgba(0,0,0,.5)] hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className={`relative flex ${description ? 'h-[112px]' : 'h-[92px]'} cursor-pointer items-center gap-4 rounded-[18px] border border-border-strong bg-surface py-0 pl-3 pr-11 shadow-[0_20px_50px_rgba(0,0,0,.5)] hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent`}
       >
         {/* Artwork: a 2:3 poster, or a wider tile for a channel's logo */}
         <div
@@ -179,6 +182,9 @@ export const NowPlayingBar = memo(function NowPlayingBar({
               </span>
             )}
           </div>
+          {description && (
+            <p className="min-w-0 truncate text-[12.5px] text-text-muted">{description}</p>
+          )}
           {noGuide ? (
             <p className="mt-0.5 min-h-[18px] text-[12.5px] text-text-faint">
               No guide for this channel

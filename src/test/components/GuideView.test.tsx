@@ -108,7 +108,6 @@ function renderGuide(overrides: Partial<React.ComponentProps<typeof GuideView>> 
     playingChannelId: null,
     onPlay: vi.fn(),
     onOpenEpgSettings: vi.fn(),
-    dockVisible: false,
     loadStatus: 'loaded' as const,
     onRetry: vi.fn(),
     ...overrides,
@@ -415,9 +414,17 @@ describe('GuideView', () => {
     expect(panel.querySelector('[data-progress]')).not.toBeNull();
   });
 
+  it('opens no panel for what is on now on the playing channel: the dock shows it', async () => {
+    const onPanelChange = vi.fn();
+    renderGuide({ playingChannelId: 1, onPanelChange });
+    fireEvent.click(await screen.findByRole('button', { name: blockName(airing, 'SVT1') }));
+    expect(screen.queryByRole('region', { name: 'Selected programme' })).toBeNull();
+    expect(onPanelChange).not.toHaveBeenCalledWith(true);
+  });
+
   it('Watch now reads "Playing" and does nothing when that channel already plays', async () => {
     const props = renderGuide({ playingChannelId: 1 });
-    fireEvent.click(await screen.findByRole('button', { name: blockName(airing, 'SVT1') }));
+    fireEvent.click(await screen.findByRole('button', { name: blockName(later, 'SVT1') }));
     const panel = screen.getByRole('region', { name: 'Selected programme' });
     expect(within(panel).queryByRole('button', { name: 'Watch now' })).toBeNull();
     const button = within(panel).getByRole('button', { name: 'Playing' });
@@ -472,7 +479,7 @@ describe('GuideView', () => {
 
   it('on the channel already playing the focus goes to the button that can be pressed', async () => {
     renderGuide({ playingChannelId: 1 });
-    fireEvent.click(await screen.findByRole('button', { name: blockName(airing, 'SVT1') }));
+    fireEvent.click(await screen.findByRole('button', { name: blockName(later, 'SVT1') }));
     expect(screen.getByRole('button', { name: 'Close programme details' })).toHaveFocus();
   });
 
@@ -507,12 +514,13 @@ describe('GuideView', () => {
     }
   });
 
-  it('lifts the panel above the dock when the dock is visible', async () => {
-    renderGuide({ dockVisible: true });
+  it('tells its parent while the panel is open, so the dock steps aside', async () => {
+    const onPanelChange = vi.fn();
+    renderGuide({ onPanelChange });
     fireEvent.click(await screen.findByRole('button', { name: blockName(airing, 'SVT1') }));
-    expect(screen.getByRole('region', { name: 'Selected programme' }).className).toContain(
-      'bottom-[112px]'
-    );
+    expect(onPanelChange).toHaveBeenLastCalledWith(true);
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    expect(onPanelChange).toHaveBeenLastCalledWith(false);
   });
 
   it('shows the EPG empty state without an EPG source', async () => {

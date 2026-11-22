@@ -49,6 +49,18 @@ describe('NowPlayingBar', () => {
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
   });
 
+  it("shows the programme's description on one line when the guide has one", () => {
+    render(
+      <NowPlayingBar
+        now={now}
+        channel={ch}
+        epg={nowNext(programme('Rapport', iso(-15), iso(45), 'The evening news.'), null)}
+        onStop={vi.fn()}
+      />
+    );
+    expect(screen.getByText('The evening news.')).toHaveClass('truncate');
+  });
+
   it('says there is no guide when the channel has none: no bar, no times, no NaN', () => {
     const { container } = render(<NowPlayingBar now={now} channel={ch} onStop={vi.fn()} />);
     expect(screen.getAllByText('SVT1').length).toBeGreaterThan(0);

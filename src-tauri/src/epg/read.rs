@@ -28,7 +28,8 @@ const RESOLVE_CHUNK: usize = 10_000;
 
 /// The programme on air at `?2`: the latest start at or before it that has
 /// not ended. Walks the primary key backwards from `?2`.
-const NOW_PROGRAMME: &str = "SELECT title, start, stop FROM epg_programme
+/// With its description, which the now-playing dock shows; next has none.
+const NOW_PROGRAMME: &str = "SELECT title, start, stop, description FROM epg_programme
     WHERE channel_id = ?1 AND start <= ?2 AND stop > ?2
     ORDER BY start DESC LIMIT 1";
 /// The first programme starting after `?2`.
@@ -169,6 +170,16 @@ fn titled_programme(row: &Row) -> rusqlite::Result<Programme> {
     })
 }
 
+/// `titled_programme` with the description (the fourth column, `NOW_PROGRAMME`).
+fn described_programme(row: &Row) -> rusqlite::Result<Programme> {
+    Ok(Programme {
+        description: row
+            .get::<_, Option<String>>(3)?
+            .filter(|d| !d.trim().is_empty()),
+        ..titled_programme(row)?
+    })
+}
+
 /// Now and next for each key, at `now` (Unix seconds).
 ///
 /// Keyed by the key as sent; a key with neither is left out. The winning
@@ -196,7 +207,7 @@ pub fn now_next(
             Some(entry) => entry.clone(),
             None => {
                 let now_on = current
-                    .query_row(params![channel, now], titled_programme)
+                    .query_row(params![channel, now], described_programme)
                     .optional()?;
                 let up_next = next
                     .query_row(params![channel, now], titled_programme)
@@ -397,7 +408,8 @@ mod tests {
             NowNext {
                 now: Some(Programme {
                     title: "News".into(),
-                    description: None,
+                    // The programme on now carries its description (the dock shows it)
+                    description: Some("About News".into()),
                     start: at(NOW - H),
                     stop: at(NOW + H),
                 }),
