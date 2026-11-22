@@ -313,6 +313,45 @@ pub fn pick_match<'a>(
     })
 }
 
+/// How many candidates are checked against their translated titles.
+pub const TRANSLATION_CANDIDATES: usize = 2;
+
+/// When no candidate's title resembles the query, the ones worth checking
+/// against their translated titles: the first few with a compatible year,
+/// in TMDB's order. A provider that names a film in another language than
+/// the search's ("Harry Potter à l'école des sorciers" searched in English)
+/// gets the right film back under its English title, which `pick_match`
+/// cannot recognise. Without a year in the query only the first candidate
+/// is checked, as there is less to tell films apart by, and not one dated
+/// later than next year (the bound `pick_match` applies).
+pub fn translation_candidates<'a>(
+    query: &Normalized,
+    candidates: &'a [Candidate],
+    this_year: i32,
+) -> Vec<&'a Candidate> {
+    match query.year {
+        Some(y) => candidates
+            .iter()
+            .filter(|c| c.year.is_some_and(|cy| years_close(cy, y)))
+            .take(TRANSLATION_CANDIDATES)
+            .collect(),
+        None => candidates
+            .iter()
+            .take(1)
+            .filter(|c| c.year.is_none_or(|cy| cy <= this_year + 1))
+            .collect(),
+    }
+}
+
+/// Whether the query is one of a candidate's translated titles (or close to
+/// one, as `pick_match` accepts a close title).
+pub fn matches_a_translation(query: &Normalized, translations: &[String]) -> bool {
+    let q = fold(&query.title);
+    translations
+        .iter()
+        .any(|t| fold(t) == q || similarity(&query.title, t) >= MATCH_THRESHOLD)
+}
+
 // ---------- key format ----------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -832,6 +871,65 @@ mod matching_tests {
             cand(120487, "Fullt Hus", "Fullt Hus", Some(2020)),
         ];
         assert_eq!(pick_match(&q, &cands, 2026).map(|c| c.id), Some(120487));
+    }
+
+    #[test]
+    fn a_title_in_another_language_matches_through_the_translations() {
+        // Searched in English, TMDB answers with the English title
+        let q = normalize_title("Harry Potter à l'école des sorciers (2001)", 2026);
+        let cands = [
+            cand(
+                671,
+                "Harry Potter and the Philosopher's Stone",
+                "Harry Potter and the Philosopher's Stone",
+                Some(2001),
+            ),
+            cand(1, "Something Else", "Something Else", Some(1990)),
+        ];
+        assert_eq!(pick_match(&q, &cands, 2026), None);
+        // Only the same-year candidate is worth checking
+        let check: Vec<i64> = translation_candidates(&q, &cands, 2026)
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(check, [671]);
+        let translations = [
+            "Harry Potter und der Stein der Weisen".to_string(),
+            "Harry Potter à l'école des sorciers".to_string(),
+        ];
+        assert!(matches_a_translation(&q, &translations));
+        // A different film that shares the year is not taken
+        assert!(!matches_a_translation(
+            &q,
+            &["Shrek".to_string(), "Shrek 2".to_string()]
+        ));
+    }
+
+    #[test]
+    fn without_a_year_only_the_first_candidate_is_checked() {
+        let q = normalize_title("Harry Potter und der Stein der Weisen", 2026);
+        let cands = [
+            cand(
+                671,
+                "Harry Potter and the Philosopher's Stone",
+                "Harry Potter and the Philosopher's Stone",
+                Some(2001),
+            ),
+            cand(
+                672,
+                "Harry Potter and the Chamber of Secrets",
+                "Harry Potter and the Chamber of Secrets",
+                Some(2002),
+            ),
+        ];
+        let check: Vec<i64> = translation_candidates(&q, &cands, 2026)
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(check, [671]);
+        // Not a film announced years ahead
+        let future = [cand(9, "Harry Potter (series)", "Harry Potter", Some(2031))];
+        assert!(translation_candidates(&q, &future, 2026).is_empty());
     }
 
     #[test]

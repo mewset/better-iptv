@@ -48,6 +48,8 @@ function renderTab(extra: Partial<React.ComponentProps<typeof MetadataTab>> = {}
     onBackgroundEnrichChange: vi.fn(),
     logoFallbackEnabled: true,
     onLogoFallbackEnabledChange: vi.fn(),
+    showCast: true,
+    onShowCastChange: vi.fn(),
     // Unless a test says otherwise, the field holds the stored key.
     savedApiKey: extra.apiKey ?? '',
     ...extra,
@@ -71,6 +73,15 @@ describe('MetadataTab', () => {
     ).toBeInTheDocument();
     fireEvent.click(box);
     expect(onLogoFallbackEnabledChange).toHaveBeenCalledWith(false);
+  });
+
+  it('offers the cast toggle and calls back on change', () => {
+    const { onShowCastChange } = renderTab();
+    expect(screen.getByRole('heading', { name: 'Detail page' })).toBeInTheDocument();
+    const box = screen.getByRole('checkbox', { name: 'Show the cast' });
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+    expect(onShowCastChange).toHaveBeenCalledWith(false);
   });
 
   beforeEach(() => {
