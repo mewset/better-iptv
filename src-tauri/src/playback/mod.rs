@@ -171,6 +171,15 @@ pub async fn set_paused(paused: bool) -> Result<bool, AppError> {
     .await?)
 }
 
+/// Tell the player's controls what a live channel shows now (`player.lua`
+/// shows it beside LIVE); an empty title clears it. Whether a player answered.
+pub async fn set_programme(title: String) -> Result<bool, AppError> {
+    Ok(tokio::task::spawn_blocking(move || {
+        ipc::script_message(&ipc::socket_path(), &["biptv-programme", &title])
+    })
+    .await?)
+}
+
 /// Bring the player's window to the front. Wayland lets no program raise
 /// another's window, so on Hyprland the compositor is asked (its Lua
 /// dispatcher, else the classic one); elsewhere the window goes on top for a

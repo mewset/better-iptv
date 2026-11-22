@@ -203,6 +203,11 @@ export async function showPlayer(): Promise<void> {
   await invoke('show_player');
 }
 
+/** What a live channel shows now, for the player's controls; '' clears it. */
+export async function playerSetProgramme(title: string): Promise<boolean> {
+  return await invoke('player_set_programme', { title });
+}
+
 // ========== Watch progress ==========
 
 /** Where a film or an episode was left. */

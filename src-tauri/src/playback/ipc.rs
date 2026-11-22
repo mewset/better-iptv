@@ -143,6 +143,13 @@ pub fn set_property(path: &str, property: &str, value: Value) -> bool {
     request(path, json!(["set_property", property, value])).is_some()
 }
 
+/// Send a message to the player's scripts (`script-message`); whether MPV took it.
+pub fn script_message(path: &str, args: &[&str]) -> bool {
+    let mut command = vec![json!("script-message")];
+    command.extend(args.iter().map(|a| json!(a)));
+    request(path, Value::Array(command)).is_some()
+}
+
 #[cfg(not(windows))]
 mod platform {
     use super::TIMEOUT;

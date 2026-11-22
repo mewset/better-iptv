@@ -229,6 +229,7 @@ pub fn run() {
             commands::playback::player_paused,
             commands::playback::player_set_paused,
             commands::playback::show_player,
+            commands::playback::player_set_programme,
             commands::progress::get_watch_progress,
             commands::progress::set_watched,
             playback_status,
