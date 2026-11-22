@@ -10,8 +10,9 @@ vi.mock('../../lib/tauri', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/tauri')>()),
   getTmdbDetails: vi.fn(),
   getTmdbSeason: vi.fn(async () => []),
+  getSetting: vi.fn(async () => null),
 }));
-import { getTmdbDetails, getTmdbSeason } from '../../lib/tauri';
+import { getSetting, getTmdbDetails, getTmdbSeason } from '../../lib/tauri';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { airDateLabel } from '../../lib/airDate';
 import { invoke } from '@tauri-apps/api/core';
@@ -114,6 +115,15 @@ describe('DetailView for a movie', () => {
     expect(screen.getByText('Leonardo DiCaprio')).toBeInTheDocument();
     expect(screen.getByText('Teddy Daniels')).toBeInTheDocument();
     expect(screen.getByText('MOVIE · Thriller')).toBeInTheDocument();
+  });
+
+  it('hides the cast when Settings turns it off', async () => {
+    vi.mocked(getSetting).mockResolvedValueOnce('0');
+    renderMovie(matched);
+    expect(await screen.findByRole('heading', { name: 'Shutter Island' })).toBeInTheDocument();
+    await waitFor(() => expect(getSetting).toHaveBeenCalledWith('detail_show_cast'));
+    await waitFor(() => expect(screen.queryByText('Leonardo DiCaprio')).not.toBeInTheDocument());
+    expect(screen.queryByRole('region', { name: 'Cast' })).not.toBeInTheDocument();
   });
 
   it('plays, opens the trailer in the browser and toggles the favourite', async () => {

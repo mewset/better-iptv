@@ -12,7 +12,13 @@ import {
 } from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { usePlayerStore } from '../stores/player-store';
-import { getTmdbDetails, getTmdbSeason, type TmdbDetails, type TmdbEpisode } from '../lib/tauri';
+import {
+  getSetting,
+  getTmdbDetails,
+  getTmdbSeason,
+  type TmdbDetails,
+  type TmdbEpisode,
+} from '../lib/tauri';
 import type { Channel, Episode, SeriesInfo } from '../types';
 import { ColorBars } from './ColorBars';
 import { logger } from '../lib/logger';
@@ -169,6 +175,19 @@ export default function DetailView({
     setEpisodeViewState(view);
     saveEpisodeView(view);
   };
+  // Settings > Metadata > "Show the cast"; on unless turned off
+  const [showCast, setShowCast] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    getSetting('detail_show_cast')
+      .then((value) => {
+        if (alive) setShowCast(value !== '0');
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
   useEffect(() => {
     if (!isSeries || !loadSeries) return;
     let cancelled = false;
@@ -473,7 +492,7 @@ export default function DetailView({
       )}
 
       {/* Cast */}
-      {details && details.cast.length > 0 && (
+      {showCast && details && details.cast.length > 0 && (
         <section aria-label="Cast" className="mt-8 px-10">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-text-faint">
             Cast
