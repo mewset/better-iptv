@@ -527,8 +527,7 @@ export default function DetailView({
             <p className="text-text-muted">Loading episodes…</p>
           ) : (
             <>
-              {/* Text over an amber underline on a hairline, like the genre tabs
-                  of the browse bar (#97), not pills */}
+              {/* Text over an amber underline on a hairline, not pills */}
               <div className="mb-5 flex h-[46px] items-stretch gap-4 border-b border-border">
                 {seasons.length > 0 && (
                   <div

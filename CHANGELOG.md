@@ -3,16 +3,6 @@
 All notable changes to Better IPTV will be documented in this file.
 This file is a developer-changelog, aimed towards development changes.
 
-## Unreleased
-
-### Added
-
-- **Episodes as a list or as tiles** - a series' detail view gets a List / Tiles switch beside the season tabs. Tiles are a grid of 16:9 thumbnails (five a row on a wide window, down to two), each with an episode badge and the running time on the image and the title below; the whole tile plays the episode, continuing through the season as a row does. The choice is kept per viewer in `localStorage` (`better-iptv:episode-view`), read defensively. Nothing fades (#95)
-
-### Changed
-
-- **Series: when each episode aired, and quieter season tabs** - An episode shows when it aired (TMDB's `air_date`, else the provider's `releaseDate`; "Airs 3 Dec 2026" for one still to come; `lib/airDate.ts`): under a tile's title, and before the length in the list ("20 Jan 2008 · 58 min"), which helps place an episode in a show that ran for years. The season tabs are text over an amber underline on a hairline instead of amber pills in a grey bar, like the browse bar's genre tabs (#97), and the list/tiles switch beside them loses its box
-
 ## [3.4.0] - 2026-11-17
 
 ### Added

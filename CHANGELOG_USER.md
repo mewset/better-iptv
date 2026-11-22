@@ -4,16 +4,6 @@ A simple overview of new features and improvements.
 
 ---
 
-## Unreleased
-
-### New Features
-
-- Added a tile view for a series' episodes, with big thumbnails; switch between List and Tiles next to the seasons
-
-### Improvements
-
-- Series episodes show when they aired, and the season tabs match the genre tabs
-
 ## Version 3.4.0 (November 17, 2026)
 
 ### New Features
