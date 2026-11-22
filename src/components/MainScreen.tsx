@@ -42,6 +42,7 @@ import { logger } from '../lib/logger';
 import { reloadAfterPlaylistRefresh } from '../lib/afterPlaylistRefresh';
 import { useResponsiveGrid, getGridClasses } from '../hooks/useResponsiveGrid';
 import { guideAnswered, nowNextFor, useNowNext } from '../hooks/useNowNext';
+import { usePlayerProgramme } from '../hooks/usePlayerProgramme';
 import { useNow } from '../hooks/useNow';
 import { startEpgEvents } from '../lib/epgEvents';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
@@ -569,6 +570,11 @@ export default function MainScreen() {
   const guideFetched = useEpgStore((s) => s.fetchedIn);
   // One clock for the cards' and the dock's progress and the header.
   const now = useNow();
+  usePlayerProgramme(
+    currentChannel,
+    currentChannel ? nowNextFor(nowNext, currentChannel) : undefined,
+    now
+  );
 
   // Visible poster rows feed the TMDB lookup, after the hero candidates of
   // both sections so the banner is warm before its section opens. Live rows

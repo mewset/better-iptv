@@ -109,6 +109,36 @@ pub fn snapshot(path: &str) -> Option<Snapshot> {
     })
 }
 
+/// when no player answers or the command fails.
+fn request(path: &str, command: Value) -> Option<Option<Value>> {
+    let stream = connect(path)?;
+    let mut writer = stream.try_clone().ok()?;
+    let mut reader = BufReader::new(stream);
+    writeln!(writer, "{}", json!({ "command": command, "request_id": 1 })).ok()?;
+    writer.flush().ok()?;
+    let mut line = String::new();
+    for _ in 0..32 {
+        line.clear();
+        if reader.read_line(&mut line).ok()? == 0 {
+            return None;
+        }
+        let Ok(reply) = serde_json::from_str::<Reply>(&line) else {
+            continue;
+        };
+        if reply.request_id == Some(1) {
+            return (reply.error.as_deref() == Some("success")).then_some(reply.data);
+        }
+    }
+    None
+}
+
+/// Send a message to the player's scripts (`script-message`); whether MPV took it.
+pub fn script_message(path: &str, args: &[&str]) -> bool {
+    let mut command = vec![json!("script-message")];
+    command.extend(args.iter().map(|a| json!(a)));
+    request(path, Value::Array(command)).is_some()
+}
+
 #[cfg(not(windows))]
 mod platform {
     use super::TIMEOUT;

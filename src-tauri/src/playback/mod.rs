@@ -155,6 +155,14 @@ pub async fn stop(player: SharedPlayer) -> Result<(), AppError> {
 }
 
 /// Poll the MPV process: still playing, or exited, and if on a failure, whose.
+/// shows it beside LIVE); an empty title clears it. Whether a player answered.
+pub async fn set_programme(title: String) -> Result<bool, AppError> {
+    Ok(tokio::task::spawn_blocking(move || {
+        ipc::script_message(&ipc::socket_path(), &["biptv-programme", &title])
+    })
+    .await?)
+}
+
 pub async fn status(player: SharedPlayer) -> Result<PlaybackStatus, AppError> {
     tokio::task::spawn_blocking(move || {
         let mut mpv = lock_player(&player)?;

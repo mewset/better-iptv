@@ -95,6 +95,11 @@ pub async fn play_channel(
         let channel = queries::get_channel_by_id(conn, channel_id)?
             .ok_or(AppError::ChannelNotFound(channel_id))?;
         let mut settings = build_playback_options(conn, Some(&channel.name))?;
+        // The controls show MPV's media title, else the stream's file name
+        // ("916783.m3u8"); a film or channel is one file, so its name is it.
+        settings
+            .extra_args
+            .push(format!("--force-media-title={}", channel.name));
         if channel.content_type == "vod" {
             settings.start_secs = start_secs;
         }
@@ -135,6 +140,11 @@ pub async fn stop_playback(state: State<'_, AppState>) -> Result<(), AppError> {
     info!("Playback stopped");
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn player_set_programme(title: String) -> Result<bool, AppError> {
+    playback::set_programme(title).await
 }
 
 /// Whether MPV is still playing, and if it stopped on a failure, whether the

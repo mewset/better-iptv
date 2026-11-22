@@ -6,6 +6,10 @@ A simple overview of new features and improvements.
 
 ## Unreleased
 
+### Fixes
+
+- The player shows the film's or channel's name instead of the stream's file name, and on live TV what's on now
+
 ### New Features
 
 - A new player: Netflix-style controls with a timeline that previews frames, episode list, audio & subtitles and settings panels, a Next Episode button, and N / Shift+N for the next or previous episode

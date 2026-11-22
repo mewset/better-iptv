@@ -452,13 +452,28 @@ local function set_volume_from_mouse()
   mp.set_property_bool('mute', false)
 end
 
+-- Text for inside an ASS override run: backslashes and braces escaped.
+local function esc(str)
+  return (str:gsub('\\', '\\\\'):gsub('{', '\\{'):gsub('}', '\\}'))
+end
+
+-- What a live channel shows now, sent by the app as the guide changes
+-- ('biptv-programme'); empty without guide data.
+local programme = ''
+
 local function draw_title(ass, x, cy)
   local title = prop('media-title', '')
   local se, name = split_title(title)
   if opts.live then
     rounded(ass, x, cy - 16 * s, 70 * s, 32 * s, 4 * s, ACCENT)
     text(ass, x + 35 * s, cy, 'LIVE', 20 * s, ON_ACCENT, 5, true)
-    text(ass, x + 86 * s, cy, title, 32 * s, WHITE, 4, true)
+    if programme ~= '' then
+      -- "LIVE  Programme   Channel": the programme bold, the channel lighter
+      event(ass, x + 86 * s, cy, WHITE, '00', string.format('{\\fn%s\\fs%d\\b1}%s{\\b0\\1c&H%s&}   %s',
+        opts.font, 32 * s, esc(programme), GREY, esc(title)), 4)
+    else
+      text(ass, x + 86 * s, cy, title, 32 * s, WHITE, 4, true)
+    end
     return
   end
   if se and opts.series ~= '' then
@@ -875,6 +890,11 @@ key('DOWN', function() mp.commandv('add', 'volume', '-10') end)
 key('SPACE', function() mp.commandv('cycle', 'pause') end)
 key('f', function() mp.commandv('cycle', 'fullscreen') end)
 key('m', function() mp.commandv('cycle', 'mute') end)
+
+mp.register_script_message('biptv-programme', function(title)
+  programme = title or ''
+  render()
+end)
 
 for _, name in ipairs({ 'pause', 'fullscreen', 'mute', 'volume', 'media-title', 'track-list', 'playlist-pos' }) do
   mp.observe_property(name, 'native', function() render() end)

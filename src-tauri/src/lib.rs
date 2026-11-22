@@ -226,6 +226,7 @@ pub fn run() {
             check_mpv_installed,
             play_channel,
             stop_playback,
+            commands::playback::player_set_programme,
             commands::progress::get_watch_progress,
             commands::progress::set_watched,
             playback_status,
