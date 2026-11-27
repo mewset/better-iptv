@@ -14,7 +14,9 @@ use crate::tmdb::keys::{
 };
 use crate::tmdb::session::{generation_is_stale, is_stale_job, BackgroundProgress, TmdbSession};
 use crate::tmdb::{Kind, TmdbClient, TmdbError};
-use crate::tmdb_domain::{pick_match, search_is_stale, Normalized};
+use crate::tmdb_domain::{
+    matches_a_translation, pick_match, search_is_stale, translation_candidates, Normalized,
+};
 use chrono::{Datelike, Utc};
 use log::{debug, info, warn};
 use r2d2::Pool;
@@ -85,7 +87,25 @@ pub async fn search_and_store(
         }
     };
     let candidates: Vec<_> = hits.iter().map(|h| h.to_candidate()).collect();
-    let chosen = pick_match(query, &candidates, Utc::now().year()).map(|c| c.id);
+    let this_year = Utc::now().year();
+    let mut chosen = pick_match(query, &candidates, this_year).map(|c| c.id);
+    // A name in another language than the search's: the right film may be
+    // there under its translated title (see `translation_candidates`)
+    if chosen.is_none() {
+        for candidate in translation_candidates(query, &candidates, this_year) {
+            match client.translations(kind, candidate.id).await {
+                Ok(titles) if matches_a_translation(query, &titles) => {
+                    chosen = Some(candidate.id);
+                    break;
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    debug!("TMDB translations of {} failed: {e}", candidate.id);
+                    break;
+                }
+            }
+        }
+    }
     let hit = chosen.and_then(|id| hits.iter().find(|h| h.id == id));
     let row = TmdbRow {
         key: key.clone(),
