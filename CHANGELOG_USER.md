@@ -11,6 +11,7 @@ A simple overview of new features and improvements.
 - Added search on Home
 - Added a setting to hide the cast on movie and series pages
 - Added a tile view for a series' episodes
+- Redesigned Home: a rotating banner of today's pick, trending and popular titles, then rows you can scroll sideways — what's on your favourite channels now, trending, recently added, your favourites and today's genres
 
 ### Improvements
 

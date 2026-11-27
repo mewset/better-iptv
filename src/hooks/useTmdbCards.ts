@@ -46,17 +46,22 @@ export function useTmdbCards(channelIds: number[]): Map<number, TmdbCard> {
   }, [tmdbCardsEpoch]);
 
   useEffect(() => {
-    const missing = ids.filter((id) => !requestedRef.current.has(id)).slice(0, MAX_IDS);
+    const missing = ids.filter((id) => !requestedRef.current.has(id));
     if (missing.length === 0) return;
     const timer = setTimeout(() => {
-      for (const id of missing) requestedRef.current.add(id);
-      getTmdbCards(missing)
-        .then(setTmdbCards)
-        .catch((err) => {
-          // Let the next visibility change ask for this batch again.
-          for (const id of missing) requestedRef.current.delete(id);
-          logger.debug('TMDB card lookup failed:', err);
-        });
+      // The backend takes MAX_IDS per request; Home asks for a few rows'
+      // worth at once, so larger sets go in several batches.
+      for (let start = 0; start < missing.length; start += MAX_IDS) {
+        const batch = missing.slice(start, start + MAX_IDS);
+        for (const id of batch) requestedRef.current.add(id);
+        getTmdbCards(batch)
+          .then(setTmdbCards)
+          .catch((err) => {
+            // Let the next visibility change ask for this batch again.
+            for (const id of batch) requestedRef.current.delete(id);
+            logger.debug('TMDB card lookup failed:', err);
+          });
+      }
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // tmdbCardsEpoch: a clear resets the requested set above and must ask again.

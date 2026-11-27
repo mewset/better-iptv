@@ -20,6 +20,12 @@ This file is a developer-changelog, aimed towards development changes.
   - Thanks to @RyanBeckett (#99)
 - **Settings: hide the cast on detail pages** - Settings › Metadata › Detail page › "Show the cast" (`detail_show_cast`, on by default) turns off the row of TMDB cast photos at the bottom of a movie's or series' page
   - Thanks to @RyanBeckett (#108)
+- **Home: a rotating banner and rows of posters** - Home showed a greeting, a paragraph about itself, the day's pick and six full-width genre slideshows of one title each, so a screen held one or two titles. Now:
+  - The greeting and date move into the top bar ("Good evening · Sunday, 15 November"); the explanatory paragraph is gone
+  - The banner rotates every 6 s through the day's pick, then the movies and series trending today in the library, then popular ones (`get_featured_titles`, both kinds, alternating; up to ten), with dots, holding still under the pointer or the focus and while the window is hidden, as in Movies and Series (#98)
+  - Below it, rows that scroll sideways (`HomeRail`: ‹ › buttons where there is more, no scrollbar; the vertical wheel stays with the page): **On now** (favourite live channels with the guide's now/next and progress), **Trending in your library**, **Recently added** (provider added time, movies and series), **Your favourites**, and the day's genre rows (`plan_home`, unchanged) as "Action movies", "Sci-Fi & Fantasy series" under a "Today's genres" heading. Empty rows are left out; blocked and adult titles stay out as before
+  - `useTmdbCards` asks for more than 120 cards in several batches, since Home warms a few rows at once
+  - `GenreSlideshow` is gone; the test setup's `ResizeObserver` mock is a class (components construct it with `new`)
 
 ### Changed
 
