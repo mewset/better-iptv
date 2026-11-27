@@ -199,6 +199,17 @@ impl TmdbClient {
         parsed.map_err(|e| TmdbError::Decode(e.to_string()))
     }
 
+    /// Every translated title of one film or series, for matching a name
+    /// the provider gives in another language than the search's.
+    pub async fn translations(&self, kind: Kind, id: i64) -> Result<Vec<String>, TmdbError> {
+        let path = match kind {
+            Kind::Movie => format!("/movie/{id}/translations"),
+            Kind::Tv => format!("/tv/{id}/translations"),
+        };
+        let body = self.get_text(&path, &[]).await?;
+        types::parse_translations(&body).map_err(|e| TmdbError::Decode(e.to_string()))
+    }
+
     /// Today's trending list for one kind (`/trending/{movie,tv}/day`, page
     /// 1, 20 titles in TMDB's own order). The answer has the search shape.
     pub async fn trending(&self, kind: Kind, lang: &str) -> Result<Vec<SearchHit>, TmdbError> {
