@@ -7,10 +7,36 @@ This file is a developer-changelog, aimed towards development changes.
 
 ### Added
 
+- **Search results by type** - a search spans every content type, but its results used the channel card for everything: movie and series posters shrank into the logo slot, a click played a movie instead of opening it, and the header kept the name of the section the search started in
+  - While searching, `SearchTypeTabs` splits the results into Movies / Series / Live TV (types without a result left out, each with its count) and the grid shows one type at a time with its own card: posters for Movies and Series (a click opens the detail view), channel cards for Live TV. One card kind per list keeps `useGridKeyboardNav`, the virtualiser and the ARIA grid unchanged
+  - It opens on the section's own type when that has results, else the type with the most; the choice resets when the search is cleared
+  - The header reads "Search" and "N results for “query”" (the total across types); on Home it keeps "Home" with the count. The guide keeps its own live-only search
+  - Thanks to @RyanBeckett (#101)
+- **Search on Home** - Home had no search box (`searchShown` excluded it, and "/" there switched to Live TV before focusing the box). The box now shows on Home too: a search lists its results in Home's place, and emptying it (the ✕, or Escape) brings Home back without changing section
+  - `handleSearchUnavailable` and its pending-focus effect are gone; `useKeyboardShortcuts` keeps the optional `onSearchUnavailable` for any view without a box
+  - Thanks to @RyanBeckett (#117)
+- **Episodes as a list or as tiles** - a series' detail view gets a List / Tiles switch beside the season tabs. Tiles are a grid of 16:9 thumbnails (five a row on a wide window, down to two), with an episode badge and the running time on the image and the title below; a tile plays the episode and continues through the season as a row does
+  - The choice is kept per viewer in `localStorage` (`better-iptv:episode-view`), read defensively; List is the default. Nothing fades (#95)
+  - Thanks to @RyanBeckett (#99)
+- **Settings: hide the cast on detail pages** - Settings › Metadata › Detail page › "Show the cast" (`detail_show_cast`, on by default) turns off the row of TMDB cast photos at the bottom of a movie's or series' page
+  - Thanks to @RyanBeckett (#108)
 - **One card per film, with its versions on the detail page** - providers list a film once per copy: standard, 4K, and dubs in language categories ("German Movies", "Films Français"), each its own stream, so Movies showed the same poster two to four times (on one library 22,797 entries are 20,917 films). `lib/versions` groups them by title and year without quality or language tags (`titleKey`), reads each copy's quality (4K, UHD, 2160p in the name or category) and dub language (category words such as German/Deutsch/Français/Español, or a name tag such as `[DE]` or `FR - `), and picks the default copy from a new Settings > Playback > Preferred version (quality: 4K when available or Standard; audio: Original or a dub; stored as `version_quality` / `version_language`)
   - Movies without a category, and search results, show one card per film, the preferred copy, with "· 3 versions" in its meta line; a chosen category still lists exactly its own entries. Series and channels are left as they are
   - Copies are one film when their titles match ignoring case, accents, punctuation and quality/language tags (so a French "Top Gun : Maverick (2022)" joins "Top Gun: Maverick (2022)"), or when TMDB matched them to the same title (a new `get_title_tmdb_ids`), which catches translated titles such as "Die Truman Show (1998)". One matched copy is enough to bring its unmatched copies along; the ids are re-read every minute while the background scan runs
   - The detail view offers Quality and Audio pickers when there is a choice, starting on the preference; Play plays the chosen copy, and a language without the chosen quality plays the copy it has
+
+### Changed
+
+- **Series: when each episode aired, and quieter season tabs** - an episode shows when it aired (TMDB's `air_date`, else the provider's `releaseDate`; "Airs 3 Dec 2026" for one still to come; `lib/airDate.ts`): under a tile's title, and before the length in the list ("20 Jan 2008 · 58 min")
+  - The season tabs are text over an amber underline on a hairline instead of amber pills in a grey bar, and the list/tiles switch beside them has no box
+  - Thanks to @RyanBeckett (#99)
+
+### Fixed
+
+- **TMDB: titles named in another language than the search's** - a provider's "Harry Potter à l'école des sorciers (2001)" searched in English brings back the right film under its English title, which the matcher could not recognise, so the copy was stored as no match (no artwork, rating or year)
+  - When no candidate's title resembles the name, the first two candidates with a compatible year (only the first, and not one dated past next year, when the name has no year) are checked against their translated titles (`/movie/{id}/translations`, `/tv/{id}/translations`; one request each, only on this path) via `translation_candidates` and `matches_a_translation`
+  - On a library with French and German copies, all 16 Harry Potter titles that had no match now match their film. Rows stored as no match are searched again after a week, as before
+  - Thanks to @RyanBeckett (#116)
 
 ## [3.4.0] - 2026-11-17
 

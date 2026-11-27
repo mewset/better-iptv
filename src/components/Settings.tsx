@@ -140,6 +140,8 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   const [originalTmdbEnabled, setOriginalTmdbEnabled] = useState(true);
   const [logoFallbackEnabled, setLogoFallbackEnabled] = useState(true);
   const [originalLogoFallback, setOriginalLogoFallback] = useState(true);
+  // The Cast row on a movie's or series' detail page
+  const [showCast, setShowCast] = useState(true);
 
   // Parental tab state
   const [parentalEnabled, setParentalEnabled] = useState(false);
@@ -191,6 +193,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
     tmdbLanguage,
     tmdbBackgroundEnrich,
     logoFallbackEnabled,
+    showCast,
     parentalEnabled,
     blockedChannelIds: Array.from(blockedChannelIds).sort((a, b) => a - b),
     blockedCategories,
@@ -272,6 +275,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
           savedTmdbLanguage,
           savedTmdbBackgroundEnrich,
           savedLogoFallback,
+          savedShowCast,
           savedVersionQuality,
           savedVersionLanguage,
         ] = await Promise.all([
@@ -292,6 +296,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
           getSetting('tmdb_language'),
           getSetting('tmdb_background_enrich'),
           getSetting('logo_fallback_enabled'),
+          getSetting('detail_show_cast'),
           getSetting('version_quality'),
           getSetting('version_language'),
         ]);
@@ -351,6 +356,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
         const logoFallbackValue = savedLogoFallback !== '0';
         setLogoFallbackEnabled(logoFallbackValue);
         setOriginalLogoFallback(logoFallbackValue);
+        setShowCast(savedShowCast !== '0');
         // Only feeds the status line; a failure must not skip the loads below.
         setTmdbStatus(
           await getTmdbStatus().catch((err) => {
@@ -559,6 +565,7 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       // Channel logos: a changed value drops the session's fallbacks and
       // reloads the channels, which carry the backend's logo overrides.
       await setSetting('logo_fallback_enabled', logoFallbackEnabled ? '1' : '0');
+      await setSetting('detail_show_cast', showCast ? '1' : '0');
       if (logoFallbackEnabled !== originalLogoFallback) {
         setOriginalLogoFallback(logoFallbackEnabled);
         resetLogoFallbackSession();
@@ -723,6 +730,8 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
                   onBackgroundEnrichChange={setTmdbBackgroundEnrich}
                   logoFallbackEnabled={logoFallbackEnabled}
                   onLogoFallbackEnabledChange={setLogoFallbackEnabled}
+                  showCast={showCast}
+                  onShowCastChange={setShowCast}
                 />
               </LoadedSection>
             </TabsContent>
