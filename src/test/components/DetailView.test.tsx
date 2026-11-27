@@ -24,9 +24,11 @@ vi.mock('../../lib/tauri', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/tauri')>()),
   getTmdbDetails: vi.fn(),
   getTmdbSeason: vi.fn(async () => []),
+  getSetting: vi.fn(async () => null),
 }));
-import { getTmdbDetails, getTmdbSeason } from '../../lib/tauri';
+import { getSetting, getTmdbDetails, getTmdbSeason } from '../../lib/tauri';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { airDateLabel } from '../../lib/airDate';
 import { invoke } from '@tauri-apps/api/core';
 import { renderSettled } from '../renderSettled';
 
@@ -127,6 +129,15 @@ describe('DetailView for a movie', () => {
     expect(screen.getByText('Leonardo DiCaprio')).toBeInTheDocument();
     expect(screen.getByText('Teddy Daniels')).toBeInTheDocument();
     expect(screen.getByText('MOVIE · Thriller')).toBeInTheDocument();
+  });
+
+  it('hides the cast when Settings turns it off', async () => {
+    vi.mocked(getSetting).mockResolvedValueOnce('0');
+    renderMovie(matched);
+    expect(await screen.findByRole('heading', { name: 'Shutter Island' })).toBeInTheDocument();
+    await waitFor(() => expect(getSetting).toHaveBeenCalledWith('detail_show_cast'));
+    await waitFor(() => expect(screen.queryByText('Leonardo DiCaprio')).not.toBeInTheDocument());
+    expect(screen.queryByRole('region', { name: 'Cast' })).not.toBeInTheDocument();
   });
 
   it('plays, opens the trailer in the browser and toggles the favourite', async () => {
@@ -358,6 +369,34 @@ describe('DetailView for a series', () => {
     );
   });
 
+  it('switches the episodes between list and tiles; a tile plays its episode', async () => {
+    const { onPlayEpisode } = renderSeries();
+    await screen.findByText('Pilot');
+    const list = screen.getByRole('button', { name: 'List view' });
+    const tiles = screen.getByRole('button', { name: 'Tiles view' });
+    expect(list).toHaveAttribute('aria-pressed', 'true');
+    // These episodes have no thumbnail: the list shows an "E2" placeholder,
+    // a tile shows it plus its episode badge
+    expect(screen.getAllByText('E2')).toHaveLength(1);
+
+    fireEvent.click(tiles);
+    expect(tiles).toHaveAttribute('aria-pressed', 'true');
+    expect(list).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getAllByText('E2')).toHaveLength(2);
+    expect(screen.getByText('Pilot')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: "Play Cat's in the Bag" }));
+    expect(onPlayEpisode).toHaveBeenLastCalledWith(
+      '12',
+      'mp4',
+      "Cat's in the Bag",
+      [{ id: '12', title: "Cat's in the Bag", extension: 'mp4' }],
+      undefined
+    );
+
+    fireEvent.click(list);
+    expect(screen.getAllByText('E2')).toHaveLength(1);
+  });
+
   it('an episode without a title is played under the title its row shows', async () => {
     const untitled: SeriesInfo = {
       ...info,
@@ -392,7 +431,8 @@ describe('DetailView for a series', () => {
     ]);
     renderSeries(vi.fn().mockResolvedValue(info), { ...matched, title: 'Breaking Bad' });
     expect(await screen.findByText('Walter starts cooking.')).toBeInTheDocument();
-    expect(screen.getByText('58 min')).toBeInTheDocument();
+    // The air date leads the line, before the length
+    expect(screen.getByText(`${airDateLabel('2008-01-20')} · 58 min`)).toBeInTheDocument();
     await waitFor(() => expect(getTmdbSeason).toHaveBeenCalledWith(10, 1));
   });
 
@@ -419,7 +459,8 @@ describe('DetailView for a series', () => {
     };
     const { container } = renderSeriesIn(blank, { ...matched, title: 'Breaking Bad' });
     expect(await screen.findByText('Walter starts cooking.')).toBeInTheDocument();
-    expect(screen.getByText('58 min')).toBeInTheDocument();
+    // The air date leads the line, before the length
+    expect(screen.getByText(`${airDateLabel('2008-01-20')} · 58 min`)).toBeInTheDocument();
     expect(
       container.querySelector('img[src="https://image.tmdb.org/t/p/w342/s.jpg"]')
     ).not.toBeNull();
