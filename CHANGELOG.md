@@ -5,6 +5,10 @@ This file is a developer-changelog, aimed towards development changes.
 
 ## Unreleased
 
+### Fixed
+- **Player: films and channels showed the stream's file name** - The controls show MPV's `media-title`, which for a single stream is its file name ("916783.m3u8"): only episodes were given titles. `play_channel` now passes `--force-media-title` with the film's or channel's name. On live TV the controls also show the programme on now, bold beside LIVE with the channel lighter after it: the app sends it over IPC as a `script-message` (`biptv-programme`, `ipc::script_message`, the `player_set_programme` command) from `usePlayerProgramme`, when playback starts (again after 1.5 s and 5 s, while the player is still opening its socket) and whenever the guide moves on to the next programme
+- **Player: streaming-style controls, previews from the download, titled episodes** - Every MPV the app starts gets the app's own controls (`playback/player.lua`, written to the app's private temp folder by `playback/player.rs`; `--load-scripts=no` keeps the viewer's own MPV scripts from drawing a second control bar). One hover area shows a gradient, a Close ✕ (top right), a full-width timeline with buffered/played/knob and the remaining time, play/pause, volume (hover slider), the title ("Series S2:E5 Name"), and on the right next episode, an episode list, audio & subtitles (with subtitle size) and a settings gear (speed, picture fit/fill/stretch, and quality when a stream offers several). Click the picture to pause, double-click for fullscreen; ←/→ jump 10 s, ↑/↓ volume. A Next Episode button shows in an episode's last minute; live TV gets a LIVE badge and no timeline. Redraws are capped at 30 a second and skipped when nothing changed. Timeline previews: a provider line often allows one connection, so films and episodes download ahead into an on-disk cache over the player's own connection, and hovering a downloaded point cuts a sliver from it (`dump-cache`) and decodes its keyframe with a hidden MPV for `overlay-add` (a new file per frame, used only when it holds a whole frame). A series' episodes go to MPV as a private playlist (`playback/episodes.rs`, removed once read) titled "S2 E5 · Name", queued into the next seasons; `episodes.lua` resumes the first and binds N / Shift+N
+
 ### Added
 
 - **Search results by type** - a search spans every content type, but its results used the channel card for everything: movie and series posters shrank into the logo slot, a click played a movie instead of opening it, and the header kept the name of the section the search started in
@@ -20,6 +24,11 @@ This file is a developer-changelog, aimed towards development changes.
   - Thanks to @RyanBeckett (#99)
 - **Settings: hide the cast on detail pages** - Settings › Metadata › Detail page › "Show the cast" (`detail_show_cast`, on by default) turns off the row of TMDB cast photos at the bottom of a movie's or series' page
   - Thanks to @RyanBeckett (#108)
+- **Watch progress: resume, watched marks and next up** - The app did not know what had been watched (`watch_history` exists but nothing writes it). Now:
+  - MPV is started with `--input-ipc-server` (a socket per app process; a named pipe on Windows). While a film or episodes play, a background task asks it every 5 s for `time-pos`, `duration` and `playlist-pos` (`playback::ipc`) and saves the position per film and episode in `watch_progress` (keyed by channel and episode id, '' for a film; rows go with their channel). Before MPV is replaced or stopped from the app the position is saved once more. Less than 30 s in is not kept; past 90 % counts as watched, and so does an episode MPV moves on from
+  - Resume: `play_channel`, `play_episode_with_season` (which also takes the series' channel id) and `play_series_episodes` take `start_secs`, passed to MPV as a per-file option (`--{ --start=N url --}`) so the rest of a queue still starts at the beginning. A film picks up where it was left; the detail page says "Resume from 42:10", with "Start over" and the time left
+  - Watched marks: a toggle on a film's page and on each episode row, "Mark season watched", progress bars on posters and episode thumbnails, a mark on watched films (`get_watch_progress`, `set_watched`)
+  - A series' Play carries on: the episode left part-way ("Resume S2 E4 · 12:30"), else the first unwatched one after the last watched ("Play S2 E5"), else the first; the page opens on that season (`lib/watchProgress.ts`)
 
 ### Changed
 

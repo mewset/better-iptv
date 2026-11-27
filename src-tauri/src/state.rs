@@ -72,6 +72,10 @@ pub struct AppState {
     /// Guide sources with a re-read of the cached feed queued after a time
     /// policy change; further changes meanwhile only update the policy.
     pub epg_pending_policy: Arc<Mutex<HashSet<i64>>>,
+
+    /// The film or episodes MPV plays, for watch progress (`playback::progress`);
+    /// None for live TV or nothing.
+    pub watching: Arc<Mutex<Option<crate::playback::progress::Session>>>,
 }
 
 impl AppState {
@@ -92,6 +96,7 @@ impl AppState {
             db_path,
             epg_refreshing: Arc::new(Mutex::new(HashSet::new())),
             epg_pending_policy: Arc::new(Mutex::new(HashSet::new())),
+            watching: Arc::new(Mutex::new(None)),
         }
     }
 }

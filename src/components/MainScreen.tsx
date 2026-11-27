@@ -43,6 +43,7 @@ import { logger } from '../lib/logger';
 import { reloadAfterPlaylistRefresh } from '../lib/afterPlaylistRefresh';
 import { useResponsiveGrid, getGridClasses } from '../hooks/useResponsiveGrid';
 import { guideAnswered, nowNextFor, useNowNext } from '../hooks/useNowNext';
+import { usePlayerProgramme } from '../hooks/usePlayerProgramme';
 import { useNow } from '../hooks/useNow';
 import { startEpgEvents } from '../lib/epgEvents';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
@@ -600,6 +601,11 @@ export default function MainScreen() {
   const guideFetched = useEpgStore((s) => s.fetchedIn);
   // One clock for the cards' and the dock's progress and the header.
   const now = useNow();
+  usePlayerProgramme(
+    currentChannel,
+    currentChannel ? nowNextFor(nowNext, currentChannel) : undefined,
+    now
+  );
 
   // Visible poster rows feed the TMDB lookup, after the hero candidates of
   // both sections so the banner is warm before its section opens. Live rows
@@ -689,29 +695,40 @@ export default function MainScreen() {
       episodeId: string,
       extension: string,
       title: string,
-      remainingEpisodes?: Array<{ id: string; title: string; extension: string }>
+      remainingEpisodes?: Array<{ id: string; title: string; extension: string }>,
+      startSecs?: number
     ) => {
       if (!currentPlaylist) return;
+      // The series the episodes belong to, for watch progress
+      const seriesChannelId = detailChannel?.id;
       try {
         if (
           currentPlaylist.url &&
           currentPlaylist.xtream_username &&
           currentPlaylist.xtream_password
         ) {
-          await playEpisodeAction(episodeId, extension, title, currentPlaylist, remainingEpisodes);
+          await playEpisodeAction(
+            episodeId,
+            extension,
+            title,
+            currentPlaylist,
+            remainingEpisodes,
+            seriesChannelId,
+            startSecs
+          );
         } else {
           const ids = (
             remainingEpisodes && remainingEpisodes.length > 0
               ? remainingEpisodes.map((ep) => ep.id)
               : [episodeId]
           ).map(Number);
-          await playLocalEpisodesAction(ids, title);
+          await playLocalEpisodesAction(ids, title, startSecs);
         }
       } catch (err) {
         logger.error('Failed to play episode:', err);
       }
     },
-    [currentPlaylist, playEpisodeAction, playLocalEpisodesAction]
+    [currentPlaylist, detailChannel, playEpisodeAction, playLocalEpisodesAction]
   );
 
   // Xtream profiles fetch the series from the provider; M3U profiles read

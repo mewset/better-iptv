@@ -1,4 +1,4 @@
-use crate::commands::with_db;
+use crate::commands::{progress, with_db};
 use crate::db::queries;
 use crate::error::AppError;
 use crate::playback::{self, PlaybackSettings};
@@ -69,6 +69,8 @@ pub fn build_playback_options(
         cache_secs,
         start_volume,
         user_agent: Some(user_agent),
+        start_secs: None,
+        extra_args: Vec::new(),
     })
 }
 
@@ -81,16 +83,42 @@ pub async fn check_mpv_installed() -> Result<bool, AppError> {
 /// Plays a channel from the database. The frontend sends only the id: the
 /// stream URL never leaves the backend, so the webview cannot hand MPV an
 /// address of its own.
-pub async fn play_channel(state: State<'_, AppState>, channel_id: i64) -> Result<(), AppError> {
-    let (channel, settings) = with_db(&state.pool, move |conn| {
+///
+/// `start_secs` starts a film part-way (resuming); a film's progress is
+/// recorded while it plays (`commands::progress`).
+pub async fn play_channel(
+    state: State<'_, AppState>,
+    channel_id: i64,
+    start_secs: Option<f64>,
+) -> Result<(), AppError> {
+    let (channel, mut settings) = with_db(&state.pool, move |conn| {
         let channel = queries::get_channel_by_id(conn, channel_id)?
             .ok_or(AppError::ChannelNotFound(channel_id))?;
-        let settings = build_playback_options(conn, Some(&channel.name))?;
+        let mut settings = build_playback_options(conn, Some(&channel.name))?;
+        // The controls show MPV's media title, else the stream's file name
+        // ("916783.m3u8"); a film or channel is one file, so its name is it.
+        settings
+            .extra_args
+            .push(format!("--force-media-title={}", channel.name));
+        if channel.content_type == "vod" {
+            settings.start_secs = start_secs;
+        }
         Ok((channel, settings))
     })
     .await?;
+    playback::add_controls(
+        &mut settings,
+        playback::player::PlayerKind {
+            series: None,
+            live: channel.content_type == "live",
+        },
+    );
 
+    progress::end_session(&state).await;
     playback::play_stream(state.mpv_player.clone(), channel.url.clone(), settings).await?;
+    if channel.content_type == "vod" {
+        progress::begin_session(&state, channel_id, Vec::new());
+    }
 
     *state.current_channel.write().await = Some(CurrentChannel::from_channel(&channel));
 
@@ -104,6 +132,7 @@ pub async fn play_channel(state: State<'_, AppState>, channel_id: i64) -> Result
 
 #[tauri::command]
 pub async fn stop_playback(state: State<'_, AppState>) -> Result<(), AppError> {
+    progress::end_session(&state).await;
     playback::stop(state.mpv_player.clone()).await?;
 
     *state.current_channel.write().await = None;
@@ -111,6 +140,11 @@ pub async fn stop_playback(state: State<'_, AppState>) -> Result<(), AppError> {
     info!("Playback stopped");
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn player_set_programme(title: String) -> Result<bool, AppError> {
+    playback::set_programme(title).await
 }
 
 /// Whether MPV is still playing, and if it stopped on a failure, whether the
