@@ -6,11 +6,14 @@ A simple overview of new features and improvements.
 
 ## Unreleased
 
+- Play on a series plays its next episode (or resumes the one you left part-way); click the poster or More info to open the series
+
 ### New Features
 
 - Added search on Home
 - Added a setting to hide the cast on movie and series pages
 - Added a tile view for a series' episodes
+- Better IPTV remembers what you watch: films and episodes resume where you left off, watched ones get a mark (or mark them yourself, a whole season at once), and a series' Play button carries on with the next episode
 
 ### Improvements
 

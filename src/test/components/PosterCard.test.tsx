@@ -19,10 +19,13 @@ describe('PosterCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Play Past Lives' }));
     expect(onOpen).toHaveBeenCalledWith(movie);
   });
-  it('labels a series card as a series and its button as Open', () => {
-    render(<PosterCard channel={{ ...movie, content_type: 'series' }} onOpen={vi.fn()} />);
+  it('labels a series card as a series; its button plays it', () => {
+    const onPlay = vi.fn();
+    const series = { ...movie, content_type: 'series' as const };
+    render(<PosterCard channel={series} onOpen={vi.fn()} onPlay={onPlay} />);
     expect(screen.getByText('Series')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Open Past Lives' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Play Past Lives' }));
+    expect(onPlay).toHaveBeenCalledWith(series);
   });
   it('does not render the artwork in lock mode and asks for the PIN', () => {
     const onOpen = vi.fn();
