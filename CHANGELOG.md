@@ -20,6 +20,11 @@ This file is a developer-changelog, aimed towards development changes.
   - Thanks to @RyanBeckett (#99)
 - **Settings: hide the cast on detail pages** - Settings › Metadata › Detail page › "Show the cast" (`detail_show_cast`, on by default) turns off the row of TMDB cast photos at the bottom of a movie's or series' page
   - Thanks to @RyanBeckett (#108)
+- **Watch progress: resume, watched marks and next up** - The app did not know what had been watched (`watch_history` exists but nothing writes it). Now:
+  - MPV is started with `--input-ipc-server` (a socket per app process; a named pipe on Windows). While a film or episodes play, a background task asks it every 5 s for `time-pos`, `duration` and `playlist-pos` (`playback::ipc`) and saves the position per film and episode in `watch_progress` (keyed by channel and episode id, '' for a film; rows go with their channel). Before MPV is replaced or stopped from the app the position is saved once more. Less than 30 s in is not kept; past 90 % counts as watched, and so does an episode MPV moves on from
+  - Resume: `play_channel`, `play_episode_with_season` (which also takes the series' channel id) and `play_series_episodes` take `start_secs`, passed to MPV as a per-file option (`--{ --start=N url --}`) so the rest of a queue still starts at the beginning. A film picks up where it was left; the detail page says "Resume from 42:10", with "Start over" and the time left
+  - Watched marks: a toggle on a film's page and on each episode row, "Mark season watched", progress bars on posters and episode thumbnails, a mark on watched films (`get_watch_progress`, `set_watched`)
+  - A series' Play carries on: the episode left part-way ("Resume S2 E4 · 12:30"), else the first unwatched one after the last watched ("Play S2 E5"), else the first; the page opens on that season (`lib/watchProgress.ts`)
 
 ### Changed
 
