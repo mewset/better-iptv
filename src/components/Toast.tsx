@@ -25,7 +25,7 @@ export function Toast({ aboveDock = false }: { aboveDock?: boolean }) {
       role="status"
       aria-live="polite"
       className={`absolute left-1/2 z-20 flex w-[min(560px,calc(100%-80px))] -translate-x-1/2 items-center gap-3 rounded-2xl border border-border-strong bg-surface/90 py-3 pl-4 pr-2 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-2xl no-backdrop:bg-surface ${
-        aboveDock ? 'bottom-[112px]' : 'bottom-6'
+        aboveDock ? 'bottom-[148px]' : 'bottom-6'
       }`}
     >
       <p className="min-w-0 flex-1 text-sm text-text">{toast.message}</p>

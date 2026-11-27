@@ -1,8 +1,21 @@
+pub mod episodes;
+pub mod ipc;
 pub mod mpv;
+pub mod player;
+pub mod progress;
 
 use crate::error::AppError;
 use mpv::{MpvPlaybackOptions, MpvPlayer, PlaybackStatus};
 use std::sync::{Arc, Mutex, MutexGuard};
+
+/// Gives the player the app's controls (`player`). Without them (the script
+/// could not be written) MPV plays with its own, as before.
+pub fn add_controls(settings: &mut PlaybackSettings, kind: player::PlayerKind) {
+    match player::args(&kind) {
+        Ok(args) => settings.extra_args.extend(args),
+        Err(e) => log::warn!("The player's controls are off for this start: {e:#}"),
+    }
+}
 
 /// The MPV controller shared between commands.
 pub type SharedPlayer = Arc<Mutex<MpvPlayer>>;
@@ -20,6 +33,10 @@ pub struct PlaybackSettings {
     pub cache_secs: Option<u32>,
     pub start_volume: Option<u32>,
     pub user_agent: Option<String>,
+    /// Seconds into the first file to start at (resuming).
+    pub start_secs: Option<f64>,
+    /// More MPV arguments (a series' playlist, `episodes`).
+    pub extra_args: Vec<String>,
 }
 
 impl PlaybackSettings {
@@ -35,6 +52,8 @@ impl PlaybackSettings {
             cache_secs: self.cache_secs,
             start_volume: self.start_volume,
             user_agent: self.user_agent.as_deref(),
+            start_secs: self.start_secs,
+            extra_args: &self.extra_args,
         }
     }
 }
@@ -50,6 +69,50 @@ fn lock_player(player: &SharedPlayer) -> Result<MutexGuard<'_, MpvPlayer>, AppEr
     player
         .lock()
         .map_err(|_| AppError::Mpv("MPV player lock poisoned".to_string()))
+}
+
+/// Spawn MPV with what to play already in `settings.extra_args`.
+pub async fn play_prepared(
+    player: SharedPlayer,
+    settings: PlaybackSettings,
+) -> Result<(), AppError> {
+    tokio::task::spawn_blocking(move || {
+        let mut mpv = lock_player(&player)?;
+        mpv.play_prepared(&settings.as_options())
+            .map_err(mpv_failure)
+    })
+    .await?
+}
+
+/// Queue a series' episodes, each with its title (`episodes`), falling back
+/// to a plain list of addresses if the playlist file cannot be written.
+pub async fn play_episodes(
+    player: SharedPlayer,
+    entries: Vec<(String, String)>,
+    mut settings: PlaybackSettings,
+) -> Result<(), AppError> {
+    for (i, (_, url)) in entries.iter().enumerate() {
+        if !mpv::is_playable_url(url) {
+            return Err(AppError::Mpv(format!(
+                "Queued episode {} cannot be played: the stream address is not valid",
+                i + 1
+            )));
+        }
+    }
+    match episodes::args(&entries, settings.start_secs) {
+        Ok(args) => {
+            settings.extra_args.extend(args);
+            settings.start_secs = None;
+            // The window follows the playing entry's title, as a plain queue does
+            settings.title = Some(mpv::QUEUE_WINDOW_TITLE.to_string());
+            play_prepared(player, settings).await
+        }
+        Err(e) => {
+            log::warn!("The episode playlist could not be written, a plain queue plays: {e:#}");
+            let (titles, urls) = entries.into_iter().unzip();
+            play_playlist(player, urls, titles, settings).await
+        }
+    }
 }
 
 /// Spawn MPV for a single stream. Stopping a previous instance can block for
@@ -92,6 +155,68 @@ pub async fn stop(player: SharedPlayer) -> Result<(), AppError> {
 }
 
 /// Poll the MPV process: still playing, or exited, and if on a failure, whose.
+/// Whether the player is paused; None without a player.
+pub async fn paused() -> Result<Option<bool>, AppError> {
+    Ok(tokio::task::spawn_blocking(|| {
+        ipc::get_property(&ipc::socket_path(), "pause").and_then(|v| v.as_bool())
+    })
+    .await?)
+}
+
+/// Pause or resume the player; whether one answered.
+pub async fn set_paused(paused: bool) -> Result<bool, AppError> {
+    Ok(tokio::task::spawn_blocking(move || {
+        ipc::set_property(&ipc::socket_path(), "pause", serde_json::json!(paused))
+    })
+    .await?)
+}
+
+/// Tell the player's controls what a live channel shows now (`player.lua`
+/// shows it beside LIVE); an empty title clears it. Whether a player answered.
+pub async fn set_programme(title: String) -> Result<bool, AppError> {
+    Ok(tokio::task::spawn_blocking(move || {
+        ipc::script_message(&ipc::socket_path(), &["biptv-programme", &title])
+    })
+    .await?)
+}
+
+/// Bring the player's window to the front. Wayland lets no program raise
+/// another's window, so on Hyprland the compositor is asked (its Lua
+/// dispatcher, else the classic one); elsewhere the window goes on top for a
+/// moment, which raises it on most X11 window managers.
+pub async fn show(player: SharedPlayer) -> Result<(), AppError> {
+    tokio::task::spawn_blocking(move || {
+        let pid = lock_player(&player)?.pid();
+        let Some(pid) = pid else { return Ok(()) };
+        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+            let lua = format!(r#"hl.dsp.focus({{ window = "pid:{pid}" }})"#);
+            let ok = std::process::Command::new("hyprctl")
+                .args(["dispatch", &lua])
+                .output()
+                .map(|o| {
+                    o.status.success() && !String::from_utf8_lossy(&o.stdout).contains("error")
+                })
+                .unwrap_or(false);
+            if ok {
+                return Ok(());
+            }
+            let classic = std::process::Command::new("hyprctl")
+                .args(["dispatch", "focuswindow", &format!("pid:{pid}")])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if classic {
+                return Ok(());
+            }
+        }
+        let path = ipc::socket_path();
+        ipc::set_property(&path, "ontop", serde_json::json!(true));
+        ipc::set_property(&path, "ontop", serde_json::json!(false));
+        Ok(())
+    })
+    .await?
+}
+
 pub async fn status(player: SharedPlayer) -> Result<PlaybackStatus, AppError> {
     tokio::task::spawn_blocking(move || {
         let mut mpv = lock_player(&player)?;
@@ -127,6 +252,8 @@ mod tests {
             cache_secs: None,
             start_volume: None,
             user_agent: None,
+            start_secs: None,
+            extra_args: Vec::new(),
         }
     }
 

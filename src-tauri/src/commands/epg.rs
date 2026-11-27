@@ -303,7 +303,10 @@ mod tests {
         assert_eq!(
             now_next["svt1.se"],
             NowNext {
-                now: Some(programme("News", NOW - H, NOW + H)),
+                now: Some(Programme {
+                    description: Some("About News".into()),
+                    ..programme("News", NOW - H, NOW + H)
+                }),
                 next: Some(programme("Film", NOW + H, NOW + 2 * H)),
             }
         );
@@ -315,7 +318,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&now_next["svt1.se"]).unwrap(),
             serde_json::json!({
-                "now": {"title": "News", "description": null, "start": at(NOW - H), "stop": at(NOW + H)},
+                "now": {"title": "News", "description": "About News", "start": at(NOW - H), "stop": at(NOW + H)},
                 "next": {"title": "Film", "description": null, "start": at(NOW + H), "stop": at(NOW + 2 * H)},
             })
         );

@@ -11,6 +11,9 @@ A simple overview of new features and improvements.
 - Added search on Home
 - Added a setting to hide the cast on movie and series pages
 - Added a tile view for a series' episodes
+- Better IPTV remembers what you watch: films and episodes resume where you left off, watched ones get a mark (or mark them yourself, a whole season at once), and a series' Play button carries on with the next episode
+- The player shows the film's or channel's name instead of the stream's file name, and on live TV what's on now
+- A new player: Netflix-style controls with a timeline that previews frames, episode list, audio & subtitles and settings panels, a Next Episode button, and N / Shift+N for the next or previous episode
 
 ### Improvements
 
@@ -24,6 +27,15 @@ A simple overview of new features and improvements.
 ### Thanks
 
 - **@RyanBeckett** for search on Home, search results split by type, a tile view for episodes, a setting to hide the cast, and artwork for titles named in another language (#99, #101, #108, #116, #117)
+
+### Improvements
+
+- The TV guide's programme card and the now-playing bar look the same, so pressing Watch now just turns play into pause; the bar shows the programme's description
+- A clearer now-playing bar: poster, episode and series, progress and time left, play/pause, and a click to bring the player to the front
+
+### Fixes
+
+- The player shows the film's or channel's name instead of the stream's file name, and on live TV what's on now
 
 ## Version 3.4.0 (November 17, 2026)
 

@@ -43,6 +43,7 @@ import { logger } from '../lib/logger';
 import { reloadAfterPlaylistRefresh } from '../lib/afterPlaylistRefresh';
 import { useResponsiveGrid, getGridClasses } from '../hooks/useResponsiveGrid';
 import { guideAnswered, nowNextFor, useNowNext } from '../hooks/useNowNext';
+import { usePlayerProgramme } from '../hooks/usePlayerProgramme';
 import { useNow } from '../hooks/useNow';
 import { startEpgEvents } from '../lib/epgEvents';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
@@ -600,6 +601,11 @@ export default function MainScreen() {
   const guideFetched = useEpgStore((s) => s.fetchedIn);
   // One clock for the cards' and the dock's progress and the header.
   const now = useNow();
+  usePlayerProgramme(
+    currentChannel,
+    currentChannel ? nowNextFor(nowNext, currentChannel) : undefined,
+    now
+  );
 
   // Visible poster rows feed the TMDB lookup, after the hero candidates of
   // both sections so the banner is warm before its section opens. Live rows
@@ -689,29 +695,46 @@ export default function MainScreen() {
       episodeId: string,
       extension: string,
       title: string,
-      remainingEpisodes?: Array<{ id: string; title: string; extension: string }>
+      remainingEpisodes?: Array<{ id: string; title: string; extension: string }>,
+      startSecs?: number
     ) => {
       if (!currentPlaylist) return;
+      // The series the episodes belong to, for watch progress
+      const seriesChannelId = detailChannel?.id;
       try {
         if (
           currentPlaylist.url &&
           currentPlaylist.xtream_username &&
           currentPlaylist.xtream_password
         ) {
-          await playEpisodeAction(episodeId, extension, title, currentPlaylist, remainingEpisodes);
+          await playEpisodeAction(
+            episodeId,
+            extension,
+            title,
+            currentPlaylist,
+            remainingEpisodes,
+            seriesChannelId,
+            startSecs
+          );
         } else {
           const ids = (
             remainingEpisodes && remainingEpisodes.length > 0
               ? remainingEpisodes.map((ep) => ep.id)
               : [episodeId]
           ).map(Number);
-          await playLocalEpisodesAction(ids, title);
+          await playLocalEpisodesAction(
+            ids,
+            title,
+            startSecs,
+            seriesChannelId,
+            remainingEpisodes?.map((e) => ({ id: e.id, title: e.title }))
+          );
         }
       } catch (err) {
         logger.error('Failed to play episode:', err);
       }
     },
-    [currentPlaylist, playEpisodeAction, playLocalEpisodesAction]
+    [currentPlaylist, detailChannel, playEpisodeAction, playLocalEpisodesAction]
   );
 
   // Xtream profiles fetch the series from the provider; M3U profiles read
@@ -874,6 +897,14 @@ export default function MainScreen() {
   // The search box is part of browsing, Home included: a search there shows
   // its results in Home's place, and emptying it brings Home back.
   const searchShown = view === 'browse';
+
+  // The now-playing dock: not over Settings, where it would cover Save and
+  // Cancel, nor while the guide's programme panel holds its place.
+  const [guidePanelOpen, setGuidePanelOpen] = useState(false);
+  const dockShown =
+    currentChannel !== null &&
+    view !== 'settings' &&
+    !(contentTypeFilter === 'guide' && guidePanelOpen);
 
   // Navigating away from Settings asks it first: unsaved edits get a
   // "Discard changes?" dialog, and `go` runs only on Discard.
@@ -1074,7 +1105,7 @@ export default function MainScreen() {
             playingChannelId={isPlaying ? (currentChannel?.id ?? null) : null}
             onPlay={handlePlayChannel}
             onOpenEpgSettings={() => openSettings('epg')}
-            dockVisible={Boolean(currentChannel)}
+            onPanelChange={setGuidePanelOpen}
             blockedMap={blockedMap}
             loadStatus={loadStatus}
             onRetry={retryChannels}
@@ -1304,9 +1335,9 @@ export default function MainScreen() {
           </>
         )}
 
-        {/* Now Playing Bar. Not over Settings, where it would cover Save and
-            Cancel; playback carries on and the dock returns on leaving. */}
-        {currentChannel && view !== 'settings' && (
+        {/* Now Playing Bar (see dockShown); playback carries on while it is
+            hidden, and it returns on leaving Settings or closing the panel. */}
+        {dockShown && currentChannel && (
           <NowPlayingBar
             channel={currentChannel}
             epg={nowNextFor(nowNext, currentChannel)}
@@ -1314,7 +1345,7 @@ export default function MainScreen() {
             onStop={stopPlaybackAction}
           />
         )}
-        <Toast aboveDock={Boolean(currentChannel) && view !== 'settings'} />
+        <Toast aboveDock={dockShown} />
       </main>
 
       {/* PIN Entry Modal for blocked channels */}

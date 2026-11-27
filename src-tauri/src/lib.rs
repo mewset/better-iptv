@@ -177,6 +177,7 @@ pub fn run() {
                 state.epg_cache_dir.clone(),
                 state.epg_refresh_lock.clone(),
             );
+            let recorder_state = state.clone();
             app.manage(state);
             app.manage(epg_service.clone());
 
@@ -208,6 +209,9 @@ pub fn run() {
             // existed, once per database.
             tauri::async_runtime::spawn(epg_service.run_background());
 
+            // Watch progress: where MPV is in a film or episode, every few seconds.
+            tauri::async_runtime::spawn(commands::progress::run_recorder(recorder_state));
+
             // iptv-org logo fallbacks: expire dead marks and refresh the list
             // weekly, well after startup.
             tauri::async_runtime::spawn(async move {
@@ -222,6 +226,12 @@ pub fn run() {
             check_mpv_installed,
             play_channel,
             stop_playback,
+            commands::playback::player_paused,
+            commands::playback::player_set_paused,
+            commands::playback::show_player,
+            commands::playback::player_set_programme,
+            commands::progress::get_watch_progress,
+            commands::progress::set_watched,
             playback_status,
             // Playlist commands
             import_playlist,

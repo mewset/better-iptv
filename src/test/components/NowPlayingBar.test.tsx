@@ -4,6 +4,10 @@ import { NowPlayingBar } from '../../components/NowPlayingBar';
 import { resetLogoFallbackSession, useLogoFallbackStore } from '../../lib/logoFallback';
 import type { Channel } from '../../types';
 import { nowNext, programme } from '../epgFixtures';
+import { invoke } from '@tauri-apps/api/core';
+import { useNowPlayingStore } from '../../stores/now-playing-store';
+import { useProgressStore } from '../../stores/progress-store';
+import { indexProgress } from '../../lib/watchProgress';
 
 const ch: Channel = {
   id: 1,
@@ -17,13 +21,18 @@ const now = Date.now();
 const iso = (m: number) => new Date(now + m * 60000).toISOString();
 
 describe('NowPlayingBar', () => {
+  beforeEach(() => {
+    useNowPlayingStore.setState({ info: null, paused: false });
+    useProgressStore.setState({ playlistId: null, entries: [], index: indexProgress([]) });
+  });
+
   it('has the aria-label the harness and screen readers rely on', () => {
     render(<NowPlayingBar now={now} channel={ch} onStop={vi.fn()} />);
     expect(screen.getByRole('complementary', { name: 'Now playing' })).toBeInTheDocument();
   });
 
-  it('renders times, minutes left and the next line from a full epg', () => {
-    const { container } = render(
+  it('renders the programme, minutes left, progress and what is next', () => {
+    render(
       <NowPlayingBar
         now={now}
         channel={ch}
@@ -32,23 +41,33 @@ describe('NowPlayingBar', () => {
       />
     );
     expect(screen.getByText('Rapport')).toBeInTheDocument();
-    expect(screen.getByText(/45 min left/)).toBeInTheDocument();
-    expect(screen.getByText(/min left/)).toBeInTheDocument();
-    expect(container.textContent).toMatch(/–/); // time range dash
+    expect(screen.getByText('SVT1')).toBeInTheDocument();
+    expect(screen.getByText('LIVE')).toBeInTheDocument();
+    expect(screen.getByText('45 min left')).toBeInTheDocument();
     expect(screen.getByText(/Next/)).toBeInTheDocument();
     expect(screen.getByText('Sport', { exact: false })).toBeInTheDocument();
-    expect(container.querySelector('[data-progress]')).not.toBeNull();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
   });
 
-  it('renders only the name with no epg: no dash, no minutes left, no NaN/undefined', () => {
+  it("shows the programme's description on one line when the guide has one", () => {
+    render(
+      <NowPlayingBar
+        now={now}
+        channel={ch}
+        epg={nowNext(programme('Rapport', iso(-15), iso(45), 'The evening news.'), null)}
+        onStop={vi.fn()}
+      />
+    );
+    expect(screen.getByText('The evening news.')).toHaveClass('truncate');
+  });
+
+  it('says there is no guide when the channel has none: no bar, no times, no NaN', () => {
     const { container } = render(<NowPlayingBar now={now} channel={ch} onStop={vi.fn()} />);
-    expect(screen.getByText('SVT1')).toBeInTheDocument();
-    expect(screen.queryByText('Off air')).toBeNull();
-    expect(container.querySelector('[data-progress]')).toBeNull();
-    expect(container.textContent).not.toMatch(/NaN|undefined/);
-    expect(container.textContent).not.toMatch(/min left/);
+    expect(screen.getAllByText('SVT1').length).toBeGreaterThan(0);
+    expect(screen.getByText('No guide for this channel')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(container.textContent).not.toMatch(/NaN|undefined|min left/);
     expect(screen.queryByText(/Next/)).toBeNull();
-    expect(container.textContent).not.toMatch(/–/);
   });
 
   it('shows "Off air" with the next programme when the channel is between broadcasts', () => {
@@ -129,14 +148,13 @@ describe('NowPlayingBar', () => {
 
   it('reads progress and minutes left at the time it is given', () => {
     const entry = nowNext(programme('Rapport', iso(-15), iso(45)));
-    const { container, rerender } = render(
+    const { rerender } = render(
       <NowPlayingBar channel={ch} now={now} epg={entry} onStop={vi.fn()} />
     );
-    expect(screen.getByText(/45 min left/)).toBeInTheDocument();
+    expect(screen.getByText('45 min left')).toBeInTheDocument();
     rerender(<NowPlayingBar channel={ch} now={now + 30 * 60000} epg={entry} onStop={vi.fn()} />);
-    expect(screen.getByText(/15 min left/)).toBeInTheDocument();
-    const bar = container.querySelector('[data-progress] > div') as HTMLElement;
-    expect(bar.style.width).toBe('75%');
+    expect(screen.getByText('15 min left')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '75');
   });
 
   it('calls onStop when the stop button is clicked', () => {
@@ -172,8 +190,8 @@ describe('NowPlayingBar', () => {
     expect(container.querySelectorAll('[data-bars]')).toHaveLength(0);
   });
 
-  it('truncates the name, programme and time-range instead of overflowing', () => {
-    const { container } = render(
+  it('truncates the channel name and programme instead of overflowing', () => {
+    render(
       <NowPlayingBar
         now={now}
         channel={{
@@ -193,17 +211,66 @@ describe('NowPlayingBar', () => {
     const name = screen.getByText(/An Extremely Long Channel Name/);
     const title = screen.getByText(/An Equally Long Programme Title/);
     expect(name.className).toMatch(/truncate/);
-    expect(name.className).toMatch(/shrink-0/);
-    expect(name.className).toMatch(/max-w-\[40%\]/);
+    expect(name.className).toMatch(/min-w-0/);
     expect(title.className).toMatch(/truncate/);
     expect(title.className).toMatch(/min-w-0/);
-    expect(title.className).toMatch(/flex-1/);
-    const timeRange = container.querySelector('[data-time-range]');
-    expect(timeRange).not.toBeNull();
-    expect(timeRange!.className).toMatch(/shrink-0/);
-    // Proportional figures: tabular ones widen the colons to a digit's width.
-    expect(timeRange!.textContent).toMatch(/\d:\d/);
-    expect(timeRange!.closest('.tabular-nums')).toBeNull();
+  });
+
+  it('shows the episode playing, its series and its progress from the queue', () => {
+    const series: Channel = {
+      id: 10,
+      name: 'The Chosen',
+      content_type: 'series',
+      is_favorite: false,
+    };
+    useNowPlayingStore.getState().setInfo({
+      kind: 'episode',
+      channel: series,
+      queue: [
+        { id: '11', title: 'S1 E1 · I Have Called You by Name' },
+        { id: '12', title: 'S1 E2 · Shabbat' },
+      ],
+    });
+    const entries = [
+      {
+        channel_id: 10,
+        episode_id: '12',
+        position_secs: 600,
+        duration_secs: 3000,
+        watched: false,
+        updated_at: 5,
+      },
+    ];
+    useProgressStore.setState({ playlistId: null, entries, index: indexProgress(entries) });
+    render(
+      <NowPlayingBar
+        now={now}
+        channel={{
+          id: -1,
+          name: 'S1 E1 · I Have Called You by Name',
+          content_type: 'series',
+          is_favorite: false,
+        }}
+        onStop={vi.fn()}
+      />
+    );
+    // The latest saved episode is the one playing now
+    expect(screen.getByText('The Chosen · S1 E2')).toBeInTheDocument();
+    expect(screen.getByText('Shabbat')).toBeInTheDocument();
+    expect(screen.getByText('40 min left')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '20');
+  });
+
+  it('pauses from the play button and shows the player from the bar', () => {
+    vi.mocked(invoke).mockClear();
+    render(<NowPlayingBar now={now} channel={ch} onStop={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    expect(invoke).toHaveBeenCalledWith('player_set_paused', { paused: true });
+    expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument();
+    expect(screen.getByText('PAUSED')).toBeInTheDocument();
+    expect(invoke).not.toHaveBeenCalledWith('show_player');
+    fireEvent.click(screen.getByRole('button', { name: /Show player/ }));
+    expect(invoke).toHaveBeenCalledWith('show_player');
   });
 
   it('gives the Stop button a visible-only focus ring', () => {

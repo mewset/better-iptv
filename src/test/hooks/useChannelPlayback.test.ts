@@ -10,6 +10,8 @@ import {
   stopPlayback,
 } from '../../lib/tauri';
 import { resetPlaybackGuard } from '../../lib/playGuard';
+import { useProgressStore } from '../../stores/progress-store';
+import { indexProgress } from '../../lib/watchProgress';
 import type { Channel, Playlist } from '../../types';
 
 vi.mock('../../lib/tauri', () => ({
@@ -18,6 +20,7 @@ vi.mock('../../lib/tauri', () => ({
   getPlaybackStatus: vi.fn().mockResolvedValue({ playing: false, failure: null }),
   playEpisodeWithSeason: vi.fn(),
   playSeriesEpisodes: vi.fn().mockResolvedValue(undefined),
+  playerPaused: vi.fn().mockResolvedValue(false),
 }));
 
 describe('useChannelPlayback.playLocalEpisodes', () => {
@@ -38,7 +41,7 @@ describe('useChannelPlayback.playLocalEpisodes', () => {
       await result.current.playLocalEpisodes([31, 32, 33], 'Pilot');
     });
 
-    expect(playSeriesEpisodes).toHaveBeenCalledWith([31, 32, 33]);
+    expect(playSeriesEpisodes).toHaveBeenCalledWith([31, 32, 33], undefined);
     const state = usePlayerStore.getState();
     expect(state.isPlaying).toBe(true);
     expect(state.currentChannel?.name).toBe('Pilot');
@@ -148,7 +151,7 @@ describe('useChannelPlayback start guard and failure toast', () => {
       await act(async () => {
         await result.current.play(tv4);
       });
-      expect(playChannel).toHaveBeenLastCalledWith(2);
+      expect(playChannel).toHaveBeenLastCalledWith(2, undefined);
       expect(usePlayerStore.getState().currentChannel?.name).toBe('TV4');
     } finally {
       vi.useRealTimers();
@@ -238,7 +241,29 @@ describe('useChannelPlayback sends ids and episodes, never stream URLs', () => {
     await act(async () => {
       await result.current.play(svt1);
     });
-    expect(playChannel).toHaveBeenCalledWith(1);
+    expect(playChannel).toHaveBeenCalledWith(1, undefined);
+  });
+
+  it('starts a film where it was left', async () => {
+    const film: Channel = { id: 4, name: 'Heat', content_type: 'vod', is_favorite: false };
+    const entries = [
+      {
+        channel_id: 4,
+        episode_id: '',
+        position_secs: 1234,
+        duration_secs: 6000,
+        watched: false,
+        updated_at: 1,
+      },
+    ];
+    const { result } = renderHook(() => useChannelPlayback());
+    // After mounting: with no profile, the hook clears progress on mount
+    useProgressStore.setState({ playlistId: null, entries, index: indexProgress(entries) });
+    await act(async () => {
+      await result.current.play(film);
+    });
+    expect(playChannel).toHaveBeenLastCalledWith(4, 1234);
+    useProgressStore.setState({ playlistId: null, entries: [], index: indexProgress([]) });
   });
 
   it('plays a single episode through the episode path, not a URL built here', async () => {
@@ -251,7 +276,9 @@ describe('useChannelPlayback sends ids and episodes, never stream URLs', () => {
       'http://p.example:8080/',
       'alice',
       's3cret',
-      [{ id: '901', title: 'Pilot', extension: 'mkv' }]
+      [{ id: '901', title: 'Pilot', extension: 'mkv' }],
+      undefined,
+      undefined
     );
     expect(usePlayerStore.getState().currentChannel).toEqual({
       id: -1,
@@ -275,7 +302,9 @@ describe('useChannelPlayback sends ids and episodes, never stream URLs', () => {
       'http://p.example:8080/',
       'alice',
       's3cret',
-      rest
+      rest,
+      undefined,
+      undefined
     );
   });
 

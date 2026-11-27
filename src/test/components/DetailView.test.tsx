@@ -3,7 +3,21 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import DetailView from '../../components/DetailView';
 import { usePlayerStore } from '../../stores/player-store';
 import type { Channel, Episode, SeriesInfo } from '../../types';
-import type { TmdbDetails } from '../../lib/tauri';
+import type { TmdbDetails, WatchProgress } from '../../lib/tauri';
+import { useProgressStore } from '../../stores/progress-store';
+import { indexProgress } from '../../lib/watchProgress';
+
+function setProgress(entries: WatchProgress[]) {
+  useProgressStore.setState({ playlistId: null, entries, index: indexProgress(entries) });
+}
+function progress(
+  channel_id: number,
+  episode_id: string,
+  position_secs: number,
+  watched = false
+): WatchProgress {
+  return { channel_id, episode_id, position_secs, duration_secs: 2400, watched, updated_at: 1 };
+}
 
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn(async () => {}) }));
 vi.mock('../../lib/tauri', async (importOriginal) => ({
@@ -182,6 +196,39 @@ describe('DetailView for a movie', () => {
     expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument();
   });
 
+  it('resumes a film left part-way, or starts it over', async () => {
+    setProgress([progress(9, '', 1200)]);
+    const props = renderMovie(unmatched);
+    expect(screen.getByText('20 min left')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume from 20:00' }));
+    expect(props.onPlay).toHaveBeenCalledWith(movie);
+
+    vi.mocked(invoke).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Start over' }));
+    // The position is forgotten first, so the film plays from the start
+    await waitFor(() => expect(props.onPlay).toHaveBeenCalledTimes(2));
+    expect(invoke).toHaveBeenCalledWith('set_watched', {
+      channelId: 9,
+      episodeId: null,
+      watched: false,
+    });
+    setProgress([]);
+  });
+
+  it('marks a film watched', async () => {
+    setProgress([]);
+    renderMovie(unmatched);
+    vi.mocked(invoke).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark as watched' }));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('set_watched', {
+        channelId: 9,
+        episodeId: null,
+        watched: true,
+      })
+    );
+  });
+
   it('survives a failing TMDB lookup', async () => {
     vi.mocked(getTmdbDetails).mockRejectedValue(new Error('offline'));
     render(
@@ -252,18 +299,82 @@ describe('DetailView for a series', () => {
     expect(screen.getByText('Chemistry teacher.')).toBeInTheDocument();
   });
 
+  it('carries on with the episode left part-way, on its season, from where it was', async () => {
+    // The latest entry decides: episode 2, left part-way
+    setProgress([
+      { ...progress(10, '12', 300), updated_at: 5 },
+      { ...progress(10, '11', 2300, true), updated_at: 4 },
+    ]);
+    const { onPlayEpisode } = renderSeries();
+    await screen.findByText('Pilot');
+    expect(screen.getByRole('button', { name: 'Pilot: watched' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(
+      screen.getByRole('button', { name: "Mark Cat's in the Bag as watched" })
+    ).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByRole('button', { name: /Resume S1 E2/ }));
+    expect(onPlayEpisode).toHaveBeenLastCalledWith(
+      '12',
+      'mp4',
+      "Cat's in the Bag",
+      [
+        { id: '12', title: "S1 E2 · Cat's in the Bag", extension: 'mp4' },
+        { id: '21', title: 'S2 E1 · Seven Thirty-Seven', extension: 'mp4' },
+      ],
+      300
+    );
+    setProgress([]);
+  });
+
+  it('marks a whole season watched', async () => {
+    setProgress([]);
+    renderSeries();
+    await screen.findByText('Pilot');
+    vi.mocked(invoke).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark season watched' }));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('set_watched', {
+        channelId: 10,
+        episodeId: '12',
+        watched: true,
+      })
+    );
+    expect(invoke).toHaveBeenCalledWith('set_watched', {
+      channelId: 10,
+      episodeId: '11',
+      watched: true,
+    });
+  });
+
   it('Play S1 E1 and an episode row both pass the remaining episodes in order', async () => {
     const { onPlayEpisode } = renderSeries();
     await screen.findByText('Pilot');
     fireEvent.click(screen.getByRole('button', { name: 'Play S1 E1' }));
-    expect(onPlayEpisode).toHaveBeenLastCalledWith('11', 'mp4', 'Pilot', [
-      { id: '11', title: 'Pilot', extension: 'mp4' },
-      { id: '12', title: "Cat's in the Bag", extension: 'mp4' },
-    ]);
+    expect(onPlayEpisode).toHaveBeenLastCalledWith(
+      '11',
+      'mp4',
+      'Pilot',
+      [
+        // The rest of the series, into season 2, titled for the player
+        { id: '11', title: 'S1 E1 · Pilot', extension: 'mp4' },
+        { id: '12', title: "S1 E2 · Cat's in the Bag", extension: 'mp4' },
+        { id: '21', title: 'S2 E1 · Seven Thirty-Seven', extension: 'mp4' },
+      ],
+      undefined
+    );
     fireEvent.click(screen.getByRole('button', { name: "Play Cat's in the Bag" }));
-    expect(onPlayEpisode).toHaveBeenLastCalledWith('12', 'mp4', "Cat's in the Bag", [
-      { id: '12', title: "Cat's in the Bag", extension: 'mp4' },
-    ]);
+    expect(onPlayEpisode).toHaveBeenLastCalledWith(
+      '12',
+      'mp4',
+      "Cat's in the Bag",
+      [
+        { id: '12', title: "S1 E2 · Cat's in the Bag", extension: 'mp4' },
+        { id: '21', title: 'S2 E1 · Seven Thirty-Seven', extension: 'mp4' },
+      ],
+      undefined
+    );
   });
 
   it('switches the episodes between list and tiles; a tile plays its episode', async () => {
@@ -282,9 +393,16 @@ describe('DetailView for a series', () => {
     expect(screen.getAllByText('E2')).toHaveLength(2);
     expect(screen.getByText('Pilot')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: "Play Cat's in the Bag" }));
-    expect(onPlayEpisode).toHaveBeenLastCalledWith('12', 'mp4', "Cat's in the Bag", [
-      { id: '12', title: "Cat's in the Bag", extension: 'mp4' },
-    ]);
+    expect(onPlayEpisode).toHaveBeenLastCalledWith(
+      '12',
+      'mp4',
+      "Cat's in the Bag",
+      [
+        { id: '12', title: "S1 E2 · Cat's in the Bag", extension: 'mp4' },
+        { id: '21', title: 'S2 E1 · Seven Thirty-Seven', extension: 'mp4' },
+      ],
+      undefined
+    );
 
     fireEvent.click(list);
     expect(screen.getAllByText('E2')).toHaveLength(1);
