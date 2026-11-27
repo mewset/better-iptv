@@ -11,6 +11,7 @@ A simple overview of new features and improvements.
 - Added search on Home
 - Added a setting to hide the cast on movie and series pages
 - Added a tile view for a series' episodes
+- Films that come in several versions (standard, 4K, German or French dubs…) now show as one card; pick the quality and audio language on the film's page, and set your default under Settings › Playback › Preferred version
 
 ### Improvements
 

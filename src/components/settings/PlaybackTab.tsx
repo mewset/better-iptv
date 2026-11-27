@@ -1,4 +1,5 @@
 import { useId } from 'react';
+import { LANGUAGES, type Quality } from '../../lib/versions';
 import ToggleRow from './ToggleRow';
 import {
   LANGUAGE_OPTIONS,
@@ -20,6 +21,12 @@ interface PlaybackTabProps {
   onDeinterlaceChange: (mode: DeinterlaceMode) => void;
   startFullscreen: boolean;
   onStartFullscreenChange: (enabled: boolean) => void;
+  /** Which version of a film plays by default */
+  preferredQuality: Quality;
+  onPreferredQualityChange: (quality: Quality) => void;
+  /** 'original', or a language name from LANGUAGES */
+  preferredLanguage: string;
+  onPreferredLanguageChange: (language: string) => void;
 
   // Cache
   cacheSecs: number;
@@ -45,6 +52,10 @@ export default function PlaybackTab({
   onDeinterlaceChange,
   startFullscreen,
   onStartFullscreenChange,
+  preferredQuality,
+  onPreferredQualityChange,
+  preferredLanguage,
+  onPreferredLanguageChange,
   cacheSecs,
   onCacheSecsChange,
   startVolume,
@@ -127,6 +138,55 @@ export default function PlaybackTab({
             checked={startFullscreen}
             onChange={onStartFullscreenChange}
           />
+        </div>
+      </section>
+
+      {/* Preferred version */}
+      <section>
+        <h3 className="mb-1 text-lg font-semibold text-text">Preferred version</h3>
+        <p className="mb-4 text-xs text-text-faint">
+          When a film comes in several versions (standard, 4K, dubbed), Play uses this one. You can
+          pick another on the film&apos;s page.
+        </p>
+        <div className="space-y-4">
+          <div>
+            <label
+              htmlFor={`${id}-version-quality`}
+              className="mb-2 block text-sm font-medium text-text-muted"
+            >
+              Quality
+            </label>
+            <select
+              id={`${id}-version-quality`}
+              value={preferredQuality}
+              onChange={(e) => onPreferredQualityChange(e.target.value as Quality)}
+              className="w-full rounded-lg border border-border-strong bg-surface px-4 py-2 text-text focus:border-transparent focus:ring-2 focus:ring-accent dark:[color-scheme:dark]"
+            >
+              <option value="4k">4K when available</option>
+              <option value="standard">Standard</option>
+            </select>
+          </div>
+          <div>
+            <label
+              htmlFor={`${id}-version-language`}
+              className="mb-2 block text-sm font-medium text-text-muted"
+            >
+              Audio language
+            </label>
+            <select
+              id={`${id}-version-language`}
+              value={preferredLanguage}
+              onChange={(e) => onPreferredLanguageChange(e.target.value)}
+              className="w-full rounded-lg border border-border-strong bg-surface px-4 py-2 text-text focus:border-transparent focus:ring-2 focus:ring-accent dark:[color-scheme:dark]"
+            >
+              <option value="original">Original</option>
+              {LANGUAGES.map((lang) => (
+                <option key={lang.name} value={lang.name}>
+                  {lang.name} dub when available
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </section>
 

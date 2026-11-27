@@ -4,6 +4,7 @@ import type { Channel, Playlist, SeriesInfo } from '../types';
 import {
   getChannels,
   getParentalSettings,
+  getSetting,
   LIBRARY_TYPES,
   LIVE_TYPES,
   setCategoryPinned,
@@ -15,6 +16,7 @@ import { applyEpgKeys } from '../lib/epgKeys';
 import { logger } from '../lib/logger';
 import { loadTitleSorts, saveTitleSorts } from '../lib/titleSort';
 import type { SortableSection, TitleRatings, TitleSort } from '../lib/titleSort';
+import { DEFAULT_VERSION_PREFS, type TmdbIds, type VersionPrefs } from '../lib/versions';
 
 /**
  * A section of the app the user is browsing: the destinations behind the
@@ -268,6 +270,13 @@ interface PlayerState {
   setParentalVisibility: (mode: 'hide' | 'lock' | 'blur') => void;
   setParentalAutoDetect: (enabled: boolean) => void;
   loadParentalSettings: () => Promise<void>;
+  /** Which version of a film plays by default (Settings > Playback > Preferred version) */
+  versionPrefs: VersionPrefs;
+  setVersionPrefs: (prefs: VersionPrefs) => void;
+  /** TMDB ids of the movies TMDB matched, so translated copies join their film */
+  movieTmdbIds: TmdbIds | null;
+  setMovieTmdbIds: (ids: TmdbIds | null) => void;
+  loadVersionPrefs: () => Promise<void>;
   checkChannelBlocked: (channel: Channel) => boolean;
 }
 
@@ -283,7 +292,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set((state) =>
       playlist?.id === state.currentPlaylist?.id
         ? { currentPlaylist: playlist }
-        : { currentPlaylist: playlist, categoryFilter: null, titleRatings: {} }
+        : { currentPlaylist: playlist, categoryFilter: null, movieTmdbIds: null, titleRatings: {} }
     ),
   setActiveProfileId: (id) => set({ activeProfileId: id }),
 
@@ -554,6 +563,26 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setParentalVisibility: (mode) => set({ parentalVisibility: mode }),
   setParentalAutoDetect: (enabled) => set({ parentalAutoDetect: enabled }),
 
+  versionPrefs: DEFAULT_VERSION_PREFS,
+  setVersionPrefs: (versionPrefs) => set({ versionPrefs }),
+  movieTmdbIds: null,
+  setMovieTmdbIds: (movieTmdbIds) => set({ movieTmdbIds }),
+  loadVersionPrefs: async () => {
+    try {
+      const [quality, language] = await Promise.all([
+        getSetting('version_quality'),
+        getSetting('version_language'),
+      ]);
+      set({
+        versionPrefs: {
+          quality: quality === 'standard' ? 'standard' : '4k',
+          language: language && language !== 'original' ? language : null,
+        },
+      });
+    } catch (err) {
+      logger.warn('Could not load the preferred version, keeping the defaults:', err);
+    }
+  },
   loadParentalSettings: async () => {
     try {
       const settings = await getParentalSettings();

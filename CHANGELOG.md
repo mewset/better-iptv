@@ -20,6 +20,10 @@ This file is a developer-changelog, aimed towards development changes.
   - Thanks to @RyanBeckett (#99)
 - **Settings: hide the cast on detail pages** - Settings › Metadata › Detail page › "Show the cast" (`detail_show_cast`, on by default) turns off the row of TMDB cast photos at the bottom of a movie's or series' page
   - Thanks to @RyanBeckett (#108)
+- **One card per film, with its versions on the detail page** - providers list a film once per copy: standard, 4K, and dubs in language categories ("German Movies", "Films Français"), each its own stream, so Movies showed the same poster two to four times (on one library 22,797 entries are 20,917 films). `lib/versions` groups them by title and year without quality or language tags (`titleKey`), reads each copy's quality (4K, UHD, 2160p in the name or category) and dub language (category words such as German/Deutsch/Français/Español, or a name tag such as `[DE]` or `FR - `), and picks the default copy from a new Settings > Playback > Preferred version (quality: 4K when available or Standard; audio: Original or a dub; stored as `version_quality` / `version_language`)
+  - Movies without a category, and search results, show one card per film, the preferred copy, with "· 3 versions" in its meta line; a chosen category still lists exactly its own entries. Series and channels are left as they are
+  - Copies are one film when their titles match ignoring case, accents, punctuation and quality/language tags (so a French "Top Gun : Maverick (2022)" joins "Top Gun: Maverick (2022)"), or when TMDB matched them to the same title (a new `get_title_tmdb_ids`), which catches translated titles such as "Die Truman Show (1998)". One matched copy is enough to bring its unmatched copies along; the ids are re-read every minute while the background scan runs
+  - The detail view offers Quality and Audio pickers when there is a choice, starting on the preference; Play plays the chosen copy, and a language without the chosen quality plays the copy it has
 
 ### Changed
 

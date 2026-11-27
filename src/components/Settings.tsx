@@ -11,6 +11,7 @@ import { usePlayerStore } from '../stores/player-store';
 import { logger } from '../lib/logger';
 import { errorText } from '../lib/errorText';
 import { resetLogoFallbackSession } from '../lib/logoFallback';
+import type { Quality } from '../lib/versions';
 import { applyTheme } from '../lib/theme';
 import { reloadAfterPlaylistRefresh } from '../lib/afterPlaylistRefresh';
 import { cn } from '../lib/utils';
@@ -120,6 +121,9 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
   const [videoOutput, setVideoOutput] = useState<VideoOutput>('gpu-next');
   const [deinterlace, setDeinterlace] = useState<DeinterlaceMode>('auto');
   const [startFullscreen, setStartFullscreen] = useState(false);
+  // Which version of a film plays by default; 'original' is no dub
+  const [preferredQuality, setPreferredQuality] = useState<Quality>('4k');
+  const [preferredLanguage, setPreferredLanguage] = useState('original');
   const [cacheSecs, setCacheSecs] = useState(30);
   const [startVolume, setStartVolume] = useState(100);
   const [audioLang, setAudioLang] = useState<LanguageCode>('none');
@@ -178,6 +182,8 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
     videoOutput,
     deinterlace,
     startFullscreen,
+    preferredQuality,
+    preferredLanguage,
     cacheSecs,
     startVolume,
     audioLang,
@@ -270,6 +276,8 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
           savedTmdbBackgroundEnrich,
           savedLogoFallback,
           savedShowCast,
+          savedVersionQuality,
+          savedVersionLanguage,
         ] = await Promise.all([
           getSetting('theme'),
           getSetting('audio_language'),
@@ -289,6 +297,8 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
           getSetting('tmdb_background_enrich'),
           getSetting('logo_fallback_enabled'),
           getSetting('detail_show_cast'),
+          getSetting('version_quality'),
+          getSetting('version_language'),
         ]);
 
         if (savedTheme) setTheme(savedTheme as Theme);
@@ -322,6 +332,8 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
         if (savedVideoOutput) setVideoOutput(savedVideoOutput as VideoOutput);
         if (savedDeinterlace) setDeinterlace(savedDeinterlace as DeinterlaceMode);
         if (savedStartFullscreen) setStartFullscreen(savedStartFullscreen === 'true');
+        setPreferredQuality(savedVersionQuality === 'standard' ? 'standard' : '4k');
+        setPreferredLanguage(savedVersionLanguage || 'original');
         if (savedCacheSecs) setCacheSecs(Number(savedCacheSecs) || 30);
         if (savedStartVolume) setStartVolume(Number(savedStartVolume));
         if (savedHwAccel !== null && savedHwAccel !== undefined) {
@@ -565,6 +577,12 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
       await setSetting('mpv_video_output', videoOutput);
       await setSetting('mpv_deinterlace', deinterlace);
       await setSetting('mpv_start_fullscreen', startFullscreen.toString());
+      await setSetting('version_quality', preferredQuality);
+      await setSetting('version_language', preferredLanguage);
+      usePlayerStore.getState().setVersionPrefs({
+        quality: preferredQuality,
+        language: preferredLanguage === 'original' ? null : preferredLanguage,
+      });
       await setSetting('mpv_cache_secs', cacheSecs.toString());
       await setSetting('mpv_start_volume', startVolume.toString());
 
@@ -673,6 +691,10 @@ export default function Settings({ onClose, initialTab = 'general', leaveRef }: 
                   onDeinterlaceChange={setDeinterlace}
                   startFullscreen={startFullscreen}
                   onStartFullscreenChange={setStartFullscreen}
+                  preferredQuality={preferredQuality}
+                  onPreferredQualityChange={setPreferredQuality}
+                  preferredLanguage={preferredLanguage}
+                  onPreferredLanguageChange={setPreferredLanguage}
                   cacheSecs={cacheSecs}
                   onCacheSecsChange={setCacheSecs}
                   startVolume={startVolume}

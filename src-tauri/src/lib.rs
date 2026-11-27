@@ -276,6 +276,7 @@ pub fn run() {
             check_for_update,
             // TMDB
             get_tmdb_cards,
+            get_title_tmdb_ids,
             get_title_ratings,
             get_featured_titles,
             get_tmdb_status,

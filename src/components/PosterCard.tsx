@@ -20,6 +20,8 @@ interface PosterCardProps {
   parentalVisibility?: 'hide' | 'lock' | 'blur';
   /** Callback when the favourite star is toggled */
   onToggleFavorite?: (channelId: number) => void;
+  /** How many versions the film has (standard, 4K, dubs); noted when more than one. */
+  versionCount?: number;
   /** TMDB's vote count, shown after the rating (the grid passes it while sorted by rating). */
   votes?: number;
 }
@@ -41,6 +43,7 @@ export const PosterCard = memo(function PosterCard({
   isBlocked = false,
   parentalVisibility = 'hide',
   onToggleFavorite,
+  versionCount,
   votes,
 }: PosterCardProps) {
   const [tmdbArtFailed, setTmdbArtFailed] = useState(false);
@@ -200,6 +203,7 @@ export const PosterCard = memo(function PosterCard({
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className="truncate text-text-faint">
           {metaLine(tmdb, channel.group_name ?? '')}
+          {versionCount !== undefined && versionCount > 1 && ` · ${versionCount} versions`}
           {votes !== undefined && tmdb?.rating != null && ` · ${votesText(votes)}`}
         </span>
       </div>

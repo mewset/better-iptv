@@ -645,6 +645,50 @@ pub fn cached_cards(
     Ok((pending, cards))
 }
 
+/// TMDB ids for a section's matched titles: channel id -> TMDB id. Lets the
+/// grid see that "Schindlers Liste (1993)" in a German category is the same
+/// film as "Schindler's List (1993) 4K". Empty while TMDB is off; unmatched
+/// titles are left out.
+#[tauri::command]
+pub async fn get_title_tmdb_ids(
+    state: State<'_, AppState>,
+    playlist_id: i64,
+    content_type: String,
+) -> Result<HashMap<i64, i64>, AppError> {
+    if content_type != "vod" && content_type != "series" {
+        return Err(AppError::InvalidInput(format!(
+            "No TMDB ids for content type {content_type}"
+        )));
+    }
+    with_db(&state.pool, move |conn| {
+        title_tmdb_ids(conn, playlist_id, &content_type)
+    })
+    .await
+}
+
+pub fn title_tmdb_ids(
+    conn: &Connection,
+    playlist_id: i64,
+    content_type: &str,
+) -> Result<HashMap<i64, i64>, AppError> {
+    let mut out = HashMap::new();
+    if !read_key_settings(conn)?.enabled {
+        return Ok(out);
+    }
+    let channels: Vec<Channel> = queries::get_channels(conn, Some(playlist_id))?
+        .into_iter()
+        .filter(|c| c.content_type == content_type)
+        .collect();
+    for job in group_jobs(&channels) {
+        if let Some(tmdb_id) = queries::get_tmdb_row(conn, &job.key)?.and_then(|r| r.tmdb_id) {
+            for id in job.channel_ids {
+                out.insert(id, tmdb_id);
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// What TMDB knows about one title that the Movies and Series sorts use:
 /// the rating with its vote count for "Highest rated", the release year for
 /// "Year, newest first".
@@ -1639,6 +1683,14 @@ mod tests {
             ]
         );
         assert!(build_featured(&trending, &channels, &candidates, "series", 2026).is_empty());
+    }
+
+    #[test]
+    fn title_tmdb_ids_are_empty_while_tmdb_is_off() {
+        use crate::db::test_helpers::{create_test_playlist, setup_test_db};
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        assert!(title_tmdb_ids(&conn, pid, "vod").unwrap().is_empty());
     }
 
     #[test]
