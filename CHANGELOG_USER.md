@@ -8,8 +8,24 @@ A simple overview of new features and improvements.
 
 ### New Features
 
-- Series you're watching show when new episodes have been added: a NEW badge on the poster and on the new episodes
+- Added search on Home
+- Added a setting to hide the cast on movie and series pages
+- Added a tile view for a series' episodes
 - Better IPTV remembers what you watch: films and episodes resume where you left off, watched ones get a mark (or mark them yourself, a whole season at once), and a series' Play button carries on with the next episode
+- Series you're watching show when new episodes have been added: a NEW badge on the poster and on the new episodes
+
+### Improvements
+
+- Search results are now split into Movies, Series and Live TV, and a movie or series in the results opens its page
+- Series episodes now show when they aired
+
+### Fixes
+
+- Fixed movies and series named in another language, e.g. a French or German copy, getting no artwork or details
+
+### Thanks
+
+- **@RyanBeckett** for search on Home, search results split by type, a tile view for episodes, a setting to hide the cast, and artwork for titles named in another language (#99, #101, #108, #116, #117)
 
 ## Version 3.4.0 (November 17, 2026)
 
