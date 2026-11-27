@@ -50,11 +50,10 @@ Object.defineProperty(document, 'fonts', {
   value: { load: vi.fn().mockResolvedValue([]) },
 });
 
-// Mock ResizeObserver
-(globalThis as typeof globalThis & { ResizeObserver: unknown }).ResizeObserver = vi
-  .fn()
-  .mockImplementation(() => ({
-    observe: vi.fn(),
-    unobserve: vi.fn(),
-    disconnect: vi.fn(),
-  }));
+// Mock ResizeObserver. A class, not an arrow-function mock: components build
+// it with `new`, which an arrow implementation cannot be.
+(globalThis as typeof globalThis & { ResizeObserver: unknown }).ResizeObserver = class {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+};

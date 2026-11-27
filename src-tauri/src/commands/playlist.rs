@@ -530,6 +530,7 @@ mod tests {
             category_order: 0,
             created_at: None,
             rating: None,
+            genres: None,
         }
     }
 

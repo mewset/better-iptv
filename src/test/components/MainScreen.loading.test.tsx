@@ -286,7 +286,8 @@ describe('MainScreen: channel load placeholders', () => {
     expect(screen.queryByRole('button', { name: 'Sweden' })).toBeNull();
 
     await act(async () => answerMovies({ pinned: [], others: ['Action'] }));
-    expect(await screen.findByRole('button', { name: 'Action' })).toBeInTheDocument();
+    // Movies keeps its categories in the side panel, not as chips
+    await waitFor(() => expect(usePlayerStore.getState().categories).toEqual(['Action']));
   });
 
   it("ignores the previous section's categories when they answer late", async () => {
@@ -306,7 +307,7 @@ describe('MainScreen: channel load placeholders', () => {
     await renderSettled(<MainScreen />);
 
     act(() => usePlayerStore.setState({ contentTypeFilter: 'vod' }));
-    expect(await screen.findByRole('button', { name: 'Action' })).toBeInTheDocument();
+    await waitFor(() => expect(usePlayerStore.getState().categories).toEqual(['Action']));
 
     await act(async () => answerLive({ pinned: [], others: ['Sweden'] }));
     expect(screen.queryByRole('button', { name: 'Sweden' })).toBeNull();

@@ -3,6 +3,7 @@ import { ArrowUpDown, Check, ChevronDown } from 'lucide-react';
 import { usePlayerStore } from '../stores/player-store';
 import { TITLE_SORTS, type SortableSection, type TitleSort } from '../lib/titleSort';
 import { cn } from '../lib/utils';
+import { BAR_CONTROL } from './barControl';
 
 interface TitleSortMenuProps {
   section: SortableSection;
@@ -94,17 +95,14 @@ export const TitleSortMenu = memo(function TitleSortMenu({ section }: TitleSortM
         aria-expanded={open}
         aria-label={`Sort ${section === 'vod' ? 'movies' : 'series'}: ${current.label}`}
         onClick={() => setOpen((o) => !o)}
-        className={cn(
-          'inline-flex h-[34px] items-center gap-2 rounded-full border px-3.5 text-[13px] font-medium transition-colors',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
-          open
-            ? 'border-text bg-text text-bg'
-            : 'border-border bg-text/5 text-text-muted hover:bg-text/10 hover:text-text'
-        )}
+        className={cn(BAR_CONTROL, open && 'border-text')}
       >
-        <ArrowUpDown className="h-3.5 w-3.5" aria-hidden="true" />
+        <ArrowUpDown className="h-3.5 w-3.5 text-text-muted" aria-hidden="true" />
         <span className="whitespace-nowrap">{current.label}</span>
-        <ChevronDown className={cn('h-3.5 w-3.5', open && 'rotate-180')} aria-hidden="true" />
+        <ChevronDown
+          className={cn('h-3.5 w-3.5 text-text-muted', open && 'rotate-180')}
+          aria-hidden="true"
+        />
       </button>
 
       {open && (

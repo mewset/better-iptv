@@ -20,6 +20,13 @@ This file is a developer-changelog, aimed towards development changes.
   - Thanks to @RyanBeckett (#99)
 - **Settings: hide the cast on detail pages** - Settings › Metadata › Detail page › "Show the cast" (`detail_show_cast`, on by default) turns off the row of TMDB cast photos at the bottom of a movie's or series' page
   - Thanks to @RyanBeckett (#108)
+- **Movies and Series browse bar** - the category chip row in Movies and Series becomes one bar under the top bar: genre tabs on the left, then the provider category, a 4K switch (Movies) and the sort menu on the right. Live TV keeps its category chips
+  - **Genre tabs** (`BrowseBar`): one line that scrolls sideways with no scrollbar; edge fades and ‹ › buttons show where there is more, and a mouse wheel over the strip scrolls it. Ordered by how many titles carry each genre; clicking the active one clears it. Genres combine with the category
+  - Genres come from a new `get_title_genres` command: series use the provider's own `genre` from `get_series` (stored in a new `channels.genres` column, on import and on every refresh, like `rating`), movies use TMDB (`get_vod_streams` sends none), so movie genres grow as the background scan matches titles; the strip re-reads them every minute in Movies
+  - **Categories** move into a side panel (`CategoryPanel`) that opens from the right beside its button: All, pinned, then the rest, with a filter box and the same pins; built on `useModalDialog`
+  - **4K**: a switch in Movies and a 4K badge on posters, from `lib/fourK` (4K, UHD or 2160p as a word in the title or category, so "24K Magic" is not 4K). A series in the Series section no longer wears the "Series" tag (it still does in Favorites and search, where types mix)
+  - Nothing in the bar animates (no transitions, instant scroll jumps): see the DMA-BUF stale-frame note in #95
+  - The test setup's `ResizeObserver` mock is now a class, since components construct it with `new`
 
 ### Changed
 

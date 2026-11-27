@@ -11,6 +11,7 @@ A simple overview of new features and improvements.
 - Added search on Home
 - Added a setting to hide the cast on movie and series pages
 - Added a tile view for a series' episodes
+- Movies and Series have a new bar: genres along the top, a categories panel, a 4K switch and 4K badges on posters
 
 ### Improvements
 
