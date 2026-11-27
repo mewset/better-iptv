@@ -274,6 +274,40 @@ fn trailer_of(videos: &Videos) -> Option<String> {
         .map(|v| v.key.clone())
 }
 
+#[derive(Deserialize)]
+struct TranslationsResponse {
+    #[serde(default)]
+    translations: Vec<Translation>,
+}
+
+#[derive(Deserialize)]
+struct Translation {
+    #[serde(default)]
+    data: TranslationData,
+}
+
+#[derive(Deserialize, Default)]
+struct TranslationData {
+    /// A film's title in that language.
+    #[serde(default)]
+    title: Option<String>,
+    /// A series' name in that language.
+    #[serde(default)]
+    name: Option<String>,
+}
+
+/// Every title a film or series has in TMDB's translations, blanks dropped
+/// (`/movie/{id}/translations`, `/tv/{id}/translations`).
+pub fn parse_translations(json: &str) -> Result<Vec<String>, serde_json::Error> {
+    let r: TranslationsResponse = serde_json::from_str(json)?;
+    Ok(r.translations
+        .into_iter()
+        .filter_map(|t| t.data.title.or(t.data.name))
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect())
+}
+
 pub fn parse_movie_search(json: &str) -> Result<Vec<SearchHit>, serde_json::Error> {
     let r: SearchResponse<MovieHit> = serde_json::from_str(json)?;
     Ok(r.results
@@ -376,6 +410,24 @@ pub fn parse_error_body(json: &str) -> Option<(i32, String)> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn translations_give_every_title_and_name() {
+        let movie = r#"{"id":671,"translations":[
+            {"iso_639_1":"fr","data":{"title":"Harry Potter à l'école des sorciers"}},
+            {"iso_639_1":"de","data":{"title":"Harry Potter und der Stein der Weisen"}},
+            {"iso_639_1":"sv","data":{"title":""}},
+            {"iso_639_1":"xx"}]}"#;
+        assert_eq!(
+            parse_translations(movie).unwrap(),
+            [
+                "Harry Potter à l'école des sorciers",
+                "Harry Potter und der Stein der Weisen"
+            ]
+        );
+        let tv = r#"{"translations":[{"data":{"name":"Breaking Bad – Reulen"}}]}"#;
+        assert_eq!(parse_translations(tv).unwrap(), ["Breaking Bad – Reulen"]);
+    }
     use super::*;
 
     const SEARCH_MOVIE: &str =
