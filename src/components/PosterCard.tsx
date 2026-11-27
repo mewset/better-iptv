@@ -1,10 +1,12 @@
 import { memo, useEffect, useState } from 'react';
 import { useChannelLogo } from '../hooks/useChannelLogo';
-import { Play, Clapperboard, Star, Lock } from 'lucide-react';
+import { Play, Clapperboard, Star, Lock, Check } from 'lucide-react';
 import type { Channel } from '../types';
 import { ColorBars } from './ColorBars';
 import { metaLine, votesText } from '../lib/tmdb';
 import type { TmdbCard } from '../lib/tauri';
+import { useProgressStore } from '../stores/progress-store';
+import { progressFraction, progressKey } from '../lib/watchProgress';
 
 interface PosterCardProps {
   channel: Channel;
@@ -51,6 +53,16 @@ export const PosterCard = memo(function PosterCard({
   const { src: logoSrc, onError: onLogoError } = useChannelLogo(channel);
   const [fit, setFit] = useState<'cover' | 'contain'>('cover');
   const isSeries = channel.content_type === 'series';
+  // How far through: a film's own progress, a series' episode left part-way
+  const progress = useProgressStore((s) =>
+    isSeries ? s.index.latestByChannel.get(channel.id) : s.index.byKey.get(progressKey(channel.id))
+  );
+  const watched = !isSeries && (progress?.watched ?? false);
+  // Episodes added to a series the viewer is watching
+  const newCount = useProgressStore((s) =>
+    isSeries ? (s.newEpisodes[channel.id]?.length ?? 0) : 0
+  );
+  const fraction = progress && !progress.watched ? progressFraction(progress) : 0;
   const blocked = isBlocked && parentalVisibility !== 'hide';
   const lockMode = blocked && parentalVisibility === 'lock';
   const blurMode = blocked && parentalVisibility === 'blur';
@@ -115,6 +127,32 @@ export const PosterCard = memo(function PosterCard({
         {isSeries && !blocked && (
           <span className="absolute bottom-2 left-2 rounded-full bg-bg/70 px-2 py-0.5 text-[11px] font-semibold text-text">
             Series
+          </span>
+        )}
+
+        {!blocked && newCount > 0 && (
+          <span className="absolute left-2 top-2 rounded-md bg-accent px-2 py-0.5 text-[11px] font-bold tracking-wide text-on-accent">
+            {newCount} NEW
+          </span>
+        )}
+        {!blocked && watched && (
+          <span
+            title="Watched"
+            className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-on-accent"
+          >
+            <Check className="h-4 w-4" aria-label="Watched" />
+          </span>
+        )}
+        {!blocked && fraction > 0 && (
+          <span
+            role="progressbar"
+            aria-label="Watched"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(fraction * 100)}
+            className="absolute inset-x-0 bottom-0 h-1 bg-text/20"
+          >
+            <span className="block h-full bg-accent" style={{ width: `${fraction * 100}%` }} />
           </span>
         )}
 

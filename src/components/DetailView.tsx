@@ -6,8 +6,10 @@ import {
   Clapperboard,
   RefreshCw,
   Search,
+  Check,
   LayoutGrid,
   List,
+  RotateCcw,
   TriangleAlert,
 } from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -18,11 +20,22 @@ import {
   getTmdbSeason,
   type TmdbDetails,
   type TmdbEpisode,
+  type WatchProgress,
 } from '../lib/tauri';
 import type { Channel, Episode, SeriesInfo } from '../types';
 import { ColorBars } from './ColorBars';
 import { logger } from '../lib/logger';
 import { errorText } from '../lib/errorText';
+import { useProgressStore } from '../stores/progress-store';
+import {
+  finaleOf,
+  formatPosition,
+  nextUp,
+  progressFraction,
+  progressKey,
+  resumeSecs,
+} from '../lib/watchProgress';
+import { allEpisodeIds, newEpisodeIds } from '../lib/newEpisodes';
 import { airDateLabel } from '../lib/airDate';
 import { cleanEpisodeTitle } from '../lib/episodeTitle';
 
@@ -36,7 +49,8 @@ interface DetailViewProps {
     episodeId: string,
     extension: string,
     title: string,
-    remainingEpisodes?: Array<{ id: string; title: string; extension: string }>
+    remainingEpisodes?: Array<{ id: string; title: string; extension: string }>,
+    startSecs?: number
   ) => void;
   onToggleFavorite: (channelId: number, currentValue?: boolean) => void;
   isPlaying: boolean;
@@ -78,6 +92,65 @@ function metaRow(d: TmdbDetails | null, fallbackYear?: string): string {
  * keep the season/episode flow of the old series view, with TMDB filling gaps in
  * the episode rows.
  */
+/** An episode added since the viewer last opened the series. */
+function NewTag() {
+  return (
+    <span className="shrink-0 rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-on-accent">
+      NEW
+    </span>
+  );
+}
+
+/** A thin amber bar of how far through a title is. */
+function ProgressBar({ fraction, className = '' }: { fraction: number; className?: string }) {
+  return (
+    <span
+      role="progressbar"
+      aria-label="Watched"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(fraction * 100)}
+      className={`block h-1 overflow-hidden rounded-full bg-text/20 ${className}`}
+    >
+      <span className="block h-full bg-accent" style={{ width: `${fraction * 100}%` }} />
+    </span>
+  );
+}
+
+/** On an episode's thumbnail: how far it got (the watched mark is the row's button). */
+function EpisodeProgress({ progress }: { progress: WatchProgress | undefined }) {
+  if (!progress || progress.watched) return null;
+  const fraction = progressFraction(progress);
+  if (fraction <= 0) return null;
+  return <ProgressBar fraction={fraction} className="absolute inset-x-0 bottom-0 rounded-none" />;
+}
+
+function WatchedToggle({
+  watched,
+  title,
+  onChange,
+}: {
+  watched: boolean;
+  title: string;
+  onChange: (watched: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={watched}
+      aria-label={watched ? `${title}: watched` : `Mark ${title} as watched`}
+      title={watched ? 'Watched: click to unmark' : 'Mark as watched'}
+      onClick={() => onChange(!watched)}
+      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border focus-visible:ring-2 focus-visible:ring-accent ${
+        watched
+          ? 'border-accent text-accent-text'
+          : 'border-border-strong text-text-faint hover:text-text'
+      }`}
+    >
+      <Check className="h-4 w-4" aria-hidden="true" />
+    </button>
+  );
+}
 
 /** How a series' episodes are shown: rows with the plot, or a grid of thumbnails. */
 type EpisodeView = 'list' | 'tiles';
@@ -170,6 +243,8 @@ export default function DetailView({
   const [failedPoster, setFailedPoster] = useState<string | null>(null);
   // Bumped by "Try again" after a failed load, like `attempt` for the details.
   const [seriesAttempt, setSeriesAttempt] = useState(0);
+  // Episodes new since the last visit (see the series load below)
+  const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
   const [episodeView, setEpisodeViewState] = useState<EpisodeView>(loadEpisodeView);
   const setEpisodeView = (view: EpisodeView) => {
     setEpisodeViewState(view);
@@ -198,12 +273,31 @@ export default function DetailView({
         const info = await loadSeries();
         if (cancelled) return;
         setCurrentSeries(info);
+        const progressState = useProgressStore.getState();
+        progressState.setFinale(channel.id, finaleOf(info));
+        // Episodes added since the viewer last opened a series they watch get
+        // a "New" tag for this visit; opening it marks the list seen
+        const known = progressState.knownEpisodes[channel.id];
+        const watching = progressState.index.latestByChannel.has(channel.id);
+        setFreshIds(
+          new Set(
+            newEpisodeIds(
+              info,
+              known,
+              (id) => progressState.index.byKey.get(progressKey(channel.id, id))?.watched ?? false
+            )
+          )
+        );
+        if (known || watching) progressState.markSeen(channel.id, allEpisodeIds(info));
         // Open on the first season that has episodes: panels often list a
         // "Season 0" (specials) or upcoming seasons with nothing to play.
         const firstPlayable =
           info.seasons.find((s) => (info.episodes[s.season_number]?.length ?? 0) > 0) ??
           info.seasons[0];
-        if (firstPlayable) setSelectedSeason(firstPlayable.season_number);
+        // Open on the season being watched, if any
+        const up = nextUp(info, channel.id, useProgressStore.getState().index);
+        if (up && up.kind !== 'start') setSelectedSeason(up.season);
+        else if (firstPlayable) setSelectedSeason(firstPlayable.season_number);
       } catch (err) {
         if (cancelled) return;
         logger.error('Failed to load series info:', err);
@@ -217,6 +311,8 @@ export default function DetailView({
       setCurrentSeries(null);
       setSelectedSeason(null);
     };
+    // channel.id only seeds the season; a new channel brings a new loadSeries
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSeries, loadSeries, seriesAttempt, setCurrentSeries, setSelectedSeason]);
 
   // The view takes the focus when it opens, and again when the failed screen
@@ -280,7 +376,6 @@ export default function DetailView({
   );
   const tmdbOn = details?.available ?? false;
   const seasons = currentSeries?.seasons ?? [];
-  const firstEpisode = seasonEpisodes[0];
 
   // The title an episode's row shows, which is also what the dock shows while
   // it plays: the provider's own title is often empty.
@@ -294,16 +389,45 @@ export default function DetailView({
   // Playback keeps the provider's full title (the player shows it without the
   // series around it), as the rest of the queue does (`remainingFrom`).
   const playTitle = (episode: Episode): string => episode.title || shownTitle(episode);
-  const playFrom = (index: number) => {
-    const episode = seasonEpisodes[index];
+  // Watch progress: episodes keyed by the series' channel, films by their own
+  const progress = useProgressStore((s) => s.index);
+  const setWatched = useProgressStore((s) => s.setWatched);
+  const setEpisodesWatched = useProgressStore((s) => s.setEpisodesWatched);
+  const episodeProgress = (episode: Episode) =>
+    progress.byKey.get(progressKey(channel.id, episode.id));
+  // An episode left part-way picks up there
+  const playEpisodeIn = (episodes: Episode[], index: number) => {
+    const episode = episodes[index];
     if (!episode) return;
     onPlayEpisode(
       episode.id,
       episode.container_extension,
       playTitle(episode),
-      remainingFrom(seasonEpisodes, index)
+      remainingFrom(episodes, index),
+      resumeSecs(episodeProgress(episode))
     );
   };
+  const playFrom = (index: number) => playEpisodeIn(seasonEpisodes, index);
+  const seasonWatched =
+    seasonEpisodes.length > 0 && seasonEpisodes.every((e) => episodeProgress(e)?.watched);
+  // A series' Play carries on: the episode left part-way, the first unwatched
+  // one after the last watched, or the first
+  const up = isSeries && currentSeries ? nextUp(currentSeries, channel.id, progress) : null;
+  const playUp = () => {
+    if (!up || !currentSeries) return;
+    const episodes = [...(currentSeries.episodes[up.season] ?? [])].sort(byEpisodeNumber);
+    setSelectedSeason(up.season);
+    playEpisodeIn(
+      episodes,
+      episodes.findIndex((e) => e.id === up.episode.id)
+    );
+  };
+  const upLabel = up
+    ? `${up.kind === 'resume' ? 'Resume' : 'Play'} S${up.season} E${up.episode.episode_num}`
+    : 'Play';
+  const filmProgress = isSeries ? undefined : progress.byKey.get(progressKey(channel.id));
+  const filmResume = resumeSecs(filmProgress);
+  const filmWatched = filmProgress?.watched ?? false;
 
   if (seriesFailed) {
     return (
@@ -404,29 +528,55 @@ export default function DetailView({
           <span className="text-xs font-bold tracking-[0.12em] text-accent-text">{eyebrow}</span>
           <h1 className="font-display text-[40px] font-bold leading-none text-text">{title}</h1>
           {meta && <p className="text-[13px] text-text-muted">{meta}</p>}
+          {filmResume !== undefined && filmProgress && (
+            <div className="flex max-w-sm items-center gap-3 text-xs text-text-muted">
+              <ProgressBar fraction={progressFraction(filmProgress)} className="flex-1" />
+              {Math.max(1, Math.round((filmProgress.duration_secs - filmResume) / 60))} min left
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2 pt-1">
             {isSeries ? (
               <button
                 type="button"
-                onClick={() => playFrom(0)}
-                disabled={!firstEpisode}
+                onClick={playUp}
+                disabled={!up}
                 className="flex h-11 items-center gap-2 rounded-xl bg-accent px-5 font-bold text-on-accent focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
               >
                 <Play className="h-4 w-4" aria-hidden="true" />
-                {selectedSeason
-                  ? `Play S${selectedSeason} E${firstEpisode?.episode_num ?? 1}`
-                  : 'Play'}
+                {upLabel}
+                {up?.resumeSecs !== undefined && (
+                  <span className="font-medium opacity-80">· {formatPosition(up.resumeSecs)}</span>
+                )}
               </button>
             ) : (
-              <button
-                type="button"
-                onClick={() => onPlay(channel)}
-                disabled={isPlaying}
-                className="flex h-11 items-center gap-2 rounded-xl bg-accent px-5 font-bold text-on-accent focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default"
-              >
-                {!isPlaying && <Play className="h-4 w-4" aria-hidden="true" />}
-                {isPlaying ? 'Playing' : 'Play'}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => onPlay(channel)}
+                  disabled={isPlaying}
+                  className="flex h-11 items-center gap-2 rounded-xl bg-accent px-5 font-bold text-on-accent focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default"
+                >
+                  {!isPlaying && <Play className="h-4 w-4" aria-hidden="true" />}
+                  {isPlaying
+                    ? 'Playing'
+                    : filmResume !== undefined
+                      ? `Resume from ${formatPosition(filmResume)}`
+                      : 'Play'}
+                </button>
+                {filmResume !== undefined && !isPlaying && (
+                  // Forgets the position, so the film plays from the start
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void setWatched(channel.id, null, false).then(() => onPlay(channel))
+                    }
+                    className="flex h-11 items-center gap-2 rounded-xl border border-border-strong px-4 font-semibold text-text hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                    Start over
+                  </button>
+                )}
+              </>
             )}
             {details?.trailer_url && (
               <button
@@ -453,6 +603,22 @@ export default function DetailView({
                 aria-hidden="true"
               />
             </button>
+            {!isSeries && (
+              <button
+                type="button"
+                aria-pressed={filmWatched}
+                aria-label={filmWatched ? 'Watched' : 'Mark as watched'}
+                title={filmWatched ? 'Watched: click to unmark' : 'Mark as watched'}
+                onClick={() => void setWatched(channel.id, null, !filmWatched)}
+                className={`flex h-11 w-11 items-center justify-center rounded-xl border hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-accent ${
+                  filmWatched
+                    ? 'border-accent text-accent-text'
+                    : 'border-border-strong text-text-muted'
+                }`}
+              >
+                <Check className="h-5 w-5" aria-hidden="true" />
+              </button>
+            )}
             {onFixMatch && tmdbOn && details && (
               <button
                 type="button"
@@ -555,6 +721,24 @@ export default function DetailView({
                       );
                     })}
                   </div>
+                )}
+                {seasonEpisodes.length > 0 && (
+                  // The whole season at once: marks every episode, or clears
+                  // them all when every one is already watched
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void setEpisodesWatched(
+                        channel.id,
+                        seasonEpisodes.map((e) => e.id),
+                        !seasonWatched
+                      )
+                    }
+                    className="flex h-9 shrink-0 items-center gap-2 self-center rounded-lg px-3 text-sm font-medium text-text-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    <Check className="h-4 w-4" aria-hidden="true" />
+                    {seasonWatched ? 'Mark season unwatched' : 'Mark season watched'}
+                  </button>
                 )}
                 <div
                   role="group"
@@ -660,7 +844,7 @@ export default function DetailView({
                         key={episode.id}
                         className="flex items-center gap-4 rounded-xl border border-border bg-surface p-3"
                       >
-                        <div className="h-[90px] w-[160px] shrink-0 overflow-hidden rounded-lg bg-surface-2">
+                        <div className="relative h-[90px] w-[160px] shrink-0 overflow-hidden rounded-lg bg-surface-2">
                           {thumb ? (
                             <img
                               src={thumb}
@@ -673,11 +857,15 @@ export default function DetailView({
                               E{episode.episode_num}
                             </div>
                           )}
+                          <EpisodeProgress progress={episodeProgress(episode)} />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate font-semibold text-text">
-                            <span className="text-text-faint">{episode.episode_num}.</span>{' '}
-                            {epTitle}
+                          <p className="flex items-center gap-2 font-semibold text-text">
+                            <span className="truncate">
+                              <span className="text-text-faint">{episode.episode_num}.</span>{' '}
+                              {epTitle}
+                            </span>
+                            {freshIds.has(episode.id) && <NewTag />}
                           </p>
                           {(aired || duration) && (
                             <p className="text-xs text-text-muted">
@@ -688,6 +876,11 @@ export default function DetailView({
                             <p className="mt-1 line-clamp-2 text-sm text-text-muted">{plot}</p>
                           )}
                         </div>
+                        <WatchedToggle
+                          watched={episodeProgress(episode)?.watched ?? false}
+                          title={epTitle}
+                          onChange={(watched) => void setWatched(channel.id, episode.id, watched)}
+                        />
                         <button
                           type="button"
                           aria-label={`Play ${epTitle}`}

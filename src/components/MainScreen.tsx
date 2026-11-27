@@ -58,6 +58,7 @@ import { useHomeRows } from '../hooks/useHomeRows';
 import type { HomePickView } from './HomeView';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { newestTitles } from '../lib/newestTitle';
+import { useNewEpisodeCheck } from '../hooks/useNewEpisodeCheck';
 import { cardEpg, formatClockAt } from '../lib/epgTime';
 
 const SECTION_TITLES: Record<Section, string> = {
@@ -354,6 +355,8 @@ export default function MainScreen() {
     loading: homeLoading,
     progress: homeProgress,
   } = useHomeRows(currentPlaylist?.id ?? null, homeAvailable && contentTypeFilter === 'home');
+  // New episodes in the series being watched, checked every few hours
+  useNewEpisodeCheck();
   // Same rule as the hero: `isAdultContent` regardless of the parental
   // settings, plus the parental block. The backend sends twelve per row so
   // eight usually survive; a row under three is dropped.
@@ -689,29 +692,40 @@ export default function MainScreen() {
       episodeId: string,
       extension: string,
       title: string,
-      remainingEpisodes?: Array<{ id: string; title: string; extension: string }>
+      remainingEpisodes?: Array<{ id: string; title: string; extension: string }>,
+      startSecs?: number
     ) => {
       if (!currentPlaylist) return;
+      // The series the episodes belong to, for watch progress
+      const seriesChannelId = detailChannel?.id;
       try {
         if (
           currentPlaylist.url &&
           currentPlaylist.xtream_username &&
           currentPlaylist.xtream_password
         ) {
-          await playEpisodeAction(episodeId, extension, title, currentPlaylist, remainingEpisodes);
+          await playEpisodeAction(
+            episodeId,
+            extension,
+            title,
+            currentPlaylist,
+            remainingEpisodes,
+            seriesChannelId,
+            startSecs
+          );
         } else {
           const ids = (
             remainingEpisodes && remainingEpisodes.length > 0
               ? remainingEpisodes.map((ep) => ep.id)
               : [episodeId]
           ).map(Number);
-          await playLocalEpisodesAction(ids, title);
+          await playLocalEpisodesAction(ids, title, startSecs);
         }
       } catch (err) {
         logger.error('Failed to play episode:', err);
       }
     },
-    [currentPlaylist, playEpisodeAction, playLocalEpisodesAction]
+    [currentPlaylist, detailChannel, playEpisodeAction, playLocalEpisodesAction]
   );
 
   // Xtream profiles fetch the series from the provider; M3U profiles read
