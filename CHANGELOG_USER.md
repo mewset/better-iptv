@@ -6,9 +6,25 @@ A simple overview of new features and improvements.
 
 ## Unreleased
 
+### New Features
+
+- Added search on Home
+- Added a setting to hide the cast on movie and series pages
+- Added a tile view for a series' episodes
+- Redesigned Home: a rotating banner of today's pick, trending and popular titles, then rows you can scroll sideways — what's on your favourite channels now, trending, recently added, your favourites and today's genres
+
 ### Improvements
 
-- Redesigned Home: a rotating banner of today's pick, trending and popular titles, then rows you can scroll sideways — what's on your favourite channels now, trending, recently added, your favourites and today's genres
+- Search results are now split into Movies, Series and Live TV, and a movie or series in the results opens its page
+- Series episodes now show when they aired
+
+### Fixes
+
+- Fixed movies and series named in another language, e.g. a French or German copy, getting no artwork or details
+
+### Thanks
+
+- **@RyanBeckett** for search on Home, search results split by type, a tile view for episodes, a setting to hide the cast, and artwork for titles named in another language (#99, #101, #108, #116, #117)
 
 ## Version 3.4.0 (November 17, 2026)
 

@@ -37,7 +37,7 @@ export interface KeyboardShortcutOptions {
   onToggleGuide?: () => void;
   /** Close the open view; true when something was closed. */
   onEscapeView?: () => boolean;
-  /** "/" pressed while no search box is mounted (Home): the caller decides where to go. */
+  /** "/" pressed while no search box is mounted: the caller decides where to go. */
   onSearchUnavailable?: () => void;
 }
 
