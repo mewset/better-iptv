@@ -88,6 +88,10 @@ pub struct EpgStatus {
     /// `None` while no enabled source has a guide channel with programmes
     /// ("Guide not downloaded yet" rather than "0 matched").
     pub matches: Option<MatchCounts>,
+    /// Where the enabled sources' programmes end, the latest of them
+    /// (RFC 3339, UTC): the guide's day tabs past it have nothing to show.
+    /// `None` without programmes.
+    pub guide_until: Option<String>,
 }
 
 /// The source's short name; see `EpgSourceStatus::label`.
@@ -201,6 +205,12 @@ const HAS_GUIDE_CHANNELS: &str = "SELECT EXISTS (SELECT 1 FROM epg_channel c
     WHERE s.enabled = 1 AND (s.playlist_id IS NULL OR s.playlist_id = ?1)
       AND c.programme_count > 0)";
 
+/// The latest end of a programme among the enabled sources that apply to the
+/// profile, from each guide channel's summary (`last_stop`).
+const GUIDE_UNTIL: &str = "SELECT MAX(c.last_stop) FROM epg_channel c
+    JOIN epg_source s ON s.id = c.source_id
+    WHERE s.enabled = 1 AND (s.playlist_id IS NULL OR s.playlist_id IS ?1)";
+
 /// The live rows the counts need: matched ones, and unmatched ones that
 /// carry an id.
 const MATCH_ROWS: &str = "SELECT epg_match_source, epg_id FROM channels
@@ -272,6 +282,11 @@ pub fn epg_status(
             .min()
             .and_then(rfc3339),
         matches: match_counts(conn, profile)?,
+        guide_until: conn
+            .query_row(GUIDE_UNTIL, params![profile], |r| {
+                r.get::<_, Option<i64>>(0)
+            })?
+            .and_then(rfc3339),
         sources: sources
             .iter()
             .map(|s| source_status(s, cache_dir, busy))
@@ -400,6 +415,8 @@ mod tests {
         assert!(!row.policy_pending);
         assert_eq!(status.programme_count, 2);
         assert!(status.guide_downloaded);
+        // The guide reaches as far as its last programme's end
+        assert_eq!(status.guide_until, rfc3339(NOW + H));
         // Six hours after the success, but no earlier than an hour after
         // the attempt.
         assert_eq!(
@@ -556,6 +573,7 @@ mod tests {
             top,
             [
                 "guide_downloaded",
+                "guide_until",
                 "matches",
                 "next_auto_refresh",
                 "programme_count",

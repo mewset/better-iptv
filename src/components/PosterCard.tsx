@@ -2,6 +2,7 @@ import { memo, useEffect, useState } from 'react';
 import { useChannelLogo } from '../hooks/useChannelLogo';
 import { Play, Clapperboard, Star, Lock } from 'lucide-react';
 import type { Channel } from '../types';
+import { isFourK } from '../lib/fourK';
 import { ColorBars } from './ColorBars';
 import { metaLine, votesText } from '../lib/tmdb';
 import type { TmdbCard } from '../lib/tauri';
@@ -20,6 +21,11 @@ interface PosterCardProps {
   parentalVisibility?: 'hide' | 'lock' | 'blur';
   /** Callback when the favourite star is toggled */
   onToggleFavorite?: (channelId: number) => void;
+  /**
+   * Whether a series wears its "Series" tag. Worth it where movies and series
+   * are mixed (Favorites, search); in the Series section every card is one.
+   */
+  showTypeTag?: boolean;
   /** TMDB's vote count, shown after the rating (the grid passes it while sorted by rating). */
   votes?: number;
 }
@@ -41,6 +47,7 @@ export const PosterCard = memo(function PosterCard({
   isBlocked = false,
   parentalVisibility = 'hide',
   onToggleFavorite,
+  showTypeTag = true,
   votes,
 }: PosterCardProps) {
   const [tmdbArtFailed, setTmdbArtFailed] = useState(false);
@@ -51,6 +58,7 @@ export const PosterCard = memo(function PosterCard({
   const { src: logoSrc, onError: onLogoError } = useChannelLogo(channel);
   const [fit, setFit] = useState<'cover' | 'contain'>('cover');
   const isSeries = channel.content_type === 'series';
+  const fourK = isFourK(channel);
   const blocked = isBlocked && parentalVisibility !== 'hide';
   const lockMode = blocked && parentalVisibility === 'lock';
   const blurMode = blocked && parentalVisibility === 'blur';
@@ -112,10 +120,19 @@ export const PosterCard = memo(function PosterCard({
           )
         )}
 
-        {isSeries && !blocked && (
-          <span className="absolute bottom-2 left-2 rounded-full bg-bg/70 px-2 py-0.5 text-[11px] font-semibold text-text">
-            Series
-          </span>
+        {!blocked && ((isSeries && showTypeTag) || fourK) && (
+          <div className="absolute bottom-2 left-2 flex gap-1">
+            {fourK && (
+              <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-bold text-on-accent">
+                4K
+              </span>
+            )}
+            {isSeries && showTypeTag && (
+              <span className="rounded-full bg-bg/70 px-2 py-0.5 text-[11px] font-semibold text-text">
+                Series
+              </span>
+            )}
+          </div>
         )}
 
         {/* A blocked card's only control is the unlock button below: the

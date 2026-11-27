@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { usePlayerStore } from '../stores/player-store';
 import { shouldBlockChannel } from '../lib/parentalControls';
 import { sortTitles } from '../lib/titleSort';
+import { isFourK } from '../lib/fourK';
 import { searchChannels } from '../lib/searchText';
 import type { Channel } from '../types';
 
@@ -31,6 +32,9 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
   const parentalAutoDetect = usePlayerStore((s) => s.parentalAutoDetect);
   const parentalVisibility = usePlayerStore((s) => s.parentalVisibility);
   const titleSorts = usePlayerStore((s) => s.titleSorts);
+  const titleGenres = usePlayerStore((s) => s.titleGenres);
+  const genreFilter = usePlayerStore((s) => s.genreFilter);
+  const fourKOnly = usePlayerStore((s) => s.fourKOnly);
   const titleRatings = usePlayerStore((s) => s.titleRatings);
 
   // Step 1: Select base list by content type (O(1) - pre-computed).
@@ -80,6 +84,18 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
       result = result.filter((c) => c.group_name === categoryFilter);
     }
 
+    // Movies and Series browse chips: a genre and/or 4K. Like the sort they
+    // apply while browsing; a search spans every type and ignores them.
+    const browsing =
+      (contentTypeFilter === 'vod' || contentTypeFilter === 'series') &&
+      debouncedSearchQuery.trim() === '';
+    if (browsing && genreFilter) {
+      result = result.filter((c) => titleGenres?.[c.id]?.includes(genreFilter) ?? false);
+    }
+    if (browsing && fourKOnly) {
+      result = result.filter(isFourK);
+    }
+
     // Parental controls (hide mode only)
     if (parentalEnabled && !parentalUnlocked && parentalVisibility === 'hide') {
       result = result.filter(
@@ -110,6 +126,9 @@ export function useChannelFilter(debouncedSearchQuery: string): Channel[] {
     baseList,
     contentTypeFilter,
     titleSorts,
+    titleGenres,
+    genreFilter,
+    fourKOnly,
     titleRatings,
     categoryFilter,
     debouncedSearchQuery,

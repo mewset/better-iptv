@@ -68,6 +68,8 @@ export interface EpgStatus {
   guide_downloaded: boolean;
   next_auto_refresh: string | null;
   matches: MatchCounts | null;
+  /** Where the guide's programmes end (RFC 3339); null without any. */
+  guide_until: string | null;
 }
 
 /**

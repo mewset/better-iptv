@@ -90,8 +90,8 @@ pub fn create_channels_batch(conn: &Connection, channels: &[Channel]) -> Result<
         let mut stmt = conn.prepare_cached(
             // `created_at` is the provider's "added" time when the import has
             // one, else the moment of insertion, as before.
-            "INSERT INTO channels (playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, sort_order, category_order, created_at, rating)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE(?11, CURRENT_TIMESTAMP), ?12)"
+            "INSERT INTO channels (playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, sort_order, category_order, created_at, rating, genres)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE(?11, CURRENT_TIMESTAMP), ?12, ?13)"
         )?;
 
         for channel in channels {
@@ -108,7 +108,8 @@ pub fn create_channels_batch(conn: &Connection, channels: &[Channel]) -> Result<
                 channel.sort_order,
                 channel.category_order,
                 channel.created_at,
-                channel.rating
+                channel.rating,
+                channel.genres
             ])?;
         }
     }
@@ -338,12 +339,12 @@ pub fn merge_channels(
         // one, as in `create_channels_batch`. A matched row without one keeps
         // the time it has; a new row without one gets the moment of insertion.
         let mut update_stmt = tx.prepare_cached(
-            "UPDATE channels SET name=?1, url=?2, logo=?3, group_name=?4, epg_id=?5, tvg_name=?6, sort_order=?7, category_order=?8, content_type=?9, created_at=COALESCE(?10, created_at), rating=?11 WHERE id=?12",
+            "UPDATE channels SET name=?1, url=?2, logo=?3, group_name=?4, epg_id=?5, tvg_name=?6, sort_order=?7, category_order=?8, content_type=?9, created_at=COALESCE(?10, created_at), rating=?11, genres=?12 WHERE id=?13",
         )?;
 
         let mut insert_stmt = tx.prepare_cached(
-            "INSERT INTO channels (playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, is_favorite, sort_order, category_order, created_at, rating)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, COALESCE(?12, CURRENT_TIMESTAMP), ?13)",
+            "INSERT INTO channels (playlist_id, name, url, logo, group_name, epg_id, tvg_name, content_type, is_favorite, sort_order, category_order, created_at, rating, genres)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, COALESCE(?12, CURRENT_TIMESTAMP), ?13, ?14)",
         )?;
 
         for (ch, target) in new_channels.iter().zip(targets) {
@@ -367,6 +368,7 @@ pub fn merge_channels(
                     ch.content_type,
                     ch.created_at,
                     ch.rating,
+                    ch.genres,
                     db_id,
                 ])?;
                 updated += 1;
@@ -386,6 +388,7 @@ pub fn merge_channels(
                     ch.category_order,
                     ch.created_at,
                     ch.rating,
+                    ch.genres,
                 ])?;
                 added += 1;
             }
@@ -671,6 +674,7 @@ mod tests {
             category_order: 0,
             created_at: None,
             rating: None,
+            genres: None,
         }
     }
 
@@ -736,6 +740,38 @@ mod tests {
         assert_eq!(
             added_and_rating(&conn, "New"),
             (Some("2021-06-07 08:09:10".to_string()), Some(8.5)),
+            "a row the refresh added"
+        );
+    }
+
+    #[test]
+    fn refresh_stores_the_provider_genres() {
+        let conn = setup_test_db();
+        let pid = create_test_playlist(&conn, "P");
+        // Imported before the app stored genres
+        let stored = live_channel(pid, "Stored", None, "http://x/series/u/p/1.mkv");
+        create_channels_batch(&conn, &[stored]).unwrap();
+
+        let mut known = live_channel(pid, "Stored", None, "http://x/series/u/p/1.mkv");
+        known.genres = Some("Crime, Drama".to_string());
+        let mut new = live_channel(pid, "New", None, "http://x/series/u/p/2.mkv");
+        new.genres = Some("Comedy".to_string());
+        merge_channels(&conn, pid, &[known, new], true).unwrap();
+
+        let genres = |name: &str| -> Option<String> {
+            conn.query_row("SELECT genres FROM channels WHERE name = ?1", [name], |r| {
+                r.get(0)
+            })
+            .unwrap()
+        };
+        assert_eq!(
+            genres("Stored").as_deref(),
+            Some("Crime, Drama"),
+            "a row the refresh matched"
+        );
+        assert_eq!(
+            genres("New").as_deref(),
+            Some("Comedy"),
             "a row the refresh added"
         );
     }
@@ -1001,6 +1037,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             })
             .collect();
 
@@ -1053,6 +1090,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             })
             .collect();
         create_channels_batch(&conn, &channels).unwrap();
@@ -1106,6 +1144,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             })
             .collect();
         let tx = conn.unchecked_transaction().unwrap();
@@ -1154,6 +1193,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             })
             .collect();
         let tx = conn.unchecked_transaction().unwrap();
@@ -1178,6 +1218,7 @@ mod tests {
             category_order: 0,
             created_at: None,
             rating: None,
+            genres: None,
         });
         let result = merge_channels(&conn, playlist_id, &refreshed, false).unwrap();
 
@@ -1278,6 +1319,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             },
             episodes: episodes
                 .iter()
@@ -1406,6 +1448,7 @@ mod tests {
             category_order: 0,
             created_at: None,
             rating: None,
+            genres: None,
         }
     }
 
@@ -1425,6 +1468,7 @@ mod tests {
             category_order: 0,
             created_at: None,
             rating: None,
+            genres: None,
         }
     }
 
@@ -1791,6 +1835,7 @@ mod tests {
                 category_order: 0,
                 created_at: None,
                 rating: None,
+                genres: None,
             };
             create_channels_batch(&tx, std::slice::from_ref(&plain_channel)).unwrap();
 

@@ -15,8 +15,13 @@ import {
   type TmdbDetails,
 } from '../lib/tauri';
 import { CategoryBar } from './CategoryBar';
+import { CategorySidebar } from './CategorySidebar';
+import { cn } from '../lib/utils';
+import { CategorySidebarToggle } from './CategorySidebarToggle';
+import { CATEGORY_SIDEBAR_WIDTH, useCategorySidebar } from '../hooks/useCategorySidebar';
+import { BrowseBar } from './BrowseBar';
+import { CategoryPanel } from './CategoryPanel';
 import { SearchTypeTabs, SEARCH_TYPES, type SearchType } from './SearchTypeTabs';
-import { TitleSortMenu } from './TitleSortMenu';
 import { GuideView } from './GuideView';
 import { ChannelGridPlaceholder } from './ChannelGridPlaceholder';
 import { ChannelLoadError } from './ChannelLoadError';
@@ -119,6 +124,8 @@ export default function MainScreen() {
   const sortSection =
     contentTypeFilter === 'vod' || contentTypeFilter === 'series' ? contentTypeFilter : null;
   const titleSort = usePlayerStore((s) => (sortSection ? s.titleSorts[sortSection] : null));
+  const genreFilter = usePlayerStore((s) => s.genreFilter);
+  const fourKOnly = usePlayerStore((s) => s.fourKOnly);
   useTitleRatings();
   const setSearchQuery = usePlayerStore((s) => s.setSearchQuery);
   const setContentTypeFilter = usePlayerStore((s) => s.setContentTypeFilter);
@@ -232,6 +239,8 @@ export default function MainScreen() {
   // The section G and Escape return to when leaving the guide.
   const guideReturnRef = useRef<Exclude<Section, 'guide'>>('live');
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  // Movies / Series keep their provider categories in a side panel
+  const [categoryPanelOpen, setCategoryPanelOpen] = useState(false);
   // Which control opened the profile menu, so focus returns there on close.
   const [profileMenuFromRail, setProfileMenuFromRail] = useState(false);
   const railProfileRef = useRef<globalThis.HTMLButtonElement>(null);
@@ -261,7 +270,20 @@ export default function MainScreen() {
     : contentTypeFilter === 'vod' || contentTypeFilter === 'series'
       ? 'poster'
       : 'live';
-  const { columns, estimatedRowHeight, windowRows } = useResponsiveGrid(kind);
+  // Live TV's category sidebar (as the guide's); the grid fits beside it.
+  // A search spans every section, so it has none.
+  const liveChannelsAll = usePlayerStore((s) => s.liveChannels);
+  const liveSidebarSection = contentTypeFilter === 'live' && trimmedQuery === '';
+  const [liveSidebarOpen, toggleLiveSidebar] = useCategorySidebar(
+    'biptv.live.categories',
+    liveSidebarSection && view === 'browse'
+  );
+  const liveSidebarShown = liveSidebarSection && liveSidebarOpen;
+  // The sidebar's width, less the 16 px of padding the list gives up beside it
+  const { columns, estimatedRowHeight, windowRows } = useResponsiveGrid(
+    kind,
+    liveSidebarShown ? CATEGORY_SIDEBAR_WIDTH - 16 : 0
+  );
   const channelLoad = usePlayerStore((s) => s.channelLoad);
   const retryChannels = usePlayerStore((s) => s.retryChannels);
   const loadStatus = sectionLoadStatus(contentTypeFilter, trimmedQuery !== '', channelLoad);
@@ -565,7 +587,7 @@ export default function MainScreen() {
   // rows below, so the first render of the new list already starts at the
   // top instead of mounting rows at the old list's depth. The DOM follows
   // before paint.
-  const listKey = `${contentTypeFilter}\u0000${categoryFilter ?? ''}\u0000${trimmedQuery}\u0000${titleSort ?? ''}\u0000${searching ? searchType : ''}`;
+  const listKey = `${contentTypeFilter}\u0000${categoryFilter ?? ''}\u0000${trimmedQuery}\u0000${titleSort ?? ''}\u0000${genreFilter ?? ''}\u0000${fourKOnly}\u0000${searching ? searchType : ''}`;
   const [renderedListKey, setRenderedListKey] = useState(listKey);
   if (renderedListKey !== listKey) {
     setRenderedListKey(listKey);
@@ -1080,99 +1102,171 @@ export default function MainScreen() {
             onRetry={retryChannels}
           />
         ) : (
-          <>
-            <div className={searching ? 'px-10' : 'flex items-start gap-3 px-10 pt-6'}>
-              {searching ? (
-                <SearchTypeTabs
-                  counts={searchCounts}
-                  active={searchType}
-                  onSelect={setChosenSearchType}
-                />
-              ) : (
-                <>
-                  <div className="min-w-0 flex-1">
-                    <CategoryBar />
+          <div className="flex min-h-0 flex-1">
+            {liveSidebarShown && (
+              <CategorySidebar channels={liveChannelsAll} allLabel="All channels" />
+            )}
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <div
+                className={cn(
+                  liveSidebarShown ? 'pl-6 pr-10' : 'px-10',
+                  !(sortSection || liveSidebarSection || searching) && 'pt-6'
+                )}
+              >
+                {searching ? (
+                  <SearchTypeTabs
+                    counts={searchCounts}
+                    active={searchType}
+                    onSelect={setChosenSearchType}
+                  />
+                ) : sortSection ? (
+                  <>
+                    <BrowseBar
+                      section={sortSection}
+                      onOpenCategories={() => setCategoryPanelOpen(true)}
+                      searching={!!trimmedQuery}
+                    />
+                    <CategoryPanel
+                      open={categoryPanelOpen}
+                      onClose={() => setCategoryPanelOpen(false)}
+                    />
+                  </>
+                ) : liveSidebarSection ? (
+                  // Live TV's bar: the categories toggle (and, while the
+                  // sidebar is hidden, the category it filters by)
+                  <div className="flex h-[54px] items-center gap-3 border-b border-border">
+                    <CategorySidebarToggle open={liveSidebarOpen} onToggle={toggleLiveSidebar} />
                   </div>
-                  {sortSection && (
-                    // pt-3 lines it up with the chips inside the category row
-                    <div className="pt-3">
-                      <TitleSortMenu section={sortSection} />
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+                ) : (
+                  <CategoryBar />
+                )}
+              </div>
 
-            {/* Channel list with virtual scrolling */}
-            <div
-              ref={parentRef}
-              className="flex-1 overflow-y-auto px-10 pb-32 pt-5"
-              id="channel-list"
-              role="region"
-              aria-label="Channel list"
-            >
-              {loadStatus === 'loading' ? (
-                <ChannelGridPlaceholder kind={kind} columns={columns} rows={windowRows} />
-              ) : loadStatus === 'error' ? (
-                <ChannelLoadError onRetry={retryChannels} />
-              ) : filteredChannels.length === 0 ? (
-                // The empty state names what narrows the list: the search,
-                // the category it ran inside, or a Favorites nobody filled.
-                <div className="flex flex-col items-center gap-3 py-16 text-center text-text-muted">
-                  {trimmedQuery ? (
-                    <>
-                      <Search className="h-6 w-6" aria-hidden="true" />
-                      <p>
-                        No matches for &ldquo;{trimmedQuery}&rdquo;
-                        {categoryFilter ? ` in ${categoryFilter}` : ''}
-                      </p>
-                      {categoryFilter && (
-                        <button
-                          type="button"
-                          onClick={() => setCategoryFilter(null)}
-                          className="rounded-lg border border-border-strong px-3 py-1.5 text-sm text-text hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-accent"
-                        >
-                          Search everything
-                        </button>
-                      )}
-                    </>
-                  ) : contentTypeFilter === 'favorites' ? (
-                    <>
-                      <Star className="h-6 w-6" aria-hidden="true" />
-                      <p>No favorites yet. Use the star on a channel, movie or series.</p>
-                    </>
-                  ) : (
-                    <p>Nothing in this section yet</p>
-                  )}
-                </div>
-              ) : (
-                // The grid holds the keyboard focus and names its active card
-                // (`useGridKeyboardNav`); the ring is drawn on that card's cell,
-                // so the grid itself shows no outline.
-                <div
-                  role="grid"
-                  aria-label={SECTION_TITLES[contentTypeFilter]}
-                  aria-rowcount={gridRowCount}
-                  aria-colcount={columns}
-                  {...gridNav.gridProps}
-                  className="outline-none"
-                  style={{
-                    height: `${rowVirtualizer.getTotalSize()}px`,
-                    width: '100%',
-                    position: 'relative',
-                  }}
-                >
-                  {virtualItems.map((virtualRow) => {
-                    const isHeroRow = showHero && virtualRow.index === 0;
+              {/* Channel list with virtual scrolling */}
+              <div
+                ref={parentRef}
+                className={cn(
+                  'flex-1 overflow-y-auto pb-32 pt-5',
+                  liveSidebarShown ? 'pl-6 pr-10' : 'px-10'
+                )}
+                id="channel-list"
+                role="region"
+                aria-label="Channel list"
+              >
+                {loadStatus === 'loading' ? (
+                  <ChannelGridPlaceholder kind={kind} columns={columns} rows={windowRows} />
+                ) : loadStatus === 'error' ? (
+                  <ChannelLoadError onRetry={retryChannels} />
+                ) : filteredChannels.length === 0 ? (
+                  // The empty state names what narrows the list: the search,
+                  // the category it ran inside, or a Favorites nobody filled.
+                  <div className="flex flex-col items-center gap-3 py-16 text-center text-text-muted">
+                    {trimmedQuery ? (
+                      <>
+                        <Search className="h-6 w-6" aria-hidden="true" />
+                        <p>
+                          No matches for &ldquo;{trimmedQuery}&rdquo;
+                          {categoryFilter ? ` in ${categoryFilter}` : ''}
+                        </p>
+                        {categoryFilter && (
+                          <button
+                            type="button"
+                            onClick={() => setCategoryFilter(null)}
+                            className="rounded-lg border border-border-strong px-3 py-1.5 text-sm text-text hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-accent"
+                          >
+                            Search everything
+                          </button>
+                        )}
+                      </>
+                    ) : contentTypeFilter === 'favorites' ? (
+                      <>
+                        <Star className="h-6 w-6" aria-hidden="true" />
+                        <p>No favorites yet. Use the star on a channel, movie or series.</p>
+                      </>
+                    ) : (
+                      <p>Nothing in this section yet</p>
+                    )}
+                  </div>
+                ) : (
+                  // The grid holds the keyboard focus and names its active card
+                  // (`useGridKeyboardNav`); the ring is drawn on that card's cell,
+                  // so the grid itself shows no outline.
+                  <div
+                    role="grid"
+                    aria-label={SECTION_TITLES[contentTypeFilter]}
+                    aria-rowcount={gridRowCount}
+                    aria-colcount={columns}
+                    {...gridNav.gridProps}
+                    className="outline-none"
+                    style={{
+                      height: `${rowVirtualizer.getTotalSize()}px`,
+                      width: '100%',
+                      position: 'relative',
+                    }}
+                  >
+                    {virtualItems.map((virtualRow) => {
+                      const isHeroRow = showHero && virtualRow.index === 0;
 
-                    if (isHeroRow) {
+                      if (isHeroRow) {
+                        return (
+                          <div
+                            key={virtualRow.key}
+                            ref={rowVirtualizer.measureElement}
+                            data-index={virtualRow.index}
+                            // Not a row of cards: the arrows skip it, Tab reaches its buttons.
+                            role="presentation"
+                            style={{
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              width: '100%',
+                              transform: `translateY(${virtualRow.start}px)`,
+                            }}
+                          >
+                            {/* pb-5 (20px) carries the gap below the hero, the
+                              same estimate the virtualiser's initial guess
+                              uses (340 + 20); the row still measures its own
+                              real height via `measureElement` above. */}
+                            <div
+                              className="pb-5"
+                              onMouseEnter={() => setHeroHeld(true)}
+                              onMouseLeave={() => setHeroHeld(false)}
+                              onFocus={() => setHeroHeld(true)}
+                              onBlur={(e) => {
+                                if (!e.currentTarget.contains(e.relatedTarget as globalThis.Node))
+                                  setHeroHeld(false);
+                              }}
+                            >
+                              <MoviesHero
+                                key={heroChannel!.id}
+                                rotation={{
+                                  index: heroIndex % heroPool.length,
+                                  count: heroPool.length,
+                                  onSelect: setHeroIndex,
+                                }}
+                                channel={heroChannel!}
+                                eyebrow={heroItem!.eyebrow}
+                                onPlay={handlePlayChannel}
+                                onOpen={handleOpenTitle}
+                                isPlaying={isPlaying && currentChannel?.id === heroChannel!.id}
+                                tmdb={tmdbCards.get(heroChannel!.id)}
+                              />
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      const cardRowIndex = showHero ? virtualRow.index - 1 : virtualRow.index;
+                      const startIndex = cardRowIndex * columns;
+                      const rowItems = filteredChannels.slice(startIndex, startIndex + columns);
+
                       return (
                         <div
                           key={virtualRow.key}
                           ref={rowVirtualizer.measureElement}
                           data-index={virtualRow.index}
-                          // Not a row of cards: the arrows skip it, Tab reaches its buttons.
-                          role="presentation"
+                          role="row"
+                          aria-rowindex={cardRowIndex + 1}
                           style={{
                             position: 'absolute',
                             top: 0,
@@ -1181,127 +1275,77 @@ export default function MainScreen() {
                             transform: `translateY(${virtualRow.start}px)`,
                           }}
                         >
-                          {/* pb-5 (20px) carries the gap below the hero, the
-                              same estimate the virtualiser's initial guess
-                              uses (340 + 20); the row still measures its own
-                              real height via `measureElement` above. */}
-                          <div
-                            className="pb-5"
-                            onMouseEnter={() => setHeroHeld(true)}
-                            onMouseLeave={() => setHeroHeld(false)}
-                            onFocus={() => setHeroHeld(true)}
-                            onBlur={(e) => {
-                              if (!e.currentTarget.contains(e.relatedTarget as globalThis.Node))
-                                setHeroHeld(false);
-                            }}
-                          >
-                            <MoviesHero
-                              key={heroChannel!.id}
-                              rotation={{
-                                index: heroIndex % heroPool.length,
-                                count: heroPool.length,
-                                onSelect: setHeroIndex,
-                              }}
-                              channel={heroChannel!}
-                              eyebrow={heroItem!.eyebrow}
-                              onPlay={handlePlayChannel}
-                              onOpen={handleOpenTitle}
-                              isPlaying={isPlaying && currentChannel?.id === heroChannel!.id}
-                              tmdb={tmdbCards.get(heroChannel!.id)}
-                            />
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    const cardRowIndex = showHero ? virtualRow.index - 1 : virtualRow.index;
-                    const startIndex = cardRowIndex * columns;
-                    const rowItems = filteredChannels.slice(startIndex, startIndex + columns);
-
-                    return (
-                      <div
-                        key={virtualRow.key}
-                        ref={rowVirtualizer.measureElement}
-                        data-index={virtualRow.index}
-                        role="row"
-                        aria-rowindex={cardRowIndex + 1}
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          transform: `translateY(${virtualRow.start}px)`,
-                        }}
-                      >
-                        {/* No forced height: the row measures its own real
+                          {/* No forced height: the row measures its own real
                             content height via `measureElement` above, since a
                             formula-only estimate drifts from the actual layout
                             (padding, scrollbar). `pb-4` carries the 16px row
                             gap inside the measured element, because rows are
                             absolutely positioned and stacked by `translateY`
                             rather than a normal-flow gap. */}
-                        <div className={`grid ${getGridClasses(columns)} gap-4 pb-4`}>
-                          {rowItems.map((channel, column) => {
-                            const isChannelBlocked = blockedMap.get(channel.id!) ?? false;
-                            const cardIndex = startIndex + column;
-                            const isActive = gridNav.activeIndex === cardIndex;
+                          <div className={`grid ${getGridClasses(columns)} gap-4 pb-4`}>
+                            {rowItems.map((channel, column) => {
+                              const isChannelBlocked = blockedMap.get(channel.id!) ?? false;
+                              const cardIndex = startIndex + column;
+                              const isActive = gridNav.activeIndex === cardIndex;
 
-                            return (
-                              // The cell carries the grid semantics and the
-                              // keyboard ring, so the memoised cards render
-                              // only when their own data changes.
-                              <div
-                                key={channel.id}
-                                id={gridNav.cellId(channel)}
-                                role="gridcell"
-                                aria-selected={isActive}
-                                data-grid-index={cardIndex}
-                                className={`min-w-0 ${kind === 'poster' ? 'rounded-xl' : 'rounded-[14px]'} ${
-                                  isActive && gridNav.ringVisible
-                                    ? 'ring-2 ring-accent ring-offset-2 ring-offset-bg'
-                                    : ''
-                                }`}
-                              >
-                                {kind === 'poster' ? (
-                                  <PosterCard
-                                    channel={channel}
-                                    onOpen={handleOpenTitle}
-                                    onPlay={handlePlayChannel}
-                                    tmdb={tmdbCards.get(channel.id)}
-                                    onToggleFavorite={toggleChannelFavorite}
-                                    isBlocked={isChannelBlocked}
-                                    parentalVisibility={parentalVisibility}
-                                    votes={
-                                      titleSort === 'rating' && !trimmedQuery
-                                        ? titleRatings[sortSection ?? 'vod']?.[channel.id]?.votes ||
-                                          undefined
-                                        : undefined
-                                    }
-                                  />
-                                ) : (
-                                  <ChannelCard
-                                    channel={channel}
-                                    isPlaying={currentChannel?.id === channel.id && isPlaying}
-                                    onPlay={handlePlayChannel}
-                                    onToggleFavorite={toggleChannelFavorite}
-                                    {...cardEpg(nowNextFor(nowNext, channel), now)}
-                                    guideAnswered={guideAnswered(guideFetched, channel)}
-                                    tmdb={tmdbCards.get(channel.id)}
-                                    isBlocked={isChannelBlocked}
-                                    parentalVisibility={parentalVisibility}
-                                  />
-                                )}
-                              </div>
-                            );
-                          })}
+                              return (
+                                // The cell carries the grid semantics and the
+                                // keyboard ring, so the memoised cards render
+                                // only when their own data changes.
+                                <div
+                                  key={channel.id}
+                                  id={gridNav.cellId(channel)}
+                                  role="gridcell"
+                                  aria-selected={isActive}
+                                  data-grid-index={cardIndex}
+                                  className={`min-w-0 ${kind === 'poster' ? 'rounded-xl' : 'rounded-[14px]'} ${
+                                    isActive && gridNav.ringVisible
+                                      ? 'ring-2 ring-accent ring-offset-2 ring-offset-bg'
+                                      : ''
+                                  }`}
+                                >
+                                  {kind === 'poster' ? (
+                                    <PosterCard
+                                      channel={channel}
+                                      onOpen={handleOpenTitle}
+                                      onPlay={handlePlayChannel}
+                                      tmdb={tmdbCards.get(channel.id)}
+                                      onToggleFavorite={toggleChannelFavorite}
+                                      isBlocked={isChannelBlocked}
+                                      parentalVisibility={parentalVisibility}
+                                      showTypeTag={contentTypeFilter !== 'series' || !!trimmedQuery}
+                                      votes={
+                                        titleSort === 'rating' && !trimmedQuery
+                                          ? titleRatings[sortSection ?? 'vod']?.[channel.id]
+                                              ?.votes || undefined
+                                          : undefined
+                                      }
+                                    />
+                                  ) : (
+                                    <ChannelCard
+                                      channel={channel}
+                                      isPlaying={currentChannel?.id === channel.id && isPlaying}
+                                      onPlay={handlePlayChannel}
+                                      onToggleFavorite={toggleChannelFavorite}
+                                      {...cardEpg(nowNextFor(nowNext, channel), now)}
+                                      guideAnswered={guideAnswered(guideFetched, channel)}
+                                      tmdb={tmdbCards.get(channel.id)}
+                                      isBlocked={isChannelBlocked}
+                                      parentalVisibility={parentalVisibility}
+                                    />
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
-          </>
+          </div>
         )}
 
         {/* Now Playing Bar. Not over Settings, where it would cover Save and

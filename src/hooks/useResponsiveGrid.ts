@@ -98,7 +98,11 @@ export function calculateGridConfig(width: number, height: number, kind: GridKin
   };
 }
 
-export function useResponsiveGrid(kind: GridKind = 'live'): GridConfig {
+/**
+ * `reserved`: width beside the grid taken by something else (a category
+ * sidebar), so the columns fit what is left.
+ */
+export function useResponsiveGrid(kind: GridKind = 'live', reserved = 0): GridConfig {
   // Only the viewport lives in state; the config is derived during render.
   // Updating the config in an effect laid out one render of a new section
   // with the previous kind's columns, which mounted every visible card twice.
@@ -129,7 +133,10 @@ export function useResponsiveGrid(kind: GridKind = 'live'): GridConfig {
     };
   }, []);
 
-  return useMemo(() => calculateGridConfig(size.width, size.height, kind), [size, kind]);
+  return useMemo(
+    () => calculateGridConfig(size.width - reserved, size.height, kind),
+    [size, kind, reserved]
+  );
 }
 
 // Utility to generate Tailwind grid classes based on columns. Spelled out so

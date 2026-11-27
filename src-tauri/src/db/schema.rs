@@ -69,6 +69,10 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
     // for sorting; NULL when the provider sends none
     let _ = conn.execute("ALTER TABLE channels ADD COLUMN rating REAL", []);
 
+    // Migration: the provider's genres of a series, as sent ("Drama, Crime");
+    // get_vod_streams sends none, movies take theirs from TMDB
+    let _ = conn.execute("ALTER TABLE channels ADD COLUMN genres TEXT", []);
+
     // Migration: fallback logo chosen for a live channel (see db::logo_fallbacks)
     let _ = conn.execute("ALTER TABLE channels ADD COLUMN logo_override TEXT", []);
 
@@ -1412,6 +1416,7 @@ mod epg_source_seed_tests {
             category_order: 0,
             created_at: None,
             rating: None,
+            genres: None,
         }
     }
 

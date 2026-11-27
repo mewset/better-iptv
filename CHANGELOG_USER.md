@@ -11,6 +11,9 @@ A simple overview of new features and improvements.
 - Added search on Home
 - Added a setting to hide the cast on movie and series pages
 - Added a tile view for a series' episodes
+- The TV guide and Live TV have a category sidebar: your pinned categories, then the rest grouped (by country, year and kind) with channel counts; hide it with [ and the active category stays shown in the bar
+- The TV guide greys out days your guide has no listings for yet
+- Movies and Series have a new bar: genres along the top, a categories panel, a 4K switch and 4K badges on posters
 
 ### Improvements
 
