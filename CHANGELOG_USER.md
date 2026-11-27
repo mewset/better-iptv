@@ -8,8 +8,25 @@ A simple overview of new features and improvements.
 
 ### New Features
 
-- A new player: Netflix-style controls with a timeline that previews frames, episode list, audio & subtitles and settings panels, a Next Episode button, and N / Shift+N for the next or previous episode
+- Added search on Home
+- Added a setting to hide the cast on movie and series pages
+- Added a tile view for a series' episodes
 - Better IPTV remembers what you watch: films and episodes resume where you left off, watched ones get a mark (or mark them yourself, a whole season at once), and a series' Play button carries on with the next episode
+- The player shows the film's or channel's name instead of the stream's file name, and on live TV what's on now
+- A new player: Netflix-style controls with a timeline that previews frames, episode list, audio & subtitles and settings panels, a Next Episode button, and N / Shift+N for the next or previous episode
+
+### Improvements
+
+- Search results are now split into Movies, Series and Live TV, and a movie or series in the results opens its page
+- Series episodes now show when they aired
+
+### Fixes
+
+- Fixed movies and series named in another language, e.g. a French or German copy, getting no artwork or details
+
+### Thanks
+
+- **@RyanBeckett** for search on Home, search results split by type, a tile view for episodes, a setting to hide the cast, and artwork for titles named in another language (#99, #101, #108, #116, #117)
 
 ### Improvements
 

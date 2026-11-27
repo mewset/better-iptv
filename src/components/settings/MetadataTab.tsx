@@ -26,6 +26,9 @@ interface MetadataTabProps {
   onBackgroundEnrichChange: (enabled: boolean) => void;
   logoFallbackEnabled: boolean;
   onLogoFallbackEnabledChange: (enabled: boolean) => void;
+  /** The Cast row on a movie's or series' detail page. */
+  showCast: boolean;
+  onShowCastChange: (show: boolean) => void;
 }
 
 /** The one-line key status, spec §3. */
@@ -61,6 +64,8 @@ export default function MetadataTab({
   onBackgroundEnrichChange,
   logoFallbackEnabled,
   onLogoFallbackEnabledChange,
+  showCast,
+  onShowCastChange,
 }: MetadataTabProps) {
   const [testResult, setTestResult] = useState<string>('');
   const [testing, setTesting] = useState(false);
@@ -240,6 +245,24 @@ export default function MetadataTab({
               </span>
             )}
           </div>
+        </div>
+      </section>
+
+      <section>
+        <h3 className="mb-4 text-lg font-semibold text-text">Detail page</h3>
+        <div className="space-y-4">
+          <label className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={showCast}
+              onChange={(e) => onShowCastChange(e.target.checked)}
+              className="h-4 w-4 accent-accent"
+            />
+            <span className="text-sm font-medium text-text">Show the cast</span>
+          </label>
+          <p className="text-xs text-text-faint">
+            The row of actors from TMDB at the bottom of a movie&apos;s or series&apos; page.
+          </p>
         </div>
       </section>
 
